@@ -116,7 +116,23 @@ def test_playback_sink_creates_one_player_and_drains(monkeypatch):
     assert player.closed
 
 
-def test_playback_sink_rejects_format_change():
+def test_playback_sink_rejects_format_change(monkeypatch):
+    class Player:
+        def __init__(self, sample_rate, **kwargs):
+            pass
+
+        def start(self):
+            return self
+
+        def submit(self, audio):
+            pass
+
+        def close(self):
+            pass
+
+    import pykokoro.playback
+
+    monkeypatch.setattr(pykokoro.playback, "SoundDevicePlayer", Player)
     sink = PlaybackSink(ReaderConfig())
     sink.write(np.ones(2), 24000)
 
