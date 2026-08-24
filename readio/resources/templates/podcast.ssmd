@@ -1,0 +1,13 @@
+# Episode title
+
+<div voice="host">
+Introduce the topic here.
+</div>
+
+<div voice="analyst">
+Provide the analysis here.
+</div>
+
+<div voice="host">
+Close the episode here.
+</div>

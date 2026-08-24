@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from .config import ReaderConfig
+from .config import ReaderSettings
 
 
 class AudioSink(Protocol):
@@ -30,7 +30,7 @@ class RenderSummary:
 class PlaybackSink:
     """Send rendered chunks through one persistent PyKokoro player."""
 
-    def __init__(self, cfg: ReaderConfig) -> None:
+    def __init__(self, cfg: ReaderSettings) -> None:
         self._cfg = cfg
         self._player: Any = None
         self._sample_rate: int | None = None

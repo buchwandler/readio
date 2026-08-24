@@ -1,22 +1,20 @@
 # readio
 
-`readio` is a terminal text-to-speech tool that can play speech locally, render bounded-memory WAV files, or publish completed WAV media through the external `save-to-spotify` CLI. The current TTS backend is PyKokoro, but destinations depend only on Readio's rendered-audio boundary.
+`readio` is a terminal text to speech tool. It plays local speech with PyKokoro, renders bounded memory WAV files, and publishes completed audio through the external `save-to-spotify` CLI.
 
 ## Install
-
-For CPU ONNX Runtime:
 
 ```bash
 python -m pip install -e ".[cpu]"
 ```
 
-For NVIDIA GPU ONNX Runtime:
+For GPU ONNX Runtime:
 
 ```bash
 python -m pip install -e ".[gpu]"
 ```
 
-PyKokoro may download model and voice assets on first use. Spotify publishing additionally requires the separately installed `save-to-spotify` executable and an authenticated session managed by that tool. Readio does not read Spotify credentials or token files.
+PyKokoro may download model and voice assets on first use. Spotify publishing requires the separately installed `save-to-spotify` executable and its authenticated session. Readio never reads Spotify credential files.
 
 ## Playback
 
@@ -26,104 +24,104 @@ printf '%s\n' "Read this from stdin." | readio speak
 readio speak --file notes.md
 readio speak --file notes.md --select last-paragraph
 readio speak --file notes.md --select paragraph:3
-```
-
-Selectors use PyKokoro's paragraph descriptors, so selection and synthesis use the same document segmentation.
-
-## Live playback
-
-```bash
 producer-command | readio speak --live
 ```
 
-A blank line closes a paragraph and starts its playback. `--live` reads stdin only and cannot be combined with `--file`, literal text, or a paragraph selector.
+## Configuration
 
-## WAV rendering
-
-```bash
-readio render "Hello from a file."
-readio render --file episode.ssmd -o episode.wav
-printf '%s\n' "Text from stdin." | readio render -o stdin.wav
-producer-command | readio render --live -o live.wav
-```
-
-`readio render` writes PCM16 WAV audio incrementally instead of concatenating a whole document waveform in memory. The output is written to a temporary file in the destination directory and atomically replaces the requested path only after synthesis succeeds. Use `--force` to replace an existing output.
-
-## SSMD
-
-Readio passes SSMD documents to PyKokoro. It does not implement a second SSMD parser or validator. For a multi-speaker episode, author and validate the document with the SSMD CLI first:
-
-```bash
-ssmd --json voices list --provider kokoro
-ssmd --json create draft.ssmd -o episode.ssmd --voice-provider kokoro --fail-on-warn
-ssmd --json lint episode.ssmd --voice-provider kokoro --roundtrip --fail-on-warn
-readio speak --file episode.ssmd
-readio render --file episode.ssmd -o episode.wav
-```
-
-Portable logical roles can be bound in SSMD front matter:
-
-```ssmd
----
-title: Tech Talk
-voice_bindings:
-  kokoro:
-    host: af_sarah
-    guest: am_michael
----
-<div voice="host">Welcome to Tech Talk.</div>
-<div voice="guest">Today we are discussing portable SSMD documents.</div>
-```
-
-## Spotify publishing
-
-`readio spotify` renders one WAV and passes that completed file to `save-to-spotify --json upload`. It does not stream raw audio to Spotify or implement authentication.
-
-```bash
-readio spotify \
-  --file episode.ssmd \
-  --title "My episode" \
-  --show-id spotify:show:... \
-  --wait
-```
-
-Other metadata options include `--new-show`, `--summary`, `--image`, and `--language`. `--show-id` and `--new-show` are mutually exclusive. `--title` is required. Use `--json` for one Readio-owned machine-readable result:
-
-```json
-{"ok": true, "episode_uri": "spotify:episode:...", "upload_status": "UPLOADING", "readiness": "READY", "audio_path": null}
-```
-
-Without `--output`, Readio uses a secure temporary WAV and deletes it after upload or failure. With `--output`, the WAV is retained and the same render is uploaded. `--wait` delegates readiness waiting to `save-to-spotify`; `--wait-timeout` is valid only with `--wait`.
-
-Spotify live input is local incremental synthesis followed by WAV finalization and upload after stdin reaches EOF. It is not live Spotify publishing, and complete non-live SSMD input is preferred for globally prepared multi-speaker documents.
-
-## Configuration and diagnostics
+Initialize one user-owned Readio configuration and its storage:
 
 ```bash
 readio config init
 readio config show
-readio config set voice af_sarah
-readio config set lang en-us
-readio config set speed 1.15
+readio config validate
+readio config set reader.voice bf_emma
+readio config set voices.kokoro.roles.analyst am_michael
+readio config set ssmd.voice_provider kokoro
+```
+
+The default configuration uses `platformdirs` for the config, template, ingest, and output locations. `READIO_CONFIG` overrides the config file path. Existing legacy files containing only `[reader]` continue to load and are upgraded to schema 1 when saved.
+
+The configuration contains reader settings, SSMD defaults, provider-specific voice IDs, and logical role bindings. Templates refer to roles such as `host`, `analyst`, `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`.
+
+## Templates
+
+Built-in templates are copied into the user template directory during initialization. They are user-owned and are not overwritten by normal initialization or package upgrades.
+
+```bash
+readio template path
+readio template list
+readio template show podcast
+readio template add custom --file custom.ssmd
+readio template remove custom
+readio template reset podcast
+readio template reset --all
+```
+
+Create an agent-editable draft with an automatic filename:
+
+```bash
+draft="$(readio template use podcast)"
+```
+
+The returned path is under the configured ingest directory. A caller can request a filename with `readio template use podcast --name weekly-review.ssmd`.
+
+## Ingest directory
+
+The ingest directory stores text, Markdown, and SSMD files created for later processing.
+
+```bash
+readio ingest path
+readio ingest new
+readio ingest new --name notes.txt
+readio ingest new --template podcast --name episode-42.ssmd
+readio ingest list
+```
+
+Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`. Explicit names are relative to the ingest directory and path traversal is rejected.
+
+## Automatic WAV output
+
+The output path is optional:
+
+```bash
+readio render "Hello from a file."
+readio render --file "$draft"
+readio render --file "$draft" -o episode.wav
+```
+
+Without `-o`, Readio uses the configured output directory. Generated ingest files retain their artifact stem in the WAV name. Other input files receive a new artifact suffix, and literal text uses the `readio` prefix. Automatic names never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
+
+## SSMD consumption and authoring checks
+
+For `.ssmd` inputs, Readio parses the document through SSMD 0.8.3 and passes a PyKokoro `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+
+Inspect a document before rendering:
+
+```bash
+readio ssmd check episode.ssmd
+readio ssmd check episode.ssmd --json
+readio ssmd check episode.ssmd --roundtrip
+```
+
+`readio template validate --all` checks shipped or configured templates with the same consumer preflight. Add `--roundtrip` for strict SSMD authoring validation. Unknown logical roles fail before model inference with a Readio diagnostic.
+
+## Spotify publishing
+
+```bash
+readio spotify --file "$draft" --title "Weekly Review" --wait
+```
+
+Publishing is explicit. Without `--output`, Readio renders to a secure temporary WAV and deletes it after upload or failure. With `--output`, it retains and uploads that file. Readio invokes `save-to-spotify --json` and does not inspect credentials or perform authentication.
+
+## Doctor
+
+```bash
 readio doctor
 ```
 
-`readio doctor` reports Readio, PyKokoro, sounddevice, soundfile, and whether `save-to-spotify` is on `PATH`. It never calls a token command or inspects credential files.
+Doctor is offline. It reports Readio configuration, configured directories and their existence, PyKokoro, SSMD module and executable availability, the selected provider, voice IDs, logical roles, sound dependencies, and `save-to-spotify`. It does not create directories, modify configuration, inspect credentials, or call the network.
 
 ## Agent Skill
 
-The portable skill is in `skill/readio/SKILL.md`. It distinguishes two workflows:
-
-1. Exact reading. Extract the requested conversation text exactly and pipe it to `readio speak` without paraphrasing.
-2. Derived podcast creation. Only when requested, draft and validate an SSMD episode, then choose `speak`, `render`, or `spotify` according to the user's destination intent.
-
-Copy the skill into the skill directory used by your agent client, for example:
-
-```bash
-mkdir -p .agents/skills
-cp -R skill/readio .agents/skills/readio
-```
-
-## Versioning
-
-`readio` uses `setuptools-scm`. Package versions are derived from Git tags rather than hard-coded in source. The import package lives directly at `readio/`; there is intentionally no `src/` directory.
+The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary file management, or manual cleanup for normal podcast workflows.

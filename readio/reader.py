@@ -5,7 +5,9 @@ from contextlib import AbstractContextManager
 from typing import Any
 
 from .audio import AudioSink, PlaybackSink, RenderSummary, render_prepared
-from .config import ReaderConfig
+from .config import ReaderSettings, ReadioConfig
+from .document import InputDocument, document_from_text
+from .ssmd import build_ssmd_render_config, preflight_ssmd
 from .text import iter_live_paragraphs
 
 
@@ -13,8 +15,33 @@ class SelectionError(ValueError):
     pass
 
 
-def _build_pipeline(cfg: ReaderConfig) -> AbstractContextManager[Any]:
+def pipeline_config_for_document(
+    document: InputDocument, cfg: ReadioConfig,
+ ) -> Any:
+    from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
+
+    generation = GenerationConfig(
+        lang=cfg.reader.lang,
+        speed=cfg.reader.speed,
+        pause_mode=cfg.reader.pause_mode,
+    )
+    ssmd = (
+        build_ssmd_render_config(document.text, cfg)
+        if document.format == "ssmd"
+        else SSMDRenderConfig()
+    )
+    return PipelineConfig(voice=cfg.reader.voice, generation=generation, ssmd=ssmd)
+
+
+def _build_pipeline(
+    document: InputDocument, cfg: ReadioConfig | ReaderSettings
+ ) -> AbstractContextManager[Any]:
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
+
+    if isinstance(cfg, ReadioConfig):
+        if document.format == "ssmd" and cfg.ssmd.validate_before_render:
+            preflight_ssmd(document.text, cfg, source_path=document.source_path)
+        return KokoroPipeline(pipeline_config_for_document(document, cfg))
 
     generation = GenerationConfig(
         lang=cfg.lang,
@@ -47,32 +74,35 @@ def _selected_indices(prepared: Any, selector: str) -> tuple[int, ...] | None:
 
 
 def render_text(
-    text: str,
-    cfg: ReaderConfig,
+    text: str | InputDocument,
+    cfg: ReadioConfig | ReaderSettings,
     sink: AudioSink,
     *,
     selector: str = "all",
     unit: str | None = None,
-) -> RenderSummary:
-    if not text.strip():
+ ) -> RenderSummary:
+    document = text if isinstance(text, InputDocument) else document_from_text(text)
+    if not document.text.strip():
         raise ValueError("no text to read")
-    effective_unit = unit or cfg.unit
+    reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
+    effective_unit = unit or reader_cfg.unit
     prepare_unit = "paragraph" if selector != "all" else effective_unit
     with (
-        _build_pipeline(cfg) as pipeline,
-        pipeline.prepare_units(text, unit=prepare_unit) as prepared,
+        _build_pipeline(document, cfg) as pipeline,
+        pipeline.prepare_units(document.text, unit=prepare_unit) as prepared,
     ):
         return render_prepared(prepared, sink, indices=_selected_indices(prepared, selector))
 
 
 def render_live(
     lines: Iterable[str],
-    cfg: ReaderConfig,
+    cfg: ReadioConfig | ReaderSettings,
     sink: AudioSink,
     *,
     unit: str | None = None,
-) -> RenderSummary:
-    effective_unit = unit or cfg.unit
+ ) -> RenderSummary:
+    reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
+    effective_unit = unit or reader_cfg.unit
     saw_text = False
     sample_rate = 0
     sample_count = 0
@@ -80,7 +110,7 @@ def render_live(
     metadata: dict[str, Any] = {}
     markers: list[dict[str, Any]] = []
 
-    with _build_pipeline(cfg) as pipeline:
+    with _build_pipeline(document_from_text(""), cfg) as pipeline:
         for paragraph in iter_live_paragraphs(lines):
             saw_text = True
             with pipeline.prepare_units(paragraph, unit=effective_unit) as prepared:
@@ -118,18 +148,22 @@ def render_live(
 
 
 def speak_text(
-    text: str,
-    cfg: ReaderConfig,
+    text: str | InputDocument,
+    cfg: ReadioConfig | ReaderSettings,
     *,
     selector: str = "all",
     unit: str | None = None,
-) -> None:
-    with PlaybackSink(cfg) as sink:
+ ) -> None:
+    playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
+    with PlaybackSink(playback_cfg) as sink:
         render_text(text, cfg, sink, selector=selector, unit=unit)
         sink.finish()
 
 
-def speak_live(lines: Iterable[str], cfg: ReaderConfig, *, unit: str | None = None) -> None:
-    with PlaybackSink(cfg) as sink:
+def speak_live(
+    lines: Iterable[str], cfg: ReadioConfig | ReaderSettings, *, unit: str | None = None
+ ) -> None:
+    playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
+    with PlaybackSink(playback_cfg) as sink:
         render_live(lines, cfg, sink, unit=unit)
         sink.finish()
