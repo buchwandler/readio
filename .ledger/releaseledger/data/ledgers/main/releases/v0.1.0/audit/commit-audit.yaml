@@ -11,247 +11,253 @@ git_head_sha: 1cdb326b8e406caac13d352fdccf1c06dffd898b
 git_range: :root..1cdb326b8e406caac13d352fdccf1c06dffd898b
 commit_count: 5
 rows:
-- sha: e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
-  source_ref: git:e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
-  short_sha: e31fe1e
-  changed_paths: []
-  stats:
-    files_changed: 0
-    insertions: 0
-    deletions: 0
-  inspected: true
-  inspected_paths:
-  - .gitignore
-  - LICENSE
-  - README.md
-  observed_behavior: Establishes the repository foundation, Apache-2.0 license, and
-    initial project documentation without adding runtime behavior.
-  public_impact: internal
-  decision: internal
-  evidence_subject: Initial commit
-  target_entry_id: entry-0001
-  notes: Repository bootstrap only; intentionally excluded from public release notes.
-- sha: 74b447a968e4f9d743e2e58418b46c1370275966
-  source_ref: git:74b447a968e4f9d743e2e58418b46c1370275966
-  short_sha: 74b447a
-  changed_paths:
-  - .codecrate.toml
-  - .gitignore
-  - .pre-commit-config.yaml
-  - README.md
-  - pyproject.toml
-  - readio/__init__.py
-  - readio/__main__.py
-  - readio/cli.py
-  - readio/config.py
-  - readio/reader.py
-  - readio/text.py
-  - skill/readio/SKILL.md
-  - tests/test_config.py
-  - tests/test_reader_selection.py
-  - tests/test_text.py
-  stats:
-    files_changed: 0
-    insertions: 807
-    deletions: 3
-  inspected: true
-  inspected_paths:
-  - pyproject.toml
-  - readio/__init__.py
-  - readio/__main__.py
-  - readio/cli.py
-  - readio/config.py
-  - readio/reader.py
-  - readio/text.py
-  - tests/test_config.py
-  - tests/test_reader_selection.py
-  - tests/test_text.py
-  - README.md
-  observed_behavior: Introduces the Readio CLI for local text playback from literals,
-    files, stdin, and live paragraph streams, with configurable voices, languages,
-    speed, pause behavior, output devices, and paragraph selection.
-  public_impact: public
-  decision: accepted
-  evidence_subject: 'feat: initial version'
-  target_entry_key: text-playback
-  target_entry_id: entry-0002
-  notes: Reviewed implementation, documentation, and focused tests.
-- sha: 18377dacd5e4b81ea9d9fc5ed3e76badaaea0bfb
-  source_ref: git:18377dacd5e4b81ea9d9fc5ed3e76badaaea0bfb
-  short_sha: 18377da
-  changed_paths:
-  - .ledger/ledger.toml
-  - .ledger/taskledger/.ledger-project.toml
-  - .ledger/taskledger/config.toml
-  - README.md
-  - pyproject.toml
-  - readio/audio.py
-  - readio/cli.py
-  - readio/reader.py
-  - readio/spotify.py
-  - readio/wave.py
-  - skill/readio/SKILL.md
-  - tests/test_audio.py
-  - tests/test_chapters.py
-  - tests/test_cli.py
-  - tests/test_spotify.py
-  - tests/test_spotify_lifecycle.py
-  - tests/test_wave.py
-  stats:
-    files_changed: 0
-    insertions: 1350
-    deletions: 163
-  inspected: true
-  inspected_paths:
-  - readio/audio.py
-  - readio/wave.py
-  - readio/spotify.py
-  - readio/cli.py
-  - tests/test_audio.py
-  - tests/test_chapters.py
-  - tests/test_cli.py
-  - tests/test_spotify.py
-  - tests/test_spotify_lifecycle.py
-  - tests/test_wave.py
-  - README.md
-  observed_behavior: Adds bounded-memory WAV rendering with atomic output handling,
-    chapter marker support, and an explicit Spotify publishing workflow with optional
-    readiness checks and timeline updates.
-  public_impact: public
-  decision: accepted
-  evidence_subject: 'feat: add spotify upload and wave creation'
-  target_entry_key: audio-publishing
-  target_entry_id: entry-0003
-  notes: Reviewed implementation, CLI behavior, documentation, and focused tests.
-- sha: 227434fa5e68824906d744a3de162c59dd9fdbea
-  source_ref: git:227434fa5e68824906d744a3de162c59dd9fdbea
-  short_sha: 227434f
-  changed_paths:
-  - .gitignore
-  - README.md
-  - pyproject.toml
-  - readio/audio.py
-  - readio/cli.py
-  - readio/config.py
-  - readio/document.py
-  - readio/errors.py
-  - readio/ingest.py
-  - readio/paths.py
-  - readio/reader.py
-  - readio/resources/__init__.py
-  - readio/resources/templates/__init__.py
-  - readio/resources/templates/briefing.ssmd
-  - readio/resources/templates/dialogue.ssmd
-  - readio/resources/templates/podcast.ssmd
-  - readio/ssmd.py
-  - readio/ssmd_authoring.py
-  - readio/templates.py
-  - skill/readio/SKILL.md
-  - tests/conftest.py
-  - tests/test_config.py
-  - tests/test_doctor.py
-  - tests/test_document.py
-  - tests/test_ingest.py
-  - tests/test_package_resources.py
-  - tests/test_paths.py
-  - tests/test_reader_ssmd.py
-  - tests/test_ssmd_cli.py
-  - tests/test_ssmd_integration.py
-  - tests/test_ssmd_preflight.py
-  - tests/test_template_validate.py
-  - tests/test_templates.py
-  stats:
-    files_changed: 0
-    insertions: 1989
-    deletions: 263
-  inspected: true
-  inspected_paths:
-  - readio/cli.py
-  - readio/config.py
-  - readio/document.py
-  - readio/errors.py
-  - readio/ingest.py
-  - readio/paths.py
-  - readio/reader.py
-  - readio/ssmd.py
-  - readio/ssmd_authoring.py
-  - readio/templates.py
-  - readio/resources/templates/briefing.ssmd
-  - readio/resources/templates/dialogue.ssmd
-  - readio/resources/templates/podcast.ssmd
-  - tests/test_config.py
-  - tests/test_doctor.py
-  - tests/test_document.py
-  - tests/test_ingest.py
-  - tests/test_package_resources.py
-  - tests/test_paths.py
-  - tests/test_reader_ssmd.py
-  - tests/test_ssmd_cli.py
-  - tests/test_ssmd_integration.py
-  - tests/test_ssmd_preflight.py
-  - tests/test_template_validate.py
-  - tests/test_templates.py
-  - README.md
-  observed_behavior: Adds structured document handling, configurable storage paths,
-    ingest artifacts, editable bundled templates, SSMD consumer preflight with actionable
-    voice-role diagnostics, optional authoring roundtrip checks, configuration validation,
-    and expanded offline diagnostics.
-  public_impact: public
-  decision: accepted
-  evidence_subject: 'feat: several improvements'
-  target_entry_key: ssmd-workflow
-  target_entry_id: entry-0004
-  notes: Reviewed implementation, templates, documentation, and focused tests.
-- sha: 1cdb326b8e406caac13d352fdccf1c06dffd898b
-  source_ref: git:1cdb326b8e406caac13d352fdccf1c06dffd898b
-  short_sha: 1cdb326
-  changed_paths:
-  - .github/workflows/codecov.yml
-  - .github/workflows/pre-commit.yml
-  - .github/workflows/python-publish.yml
-  - .github/workflows/tests.yml
-  - .gitignore
-  - .ledger/ledger.toml
-  - .ledger/releaseledger/.ledger-project.toml
-  - .ledger/releaseledger/config.toml
-  - .ledger/releaseledger/data/.ledger-project.toml
-  - examples/README.md
-  - examples/readio-podcast.ssmd
-  - readio/cli.py
-  - readio/reader.py
-  - readio/ssmd.py
-  - readio/ssmd_authoring.py
-  - tests/test_document.py
-  - tests/test_ssmd_cli.py
-  - tests/test_ssmd_integration.py
-  - tests/test_ssmd_preflight.py
-  stats:
-    files_changed: 0
-    insertions: 411
-    deletions: 23
-  inspected: true
-  inspected_paths:
-  - .github/workflows/codecov.yml
-  - .github/workflows/pre-commit.yml
-  - .github/workflows/python-publish.yml
-  - .github/workflows/tests.yml
-  - examples/README.md
-  - examples/readio-podcast.ssmd
-  - readio/cli.py
-  - readio/reader.py
-  - readio/ssmd.py
-  - readio/ssmd_authoring.py
-  - tests/test_document.py
-  - tests/test_ssmd_cli.py
-  - tests/test_ssmd_integration.py
-  - tests/test_ssmd_preflight.py
-  observed_behavior: Adds cross-platform CI coverage for tests, linting, formatting,
-    compilation, coverage, and package smoke checks, plus pre-commit and publish automation
-    and a complete multi-speaker podcast example.
-  public_impact: public
-  decision: accepted
-  evidence_subject: 'feat: pre-commit, github actions and first example'
-  target_entry_key: release-quality
-  target_entry_id: entry-0005
-  notes: Reviewed workflow definitions, example documentation, example source, and
-    affected tests.
+  - sha: e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
+    source_ref: git:e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
+    short_sha: e31fe1e
+    changed_paths: []
+    stats:
+      files_changed: 0
+      insertions: 0
+      deletions: 0
+    inspected: true
+    inspected_paths:
+      - .gitignore
+      - LICENSE
+      - README.md
+    observed_behavior:
+      Establishes the repository foundation, Apache-2.0 license, and
+      initial project documentation without adding runtime behavior.
+    public_impact: internal
+    decision: internal
+    evidence_subject: Initial commit
+    target_entry_id: entry-0001
+    notes: Repository bootstrap only; intentionally excluded from public release notes.
+  - sha: 74b447a968e4f9d743e2e58418b46c1370275966
+    source_ref: git:74b447a968e4f9d743e2e58418b46c1370275966
+    short_sha: 74b447a
+    changed_paths:
+      - .codecrate.toml
+      - .gitignore
+      - .pre-commit-config.yaml
+      - README.md
+      - pyproject.toml
+      - readio/__init__.py
+      - readio/__main__.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/reader.py
+      - readio/text.py
+      - skill/readio/SKILL.md
+      - tests/test_config.py
+      - tests/test_reader_selection.py
+      - tests/test_text.py
+    stats:
+      files_changed: 0
+      insertions: 807
+      deletions: 3
+    inspected: true
+    inspected_paths:
+      - pyproject.toml
+      - readio/__init__.py
+      - readio/__main__.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/reader.py
+      - readio/text.py
+      - tests/test_config.py
+      - tests/test_reader_selection.py
+      - tests/test_text.py
+      - README.md
+    observed_behavior:
+      Introduces the Readio CLI for local text playback from literals,
+      files, stdin, and live paragraph streams, with configurable voices, languages,
+      speed, pause behavior, output devices, and paragraph selection.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: initial version"
+    target_entry_key: text-playback
+    target_entry_id: entry-0002
+    notes: Reviewed implementation, documentation, and focused tests.
+  - sha: 18377dacd5e4b81ea9d9fc5ed3e76badaaea0bfb
+    source_ref: git:18377dacd5e4b81ea9d9fc5ed3e76badaaea0bfb
+    short_sha: 18377da
+    changed_paths:
+      - .ledger/ledger.toml
+      - .ledger/taskledger/.ledger-project.toml
+      - .ledger/taskledger/config.toml
+      - README.md
+      - pyproject.toml
+      - readio/audio.py
+      - readio/cli.py
+      - readio/reader.py
+      - readio/spotify.py
+      - readio/wave.py
+      - skill/readio/SKILL.md
+      - tests/test_audio.py
+      - tests/test_chapters.py
+      - tests/test_cli.py
+      - tests/test_spotify.py
+      - tests/test_spotify_lifecycle.py
+      - tests/test_wave.py
+    stats:
+      files_changed: 0
+      insertions: 1350
+      deletions: 163
+    inspected: true
+    inspected_paths:
+      - readio/audio.py
+      - readio/wave.py
+      - readio/spotify.py
+      - readio/cli.py
+      - tests/test_audio.py
+      - tests/test_chapters.py
+      - tests/test_cli.py
+      - tests/test_spotify.py
+      - tests/test_spotify_lifecycle.py
+      - tests/test_wave.py
+      - README.md
+    observed_behavior:
+      Adds bounded-memory WAV rendering with atomic output handling,
+      chapter marker support, and an explicit Spotify publishing workflow with optional
+      readiness checks and timeline updates.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: add spotify upload and wave creation"
+    target_entry_key: audio-publishing
+    target_entry_id: entry-0003
+    notes: Reviewed implementation, CLI behavior, documentation, and focused tests.
+  - sha: 227434fa5e68824906d744a3de162c59dd9fdbea
+    source_ref: git:227434fa5e68824906d744a3de162c59dd9fdbea
+    short_sha: 227434f
+    changed_paths:
+      - .gitignore
+      - README.md
+      - pyproject.toml
+      - readio/audio.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/document.py
+      - readio/errors.py
+      - readio/ingest.py
+      - readio/paths.py
+      - readio/reader.py
+      - readio/resources/__init__.py
+      - readio/resources/templates/__init__.py
+      - readio/resources/templates/briefing.ssmd
+      - readio/resources/templates/dialogue.ssmd
+      - readio/resources/templates/podcast.ssmd
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - readio/templates.py
+      - skill/readio/SKILL.md
+      - tests/conftest.py
+      - tests/test_config.py
+      - tests/test_doctor.py
+      - tests/test_document.py
+      - tests/test_ingest.py
+      - tests/test_package_resources.py
+      - tests/test_paths.py
+      - tests/test_reader_ssmd.py
+      - tests/test_ssmd_cli.py
+      - tests/test_ssmd_integration.py
+      - tests/test_ssmd_preflight.py
+      - tests/test_template_validate.py
+      - tests/test_templates.py
+    stats:
+      files_changed: 0
+      insertions: 1989
+      deletions: 263
+    inspected: true
+    inspected_paths:
+      - readio/cli.py
+      - readio/config.py
+      - readio/document.py
+      - readio/errors.py
+      - readio/ingest.py
+      - readio/paths.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - readio/templates.py
+      - readio/resources/templates/briefing.ssmd
+      - readio/resources/templates/dialogue.ssmd
+      - readio/resources/templates/podcast.ssmd
+      - tests/test_config.py
+      - tests/test_doctor.py
+      - tests/test_document.py
+      - tests/test_ingest.py
+      - tests/test_package_resources.py
+      - tests/test_paths.py
+      - tests/test_reader_ssmd.py
+      - tests/test_ssmd_cli.py
+      - tests/test_ssmd_integration.py
+      - tests/test_ssmd_preflight.py
+      - tests/test_template_validate.py
+      - tests/test_templates.py
+      - README.md
+    observed_behavior:
+      Adds structured document handling, configurable storage paths,
+      ingest artifacts, editable bundled templates, SSMD consumer preflight with actionable
+      voice-role diagnostics, optional authoring roundtrip checks, configuration validation,
+      and expanded offline diagnostics.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: several improvements"
+    target_entry_key: ssmd-workflow
+    target_entry_id: entry-0004
+    notes: Reviewed implementation, templates, documentation, and focused tests.
+  - sha: 1cdb326b8e406caac13d352fdccf1c06dffd898b
+    source_ref: git:1cdb326b8e406caac13d352fdccf1c06dffd898b
+    short_sha: 1cdb326
+    changed_paths:
+      - .github/workflows/codecov.yml
+      - .github/workflows/pre-commit.yml
+      - .github/workflows/python-publish.yml
+      - .github/workflows/tests.yml
+      - .gitignore
+      - .ledger/ledger.toml
+      - .ledger/releaseledger/.ledger-project.toml
+      - .ledger/releaseledger/config.toml
+      - .ledger/releaseledger/data/.ledger-project.toml
+      - examples/README.md
+      - examples/readio-podcast.ssmd
+      - readio/cli.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - tests/test_document.py
+      - tests/test_ssmd_cli.py
+      - tests/test_ssmd_integration.py
+      - tests/test_ssmd_preflight.py
+    stats:
+      files_changed: 0
+      insertions: 411
+      deletions: 23
+    inspected: true
+    inspected_paths:
+      - .github/workflows/codecov.yml
+      - .github/workflows/pre-commit.yml
+      - .github/workflows/python-publish.yml
+      - .github/workflows/tests.yml
+      - examples/README.md
+      - examples/readio-podcast.ssmd
+      - readio/cli.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - tests/test_document.py
+      - tests/test_ssmd_cli.py
+      - tests/test_ssmd_integration.py
+      - tests/test_ssmd_preflight.py
+    observed_behavior:
+      Adds cross-platform CI coverage for tests, linting, formatting,
+      compilation, coverage, and package smoke checks, plus pre-commit and publish automation
+      and a complete multi-speaker podcast example.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: pre-commit, github actions and first example"
+    target_entry_key: release-quality
+    target_entry_id: entry-0005
+    notes:
+      Reviewed workflow definitions, example documentation, example source, and
+      affected tests.

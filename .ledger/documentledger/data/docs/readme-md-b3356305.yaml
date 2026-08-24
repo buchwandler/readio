@@ -1,0 +1,365 @@
+schema: documentledger.doc_record.v4
+doc_path: README.md
+linked_sources: []
+sections:
+  - section_id: md:section:README.md::readio
+    doc_path: README.md
+    heading_path:
+      - readio
+    heading_slug: readio
+    line_span:
+      - 1
+      - 4
+    section_hash: 0d7410ffb11859fc01674ec988927b3867177b71f0ed795bb5f862877d6503e2
+    summary: readio
+    text: "# readio
+
+
+      `readio` is a terminal text to speech tool. It plays local speech with PyKokoro,
+      renders bounded memory WAV files, and publishes completed audio through the external
+      `save-to-spotify` CLI."
+    links: []
+  - section_id: md:section:README.md::install
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Install
+    heading_slug: install
+    line_span:
+      - 5
+      - 18
+    section_hash: 392dabf0a0ccfbc401a2be07b45a5007dc95c709d60cf0e0a6b62d936dc1b4d4
+    summary: Install
+    text: '## Install
+
+
+      ```bash
+
+      python -m pip install -e ".[cpu]"
+
+      ```
+
+
+      For GPU ONNX Runtime:
+
+
+      ```bash
+
+      python -m pip install -e ".[gpu]"
+
+      ```
+
+
+      PyKokoro may download model and voice assets on first use. Spotify publishing
+      requires the separately installed `save-to-spotify` executable and its authenticated
+      session. Readio never reads Spotify credential files.'
+    links: []
+  - section_id: md:section:README.md::playback
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Playback
+    heading_slug: playback
+    line_span:
+      - 19
+      - 29
+    section_hash: f01d555a132a5cc068cbb8905cbdda27241d12efde6635eb4fbae3d9e5379331
+    summary: Playback
+    text: '## Playback
+
+
+      ```bash
+
+      readio speak "Hello from the terminal."
+
+      printf ''%s\n'' "Read this from stdin." | readio speak
+
+      readio speak --file notes.md
+
+      readio speak --file notes.md --select last-paragraph
+
+      readio speak --file notes.md --select paragraph:3
+
+      producer-command | readio speak --live
+
+      ```'
+    links: []
+  - section_id: md:section:README.md::configuration
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Configuration
+    heading_slug: configuration
+    line_span:
+      - 30
+      - 46
+    section_hash: ba856ff228302732a1b28d95e1818c4e390ed235d69c587644acc639a62b6603
+    summary: Configuration
+    text: "## Configuration
+
+
+      Initialize one user-owned Readio configuration and its storage:
+
+
+      ```bash
+
+      readio config init
+
+      readio config show
+
+      readio config validate
+
+      readio config set reader.voice bf_emma
+
+      readio config set voices.kokoro.roles.analyst am_michael
+
+      readio config set ssmd.voice_provider kokoro
+
+      ```
+
+
+      The default configuration uses `platformdirs` for the config, template, ingest,
+      and output locations. `READIO_CONFIG` overrides the config file path. Existing
+      legacy files containing only `[reader]` continue to load and are upgraded to schema
+      1 when saved.
+
+
+      The configuration contains reader settings, SSMD defaults, provider-specific voice
+      IDs, and logical role bindings. Templates refer to roles such as `host`, `analyst`,
+      `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`."
+    links: []
+  - section_id: md:section:README.md::templates
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Templates
+    heading_slug: templates
+    line_span:
+      - 47
+      - 68
+    section_hash: cd1aca5801c8aa158ef2906a3c6ea84e9cfa37e4566fee8f5ecf1ffebaf29995
+    summary: Templates
+    text: '## Templates
+
+
+      Built-in templates are copied into the user template directory during initialization.
+      They are user-owned and are not overwritten by normal initialization or package
+      upgrades.
+
+
+      ```bash
+
+      readio template path
+
+      readio template list
+
+      readio template show podcast
+
+      readio template add custom --file custom.ssmd
+
+      readio template remove custom
+
+      readio template reset podcast
+
+      readio template reset --all
+
+      ```
+
+
+      Create an agent-editable draft with an automatic filename:
+
+
+      ```bash
+
+      draft="$(readio template use podcast)"
+
+      ```
+
+
+      The returned path is under the configured ingest directory. A caller can request
+      a filename with `readio template use podcast --name weekly-review.ssmd`.'
+    links: []
+  - section_id: md:section:README.md::ingest-directory
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Ingest directory
+    heading_slug: ingest-directory
+    line_span:
+      - 69
+      - 82
+    section_hash: e16e277acb138661f89ed6071b03cb3ddef9895a420e41598b212f740ca9446b
+    summary: Ingest directory
+    text: "## Ingest directory
+
+
+      The ingest directory stores text, Markdown, and SSMD files created for later processing.
+
+
+      ```bash
+
+      readio ingest path
+
+      readio ingest new
+
+      readio ingest new --name notes.txt
+
+      readio ingest new --template podcast --name episode-42.ssmd
+
+      readio ingest list
+
+      ```
+
+
+      Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`.
+      Explicit names are relative to the ingest directory and path traversal is rejected."
+    links: []
+  - section_id: md:section:README.md::automatic-wav-output
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Automatic WAV output
+    heading_slug: automatic-wav-output
+    line_span:
+      - 83
+      - 94
+    section_hash: 842d0514bd10a711be856f36227e8d689cf4e0dca2865f8b8175874118689bc9
+    summary: Automatic WAV output
+    text: '## Automatic WAV output
+
+
+      The output path is optional:
+
+
+      ```bash
+
+      readio render "Hello from a file."
+
+      readio render --file "$draft"
+
+      readio render --file "$draft" -o episode.wav
+
+      ```
+
+
+      Without `-o`, Readio uses the configured output directory. Generated ingest files
+      retain their artifact stem in the WAV name. Other input files receive a new artifact
+      suffix, and literal text uses the `readio` prefix. Automatic names never overwrite
+      an existing file. Explicit output remains atomic and requires `--force` for replacement.'
+    links: []
+  - section_id: md:section:README.md::ssmd-consumption-and-authoring-checks
+    doc_path: README.md
+    heading_path:
+      - readio
+      - SSMD consumption and authoring checks
+    heading_slug: ssmd-consumption-and-authoring-checks
+    line_span:
+      - 95
+      - 108
+    section_hash: 961fef73ec6abf0c487d09e3c47d0311bcf7e4a0a78cdcdc4298c5574e23ae68
+    summary: SSMD consumption and authoring checks
+    text: "## SSMD consumption and authoring checks
+
+
+      For `.ssmd` inputs, Readio parses the document through SSMD 0.8.3 and passes a
+      PyKokoro `SSMDRenderConfig` containing only missing Readio role defaults. Document
+      `voice_bindings` remain authoritative. Normal `speak`, `render`, and `spotify`
+      commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip
+      validation.
+
+
+      Inspect a document before rendering:
+
+
+      ```bash
+
+      readio ssmd check episode.ssmd
+
+      readio ssmd check episode.ssmd --json
+
+      readio ssmd check episode.ssmd --roundtrip
+
+      ```
+
+
+      `readio template validate --all` checks shipped or configured templates with the
+      same consumer preflight. Add `--roundtrip` for strict SSMD authoring validation.
+      Unknown logical roles fail before model inference with a Readio diagnostic."
+    links: []
+  - section_id: md:section:README.md::spotify-publishing
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Spotify publishing
+    heading_slug: spotify-publishing
+    line_span:
+      - 109
+      - 116
+    section_hash: 156ae417c3a8da5c53b32ebf545a8433729f20b7338b107d95f70814c1670365
+    summary: Spotify publishing
+    text: '## Spotify publishing
+
+
+      ```bash
+
+      readio spotify --file "$draft" --title "Weekly Review" --wait
+
+      ```
+
+
+      Publishing is explicit. Without `--output`, Readio renders to a secure temporary
+      WAV and deletes it after upload or failure. With `--output`, it retains and uploads
+      that file. Readio invokes `save-to-spotify --json` and does not inspect credentials
+      or perform authentication.'
+    links: []
+  - section_id: md:section:README.md::doctor
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Doctor
+    heading_slug: doctor
+    line_span:
+      - 117
+      - 124
+    section_hash: 8734ec18d95b8c9ba683ac000ba77b57df315994d148215b995e1de324ec56d6
+    summary: Doctor
+    text: "## Doctor
+
+
+      ```bash
+
+      readio doctor
+
+      ```
+
+
+      Doctor is offline. It reports Readio configuration, configured directories and
+      their existence, PyKokoro, SSMD module and executable availability, the selected
+      provider, voice IDs, logical roles, sound dependencies, and `save-to-spotify`.
+      It does not create directories, modify configuration, inspect credentials, or
+      call the network."
+    links: []
+  - section_id: md:section:README.md::agent-skill
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Agent Skill
+    heading_slug: agent-skill
+    line_span:
+      - 125
+      - 127
+    section_hash: 05dd5fe18d1ef9aa9f75fc7ab4e441413240d8f8bbf0a8be415c4468d036d90c
+    summary: Agent Skill
+    text: "## Agent Skill
+
+
+      The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and
+      commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary
+      file management, or manual cleanup for normal podcast workflows."
+    links: []
+last_fresh_scan_version: 2
+last_fresh_hash: 1790d1c9c40fa7c163d050806d2360a345ee2fb6369b94dca6a91116eb8c7695
+notes:
+  Documentation baseline created in docs/index.md; generated changelog retained
+  and remaining source units are intentionally unlinked. (intentionally unlinked)
+version: 5

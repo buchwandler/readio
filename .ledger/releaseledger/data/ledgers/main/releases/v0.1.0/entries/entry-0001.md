@@ -12,15 +12,15 @@ status: accepted
 audience: null
 scopes: []
 source_refs:
-- git:e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
+  - git:e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
 paths:
-- .gitignore
-- LICENSE
-- README.md
+  - .gitignore
+  - LICENSE
+  - README.md
 issues: []
 prs: []
 sources:
-- git:e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
+  - git:e31fe1ec9969aa2927c4bfe5902a4bcd6c1547d8
 contributors: []
 breaking: false
 internal: true

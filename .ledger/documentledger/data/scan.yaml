@@ -1,0 +1,60 @@
+schema: documentledger.scan.v5
+version: 3
+source_index_file: source-index.json
+source_index_hash: 64213249813e71c78347216a351a06af6d3a66716be33927cf6e2192537c8efb
+source_file_count: 39
+source_unit_count: 294
+doc_file_count: 3
+source_hashes:
+  readio/__init__.py: 96898c79c09a9c65e282f0ec1e8bc771ba13f517a0106d04c318e27aaf705025
+  readio/__main__.py: 6d8b7d7846a845059d7a3107143f11131f63c5511d669b44085b15ec5e3d2279
+  readio/audio.py: aa4234e602320c026d76ed6514dddb5bdfa9a3a80f44da4787d3496767ff6580
+  readio/cli.py: f783e9a3e73fb3736fe499dc0f2a2aeb96efd631ecf5226f2fa24967af13a8d9
+  readio/config.py: af4eb1aba709431c03ddbaef47a3e061363db9949b5aa7bfd1a30aa58100f052
+  readio/document.py: 93af62824821e9c9a1ec4c34624317a19a4164fbd7299b26bd29013ee6508c7a
+  readio/errors.py: d8190503cf785f26236734953af4ff005290b33a2cd8ad37f71958e669b9cf3a
+  readio/ingest.py: 21d3d85c940619843ad3f22c9184553c7ca3e53e3df740a738d1a5269684f163
+  readio/paths.py: d41840dc3de75a1c7d9f9b744aadda07c47e173f4b357cc9a77ec250cc9a2830
+  readio/reader.py: 7cb747c42e225d570ddc4f9e11371c07182b46e7be900735da23d260bddf5c5d
+  readio/resources/__init__.py: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  readio/resources/templates/__init__.py: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  readio/spotify.py: 19d305fb85481e6d8e05df3cbb9925552ae9b86ce3ba5c6c3e75bc4a0fc3fb3a
+  readio/ssmd.py: ea5cdb5cfa289d5c4d181a6a83ca7af25364981bd110cb3b47e14e139c7da687
+  readio/ssmd_authoring.py: 6971fca62c27e7d2549d089bf80e65e0b7625514526565d931335a504e081584
+  readio/templates.py: da858205cebdb29b5bea146bb74be220cc89fddad5d385a7559a54f463ec5ac7
+  readio/text.py: f5c8a9936b9f49c123a00940ec361ce42ccbdd1b204604e73d74f8d907e5e46e
+  readio/wave.py: 727444e1ec997272aa4bdf218e0a0efe502a4a6b1a034fb7385af10d8fc935de
+  tests/conftest.py: 647c549417aa2d57184d409569658a0f41cb9a5d0f104f622a6995aafecfecf6
+  tests/test_audio.py: 95903f2ca041d156eef276e097d34b052d0789cc46979405effc1fd3f98c7f99
+  tests/test_chapters.py: 10f7299c111dd89a631cb8f20c4684c79f11578c0e89779cfa257504452bc2d5
+  tests/test_cli.py: 47240f3cf2add7f4570badc6679cbd699264491f200e20a2f05cad4f92608dd7
+  tests/test_config.py: f07f7fdff17a2edf326f5e8fbceaf1f4683f732d9c1eb3a9b47c552ab8af2228
+  tests/test_doctor.py: 5314ea36e76ff273b38265392ac10d48e41b29d2ed17ac942baee6771514ce9c
+  tests/test_document.py: 1198d338b801e79379cdc1dd48ec790356239b69195a8d0cadfb482e2b7b199d
+  tests/test_ingest.py: 97f02ff10f10d791bbcce8d8a0ac91a97e51dbdaea1ab9a1341aed49d4f21ff0
+  tests/test_package_resources.py: 5b27be32de461bd30b7215dc9acf107f2e31065bb3dcd32a0a5ec0f44ca670e6
+  tests/test_paths.py: 91d3dfb54bb66416420371b06824ad5ca91c4b927653d3adccd13cff017b01dc
+  tests/test_reader_selection.py: 7aecbbfde10dd86dffc7955a651739606bd54e64fcaa732b4eb4c59789e57cd6
+  tests/test_reader_ssmd.py: ecc36e084c24668d0a5c0620784557e3df6cd7b138f9eb067f13c8c5570a6cbe
+  tests/test_spotify.py: a8a412581e865ca99d18aaf6bf0b809891d0790c1e6088bbb4e9de19716af993
+  tests/test_spotify_lifecycle.py: b77c78cce3d29ce910cd91192518f37e03a1e00947a5a06d33b3d1cf639dae70
+  tests/test_ssmd_cli.py: 50f2baf2a8d6fa557cd62f34ecb0c453d0ff8104a94589dc6f76ac130fde789c
+  tests/test_ssmd_integration.py: cf54b32d56359de37902538c9ff68dd12a1831b2635a1ecd8b520162753e4d9e
+  tests/test_ssmd_preflight.py: 30e2a313cd64fa39b8b8150d922406cbaa7d2d364d7ad1fdb4fd0dd70df00dc3
+  tests/test_template_validate.py: 73b7d1f79eda99e9f5394032bb9822d4d09a16e2b51fd32c6d1e1a09a082af65
+  tests/test_templates.py: f83870692236081101cd460f62007fae42865e222eaa6faeb45410239962ac82
+  tests/test_text.py: 235bec9daae04aa625d2fb91835adfb9ea9c0386485a7801e95baf22c38720f4
+  tests/test_wave.py: eebea7147141dc6aa3966c680c2bd35070392316cbfcc2749311522a6f640571
+doc_hashes:
+  README.md: 1790d1c9c40fa7c163d050806d2360a345ee2fb6369b94dca6a91116eb8c7695
+  docs/changelog.md: 879dcc2f21038ef461270c36b3921136aa8592615f0e9fba253046f74c85838a
+  docs/index.md: 46d58518af15aae7b449cc3cabec34ffc3ab97460aa5fbc4ba5dcc86845134d4
+changed_sources: []
+deleted_sources: []
+changed_units: []
+added_units: []
+deleted_units: []
+affected_sections: []
+stale_docs: []
+unlinked_changed_sources: []
+unmapped_changed_units: []

@@ -22,3 +22,9 @@ storage = "project"
 
 [ledgers.releaseledger.mounts.indexes]
 storage = "cache"
+
+[ledgers.documentledger.mounts.data]
+storage = "project"
+
+[ledgers.documentledger.mounts.artifacts]
+storage = "cache"

@@ -1,0 +1,16 @@
+config_version = 2
+
+[ledger]
+code = "dl"
+
+[scan]
+source_roots = ["readio", "tests"]
+doc_roots = ["docs", "README.md"]
+source_extensions = [".py"]
+doc_extensions = [".md"]
+
+[validation]
+commands = []
+
+[policy]
+require_doc_frontmatter = false

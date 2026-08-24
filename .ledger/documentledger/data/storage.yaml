@@ -1,0 +1,13 @@
+schema_version: 5
+project_uuid: ef81b740-6e31-44bd-8b30-74be81bd1f48
+state_version: 9
+last_scan_version: 3
+last_scan_source_file_count: 39
+last_scan_source_unit_count: 294
+last_scan_doc_file_count: 3
+last_scan_changed_source_count: 0
+last_scan_affected_section_count: 0
+last_scan_stale_doc_count: 0
+last_scan_unlinked_changed_source_count: 0
+last_scan_source_index_file: source-index.json
+last_scan_source_index_hash: 64213249813e71c78347216a351a06af6d3a66716be33927cf6e2192537c8efb
