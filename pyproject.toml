@@ -12,6 +12,7 @@ license = {text = "Apache-2.0"}
 dependencies = [
   "pykokoro[playback]>=0.8.6,<0.9",
   "platformdirs>=4.0",
+  "soundfile>=0.12",
   "tomli>=2.0; python_version < '3.11'",
 ]
 
@@ -34,6 +35,7 @@ fallback_version = "0+unknown"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = ["01_todo.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

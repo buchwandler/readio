@@ -1,6 +1,6 @@
 # readio
 
-`readio` is a small terminal tool that reads text aloud. The initial TTS backend uses the current PyKokoro pipeline API, while the CLI name is intentionally engine-neutral so another TTS engine can be added later. It keeps model/pipeline state resident during a command, sends generated audio through one bounded `sounddevice` output stream, supports persistent TOML config, and includes an Agent Skills-compatible `SKILL.md`.
+`readio` is a terminal text-to-speech tool that can play speech locally, render bounded-memory WAV files, or publish completed WAV media through the external `save-to-spotify` CLI. The current TTS backend is PyKokoro, but destinations depend only on Readio's rendered-audio boundary.
 
 ## Install
 
@@ -16,82 +16,114 @@ For NVIDIA GPU ONNX Runtime:
 python -m pip install -e ".[gpu]"
 ```
 
-PyKokoro may download model/voice assets on first use unless you already have them cached/configured.
+PyKokoro may download model and voice assets on first use. Spotify publishing additionally requires the separately installed `save-to-spotify` executable and an authenticated session managed by that tool. Readio does not read Spotify credentials or token files.
 
-## Basic usage
+## Playback
 
 ```bash
 readio speak "Hello from the terminal."
 printf '%s\n' "Read this from stdin." | readio speak
 readio speak --file notes.md
-```
-
-By default, non-live input is globally prepared by PyKokoro and rendered in sentence units for lower startup latency. Audio generation can continue while the bounded player queue consumes already generated audio.
-
-### Select a paragraph
-
-```bash
 readio speak --file notes.md --select last-paragraph
 readio speak --file notes.md --select paragraph:3
 ```
 
-Selectors use PyKokoro's own prepared paragraph descriptors rather than a separate regex, so the selected unit matches the TTS pipeline's document segmentation.
+Selectors use PyKokoro's paragraph descriptors, so selection and synthesis use the same document segmentation.
 
-### Live stdin
+## Live playback
 
 ```bash
-some-streaming-producer | readio speak --live
+producer-command | readio speak --live
 ```
 
-Live mode cannot globally prepare text that has not arrived yet. It therefore frames input at blank lines, prepares each completed paragraph independently, and keeps one output audio stream open for the command. Within each paragraph, `unit = "sentence"` is still the low-latency default.
+A blank line closes a paragraph and starts its playback. `--live` reads stdin only and cannot be combined with `--file`, literal text, or a paragraph selector.
 
-## Configuration
+## WAV rendering
+
+```bash
+readio render "Hello from a file."
+readio render --file episode.ssmd -o episode.wav
+printf '%s\n' "Text from stdin." | readio render -o stdin.wav
+producer-command | readio render --live -o live.wav
+```
+
+`readio render` writes PCM16 WAV audio incrementally instead of concatenating a whole document waveform in memory. The output is written to a temporary file in the destination directory and atomically replaces the requested path only after synthesis succeeds. Use `--force` to replace an existing output.
+
+## SSMD
+
+Readio passes SSMD documents to PyKokoro. It does not implement a second SSMD parser or validator. For a multi-speaker episode, author and validate the document with the SSMD CLI first:
+
+```bash
+ssmd --json voices list --provider kokoro
+ssmd --json create draft.ssmd -o episode.ssmd --voice-provider kokoro --fail-on-warn
+ssmd --json lint episode.ssmd --voice-provider kokoro --roundtrip --fail-on-warn
+readio speak --file episode.ssmd
+readio render --file episode.ssmd -o episode.wav
+```
+
+Portable logical roles can be bound in SSMD front matter:
+
+```ssmd
+---
+title: Tech Talk
+voice_bindings:
+  kokoro:
+    host: af_sarah
+    guest: am_michael
+---
+<div voice="host">Welcome to Tech Talk.</div>
+<div voice="guest">Today we are discussing portable SSMD documents.</div>
+```
+
+## Spotify publishing
+
+`readio spotify` renders one WAV and passes that completed file to `save-to-spotify --json upload`. It does not stream raw audio to Spotify or implement authentication.
+
+```bash
+readio spotify \
+  --file episode.ssmd \
+  --title "My episode" \
+  --show-id spotify:show:... \
+  --wait
+```
+
+Other metadata options include `--new-show`, `--summary`, `--image`, and `--language`. `--show-id` and `--new-show` are mutually exclusive. `--title` is required. Use `--json` for one Readio-owned machine-readable result:
+
+```json
+{"ok": true, "episode_uri": "spotify:episode:...", "upload_status": "UPLOADING", "readiness": "READY", "audio_path": null}
+```
+
+Without `--output`, Readio uses a secure temporary WAV and deletes it after upload or failure. With `--output`, the WAV is retained and the same render is uploaded. `--wait` delegates readiness waiting to `save-to-spotify`; `--wait-timeout` is valid only with `--wait`.
+
+Spotify live input is local incremental synthesis followed by WAV finalization and upload after stdin reaches EOF. It is not live Spotify publishing, and complete non-live SSMD input is preferred for globally prepared multi-speaker documents.
+
+## Configuration and diagnostics
 
 ```bash
 readio config init
 readio config show
 readio config set voice af_sarah
 readio config set lang en-us
-readio config set speed 1.1
-readio config set unit sentence
-readio config set queue_size 2
+readio config set speed 1.15
+readio doctor
 ```
 
-The default config is:
-
-```toml
-[reader]
-voice = "af_sarah"
-lang = "en-us"
-speed = 1.0
-pause_mode = "tts"
-unit = "sentence"
-queue_size = 2
-```
-
-Set `READIO_CONFIG=/path/to/config.toml` to override the config location.
+`readio doctor` reports Readio, PyKokoro, sounddevice, soundfile, and whether `save-to-spotify` is on `PATH`. It never calls a token command or inspects credential files.
 
 ## Agent Skill
 
-The portable skill is in `skill/readio/SKILL.md`. Copy the `readio` skill directory into the skill directory used by your agent client. For Codex-style project skills, for example:
+The portable skill is in `skill/readio/SKILL.md`. It distinguishes two workflows:
+
+1. Exact reading. Extract the requested conversation text exactly and pipe it to `readio speak` without paraphrasing.
+2. Derived podcast creation. Only when requested, draft and validate an SSMD episode, then choose `speak`, `render`, or `spotify` according to the user's destination intent.
+
+Copy the skill into the skill directory used by your agent client, for example:
 
 ```bash
 mkdir -p .agents/skills
 cp -R skill/readio .agents/skills/readio
 ```
 
-The key design rule is that the skill extracts conversation text and passes it to the CLI. The CLI itself does not inspect or store your LLM transcript.
-
-## Useful commands
-
-```bash
-readio doctor
-readio config path
-readio --version
-```
-
 ## Versioning
 
-`readio` uses `setuptools-scm`: the package version is derived from Git tags at build/install time rather than being hard-coded in source. Tag releases as `v0.1.0`, `v0.2.0`, and so on. Development commits after a tag receive a PEP 440 development version automatically. An unpacked tree without Git metadata falls back to `0+unknown`.
-
-The import package lives directly at `readio/`; there is intentionally no `src/` directory.
+`readio` uses `setuptools-scm`. Package versions are derived from Git tags rather than hard-coded in source. The import package lives directly at `readio/`; there is intentionally no `src/` directory.
