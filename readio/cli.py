@@ -108,6 +108,7 @@ def _read_input(args: argparse.Namespace, cfg: ReadioConfig) -> InputDocument:
         raise ValueError("provide text, --file PATH, or pipe text on stdin")
     return document_from_stdin(sys.stdin.read(), input_format=input_format)
 
+
 def _validate_live(args: argparse.Namespace) -> None:
     if args.file is not None or args.text:
         raise ValueError("--live reads stdin only; do not combine it with text or --file")
@@ -119,6 +120,7 @@ def _validate_live(args: argparse.Namespace) -> None:
         raise ValueError("--select is not available with --live")
     if sys.stdin.isatty():
         raise ValueError("--live requires piped stdin")
+
 
 def _cmd_speak(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)

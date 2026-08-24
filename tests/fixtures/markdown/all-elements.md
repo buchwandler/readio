@@ -5,7 +5,7 @@ author: Example
 
 # Introduction
 
-This is *important*, **critical**, and ~~obsolete~~.
+This is _important_, **critical**, and ~~obsolete~~.
 
 Read the [Readio guide](https://example.invalid/guide). Visit <https://example.invalid/>.
 
@@ -27,10 +27,10 @@ Run `readio render`.
 
 ---
 
-| Voice | Role |
-| --- | --- |
-| af_sarah | narrator |
-| am_michael | analyst |
+| Voice      | Role     |
+| ---------- | -------- |
+| af_sarah   | narrator |
+| am_michael | analyst  |
 
 ```python
 [x]{rate="fast"}

@@ -18,11 +18,13 @@ def test_prosody_example_exists_and_covers_supported_controls():
     assert '{p="' in text
     assert 'volume="loud" rate="fast" pitch="high"' in text
     assert '<div voice="narrator" volume=' in text
-    assert "vrp=\"" not in text
+    assert 'vrp="' not in text
     assert "++" not in text
 
 
 def test_prosody_example_passes_readio_consumer_preflight():
-    result = preflight_ssmd(EXAMPLE.read_text(encoding="utf-8"), ReadioConfig(), source_path=EXAMPLE)
+    result = preflight_ssmd(
+        EXAMPLE.read_text(encoding="utf-8"), ReadioConfig(), source_path=EXAMPLE
+    )
 
     assert result.ok is True

@@ -176,17 +176,13 @@ def _render_list(node: _Node, ordered: bool) -> list[str]:
         if child.token.type != "list_item_open":
             continue
         paragraphs = [
-            _inline_child(item)
-            for item in child.children
-            if item.token.type == "paragraph_open"
+            _inline_child(item) for item in child.children if item.token.type == "paragraph_open"
         ]
         nested = [
             nested_block
             for item in child.children
             if item.token.type in {"bullet_list_open", "ordered_list_open"}
-            for nested_block in _render_list(
-                item, item.token.type == "ordered_list_open"
-            )
+            for nested_block in _render_list(item, item.token.type == "ordered_list_open")
         ]
         if paragraphs and paragraphs[0]:
             text = paragraphs[0]
@@ -231,7 +227,13 @@ def _render_nodes(nodes: list[_Node]) -> list[str]:
                     blocks.extend(quoted)
         elif kind in {"fence", "code_block"}:
             code = node.token.content.rstrip("\n")
-            blocks.append("\n".join(["Code block.", code, "End code block."] if code else ["Code block.", "End code block."]))
+            blocks.append(
+                "\n".join(
+                    ["Code block.", code, "End code block."]
+                    if code
+                    else ["Code block.", "End code block."]
+                )
+            )
         elif kind == "hr":
             blocks.append("<paragraph pause>")
         elif kind == "table_open":

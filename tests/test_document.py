@@ -13,6 +13,7 @@ def test_document_from_ssmd_file_classifies_by_suffix(tmp_path: Path):
     assert document.source_path == source
     assert document.format == "ssmd"
 
+
 def test_document_from_markdown_suffixes_and_literals(tmp_path: Path):
     for suffix in (".md", ".markdown", ".mdown", ".mkd", ".MD"):
         source = tmp_path / f"episode{suffix}"

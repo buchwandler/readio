@@ -1,0 +1,70 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.1.1
+git_base_ref: v0.1.0
+git_base_sha: 3d4229300f8977975d6ddff2ebf7ccbc322a4b1f
+git_head_ref: HEAD
+git_head_sha: 890f87bfe4e3ff4602857b3b93b3e0f56e1e0d95
+git_range: 3d4229300f8977975d6ddff2ebf7ccbc322a4b1f..890f87bfe4e3ff4602857b3b93b3e0f56e1e0d95
+commit_count: 1
+rows:
+  - sha: 890f87bfe4e3ff4602857b3b93b3e0f56e1e0d95
+    source_ref: git:890f87bfe4e3ff4602857b3b93b3e0f56e1e0d95
+    short_sha: 890f87b
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - examples/README.md
+      - examples/readio-prosody.ssmd
+      - pyproject.toml
+      - readio/cli.py
+      - readio/document.py
+      - readio/markdown.py
+      - readio/reader.py
+      - skill/readio/SKILL.md
+      - tests/fixtures/markdown/all-elements.md
+      - tests/fixtures/markdown/all-elements.txt
+      - tests/test_cli.py
+      - tests/test_document.py
+      - tests/test_examples.py
+      - tests/test_markdown.py
+      - tests/test_reader_markdown.py
+    stats:
+      files_changed: 0
+      insertions: 874
+      deletions: 21
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/index.md
+      - examples/README.md
+      - examples/readio-prosody.ssmd
+      - pyproject.toml
+      - readio/cli.py
+      - readio/document.py
+      - readio/markdown.py
+      - readio/reader.py
+      - skill/readio/SKILL.md
+      - tests/fixtures/markdown/all-elements.md
+      - tests/fixtures/markdown/all-elements.txt
+      - tests/test_cli.py
+      - tests/test_document.py
+      - tests/test_examples.py
+      - tests/test_markdown.py
+      - tests/test_reader_markdown.py
+    observed_behavior:
+      Readio detects Markdown file suffixes and supports explicit Markdown
+      input for stdin and literal text, projects Markdown into speech-friendly plain
+      text, preserves visible content while isolating SSMD controls, and adds selection
+      and integration coverage.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: support for markdown files"
+    target_entry_key: markdown-input
+    target_entry_id: entry-0001
+    notes:
+      The public behavior is documented in README.md and docs/index.md; dependency
+      and test changes support the Markdown projection.

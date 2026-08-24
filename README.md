@@ -27,6 +27,7 @@ readio speak --file notes.md --select last-paragraph
 readio speak --file notes.md --select paragraph:3
 producer-command | readio speak --live
 ```
+
 Readio parses `.md`, `.markdown`, `.mdown`, and `.mkd` as Markdown before synthesis. Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Ordinary Markdown is isolated from SSMD controls; use `.ssmd` when explicit voices, rate, volume, pitch, breaks, or markers are required.
 
 Markdown can also be supplied explicitly through stdin or literal input:
@@ -37,6 +38,7 @@ readio render --input-format markdown '# Title' 'This is **important**.'
 ```
 
 Use `--input-format text` when a Markdown-looking file should be read as literal text.
+
 ## Configuration
 
 Initialize one user-owned Readio configuration and its storage:

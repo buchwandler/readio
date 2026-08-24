@@ -61,11 +61,11 @@ def test_html_front_matter_and_footnotes():
 
 def test_markdown_content_cannot_become_ssmd_controls():
     result = markdown_to_speech(
-        "`[x]{rate=\"fast\"}`\n\n```text\n<div voice=\"guest\">\n...500ms\n@chapter\n```"
+        '`[x]{rate="fast"}`\n\n```text\n<div voice="guest">\n...500ms\n@chapter\n```'
     )
 
-    assert "[x]{rate=\"fast\"}" not in result
-    assert "<div voice=\"guest\">" not in result
+    assert '[x]{rate="fast"}' not in result
+    assert '<div voice="guest">' not in result
     assert "...500ms" not in result
     assert "@chapter" not in result
     assert "guest" in result
@@ -79,6 +79,8 @@ def test_metadata_or_empty_alt_image_projects_to_empty():
 
 
 def test_urls_are_visible_but_never_fetched():
-    result = markdown_to_speech("[label](https://example.invalid/no-fetch)\n\n<https://example.invalid/visible>")
+    result = markdown_to_speech(
+        "[label](https://example.invalid/no-fetch)\n\n<https://example.invalid/visible>"
+    )
 
     assert result == "label\n\nhttps://example.invalid/visible"

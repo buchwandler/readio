@@ -24,8 +24,12 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
         text = markdown_to_speech(document.text)
     except Exception as exc:
         source = f" {document.source_path}" if document.source_path else ""
-        raise InputError(f"failed to parse Markdown{source}: {exc}", source_path=document.source_path) from exc
+        raise InputError(
+            f"failed to parse Markdown{source}: {exc}", source_path=document.source_path
+        ) from exc
     return InputDocument(text=text, source_path=document.source_path, format="text")
+
+
 def pipeline_config_for_document(
     document: InputDocument,
     cfg: ReadioConfig,

@@ -25,6 +25,7 @@ readio speak --file path/to/document.md
 readio speak --file path/to/document.md --select last-paragraph
 readio speak --file path/to/document.md --select paragraph:3
 ```
+
 For local Markdown files, pass the Markdown directly; Readio parses structure before synthesis and does not require manual extraction or rewriting as SSMD:
 
 ```bash
@@ -45,11 +46,12 @@ READIO_EOF
 
 Markdown headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Markdown styling does not create prosody. Use SSMD for explicit voices, rate, volume, pitch, breaks, markers, or multi-speaker structure. Use `--input-format text` to force literal reading of Markdown-looking content.
 
-
 ```bash
 producer-command | readio speak --live
 ```
+
 Markdown and SSMD live input are rejected because their complete-document structures cannot be parsed incrementally; use a complete non-live input instead.
+
 ## Narrated summaries and status
 
 For a summary, recap, explanation, implementation status, or other one-voice narration, generate plain text and render it directly. Do not create an SSMD template just because the output is audio.
