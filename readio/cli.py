@@ -52,6 +52,12 @@ def _add_input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("text", nargs="*", help="literal text; omit to read stdin")
     parser.add_argument("--file", type=Path, help="read UTF-8 text from a file")
     parser.add_argument(
+        "--input-format",
+        choices=("auto", "text", "markdown", "ssmd"),
+        default="auto",
+        help="input interpretation; auto uses the file suffix and otherwise defaults to text",
+    )
+    parser.add_argument(
         "--select",
         default="all",
         metavar="SELECTOR",
@@ -93,24 +99,26 @@ def _resolved_config(args: argparse.Namespace) -> ReadioConfig:
 
 
 def _read_input(args: argparse.Namespace, cfg: ReadioConfig) -> InputDocument:
-    del cfg
     if args.file is not None:
-        return document_from_file(args.file)
+        return document_from_file(args.file, input_format=args.input_format)
+    input_format = args.input_format if args.input_format != "auto" else "text"
     if args.text:
-        return document_from_text(" ".join(args.text))
+        return document_from_text(" ".join(args.text), input_format=input_format)
     if sys.stdin.isatty():
         raise ValueError("provide text, --file PATH, or pipe text on stdin")
-    return document_from_stdin(sys.stdin.read())
-
+    return document_from_stdin(sys.stdin.read(), input_format=input_format)
 
 def _validate_live(args: argparse.Namespace) -> None:
     if args.file is not None or args.text:
         raise ValueError("--live reads stdin only; do not combine it with text or --file")
+    if args.input_format in ("markdown", "ssmd"):
+        raise ValueError(
+            f"--live supports plain text only; {args.input_format.upper()} requires complete-document parsing"
+        )
     if args.select != "all":
         raise ValueError("--select is not available with --live")
     if sys.stdin.isatty():
         raise ValueError("--live requires piped stdin")
-
 
 def _cmd_speak(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)

@@ -47,6 +47,16 @@ readio render --file notes.md -o notes.wav
 
 With no explicit output path, Readio writes a uniquely named WAV file below the configured output directory. Existing files are not overwritten unless `--force` is supplied for an explicit path.
 
+Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`, or `.mkd` are parsed before synthesis; use `--input-format markdown` for Markdown from stdin or literal text:
+
+```bash
+readio speak --file README.md
+readio render --file docs/design.md
+cat README.md | readio speak --input-format markdown
+```
+
+Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter become speech-friendly text. Markdown styling does not create SSMD prosody. Use `.ssmd` for explicit voices, rate, volume, pitch, breaks, or markers; use `--input-format text` to force literal reading of a Markdown-looking file.
+
 ## Input and rendering
 
 The `speak`, `render`, and `spotify` commands accept the same input forms:

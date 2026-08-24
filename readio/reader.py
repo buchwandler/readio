@@ -7,6 +7,8 @@ from typing import Any
 from .audio import AudioSink, PlaybackSink, RenderSummary, render_prepared
 from .config import ReaderSettings, ReadioConfig
 from .document import InputDocument, document_from_text
+from .errors import InputError
+from .markdown import markdown_to_speech
 from .ssmd import build_ssmd_render_config, preflight_ssmd
 from .text import iter_live_paragraphs
 
@@ -15,6 +17,15 @@ class SelectionError(ValueError):
     pass
 
 
+def prepare_input_document(document: InputDocument) -> InputDocument:
+    if document.format != "markdown":
+        return document
+    try:
+        text = markdown_to_speech(document.text)
+    except Exception as exc:
+        source = f" {document.source_path}" if document.source_path else ""
+        raise InputError(f"failed to parse Markdown{source}: {exc}", source_path=document.source_path) from exc
+    return InputDocument(text=text, source_path=document.source_path, format="text")
 def pipeline_config_for_document(
     document: InputDocument,
     cfg: ReadioConfig,
@@ -83,6 +94,7 @@ def render_text(
     unit: str | None = None,
 ) -> RenderSummary:
     document = text if isinstance(text, InputDocument) else document_from_text(text)
+    document = prepare_input_document(document)
     if not document.text.strip():
         raise ValueError("no text to read")
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg

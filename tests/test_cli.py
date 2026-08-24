@@ -26,3 +26,12 @@ def test_live_rejects_file_and_selection():
     )
     with pytest.raises(ValueError, match="not available"):
         _validate_live(args)
+
+
+def test_input_format_option_and_live_markdown_restriction():
+    args = build_parser().parse_args(["speak", "--input-format", "markdown", "#", "Heading"])
+    assert args.input_format == "markdown"
+
+    live = build_parser().parse_args(["speak", "--live", "--input-format", "markdown"])
+    with pytest.raises(ValueError, match="complete-document parsing"):
+        _validate_live(live)

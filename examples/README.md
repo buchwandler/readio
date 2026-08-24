@@ -23,3 +23,19 @@ readio render --file examples/readio-podcast.ssmd -o readio-podcast.wav
 ```
 
 The configured SSMD role bindings determine which provider voices are used. Run `readio config show` to inspect the current configuration.
+
+## Prosody example
+
+[`readio-prosody.ssmd`](readio-prosody.ssmd) focuses on audible volume, rate, and pitch controls. It demonstrates named and numeric levels, relative values, combined controls, block-level prosody, and inline overrides. It intentionally uses only prosody syntax implemented by the current SSMD consumer; `vrp` and symbolic shorthand are not included.
+
+Check it before rendering:
+
+```bash
+readio ssmd check examples/readio-prosody.ssmd
+```
+
+Render it to a WAV file:
+
+```bash
+readio render --file examples/readio-prosody.ssmd -o readio-prosody.wav
+```

@@ -1,0 +1,49 @@
+Introduction.
+
+This is important, critical, and obsolete.
+
+Read the Readio guide. Visit https://example.invalid/.
+
+Image: Architecture diagram.
+
+Run readio render.
+
+Item: alpha.
+
+Item: beta.
+
+Item: nested.
+
+3. first.
+
+4. second.
+
+Checked: tests.
+
+Unchecked: release.
+
+Quote: Readio preserves meaning.
+
+<paragraph pause>
+
+Table.
+
+Voice: af_sarah. Role: narrator.
+
+Voice: am_michael. Role: analyst.
+
+End table.
+
+Code block.
+x{rate="fast"}
+End code block.
+
+Code block.
+indented code
+End code block.
+
+Hello world.
+
+A claim.
+
+Footnote 1. Supporting detail.

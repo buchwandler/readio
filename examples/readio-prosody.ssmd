@@ -1,0 +1,167 @@
+---
+title: Readio SSMD Prosody Control Showcase
+pause_defaults:
+  enabled: true
+  sentence: 300ms
+  paragraph: 700ms
+---
+
+# Readio SSMD Prosody Control Showcase
+
+<div voice="narrator">
+This example demonstrates volume, rate, and pitch controls supported by SSMD and rendered by Readio through PyKokoro.
+
+First, here is the neutral reference phrase.
+The quick brown fox jumps over the lazy dog.
+</div>
+
+## Volume: named levels
+
+<div voice="narrator">
+Each changed phrase uses the same sentence so the level is easier to compare.
+
+Extra soft.
+[The quick brown fox jumps over the lazy dog.]{volume="x-soft"}
+
+Soft.
+[The quick brown fox jumps over the lazy dog.]{volume="soft"}
+
+Medium.
+[The quick brown fox jumps over the lazy dog.]{volume="medium"}
+
+Loud.
+[The quick brown fox jumps over the lazy dog.]{volume="loud"}
+
+Extra loud.
+[The quick brown fox jumps over the lazy dog.]{volume="x-loud"}
+
+Silent.
+[You should not hear this sentence.]{volume="silent"}
+</div>
+
+## Rate: named levels
+
+<div voice="narrator">
+Extra slow.
+[The quick brown fox jumps over the lazy dog.]{rate="x-slow"}
+
+Slow.
+[The quick brown fox jumps over the lazy dog.]{rate="slow"}
+
+Medium.
+[The quick brown fox jumps over the lazy dog.]{rate="medium"}
+
+Fast.
+[The quick brown fox jumps over the lazy dog.]{rate="fast"}
+
+Extra fast.
+[The quick brown fox jumps over the lazy dog.]{rate="x-fast"}
+</div>
+
+## Pitch: named levels
+
+<div voice="narrator">
+Extra low.
+[The quick brown fox jumps over the lazy dog.]{pitch="x-low"}
+
+Low.
+[The quick brown fox jumps over the lazy dog.]{pitch="low"}
+
+Medium.
+[The quick brown fox jumps over the lazy dog.]{pitch="medium"}
+
+High.
+[The quick brown fox jumps over the lazy dog.]{pitch="high"}
+
+Extra high.
+[The quick brown fox jumps over the lazy dog.]{pitch="x-high"}
+</div>
+
+## Numeric scales
+
+<div voice="narrator">
+SSMD also accepts numeric levels and normalizes them to named prosody levels.
+
+Volume level two.
+[The quick brown fox jumps over the lazy dog.]{v="2"}
+
+Volume level four.
+[The quick brown fox jumps over the lazy dog.]{v="4"}
+
+Rate level two.
+[The quick brown fox jumps over the lazy dog.]{r="2"}
+
+Rate level four.
+[The quick brown fox jumps over the lazy dog.]{r="4"}
+
+Pitch level two.
+[The quick brown fox jumps over the lazy dog.]{p="2"}
+
+Pitch level four.
+[The quick brown fox jumps over the lazy dog.]{p="4"}
+</div>
+
+## Relative values
+
+<div voice="narrator">
+Volume can be changed with decibels.
+
+Six decibels louder.
+[The quick brown fox jumps over the lazy dog.]{volume="+6dB"}
+
+Three decibels quieter.
+[The quick brown fox jumps over the lazy dog.]{volume="-3dB"}
+
+Rate can use relative percentages.
+
+Twenty percent faster.
+[The quick brown fox jumps over the lazy dog.]{rate="+20%"}
+
+Ten percent slower.
+[The quick brown fox jumps over the lazy dog.]{rate="-10%"}
+
+Pitch can also use relative percentages.
+
+Ten percent higher.
+[The quick brown fox jumps over the lazy dog.]{pitch="+10%"}
+
+Ten percent lower.
+[The quick brown fox jumps over the lazy dog.]{pitch="-10%"}
+</div>
+
+## Combined inline prosody
+
+<div voice="narrator">
+Now all three controls are combined.
+
+Loud, fast, and high.
+[The quick brown fox jumps over the lazy dog.]{volume="loud" rate="fast" pitch="high"}
+
+Soft, slow, and low.
+[The quick brown fox jumps over the lazy dog.]{volume="soft" rate="slow" pitch="low"}
+</div>
+
+## Block-level prosody
+
+<div voice="narrator">
+The next paragraph applies prosody to a complete directive block.
+</div>
+
+<div voice="narrator" volume="loud" rate="slow" pitch="low">
+This whole block is loud, slow, and low pitched.
+A second sentence inherits the same prosody settings.
+</div>
+
+## Inline override inside a block
+
+<div voice="narrator" volume="soft" rate="slow" pitch="low">
+This sentence inherits soft, slow, and low settings.
+
+[This phrase overrides all three settings and becomes loud, fast, and high.]{volume="loud" rate="fast" pitch="high"}
+
+This sentence returns to the surrounding block settings.
+</div>
+
+<div voice="narrator">
+That concludes the Readio SSMD prosody showcase.
+</div>
