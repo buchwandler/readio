@@ -8,7 +8,7 @@ from readio.ssmd_authoring import (
     SSMDAuthoringError,
     build_ssmd_config,
     run_ssmd_json,
- )
+)
 
 
 def test_ssmd_authoring_config_contains_selected_provider_inventory_and_analyst():

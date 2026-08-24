@@ -83,9 +83,7 @@ def default_role_bindings(text: str, cfg: ReadioConfig) -> dict[str, dict[str, s
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
     configured = cfg.voices[provider].roles
-    defaults = {
-        role: target for role, target in configured.items() if role not in document
-    }
+    defaults = {role: target for role, target in configured.items() if role not in document}
     return {provider: defaults} if defaults else {}
 
 

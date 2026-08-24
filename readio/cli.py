@@ -127,9 +127,7 @@ def _render_audio(args: argparse.Namespace, path: Path) -> RenderSummary:
     with WaveSink(path) as sink:
         if args.live:
             return render_live(sys.stdin, cfg, sink, unit=args.unit)
-        return render_text(
-            _read_input(args, cfg), cfg, sink, selector=args.select, unit=args.unit
-        )
+        return render_text(_read_input(args, cfg), cfg, sink, selector=args.select, unit=args.unit)
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
@@ -349,7 +347,7 @@ def _cmd_template(args: argparse.Namespace) -> int:
                 status = "OK" if item["ok"] else "FAILED"
                 print(f"{item['name']}: {status}")
         return 0 if result["ok"] else 2
-    
+
     if args.template_command == "path":
         print(template_path(directory, args.name) if args.name else directory)
     elif args.template_command == "list":

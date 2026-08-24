@@ -16,8 +16,9 @@ class SelectionError(ValueError):
 
 
 def pipeline_config_for_document(
-    document: InputDocument, cfg: ReadioConfig,
- ) -> Any:
+    document: InputDocument,
+    cfg: ReadioConfig,
+) -> Any:
     from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
 
     generation = GenerationConfig(
@@ -35,7 +36,7 @@ def pipeline_config_for_document(
 
 def _build_pipeline(
     document: InputDocument, cfg: ReadioConfig | ReaderSettings
- ) -> AbstractContextManager[Any]:
+) -> AbstractContextManager[Any]:
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
 
     if isinstance(cfg, ReadioConfig):
@@ -80,7 +81,7 @@ def render_text(
     *,
     selector: str = "all",
     unit: str | None = None,
- ) -> RenderSummary:
+) -> RenderSummary:
     document = text if isinstance(text, InputDocument) else document_from_text(text)
     if not document.text.strip():
         raise ValueError("no text to read")
@@ -100,7 +101,7 @@ def render_live(
     sink: AudioSink,
     *,
     unit: str | None = None,
- ) -> RenderSummary:
+) -> RenderSummary:
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     effective_unit = unit or reader_cfg.unit
     saw_text = False
@@ -153,7 +154,7 @@ def speak_text(
     *,
     selector: str = "all",
     unit: str | None = None,
- ) -> None:
+) -> None:
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
         render_text(text, cfg, sink, selector=selector, unit=unit)
@@ -162,7 +163,7 @@ def speak_text(
 
 def speak_live(
     lines: Iterable[str], cfg: ReadioConfig | ReaderSettings, *, unit: str | None = None
- ) -> None:
+) -> None:
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
         render_live(lines, cfg, sink, unit=unit)

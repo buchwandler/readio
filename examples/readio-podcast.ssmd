@@ -1,0 +1,109 @@
+# Readio: From Written Text to Listening
+
+<div voice="host">
+Welcome to the Readio podcast. Today we are presenting Readio through a conversation with its developer. We will explore exact reading, narrated summaries, multi speaker scripts, Speech Synthesis Markdown, validation, rendering, and publishing. Readio is a local text to speech tool, but its real purpose is broader: it connects a readable source document with a controlled listening workflow. Thanks for joining us.
+</div>
+
+<div voice="guest">
+Thank you. Readio is built around a simple principle: the format of the source should match the meaning of the audio. A plain note normally needs one voice. A summary needs one clear narration. A podcast needs roles and speaker changes. Readio supports each case directly instead of forcing every kind of content through the same complicated process.
+</div>
+
+<div voice="host">
+Let us begin with the basics. What is Readio, and what problem does it solve?
+</div>
+
+<div voice="guest">
+Readio is a command line interface for local text to speech. It can speak existing text, render a WAV file, create editable ingest artifacts, and process structured SSMD documents. The problem is not only turning letters into sound. A useful tool must preserve the source, make output locations clear, validate documents before generation, and give actionable errors. Readio treats audio as the result of a document workflow, not as an opaque one shot operation.
+</div>
+
+<div voice="host">
+If I already have a Markdown file and want to hear it exactly, what should I do?
+</div>
+
+<div voice="guest">
+Run readio speak with the file path. Readio reads the requested document with the configured reader voice. You can also select a particular paragraph or the last paragraph. This is useful for reviewing notes, listening to documentation, or proofreading an article. Exact reading means exactly that: Readio does not add a summary or an introduction. The selected text remains authoritative.
+</div>
+
+<div voice="host">
+What if I want an explanation or summary instead of an exact reading?
+</div>
+
+<div voice="guest">
+That is a one voice narration task. Generated text can be sent to readio render, which creates a WAV file in the configured output directory. There is no need to wrap a simple explanation in a multi speaker document. If the narration should be kept for later editing, create an ingest artifact, write the text into it, and render that file. Readio keeps simple work simple while still supporting a durable source when needed.
+</div>
+
+<div voice="host">
+This episode has an interviewer and a developer, so we need multiple voices. How does Readio represent that structure?
+</div>
+
+<div voice="guest">
+For multiple speakers, Readio uses SSMD, or Speech Synthesis Markdown. An SSMD document can contain a title, speaker blocks, logical voice roles, discussion markers, and supported speech annotations. Each block identifies who is speaking. The source stays readable to a human editor, while Readio maps roles to voices configured for the local speech provider. This is why an explicitly requested podcast should remain an SSMD document rather than being reduced to plain text.
+</div>
+
+<div voice="host">
+Why use roles such as host and guest instead of putting a provider voice name into every paragraph?
+</div>
+
+<div voice="guest">
+Roles separate editorial meaning from provider details. A host is still a host if the preferred voice changes. The document can describe the interviewer and developer naturally, while configuration decides which available voice performs each role. Readio supports roles including narrator, host, analyst, and guest. In this episode, the interviewer uses the host role, and the Readio developer uses the guest role. That keeps the script understandable and easy to revise.
+</div>
+
+<div voice="host">
+What happens before Readio generates the audio? Does it check the SSMD source?
+</div>
+
+<div voice="guest">
+Yes. Readio performs consumer preflight for SSMD before rendering when validation is enabled. It parses the document, finds voice references, checks that every logical role resolves, and confirms that the provider can use the selected bindings. The command readio ssmd check episode.ssmd reports the result, and its JSON option supports automation. If a role is unknown, Readio reports it before model inference, so the problem can be fixed in the source.
+</div>
+
+<div voice="host">
+Can users start an episode from a template?
+</div>
+
+<div voice="guest">
+They can. Readio includes briefing, dialogue, and podcast templates. The podcast template provides an episode title, a host section, a second speaker section, a discussion marker, and a closing section. Use readio template show podcast to inspect it, or readio template use podcast to create a draft in the ingest directory. A named ingest artifact can then be edited, checked, rendered, and archived. Templates give structure without taking editorial control away from the writer.
+</div>
+
+<div voice="host">
+Tell us about rendering. What does the user receive after running the command?
+</div>
+
+<div voice="guest">
+Readio produces a WAV file. Without an explicit output path, it uses the configured output directory and prints the final location. With the option minus o followed by a path, the user chooses the destination. Explicit output is protected from accidental replacement, so replacing an existing file requires force. Automatic names also avoid overwriting earlier results. That makes repeated edits and listening tests safe while an episode is being prepared.
+</div>
+
+<div voice="host">
+Can Readio handle text from another command, or is it limited to saved files?
+</div>
+
+<div voice="guest">
+It supports both. Literal text and files can be spoken or rendered, and an incremental workflow can pipe produced text into readio speak with the live option. That is useful when another process is generating material and someone wants to hear it as it arrives. For a finished podcast, a saved SSMD file is preferable because it can be checked, edited, rendered again, and archived. Readio supports quick experiments without losing a durable workflow.
+</div>
+
+<div voice="host">
+How does publishing work? Can Readio send a completed episode to Spotify?
+</div>
+
+<div voice="guest">
+Yes, through the explicit readio spotify command and the configured save to Spotify integration. Publishing is separate from rendering. Creating a local WAV is preparation, while sending media to an external service is an external write. Readio never publishes implicitly. The user must request it and provide metadata such as the episode title. If waiting is requested, Readio can report the returned Spotify URI and readiness state. Otherwise, the audio remains local.
+</div>
+
+<div voice="host">
+What advice would you give someone preparing a first Readio episode?
+</div>
+
+<div voice="guest">
+Start with a short script and use the podcast template. Keep speaker roles clear, write sentences that sound natural aloud, and run readio ssmd check before rendering. Use readio doctor if the environment or voice configuration is uncertain. Render to a known WAV path, listen to the result, and revise the source rather than trying to repair audio by hand. Keep the local file until the episode is approved. Publish only after both the script and recording are ready.
+</div>
+
+<div voice="host">
+So Readio is more than a voice generator. It is a way to move from text to a controlled listening experience.
+</div>
+
+<div voice="guest">
+Exactly. Readio keeps plain reading simple, gives summaries a direct narration path, and uses SSMD when a document has real speech structure. It provides templates, checks role bindings before expensive work, writes predictable audio artifacts, and keeps publishing behind an explicit decision. The workflow is local, inspectable, and reusable. Whether the input is a note, a technical document, or a conversation like this one, Readio turns written content into audio without losing its structure.
+</div>
+
+<div voice="host">
+That is a good place to close. Thanks for explaining Readio and showing how this episode can be prepared with its own tools. To our listeners, start with the text, choose the right format, check the roles, and let Readio take it from there. This has been the Readio podcast. See you next time.
+</div>

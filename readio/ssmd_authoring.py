@@ -82,7 +82,9 @@ def run_ssmd_json(args: Sequence[str], *, config_path: Path) -> dict[str, Any]:
             f"(exit code {completed.returncode})"
         )
     if payload.get("ok") is not True:
-        raise SSMDAuthoringError(f"SSMD validation failed: {_error_detail(payload, completed.stderr)}")
+        raise SSMDAuthoringError(
+            f"SSMD validation failed: {_error_detail(payload, completed.stderr)}"
+        )
     return payload
 
 

@@ -1,0 +1,92 @@
+name: Test Readio
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install Readio runtime dependencies
+        run: |
+          python -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
+          python -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+      - name: Install project and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Run test suite
+        run: python -m pytest -q
+
+  quality:
+    name: Static quality checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install Readio runtime dependencies
+        run: |
+          python -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
+          python -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+      - name: Install development tools
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: Compile sources
+        run: python -m compileall -q readio
+
+  package:
+    name: Package and installed-wheel smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install build tools
+        run: python -m pip install --upgrade build twine
+      - name: Build artifacts
+        run: python -m build
+      - name: Validate artifact metadata
+        run: python -m twine check dist/*
+      - name: Installed-wheel smoke
+        shell: bash
+        run: |
+          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install dist/*.whl
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" - <<'PY'
+          import importlib.metadata
+          import importlib.resources
+          import readio
+
+          distribution_version = importlib.metadata.version("readio")
+          assert readio.__version__ == distribution_version
+          assert importlib.resources.files("readio.resources.templates").joinpath(
+              "podcast.ssmd"
+          ).is_file()
+          PY
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/readio" --version

@@ -20,4 +20,4 @@ def test_document_from_other_file_and_literals_are_plain_text(tmp_path: Path):
 
     assert document_from_file(source).format == "text"
     assert document_from_text("---\nvoice_bindings: nope\n---").format == "text"
-    assert document_from_stdin("<div voice=\"host\">Hello</div>").format == "text"
+    assert document_from_stdin('<div voice="host">Hello</div>').format == "text"

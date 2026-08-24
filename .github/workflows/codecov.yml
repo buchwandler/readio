@@ -1,0 +1,31 @@
+name: Codecov
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install Readio runtime dependencies
+        run: |
+          python -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
+          python -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+      - name: Install project and coverage tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" pytest-cov
+      - name: Generate coverage report
+        run: python -m pytest --cov=readio --cov-branch --cov-report=xml
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: buchwandler/readio
