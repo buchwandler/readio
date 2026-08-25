@@ -5,7 +5,7 @@ from readio import cli
 from readio.config import PathSettings, ReadioConfig
 
 
-def test_doctor_reports_ssmd_executable_provider_roles_and_paths(
+def test_doctor_reports_ssmd_executable_provider_roles_paths_and_audio_formats(
     monkeypatch, tmp_path: Path, capsys
 ):
     cfg = ReadioConfig(
@@ -20,6 +20,9 @@ def test_doctor_reports_ssmd_executable_provider_roles_and_paths(
     assert result["ssmd"]["voice_provider"] == "kokoro"
     assert result["voices"]["roles"]["analyst"] == "am_michael"
     assert result["paths"]["output"]["exists"] is False
+    assert set(result["audio_formats"]) == {"wav", "mp3", "m4a", "ogg"}
+    assert result["audio_formats"]["m4a"]["backend"] == "ffmpeg"
+    assert result["audio_formats"]["m4a"]["available"] is False
 
 
 def test_doctor_does_not_create_missing_directories(monkeypatch, tmp_path: Path, capsys):

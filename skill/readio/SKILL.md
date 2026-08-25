@@ -6,7 +6,7 @@ compatibility: Requires the readio command and a configured local TTS backend. S
 
 # Readio
 
-Use Readio for local text to speech. It can play speech, render a bounded memory WAV, or publish a completed WAV through `save-to-spotify`. Plain text is the default input for summaries, recaps, explanations, implementation status, reading, and one-voice narration.
+Use Readio for local text to speech. It can play speech, render bounded-memory WAV, MP3, M4A, or OGG files, or publish completed audio in any of those four formats through `save-to-spotify`. Plain text is the default input for summaries, recaps, explanations, implementation status, reading, and one-voice narration.
 
 ## Exact reading
 
@@ -86,9 +86,11 @@ When an SSMD file fails, run `readio ssmd check FILE --json`, inspect the diagno
 
 ## Destinations
 
-`readio render --file path` creates a WAV in the configured output directory when `-o` is omitted. The command prints the final path. Use `-o PATH` for an explicit destination and `--force` to replace an existing output.
+`readio render --file path` creates a WAV in the configured output directory when `-o` is omitted. Use `--format mp3`, `--format m4a`, or `--format ogg` to select another automatic suffix. An explicit `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix is sufficient to select the encoder, and explicit format/suffix combinations must agree. Extensionless output is normalized to the selected format. The command prints the final path and uses `--force` to replace an existing output.
 
-`readio spotify --file path --title "Episode title"` publishes only when the user explicitly requests publishing. Without `--output`, Readio uses and deletes a secure temporary WAV. With `--output`, it retains the requested WAV.
+`readio spotify --file path --title "Episode title"` publishes only when the user explicitly requests publishing. Spotify supports all four formats. Without `--output`, Readio uses and deletes a secure temporary file; `--format` selects its suffix. With `--output`, it retains the requested audio file. M4A requires the configured FFmpeg backend to be available.
+
+For compact Spotify uploads, prefer MP3 unless the user requests another supported format. Keep WAV when lossless PCM or exact local archival output is desired.
 
 ## Local files, templates, and diagnostics
 

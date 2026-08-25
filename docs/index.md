@@ -1,6 +1,6 @@
 # Readio documentation
 
-Readio is a terminal text-to-speech tool. It reads plain text or SSMD documents with PyKokoro, plays speech locally, renders WAV files, and can publish completed audio through `save-to-spotify`.
+Readio is a terminal text-to-speech tool. It reads plain text or SSMD documents with PyKokoro, plays speech locally, renders WAV, MP3, M4A, or OGG files, and can publish completed audio through `save-to-spotify`.
 
 ## Documentation map
 
@@ -39,13 +39,18 @@ readio speak --file notes.md
 printf '%s\n' "Read this text." | readio speak
 ```
 
-Render a WAV file instead of playing audio:
+Render an audio file instead of playing audio:
 
 ```bash
 readio render --file notes.md -o notes.wav
+readio render --file notes.md -o notes.mp3
+readio render --file notes.md --format m4a
+readio render --file notes.md --format ogg
 ```
 
-With no explicit output path, Readio writes a uniquely named WAV file below the configured output directory. Existing files are not overwritten unless `--force` is supplied for an explicit path.
+WAV is the default. An output suffix selects the encoder, while `--format` selects the automatic output suffix or can be combined with a matching explicit suffix. Extensionless output is normalized to the selected format. M4A requires an `ffmpeg` executable on `PATH`; MP3 and OGG require matching SoundFile/libsndfile codec support.
+
+With no explicit output path, Readio writes a uniquely named file below the configured output directory. Existing files are not overwritten unless `--force` is supplied for an explicit path.
 
 Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`, or `.mkd` are parsed before synthesis; use `--input-format markdown` for Markdown from stdin or literal text:
 
@@ -78,7 +83,7 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
-Playback-only options are `--queue-size` and `--device`. WAV rendering is streamed to an atomic output file through a bounded audio path rather than accumulated as one in-memory waveform.
+Playback-only options are `--queue-size` and `--device`. Audio rendering is streamed to an atomic output file through a bounded audio path rather than accumulated as one in-memory waveform.
 
 ## Configuration
 
@@ -95,7 +100,7 @@ readio config validate
 
 - `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, and `device`.
 - `[ssmd]`: the selected `voice_provider` and SSMD validation behavior.
-- `[paths]`: user template, ingest, and WAV output directories.
+- `[paths]`: user template, ingest, and audio output directories.
 - `[voices.<provider>]`: concrete voice IDs and logical role mappings.
 
 Set values with dotted keys. Aliases `voice`, `lang`, and `speed` target the corresponding reader settings:
@@ -154,7 +159,7 @@ Publishing is explicit:
 readio spotify --file episode.ssmd --title "Weekly Review" --wait
 ```
 
-The command renders a WAV and invokes `save-to-spotify --json`. Without `--output`, the WAV is temporary and is deleted after the operation. With `--output`, the requested WAV is retained. `--show-id` and `--new-show` select the destination show, while `--summary`, `--image`, and `--language` set episode metadata.
+The command renders the selected WAV, MP3, M4A, or OGG format and invokes `save-to-spotify --json`. A recognized `--output` suffix selects the format, or use `--format` for temporary output. Without `--output`, the selected-format file is temporary and deleted after the operation. With `--output`, the requested file is retained. M4A requires `ffmpeg` on `PATH`. `--show-id` and `--new-show` select the destination show, while `--summary`, `--image`, and `--language` set episode metadata.
 
 Use `--json` for a machine-readable result. `--wait` waits for readiness, and `--wait-timeout` sets the readiness timeout. `--chapters-from-markers` converts SSMD markers into a Spotify timeline and requires the episode to reach `READY`.
 
@@ -168,7 +173,7 @@ Run the offline environment check with:
 readio doctor
 ```
 
-Doctor reports configuration, configured directories, PyKokoro, SSMD, the selected provider and voices, sound dependencies, and `save-to-spotify` availability. It does not create directories, modify configuration, inspect credentials, or call the network.
+Doctor reports configuration, configured directories, PyKokoro, SSMD, the selected provider and voices, sound dependencies, per-format WAV/MP3/M4A/OGG availability, and `save-to-spotify` availability. It does not create directories, modify configuration, inspect credentials, or call the network.
 
 Run the test suite and lint checks from a development checkout:
 

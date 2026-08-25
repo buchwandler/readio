@@ -26,7 +26,16 @@ from .config import (
     with_overrides,
 )
 from .document import InputDocument, document_from_file, document_from_stdin, document_from_text
-from .errors import ReadioError
+from .errors import ReadioError, RenderError
+from .formats import (
+    SUPPORTED_AUDIO_FORMATS,
+    AudioFormat,
+    audio_format_diagnostics,
+    ensure_audio_format_available,
+    format_suffix,
+    normalize_audio_output_path,
+    resolve_audio_format,
+)
 from .ingest import list_ingest, new_ingest
 from .paths import resolve_render_output
 from .reader import SelectionError, render_live, render_text, speak_live, speak_text
@@ -49,7 +58,7 @@ from .templates import (
     show_template,
     template_path,
 )
-from .wave import WaveSink, atomic_wav_path
+from .wave import atomic_audio_path, create_audio_sink
 
 
 def _add_input_options(parser: argparse.ArgumentParser) -> None:
@@ -71,6 +80,17 @@ def _add_input_options(parser: argparse.ArgumentParser) -> None:
         "--live",
         action="store_true",
         help="consume stdin incrementally and start each paragraph when a blank line closes it",
+    )
+
+
+def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--format",
+        choices=SUPPORTED_AUDIO_FORMATS,
+        help=(
+            "audio output format; inferred from --output when possible; "
+            "default: wav"
+        ),
     )
 
 
@@ -237,6 +257,8 @@ def _cmd_speak(args: argparse.Namespace) -> int:
 def _render_audio(
     args: argparse.Namespace,
     path: Path,
+    *,
+    audio_format: AudioFormat,
     cfg: ReadioConfig | None = None,
     document: InputDocument | None = None,
     bindings: Mapping[str, str] | None = None,
@@ -245,32 +267,44 @@ def _render_audio(
     document = document or getattr(args, "_prepared_document", None)
     if bindings is None:
         bindings = getattr(args, "_prepared_bindings", None)
-    with WaveSink(path) as sink:
+    with create_audio_sink(path, audio_format) as sink:
         if args.live:
-            return render_live(sys.stdin, cfg, sink, unit=args.unit)
-        document = document or _prepared_input(args, cfg)[0]
-        return render_text(
-            document,
-            cfg,
-            sink,
-            selector=args.select,
-            unit=args.unit,
-            ssmd_voice_bindings=bindings or {},
-        )
+            summary = render_live(sys.stdin, cfg, sink, unit=args.unit)
+        else:
+            document = document or _prepared_input(args, cfg)[0]
+            summary = render_text(
+                document,
+                cfg,
+                sink,
+                selector=args.select,
+                unit=args.unit,
+                ssmd_voice_bindings=bindings or {},
+            )
+    if summary.sample_count <= 0:
+        raise RenderError("render produced no audio")
+    return summary
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
     if args.live:
         _validate_live(args)
     cfg = _resolved_config(args)
+    audio_format = resolve_audio_format(requested=args.format, output=args.output)
+    output = resolve_render_output(
+        cfg,
+        explicit=args.output,
+        input_path=args.file,
+        audio_format=audio_format,
+    )
+    output = normalize_audio_output_path(output, audio_format)
+    ensure_audio_format_available(audio_format)
     prepared = None if args.live else _prepared_input(args, cfg)
-    output = resolve_render_output(cfg, explicit=args.output, input_path=args.file)
     output.parent.mkdir(parents=True, exist_ok=True)
     args._prepared_cfg = cfg
     if prepared:
         args._prepared_document, args._prepared_bindings = prepared
-    with atomic_wav_path(output, force=args.force) as temporary:
-        _render_audio(args, temporary)
+    with atomic_audio_path(output, force=args.force) as temporary:
+        _render_audio(args, temporary, audio_format=audio_format)
     print(output)
     return 0
 
@@ -281,6 +315,8 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
     if args.live:
         _validate_live(args)
     cfg = _resolved_config(args)
+    audio_format = resolve_audio_format(requested=args.format, output=args.output)
+    ensure_audio_format_available(audio_format)
     prepared = None if args.live else _prepared_input(args, cfg)
     args._prepared_cfg = cfg
     if prepared:
@@ -289,20 +325,20 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
 
     temporary: Path | None = None
     if args.output is None:
-        fd, name = tempfile.mkstemp(prefix="readio-", suffix=".wav")
+        fd, name = tempfile.mkstemp(prefix="readio-", suffix=format_suffix(audio_format))
         os.close(fd)
         temporary = Path(name)
         audio_path = temporary
     else:
-        audio_path = args.output.expanduser()
+        audio_path = normalize_audio_output_path(args.output.expanduser(), audio_format)
 
     try:
         if args.output is None:
-            summary = _render_audio(args, audio_path)
+            summary = _render_audio(args, audio_path, audio_format=audio_format)
         else:
             audio_path.parent.mkdir(parents=True, exist_ok=True)
-            with atomic_wav_path(audio_path, force=args.force) as target:
-                summary = _render_audio(args, target)
+            with atomic_audio_path(audio_path, force=args.force) as target:
+                summary = _render_audio(args, target, audio_format=audio_format)
         timeline = (
             build_timeline(summary.markers, summary.sample_rate)
             if args.chapters_from_markers
@@ -339,7 +375,8 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
             "episode_uri": uploaded.episode_uri,
             "upload_status": uploaded.status,
             "readiness": readiness.readiness if readiness is not None else None,
-            "audio_path": str(args.output) if args.output is not None else None,
+            "audio_path": str(audio_path) if args.output is not None else None,
+            "audio_format": audio_format,
         }
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
@@ -698,6 +735,7 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
         },
         "sounddevice": sounddevice_check,
         "soundfile": soundfile_check,
+        "audio_formats": audio_format_diagnostics(),
         "save-to-spotify": shutil.which("save-to-spotify") or "not found",
         "templates": {"count": len(template_names), "names": template_names},
     }
@@ -715,15 +753,22 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_options(speak)
     speak.set_defaults(func=_cmd_speak)
 
-    render = sub.add_parser("render", help="render text to a WAV file")
+    render = sub.add_parser("render", help="render text to an audio file")
     _add_input_options(render)
-    render.add_argument("-o", "--output", type=Path, help="output WAV path")
+    _add_audio_output_options(render)
+    render.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="output audio path (.wav, .mp3, .m4a, or .ogg)",
+    )
     render.add_argument("--force", action="store_true", help="replace an existing output")
     _add_runtime_options(render, playback=False)
     render.set_defaults(func=_cmd_render)
 
     spotify = sub.add_parser("spotify", help="render and publish speech through save-to-spotify")
     _add_input_options(spotify)
+    _add_audio_output_options(spotify)
     spotify.add_argument("--title", required=True, help="episode title")
     show = spotify.add_mutually_exclusive_group()
     show.add_argument("--show-id", help="Spotify show ID or URI")
@@ -733,7 +778,11 @@ def build_parser() -> argparse.ArgumentParser:
     spotify.add_argument("--language")
     spotify.add_argument("--wait", action="store_true", help="wait for Spotify readiness")
     spotify.add_argument("--wait-timeout", help="readiness timeout, for example 2m")
-    spotify.add_argument("--output", type=Path, help="keep the generated WAV at this path")
+    spotify.add_argument(
+        "--output",
+        type=Path,
+        help="keep the generated audio at this path (.wav, .mp3, .m4a, or .ogg)",
+    )
     spotify.add_argument("--force", action="store_true", help="replace an existing output")
     spotify.add_argument("--json", action="store_true", help="emit one JSON result object")
     spotify.add_argument(

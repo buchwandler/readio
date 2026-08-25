@@ -1,6 +1,6 @@
 # readio
 
-`readio` is a terminal text to speech tool. It plays local speech with PyKokoro, renders bounded memory WAV files, and publishes completed audio through the external `save-to-spotify` CLI.
+`readio` is a terminal text to speech tool. It plays local speech with PyKokoro, renders bounded memory WAV, MP3, M4A, or OGG files, and publishes completed audio through the external `save-to-spotify` CLI.
 
 ## Install
 
@@ -92,17 +92,21 @@ readio ingest list
 
 Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`. Explicit names are relative to the ingest directory and path traversal is rejected.
 
-## Automatic WAV output
+## Multi-format audio output
 
-The output path is optional:
+The output path is optional and WAV remains the default:
 
 ```bash
 readio render "Hello from a file."
-readio render --file "$draft"
 readio render --file "$draft" -o episode.wav
+readio render "Hello" -o episode.mp3
+readio render --file episode.ssmd --format m4a
+readio render "Hello" --format ogg
 ```
 
-Without `-o`, Readio uses the configured output directory. Generated ingest files retain their artifact stem in the WAV name. Other input files receive a new artifact suffix, and literal text uses the `readio` prefix. Automatic names never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
+When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the encoder. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
+
+M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 and OGG use the installed SoundFile/libsndfile codecs.
 
 ## SSMD consumption and authoring checks
 
@@ -121,10 +125,11 @@ readio ssmd check episode.ssmd --roundtrip
 ## Spotify publishing
 
 ```bash
-readio spotify --file "$draft" --title "Weekly Review" --wait
+readio spotify --file "$draft" --title "Weekly Review" --format mp3
+readio spotify --file episode.ssmd --title "Episode" --output episode.m4a
 ```
 
-Publishing is explicit. Without `--output`, Readio renders to a secure temporary WAV and deletes it after upload or failure. With `--output`, it retains and uploads that file. Readio invokes `save-to-spotify --json` and does not inspect credentials or perform authentication.
+Spotify accepts the same four formats as `render`. A recognized `--output` suffix selects the format, or use `--format` when creating a temporary upload. Without `--output`, Readio renders a secure temporary file with the selected suffix and deletes it after upload or failure. With `--output`, it retains and uploads that file. M4A output requires `ffmpeg` on `PATH`. Readio invokes `save-to-spotify --json` and does not inspect credentials or perform authentication.
 
 ## Doctor
 

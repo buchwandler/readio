@@ -10,6 +10,7 @@ from platformdirs import user_config_path, user_data_path
 
 if TYPE_CHECKING:
     from .config import ReadioConfig
+    from .formats import AudioFormat
 
 
 def default_config_path() -> Path:
@@ -57,7 +58,11 @@ def automatic_ingest_name(*, template: str | None = None, suffix: str = ".txt") 
     return f"{prefix}-{make_artifact_id()}{suffix}"
 
 
-def automatic_render_name(input_path: Path | None = None) -> str:
+def automatic_render_name(
+    input_path: Path | None = None,
+    *,
+    suffix: str = ".wav",
+) -> str:
     if input_path is not None:
         stem = input_path.stem
         if re.search(r"-\d{8}T\d{6}Z-[0-9a-f]{8}$", stem):
@@ -66,7 +71,7 @@ def automatic_render_name(input_path: Path | None = None) -> str:
             prefix = f"{stem}-{make_artifact_id()}"
     else:
         prefix = f"readio-{make_artifact_id()}"
-    return f"{prefix}.wav"
+    return f"{prefix}{suffix}"
 
 
 def resolve_render_output(
@@ -74,14 +79,16 @@ def resolve_render_output(
     *,
     explicit: Path | None,
     input_path: Path | None,
+    audio_format: AudioFormat = "wav",
 ) -> Path:
     if explicit is not None:
         return explicit.expanduser()
     directory = cfg.paths.output.expanduser()
-    candidate = directory / automatic_render_name(input_path)
+    suffix = f".{audio_format}"
+    candidate = directory / automatic_render_name(input_path, suffix=suffix)
     while candidate.exists():
         if input_path is not None and re.search(r"-\d{8}T\d{6}Z-[0-9a-f]{8}$", input_path.stem):
-            candidate = directory / f"{input_path.stem}-{make_artifact_id()}.wav"
+            candidate = directory / f"{input_path.stem}-{make_artifact_id()}{suffix}"
         else:
-            candidate = directory / automatic_render_name(input_path)
+            candidate = directory / automatic_render_name(input_path, suffix=suffix)
     return candidate

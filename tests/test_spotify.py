@@ -107,3 +107,22 @@ def test_missing_executable_is_actionable(monkeypatch):
     monkeypatch.setattr(spotify.shutil, "which", lambda name: None)
     with pytest.raises(spotify.SpotifyError, match="not found on PATH"):
         spotify.upload_episode(Path("episode.wav"), title="Episode")
+
+
+def test_upload_accepts_non_wav_media_path(monkeypatch, tmp_path: Path):
+    calls = []
+    monkeypatch.setattr(spotify.shutil, "which", lambda name: "/bin/save-to-spotify")
+    monkeypatch.setattr(
+        spotify.subprocess,
+        "run",
+        lambda command, **kwargs: (
+            calls.append(command)
+            or completed({"episode_uri": "spotify:episode:2", "status": "UPLOADING"})
+        ),
+    )
+
+    path = tmp_path / "episode.mp3"
+    result = spotify.upload_episode(path, title="Episode")
+
+    assert result.episode_uri == "spotify:episode:2"
+    assert str(path) in calls[0]

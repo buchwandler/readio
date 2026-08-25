@@ -4,14 +4,17 @@ from pathlib import Path
 import pytest
 
 from readio import cli
+from readio.audio import RenderSummary
 from readio.spotify import SpotifyReadinessResult, SpotifyUploadResult
 
 
-def test_spotify_cleans_temporary_audio_after_upload(monkeypatch, tmp_path: Path):
+def test_spotify_cleans_temporary_audio_after_upload(monkeypatch):
     uploaded_paths = []
 
-    def render(args, path):
-        path.write_bytes(b"wav")
+    def render(args, path, *, audio_format):
+        assert audio_format == "mp3"
+        assert path.suffix == ".mp3"
+        path.write_bytes(b"mp3")
 
     def upload(path, **kwargs):
         assert path.exists()
@@ -20,10 +23,13 @@ def test_spotify_cleans_temporary_audio_after_upload(monkeypatch, tmp_path: Path
 
     monkeypatch.setattr(cli, "_render_audio", render)
     monkeypatch.setattr(cli, "upload_episode", upload)
-    args = cli.build_parser().parse_args(["spotify", "text", "--title", "Episode"])
+    args = cli.build_parser().parse_args(
+        ["spotify", "text", "--title", "Episode", "--format", "mp3"]
+    )
 
     assert cli._cmd_spotify(args) == 0
     assert len(uploaded_paths) == 1
+    assert uploaded_paths[0].suffix == ".mp3"
     assert not uploaded_paths[0].exists()
 
 
@@ -31,7 +37,11 @@ def test_spotify_keeps_persistent_audio_and_waits(monkeypatch, tmp_path: Path):
     output = tmp_path / "episode.wav"
     calls = []
 
-    monkeypatch.setattr(cli, "_render_audio", lambda args, path: path.write_bytes(b"wav"))
+    monkeypatch.setattr(
+        cli,
+        "_render_audio",
+        lambda args, path, *, audio_format: path.write_bytes(b"wav"),
+    )
 
     def upload(path, **kwargs):
         assert path == output
@@ -63,8 +73,33 @@ def test_spotify_keeps_persistent_audio_and_waits(monkeypatch, tmp_path: Path):
     assert calls == [("spotify:episode:1", "2m")]
 
 
+def test_spotify_persistent_output_infers_format(monkeypatch, tmp_path: Path):
+    output = tmp_path / "episode.ogg"
+    rendered = []
+    monkeypatch.setattr(
+        cli,
+        "_render_audio",
+        lambda args, path, *, audio_format: (
+            rendered.append((path, audio_format)) or path.write_bytes(b"ogg")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "upload_episode",
+        lambda path, **kwargs: SpotifyUploadResult("spotify:episode:1", "UPLOADING"),
+    )
+    args = cli.build_parser().parse_args(
+        ["spotify", "text", "--title", "Episode", "--output", str(output)]
+    )
+
+    assert cli._cmd_spotify(args) == 0
+    assert rendered[0][1] == "ogg"
+    assert rendered[0][0].suffix == ".ogg"
+    assert output.read_bytes() == b"ogg"
+
+
 def test_spotify_does_not_upload_when_render_fails(monkeypatch):
-    def render_failure(args, path):
+    def render_failure(args, path, *, audio_format):
         raise RuntimeError("render failed")
 
     monkeypatch.setattr(cli, "_render_audio", render_failure)
@@ -76,9 +111,7 @@ def test_spotify_does_not_upload_when_render_fails(monkeypatch):
 
 
 def test_marker_chapters_wait_and_set_timeline(monkeypatch, capsys):
-    from readio.audio import RenderSummary
-
-    def render(args, path):
+    def render(args, path, *, audio_format):
         path.write_bytes(b"wav")
         return RenderSummary(
             sample_rate=24000,
@@ -124,4 +157,6 @@ def test_marker_chapters_wait_and_set_timeline(monkeypatch, capsys):
             },
         )
     ]
-    assert json.loads(capsys.readouterr().out)["readiness"] == "READY"
+    result = json.loads(capsys.readouterr().out)
+    assert result["readiness"] == "READY"
+    assert result["audio_format"] == "wav"
