@@ -1,0 +1,190 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.1.2
+git_base_ref: v0.1.1
+git_base_sha: 55e9f4f43d4ede3011efa1e1be0d5a5d9a1a424e
+git_head_ref: HEAD
+git_head_sha: 5548ba4fb6abe8e290cd4464c83129b801c1eb05
+git_range: 55e9f4f43d4ede3011efa1e1be0d5a5d9a1a424e..5548ba4fb6abe8e290cd4464c83129b801c1eb05
+commit_count: 4
+rows:
+  - sha: 2319e72dbe0e7e478abb8b778d91ab2b0a6edf39
+    source_ref: git:2319e72dbe0e7e478abb8b778d91ab2b0a6edf39
+    short_sha: 2319e72
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/config.py
+      - readio/errors.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - skill/readio/SKILL.md
+      - tests/fixtures/architecture-review.ssmd
+      - tests/test_voice_resolution_workflow.py
+      - tests/test_voices_cli.py
+    stats:
+      files_changed: 0
+      insertions: 794
+      deletions: 44
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/config.py
+      - readio/errors.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - skill/readio/SKILL.md
+      - tests/fixtures/architecture-review.ssmd
+      - tests/test_voice_resolution_workflow.py
+      - tests/test_voices_cli.py
+    observed_behavior:
+      Added persistent and per-invocation SSMD voice binding workflows,
+      voice listing and role management commands, interactive resolution, and structured
+      diagnostics for unresolved references.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: voice binding"
+    target_entry_key: voice-bindings
+    target_entry_id: entry-0001
+    notes: Covered by the SSMD voice binding and resolution entry.
+  - sha: 5abdf2dc6e68fd2fd95f132dcbee7879029b4395
+    source_ref: git:5abdf2dc6e68fd2fd95f132dcbee7879029b4395
+    short_sha: 5abdf2d
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/formats.py
+      - readio/paths.py
+      - readio/wave.py
+      - skill/readio/SKILL.md
+      - tests/test_audio_formats.py
+      - tests/test_cli.py
+      - tests/test_doctor.py
+      - tests/test_ffmpeg_sink.py
+      - tests/test_paths.py
+      - tests/test_spotify.py
+      - tests/test_spotify_lifecycle.py
+      - tests/test_wave.py
+    stats:
+      files_changed: 0
+      insertions: 835
+      deletions: 96
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/formats.py
+      - readio/paths.py
+      - readio/wave.py
+      - skill/readio/SKILL.md
+      - tests/test_audio_formats.py
+      - tests/test_cli.py
+      - tests/test_doctor.py
+      - tests/test_ffmpeg_sink.py
+      - tests/test_paths.py
+      - tests/test_spotify.py
+      - tests/test_spotify_lifecycle.py
+      - tests/test_wave.py
+    observed_behavior:
+      Added MP3, M4A, and OGG render and Spotify output support with
+      format inference, extension normalization, backend availability checks, and atomic
+      output handling.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: add mp3 and mp4 output"
+    target_entry_key: audio-formats
+    target_entry_id: entry-0002
+    notes: Covered by the multi-format audio output entry.
+  - sha: 48a08e01fe6b5f5ff06223306f4e7ab624970865
+    source_ref: git:48a08e01fe6b5f5ff06223306f4e7ab624970865
+    short_sha: 48a08e0
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - readio/audio.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/errors.py
+      - readio/formats.py
+      - readio/progress.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - tests/test_audio.py
+      - tests/test_audio_formats.py
+      - tests/test_cli.py
+      - tests/test_ffmpeg_sink.py
+      - tests/test_paths.py
+      - tests/test_progress.py
+      - tests/test_reader_markdown.py
+      - tests/test_spotify_lifecycle.py
+      - tests/test_voices_cli.py
+    stats:
+      files_changed: 0
+      insertions: 717
+      deletions: 81
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/index.md
+      - readio/audio.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/errors.py
+      - readio/formats.py
+      - readio/progress.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/ssmd_authoring.py
+      - tests/test_audio.py
+      - tests/test_audio_formats.py
+      - tests/test_cli.py
+      - tests/test_ffmpeg_sink.py
+      - tests/test_paths.py
+      - tests/test_progress.py
+      - tests/test_reader_markdown.py
+      - tests/test_spotify_lifecycle.py
+      - tests/test_voices_cli.py
+    observed_behavior:
+      Added opt-in or interactive-terminal progress reporting for rendering
+      and Spotify workflows, including phases, elapsed time, audio duration, percentage
+      or live-unit updates, and JSON-safe stderr behavior.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: progress render"
+    target_entry_key: render-progress
+    target_entry_id: entry-0003
+    notes: Covered by the rendering progress entry.
+  - sha: 5548ba4fb6abe8e290cd4464c83129b801c1eb05
+    source_ref: git:5548ba4fb6abe8e290cd4464c83129b801c1eb05
+    short_sha: 5548ba4
+    changed_paths:
+      - pyproject.toml
+      - readio/progress.py
+    stats:
+      files_changed: 0
+      insertions: 4
+      deletions: 1
+    inspected: true
+    inspected_paths:
+      - pyproject.toml
+      - readio/progress.py
+    observed_behavior:
+      Declared typing_extensions as an install dependency required
+      by the progress implementation.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "fix: add typing extensions"
+    target_entry_key: typing-extensions
+    target_entry_id: entry-0004
+    notes: Covered by the dependency fix entry.
