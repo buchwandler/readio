@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Self, TextIO
+from typing import TextIO
+
+from typing_extensions import Self
 
 from .audio import RenderProgress, RenderSummary
 
