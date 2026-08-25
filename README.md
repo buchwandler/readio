@@ -104,6 +104,17 @@ readio render --file episode.ssmd --format m4a
 readio render "Hello" --format ogg
 ```
 
+## Render progress
+
+`render` and `spotify` report low-noise rendering progress on stderr when stderr is an interactive terminal:
+
+```bash
+readio render --file episode.ssmd -o episode.mp3 --progress
+readio render --file episode.ssmd -o episode.mp3 --no-progress
+readio spotify --file episode.ssmd --title "Episode" --json
+```
+
+Progress includes the current phase, completed units, elapsed time, approximate ETA for bounded renders, generated audio duration, and finalization. Live renders show cumulative units without a percentage or ETA. The default is automatic TTY behavior; use `--progress` to force log-friendly updates when stderr is redirected, or `--no-progress` to suppress them. Progress never changes the render path printed on stdout or the single JSON result printed by `spotify --json`.
 When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the encoder. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
 
 M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 and OGG use the installed SoundFile/libsndfile codecs.

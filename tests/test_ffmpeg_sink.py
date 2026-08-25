@@ -107,9 +107,10 @@ def test_ffmpeg_sink_does_not_mask_render_exception(monkeypatch, tmp_path: Path)
         return process
 
     monkeypatch.setattr("readio.wave.subprocess.Popen", popen)
-    with pytest.raises(ValueError, match="render failed"), FFmpegM4ASink(
-        tmp_path / "episode.m4a", executable="ffmpeg"
-    ) as sink:
+    with (
+        pytest.raises(ValueError, match="render failed"),
+        FFmpegM4ASink(tmp_path / "episode.m4a", executable="ffmpeg") as sink,
+    ):
         sink.write(np.zeros(2), 24000)
         raise ValueError("render failed")
     assert processes[0].terminated

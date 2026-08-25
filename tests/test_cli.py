@@ -86,3 +86,84 @@ def test_render_rejects_format_conflict_before_input_preparation(monkeypatch, tm
     )
     with pytest.raises(ValueError, match="conflicts with output extension"):
         cli._cmd_render(args)
+
+
+def test_render_progress_flags_and_defaults():
+    parser = build_parser()
+    assert parser.parse_args(["render", "text"]).progress is None
+    assert parser.parse_args(["render", "text", "--progress"]).progress is True
+    assert parser.parse_args(["render", "text", "--no-progress"]).progress is False
+    assert parser.parse_args(["spotify", "text", "--title", "Episode"]).progress is None
+
+
+def test_progress_enablement_respects_tty_and_json():
+    class Stream:
+        def __init__(self, tty: bool):
+            self.tty = tty
+
+        def isatty(self) -> bool:
+            return self.tty
+
+    auto = build_parser().parse_args(["render", "text"])
+    assert cli.progress_enabled(auto, Stream(True))
+    assert not cli.progress_enabled(auto, Stream(False))
+
+    json_args = build_parser().parse_args(["spotify", "text", "--title", "Episode", "--json"])
+    assert not cli.progress_enabled(json_args, Stream(True))
+    explicit = build_parser().parse_args(
+        ["spotify", "text", "--title", "Episode", "--json", "--progress"]
+    )
+    assert cli.progress_enabled(explicit, Stream(False))
+
+
+def test_forced_render_progress_uses_stderr_and_keeps_path_on_stdout(
+    monkeypatch, capsys, tmp_path: Path
+):
+    cfg = ReadioConfig(
+        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
+    )
+    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    monkeypatch.setattr(
+        cli,
+        "_prepared_input",
+        lambda args, cfg: (InputDocument("text", None, "text"), {}),
+    )
+
+    def render(args, path, *, audio_format, **kwargs):
+        path.write_bytes(b"wav")
+        if "on_phase" in kwargs:
+            kwargs["on_phase"]("Finalizing WAV")
+        return cli.RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
+
+    monkeypatch.setattr(cli, "_render_audio", render)
+    output = tmp_path / "episode.wav"
+    args = build_parser().parse_args(["render", "text", "--progress", "-o", str(output)])
+
+    assert cli._cmd_render(args) == 0
+    captured = capsys.readouterr()
+    assert captured.out == f"{output}\n"
+    assert "Preparing" in captured.err
+    assert "Finalizing" in captured.err
+    assert "Rendered 0 units" in captured.err
+
+
+def test_no_progress_suppresses_render_status(monkeypatch, capsys, tmp_path: Path):
+    cfg = ReadioConfig(
+        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
+    )
+    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    monkeypatch.setattr(
+        cli,
+        "_prepared_input",
+        lambda args, cfg: (InputDocument("text", None, "text"), {}),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_render_audio",
+        lambda args, path, *, audio_format: path.write_bytes(b"wav"),
+    )
+    output = tmp_path / "episode.wav"
+    args = build_parser().parse_args(["render", "text", "--no-progress", "-o", str(output)])
+
+    assert cli._cmd_render(args) == 0
+    assert capsys.readouterr().err == ""

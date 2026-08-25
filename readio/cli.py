@@ -6,11 +6,11 @@ import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from . import __version__
-from .audio import RenderSummary
+from .audio import RenderProgressCallback, RenderSummary
 from .config import (
     ReadioConfig,
     bind_voice_role,
@@ -38,6 +38,7 @@ from .formats import (
 )
 from .ingest import list_ingest, new_ingest
 from .paths import resolve_render_output
+from .progress import TerminalProgress
 from .reader import SelectionError, render_live, render_text, speak_live, speak_text
 from .spotify import (
     SpotifyError,
@@ -87,10 +88,7 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--format",
         choices=SUPPORTED_AUDIO_FORMATS,
-        help=(
-            "audio output format; inferred from --output when possible; "
-            "default: wav"
-        ),
+        help=("audio output format; inferred from --output when possible; default: wav"),
     )
 
 
@@ -137,6 +135,50 @@ def _add_runtime_options(parser: argparse.ArgumentParser, *, playback: bool = Tr
     if playback:
         parser.add_argument("--queue-size", type=int, help="audio queue depth")
         parser.add_argument("--device", help="sounddevice output device name or id")
+
+
+def _add_progress_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--progress",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "show rendering progress on stderr; enabled automatically on an "
+            "interactive terminal, use --no-progress to disable"
+        ),
+    )
+
+
+def progress_enabled(args: argparse.Namespace, stream: object = sys.stderr) -> bool:
+    explicit = getattr(args, "progress", None)
+    if explicit is not None:
+        return explicit
+    if getattr(args, "json", False):
+        return False
+    return bool(stream.isatty())  # type: ignore[attr-defined]
+
+
+def _build_progress(args: argparse.Namespace) -> TerminalProgress:
+    stream = sys.stderr
+    tty = bool(stream.isatty())
+    return TerminalProgress(
+        stream=stream,
+        enabled=progress_enabled(args, stream),
+        tty=tty,
+    )
+
+
+def _progress_kwargs(progress: TerminalProgress) -> dict[str, object]:
+    if not progress.enabled:
+        return {}
+    return {"on_progress": progress.update, "on_phase": progress.phase}
+
+
+def _progress_source_label(args: argparse.Namespace) -> str:
+    if getattr(args, "file", None) is not None:
+        return str(args.file)
+    return "live input" if getattr(args, "live", False) else "input"
+
 
 def _resolved_config(args: argparse.Namespace) -> ReadioConfig:
     return with_overrides(
@@ -262,6 +304,8 @@ def _render_audio(
     cfg: ReadioConfig | None = None,
     document: InputDocument | None = None,
     bindings: Mapping[str, str] | None = None,
+    on_progress: RenderProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
 ) -> RenderSummary:
     cfg = cfg or getattr(args, "_prepared_cfg", None) or _resolved_config(args)
     document = document or getattr(args, "_prepared_document", None)
@@ -269,7 +313,13 @@ def _render_audio(
         bindings = getattr(args, "_prepared_bindings", None)
     with create_audio_sink(path, audio_format) as sink:
         if args.live:
-            summary = render_live(sys.stdin, cfg, sink, unit=args.unit)
+            summary = render_live(
+                sys.stdin,
+                cfg,
+                sink,
+                unit=args.unit,
+                on_progress=on_progress,
+            )
         else:
             document = document or _prepared_input(args, cfg)[0]
             summary = render_text(
@@ -279,7 +329,10 @@ def _render_audio(
                 selector=args.select,
                 unit=args.unit,
                 ssmd_voice_bindings=bindings or {},
+                on_progress=on_progress,
             )
+        if on_phase is not None:
+            on_phase(f"Finalizing {audio_format.upper()}")
     if summary.sample_count <= 0:
         raise RenderError("render produced no audio")
     return summary
@@ -298,13 +351,24 @@ def _cmd_render(args: argparse.Namespace) -> int:
     )
     output = normalize_audio_output_path(output, audio_format)
     ensure_audio_format_available(audio_format)
-    prepared = None if args.live else _prepared_input(args, cfg)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    args._prepared_cfg = cfg
-    if prepared:
-        args._prepared_document, args._prepared_bindings = prepared
-    with atomic_audio_path(output, force=args.force) as temporary:
-        _render_audio(args, temporary, audio_format=audio_format)
+    progress = _build_progress(args)
+    with progress:
+        progress.phase("Preparing", _progress_source_label(args))
+        prepared = None if args.live else _prepared_input(args, cfg)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        args._prepared_cfg = cfg
+        if prepared:
+            args._prepared_document, args._prepared_bindings = prepared
+        progress.phase("Loading TTS")
+        progress_kwargs = _progress_kwargs(progress)
+        with atomic_audio_path(output, force=args.force) as temporary:
+            summary = _render_audio(
+                args,
+                temporary,
+                audio_format=audio_format,
+                **progress_kwargs,
+            )
+        progress.complete(summary)
     print(output)
     return 0
 
@@ -317,33 +381,48 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     audio_format = resolve_audio_format(requested=args.format, output=args.output)
     ensure_audio_format_available(audio_format)
-    prepared = None if args.live else _prepared_input(args, cfg)
-    args._prepared_cfg = cfg
-    if prepared:
-        args._prepared_document, args._prepared_bindings = prepared
-
-
-    temporary: Path | None = None
-    if args.output is None:
-        fd, name = tempfile.mkstemp(prefix="readio-", suffix=format_suffix(audio_format))
-        os.close(fd)
-        temporary = Path(name)
-        audio_path = temporary
-    else:
-        audio_path = normalize_audio_output_path(args.output.expanduser(), audio_format)
-
+    progress = _build_progress(args)
+    progress.__enter__()
     try:
+        progress.phase("Preparing", _progress_source_label(args))
+        prepared = None if args.live else _prepared_input(args, cfg)
+        args._prepared_cfg = cfg
+        if prepared:
+            args._prepared_document, args._prepared_bindings = prepared
+
+        temporary: Path | None = None
         if args.output is None:
-            summary = _render_audio(args, audio_path, audio_format=audio_format)
+            fd, name = tempfile.mkstemp(prefix="readio-", suffix=format_suffix(audio_format))
+            os.close(fd)
+            temporary = Path(name)
+            audio_path = temporary
+        else:
+            audio_path = normalize_audio_output_path(args.output.expanduser(), audio_format)
+
+        progress.phase("Loading TTS")
+        if args.output is None:
+            summary = _render_audio(
+                args,
+                audio_path,
+                audio_format=audio_format,
+                **_progress_kwargs(progress),
+            )
         else:
             audio_path.parent.mkdir(parents=True, exist_ok=True)
             with atomic_audio_path(audio_path, force=args.force) as target:
-                summary = _render_audio(args, target, audio_format=audio_format)
+                summary = _render_audio(
+                    args,
+                    target,
+                    audio_format=audio_format,
+                    **_progress_kwargs(progress),
+                )
+        progress.complete(summary)
         timeline = (
             build_timeline(summary.markers, summary.sample_rate)
             if args.chapters_from_markers
             else None
         )
+        progress.phase("Uploading")
         uploaded = upload_episode(
             audio_path,
             title=args.title,
@@ -355,10 +434,12 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
         )
         readiness = None
         if args.wait or args.chapters_from_markers:
+            progress.phase("Waiting for Spotify readiness")
             readiness = wait_for_episode(uploaded.episode_uri, timeout=args.wait_timeout)
         if timeline is not None:
             if readiness is None or readiness.readiness != "READY":
                 raise SpotifyError("episode is not READY; cannot set chapter timeline")
+            progress.phase("Publishing chapters")
             timeline_path: Path | None = None
             try:
                 with tempfile.NamedTemporaryFile(
@@ -386,6 +467,7 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
                 print(readiness.readiness)
         return 0
     finally:
+        progress.close()
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
@@ -481,7 +563,7 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     if args.voices_command == "list":
         reverse = provider_role_map(cfg, provider)
         voices = [
-            {"id": voice, "roles": list(reverse.get(voice, ())) }
+            {"id": voice, "roles": list(reverse.get(voice, ()))}
             for voice in provider_voices(cfg, provider)
         ]
         result = {"ok": True, "provider": provider, "voices": voices}
@@ -508,7 +590,13 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     if args.voices_command == "bind":
         updated = bind_voice_role(cfg, args.role, args.voice_id, provider)
         path = save_config(updated)
-        result = {"ok": True, "provider": provider, "role": args.role, "voice": args.voice_id, "path": path}
+        result = {
+            "ok": True,
+            "provider": provider,
+            "role": args.role,
+            "voice": args.voice_id,
+            "path": path,
+        }
         if args.json:
             print(json.dumps(_json_value(result), ensure_ascii=False))
         else:
@@ -764,6 +852,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render.add_argument("--force", action="store_true", help="replace an existing output")
     _add_runtime_options(render, playback=False)
+    _add_progress_option(render)
     render.set_defaults(func=_cmd_render)
 
     spotify = sub.add_parser("spotify", help="render and publish speech through save-to-spotify")
@@ -791,6 +880,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="publish SSMD markers as Spotify chapters",
     )
     _add_runtime_options(spotify, playback=False)
+    _add_progress_option(spotify)
     spotify.set_defaults(func=_cmd_spotify)
 
     voices = sub.add_parser("voices", help="discover and manage SSMD voices")

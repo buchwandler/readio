@@ -401,9 +401,7 @@ def voice_role(cfg: ReadioConfig, role: str, provider: str | None = None) -> str
         raise ValueError(f"voice role {role!r} is not configured for provider {name!r}") from exc
 
 
-def provider_role_map(
-    cfg: ReadioConfig, provider: str | None = None
-) -> dict[str, tuple[str, ...]]:
+def provider_role_map(cfg: ReadioConfig, provider: str | None = None) -> dict[str, tuple[str, ...]]:
     """Return configured logical roles grouped by concrete voice ID."""
     name = provider or cfg.ssmd.voice_provider
     settings = cfg.voices.get(name)

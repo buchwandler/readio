@@ -24,12 +24,14 @@ def test_render_output_names(tmp_path: Path):
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
     )
     ingest = tmp_path / "ingest" / "podcast-20260824T111423Z-5f8ab31c.ssmd"
-    assert resolve_render_output(cfg, explicit=None, input_path=ingest).name == ingest.with_suffix(
-        ".wav"
-    ).name
-    assert resolve_render_output(
-        cfg, explicit=None, input_path=ingest, audio_format="mp3"
-    ).name == ingest.with_suffix(".mp3").name
+    assert (
+        resolve_render_output(cfg, explicit=None, input_path=ingest).name
+        == ingest.with_suffix(".wav").name
+    )
+    assert (
+        resolve_render_output(cfg, explicit=None, input_path=ingest, audio_format="mp3").name
+        == ingest.with_suffix(".mp3").name
+    )
     arbitrary = tmp_path / "meeting-notes.md"
     assert automatic_render_name(arbitrary).startswith("meeting-notes-")
     assert automatic_render_name(arbitrary, suffix=".m4a").endswith(".m4a")
@@ -44,6 +46,6 @@ def test_render_output_collision_allocates_new_name(tmp_path: Path, monkeypatch)
     values = iter(("20260824T111423Z-aaaaaaaa", "20260824T111423Z-bbbbbbbb"))
     monkeypatch.setattr("readio.paths.make_artifact_id", lambda: next(values))
     cfg = ReadioConfig(paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", output))
-    assert resolve_render_output(cfg, explicit=None, input_path=source, audio_format="ogg").name.endswith(
-        "-aaaaaaaa.ogg"
-    )
+    assert resolve_render_output(
+        cfg, explicit=None, input_path=source, audio_format="ogg"
+    ).name.endswith("-aaaaaaaa.ogg")

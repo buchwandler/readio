@@ -142,7 +142,9 @@ def materialize_voice_bindings(
         raise SSMDAuthoringError("at least one --voice-bind value is required")
     if in_place and output is not None and output.expanduser() != source:
         raise SSMDAuthoringError("--in-place cannot be combined with a different output path")
-    target = source if in_place else (output or source.with_name(f"{source.stem}.bound{source.suffix}"))
+    target = (
+        source if in_place else (output or source.with_name(f"{source.stem}.bound{source.suffix}"))
+    )
     target = target.expanduser()
     if target == source and not in_place:
         raise SSMDAuthoringError("refusing to overwrite the SSMD source; use --in-place explicitly")

@@ -36,24 +36,25 @@ def test_voices_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     cfg = config(tmp_path)
     saved = []
     monkeypatch.setattr(cli, "load_config", lambda: cfg)
-    monkeypatch.setattr(cli, "save_config", lambda updated: saved.append(updated) or Path("config.toml"))
+    monkeypatch.setattr(
+        cli, "save_config", lambda updated: saved.append(updated) or Path("config.toml")
+    )
 
-    assert cli._cmd_voices(
-        cli.build_parser().parse_args(["voices", "bind", "moderator", "am_michael"])
-    ) == 0
+    assert (
+        cli._cmd_voices(
+            cli.build_parser().parse_args(["voices", "bind", "moderator", "am_michael"])
+        )
+        == 0
+    )
     assert saved[-1].voices["kokoro"].roles["moderator"] == "am_michael"
 
     bound = saved[-1]
     monkeypatch.setattr(cli, "load_config", lambda: bound)
-    assert cli._cmd_voices(
-        cli.build_parser().parse_args(["voices", "unbind", "moderator"])
-    ) == 0
+    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "unbind", "moderator"])) == 0
     assert "moderator" not in saved[-1].voices["kokoro"].roles
 
 
 def test_voices_bind_rejects_unknown_target(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
     with pytest.raises(ValueError, match="available voices"):
-        cli._cmd_voices(
-            cli.build_parser().parse_args(["voices", "bind", "moderator", "missing"])
-        )
+        cli._cmd_voices(cli.build_parser().parse_args(["voices", "bind", "moderator", "missing"]))

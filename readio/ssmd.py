@@ -252,9 +252,7 @@ def _voice_resolution_error(
         message = (
             f"cannot resolve {len(references)} SSMD voice reference"
             f"{'s' if len(references) != 1 else ''} for provider {result.provider!r}\n"
-            + "\n".join(
-                f"  {use.reference} ({use.count} uses)" for use in references
-            )
+            + "\n".join(f"  {use.reference} ({use.count} uses)" for use in references)
             + "\n\nConfigured voices: "
             + ", ".join(available)
             + "\n\n"
@@ -263,12 +261,12 @@ def _voice_resolution_error(
             + f"    {result.provider}:\n"
             + "".join(f"      {use.reference}: <voice-id>\n" for use in references)
             + "\nOr save reusable Readio roles with:\n"
-            + "\n".join(
-                f"  readio voices bind {use.reference} <voice-id>" for use in references
-            )
+            + "\n".join(f"  readio voices bind {use.reference} <voice-id>" for use in references)
             + "\n\nOr resolve this invocation with:\n"
             + "  readio render --file FILE \\\n"
-            + "".join(f"    --voice-bind {use.reference}=<voice-id> \\\n" for use in references).rstrip(" \\\n")
+            + "".join(
+                f"    --voice-bind {use.reference}=<voice-id> \\\n" for use in references
+            ).rstrip(" \\\n")
             + f"\n\nRun `readio voices list --provider {result.provider}` to inspect valid voice IDs."
         )
         reference = references[0].reference

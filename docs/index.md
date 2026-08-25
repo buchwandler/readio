@@ -83,6 +83,17 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
+## Render progress
+
+`render` and `spotify` use a dependency-free progress reporter on stderr. In the default `auto` mode it is enabled only when stderr is an interactive terminal; `--progress` forces it for redirected logs and `--no-progress` disables it:
+
+```bash
+readio render --file notes.md -o notes.mp3 --progress
+readio render --file notes.md -o notes.mp3 --no-progress
+```
+
+Bounded renders show phases, completed/total units, percentage, elapsed time, approximate ETA, generated audio duration, and finalization. Live rendering shows elapsed time, cumulative units, and audio duration but no invented percentage or ETA. Progress is separate from command results: render keeps its output path on stdout, and `spotify --json` keeps one JSON object on stdout.
+
 Playback-only options are `--queue-size` and `--device`. Audio rendering is streamed to an atomic output file through a bounded audio path rather than accumulated as one in-memory waveform.
 
 ## Configuration

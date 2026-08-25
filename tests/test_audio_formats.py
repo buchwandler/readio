@@ -45,7 +45,9 @@ def test_unsupported_output_suffix_is_rejected():
 
 @pytest.mark.parametrize("audio_format", ["wav", "mp3", "m4a", "ogg"])
 def test_extensionless_output_is_normalized(audio_format: str):
-    assert normalize_audio_output_path(Path("episode"), audio_format).name == f"episode.{audio_format}"
+    assert (
+        normalize_audio_output_path(Path("episode"), audio_format).name == f"episode.{audio_format}"
+    )
 
 
 def test_explicit_case_is_preserved():

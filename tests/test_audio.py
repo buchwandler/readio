@@ -4,7 +4,7 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from readio.audio import PlaybackSink, render_prepared
+from readio.audio import PlaybackSink, RenderProgress, render_prepared
 from readio.config import ReaderConfig
 
 
@@ -25,6 +25,7 @@ class Prepared:
 
     def __init__(self, *results: Result) -> None:
         self.results = results
+        self.units = tuple(range(len(results)))
         self.indices = None
 
     def render(self, *, indices=None):
@@ -64,6 +65,44 @@ def test_render_prepared_streams_chunks_and_aggregates_metadata_and_markers():
         {"name": "topic", "sample_offset": 3},
     )
     assert first.released and second.released
+
+
+def test_render_prepared_emits_initial_and_post_write_progress():
+    first = Result(np.ones(3), 24000, [], {})
+    second = Result(np.ones(2), 24000, [], {})
+    events: list[RenderProgress] = []
+
+    render_prepared(Prepared(first, second), Sink(), on_progress=events.append)
+
+    assert events == [
+        RenderProgress(0, 2, 0, 0),
+        RenderProgress(1, 2, 3, 24000),
+        RenderProgress(2, 2, 5, 24000),
+    ]
+
+
+def test_render_prepared_progress_uses_selected_total():
+    events: list[RenderProgress] = []
+    render_prepared(
+        Prepared(Result(np.ones(2), 24000, [], {})),
+        Sink(),
+        indices=(4,),
+        on_progress=events.append,
+    )
+
+    assert events[0].total_units == 1
+    assert events[-1].completed_units == 1
+
+
+def test_render_prepared_does_not_report_failed_sink_write():
+    events: list[RenderProgress] = []
+    result = Result(np.ones(3), 24000, [], {})
+
+    with pytest.raises(RuntimeError, match="sink failed"):
+        render_prepared(Prepared(result), Sink(fail=True), on_progress=events.append)
+
+    assert events == [RenderProgress(0, 1, 0, 0)]
+    assert result.released
 
 
 def test_render_prepared_releases_result_when_sink_fails():

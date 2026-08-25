@@ -160,3 +160,27 @@ def test_marker_chapters_wait_and_set_timeline(monkeypatch, capsys):
     result = json.loads(capsys.readouterr().out)
     assert result["readiness"] == "READY"
     assert result["audio_format"] == "wav"
+
+
+def test_spotify_json_explicit_progress_stays_on_stderr(monkeypatch, capsys):
+    def render(args, path, *, audio_format, **kwargs):
+        path.write_bytes(b"wav")
+        return RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
+
+    monkeypatch.setattr(cli, "_render_audio", render)
+    monkeypatch.setattr(
+        cli,
+        "upload_episode",
+        lambda path, **kwargs: SpotifyUploadResult("spotify:episode:2", "UPLOADING"),
+    )
+    args = cli.build_parser().parse_args(
+        ["spotify", "text", "--title", "Episode", "--json", "--progress"]
+    )
+
+    assert cli._cmd_spotify(args) == 0
+
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["episode_uri"] == "spotify:episode:2"
+    assert "Preparing" in captured.err
+    assert "Uploading" in captured.err

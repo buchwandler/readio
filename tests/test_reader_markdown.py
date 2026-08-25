@@ -68,6 +68,30 @@ def test_render_selection_uses_spoken_markdown_projection(monkeypatch):
     assert selected == [(2,)]
 
 
+def test_render_text_forwards_progress_callback(monkeypatch):
+    pipeline = _Pipeline()
+    received = []
+    callback = object()
+
+    monkeypatch.setattr("readio.reader._build_pipeline", lambda document, cfg: pipeline)
+    monkeypatch.setattr(
+        "readio.reader.render_prepared",
+        lambda prepared, sink, indices=None, on_progress=None: (
+            received.append((indices, on_progress)) or "rendered"
+        ),
+    )
+
+    result = render_text(
+        InputDocument("first\n\nsecond", None, "text"),
+        ReadioConfig(),
+        cast(AudioSink, object()),
+        on_progress=callback,
+    )
+
+    assert result == "rendered"
+    assert received == [(None, callback)]
+
+
 def test_empty_markdown_projection_uses_clear_reader_error(monkeypatch):
     monkeypatch.setattr(
         "readio.reader._build_pipeline",

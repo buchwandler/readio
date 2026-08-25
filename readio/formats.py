@@ -131,9 +131,7 @@ def ensure_audio_format_available(audio_format: AudioFormat) -> None:
     spec = AUDIO_FORMATS[audio_format]
     if spec.backend == "ffmpeg":
         if ffmpeg_executable() is None:
-            raise RenderError(
-                "M4A output requires FFmpeg; install ffmpeg and ensure it is on PATH"
-            )
+            raise RenderError("M4A output requires FFmpeg; install ffmpeg and ensure it is on PATH")
         return
     if not soundfile_format_available(audio_format):
         raise RenderError(

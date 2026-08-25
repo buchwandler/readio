@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
+from functools import partial
 from typing import Any
 
-from .audio import AudioSink, PlaybackSink, RenderSummary, render_prepared
+from .audio import (
+    AudioSink,
+    PlaybackSink,
+    RenderProgress,
+    RenderProgressCallback,
+    RenderSummary,
+    render_prepared,
+)
 from .config import ReaderSettings, ReadioConfig
 from .document import InputDocument, document_from_text
 from .errors import InputError
@@ -68,9 +76,7 @@ def _build_pipeline(
                 additional_bindings=ssmd_voice_bindings,
             )
         return KokoroPipeline(
-            pipeline_config_for_document(
-                document, cfg, ssmd_voice_bindings=ssmd_voice_bindings
-            )
+            pipeline_config_for_document(document, cfg, ssmd_voice_bindings=ssmd_voice_bindings)
         )
 
     generation = GenerationConfig(
@@ -111,6 +117,7 @@ def render_text(
     selector: str = "all",
     unit: str | None = None,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
+    on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
     document = text if isinstance(text, InputDocument) else document_from_text(text)
     document = prepare_input_document(document)
@@ -122,14 +129,20 @@ def render_text(
     if ssmd_voice_bindings is None:
         pipeline_context = _build_pipeline(document, cfg)
     else:
-        pipeline_context = _build_pipeline(
-            document, cfg, ssmd_voice_bindings=ssmd_voice_bindings
-        )
+        pipeline_context = _build_pipeline(document, cfg, ssmd_voice_bindings=ssmd_voice_bindings)
     with (
         pipeline_context as pipeline,
         pipeline.prepare_units(document.text, unit=prepare_unit) as prepared,
     ):
-        return render_prepared(prepared, sink, indices=_selected_indices(prepared, selector))
+        indices = _selected_indices(prepared, selector)
+        if on_progress is None:
+            return render_prepared(prepared, sink, indices=indices)
+        return render_prepared(
+            prepared,
+            sink,
+            indices=indices,
+            on_progress=on_progress,
+        )
 
 
 def render_live(
@@ -138,6 +151,7 @@ def render_live(
     sink: AudioSink,
     *,
     unit: str | None = None,
+    on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     effective_unit = unit or reader_cfg.unit
@@ -147,12 +161,49 @@ def render_live(
     channels = 0
     metadata: dict[str, Any] = {}
     markers: list[dict[str, Any]] = []
+    completed_units = 0
+
+    def emit_paragraph_progress(
+        event: RenderProgress,
+        *,
+        base_completed_units: int,
+        base_sample_count: int,
+        base_sample_rate: int,
+        state: dict[str, int],
+    ) -> None:
+        state["completed"] = event.completed_units
+        if on_progress is not None:
+            on_progress(
+                RenderProgress(
+                    completed_units=base_completed_units + event.completed_units,
+                    total_units=None,
+                    sample_count=base_sample_count + event.sample_count,
+                    sample_rate=event.sample_rate or base_sample_rate,
+                )
+            )
 
     with _build_pipeline(document_from_text(""), cfg) as pipeline:
         for paragraph in iter_live_paragraphs(lines):
             saw_text = True
             with pipeline.prepare_units(paragraph, unit=effective_unit) as prepared:
-                summary = render_prepared(prepared, sink)
+                paragraph_state = {"completed": 0}
+                paragraph_callback = (
+                    partial(
+                        emit_paragraph_progress,
+                        base_completed_units=completed_units,
+                        base_sample_count=sample_count,
+                        base_sample_rate=sample_rate,
+                        state=paragraph_state,
+                    )
+                    if on_progress is not None
+                    else None
+                )
+                summary = render_prepared(
+                    prepared,
+                    sink,
+                    on_progress=paragraph_callback,
+                )
+            completed_units += paragraph_state["completed"]
             if summary.sample_count:
                 if sample_count and (
                     summary.sample_rate != sample_rate or summary.channels != channels

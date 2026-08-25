@@ -40,5 +40,6 @@ class VoiceResolutionError(SSMDInputError):
         self.available_voices = available_voices
         self.header_template = header_template or {}
 
+
 class RenderError(ReadioError):
     code = "render.error"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Protocol
@@ -25,6 +25,17 @@ class RenderSummary:
     channels: int = 0
     document_metadata: Mapping[str, Any] = field(default_factory=dict)
     markers: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RenderProgress:
+    completed_units: int
+    total_units: int | None
+    sample_count: int
+    sample_rate: int
+
+
+RenderProgressCallback = Callable[[RenderProgress], None]
 
 
 class PlaybackSink:
@@ -91,6 +102,7 @@ def render_prepared(
     sink: AudioSink,
     *,
     indices: tuple[int, ...] | None = None,
+    on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
     sample_rate = 0
     sample_count = 0
@@ -98,6 +110,24 @@ def render_prepared(
     markers: list[dict[str, Any]] = []
     metadata = dict(getattr(prepared, "document_metadata", {}) or {})
 
+    units = getattr(prepared, "units", None)
+    total_units = (
+        len(indices) if indices is not None else (len(units) if units is not None else None)
+    )
+    completed_units = 0
+
+    def emit_progress() -> None:
+        if on_progress is not None:
+            on_progress(
+                RenderProgress(
+                    completed_units=completed_units,
+                    total_units=total_units,
+                    sample_count=sample_count,
+                    sample_rate=sample_rate,
+                )
+            )
+
+    emit_progress()
     for result in prepared.render(indices=indices):
         try:
             audio = result.audio
@@ -127,6 +157,8 @@ def render_prepared(
                 for marker in getattr(result, "markers", ())
             )
             sample_count += len(audio)
+            completed_units += 1
+            emit_progress()
         finally:
             result.release_audio()
 
