@@ -109,3 +109,31 @@ User templates live outside the installed package and can be modified directly. 
 ## Publishing safety
 
 Publishing is an external write action. Perform it only with explicit user intent. Do not inspect Spotify token files, call authentication commands, or send transcript text separately from requested media metadata. Report the returned Spotify URI and readiness state when waiting was requested.
+
+## SSMD voice resolution
+
+Document-local bindings use this YAML shape and have highest precedence:
+
+```yaml
+voice_bindings:
+  kokoro:
+    moderator: af_sarah
+    architect: am_michael
+```
+
+Before rendering generated multi-speaker SSMD, inspect deterministic diagnostics:
+
+```bash
+readio voices list --json
+readio ssmd check FILE --json
+```
+
+Resolve missing roles without editing the source with repeatable bindings:
+
+```bash
+readio render --file FILE \
+  --voice-bind moderator=af_sarah \
+  --voice-bind architect=am_michael
+```
+
+Persist a reusable role explicitly with `readio voices bind ROLE VOICE_ID`. Use `readio voices roles` to inspect persisted mappings. `--resolve-voices` is an explicit human-only TTY convenience and keeps choices local to the invocation. Agents, scripts, JSON commands, and non-TTY processes must never rely on it or prompt. Do not guess role semantics or silently collapse multi-speaker SSMD to one voice.

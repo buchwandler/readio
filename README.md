@@ -137,3 +137,24 @@ Doctor is offline. It reports Readio configuration, configured directories and t
 ## Agent Skill
 
 The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary file management, or manual cleanup for normal podcast workflows.
+
+## SSMD voice resolution
+
+Use document-local bindings when a portable SSMD file should carry its speaker choices:
+
+```yaml
+voice_bindings:
+  kokoro:
+    moderator: af_sarah
+    architect: am_michael
+```
+
+Discover configured IDs and persisted roles with `readio voices list --json` and `readio voices roles`. Persist a reusable missing-role mapping with `readio voices bind ROLE VOICE_ID`. For deterministic one-run automation, use repeatable options:
+
+```bash
+readio render --file episode.ssmd \
+  --voice-bind moderator=af_sarah \
+  --voice-bind architect=am_michael
+```
+
+`--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind` instead. Document bindings remain authoritative, and unresolved roles are reported before TTS or external publishing work begins. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.

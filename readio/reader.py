@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
 from typing import Any
 
@@ -33,6 +33,8 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
 def pipeline_config_for_document(
     document: InputDocument,
     cfg: ReadioConfig,
+    *,
+    ssmd_voice_bindings: Mapping[str, str] | None = None,
 ) -> Any:
     from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
 
@@ -42,7 +44,7 @@ def pipeline_config_for_document(
         pause_mode=cfg.reader.pause_mode,
     )
     ssmd = (
-        build_ssmd_render_config(document.text, cfg)
+        build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings)
         if document.format == "ssmd"
         else SSMDRenderConfig()
     )
@@ -50,14 +52,26 @@ def pipeline_config_for_document(
 
 
 def _build_pipeline(
-    document: InputDocument, cfg: ReadioConfig | ReaderSettings
+    document: InputDocument,
+    cfg: ReadioConfig | ReaderSettings,
+    *,
+    ssmd_voice_bindings: Mapping[str, str] | None = None,
 ) -> AbstractContextManager[Any]:
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
 
     if isinstance(cfg, ReadioConfig):
         if document.format == "ssmd" and cfg.ssmd.validate_before_render:
-            preflight_ssmd(document.text, cfg, source_path=document.source_path)
-        return KokoroPipeline(pipeline_config_for_document(document, cfg))
+            preflight_ssmd(
+                document.text,
+                cfg,
+                source_path=document.source_path,
+                additional_bindings=ssmd_voice_bindings,
+            )
+        return KokoroPipeline(
+            pipeline_config_for_document(
+                document, cfg, ssmd_voice_bindings=ssmd_voice_bindings
+            )
+        )
 
     generation = GenerationConfig(
         lang=cfg.lang,
@@ -96,6 +110,7 @@ def render_text(
     *,
     selector: str = "all",
     unit: str | None = None,
+    ssmd_voice_bindings: Mapping[str, str] | None = None,
 ) -> RenderSummary:
     document = text if isinstance(text, InputDocument) else document_from_text(text)
     document = prepare_input_document(document)
@@ -104,8 +119,14 @@ def render_text(
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     effective_unit = unit or reader_cfg.unit
     prepare_unit = "paragraph" if selector != "all" else effective_unit
+    if ssmd_voice_bindings is None:
+        pipeline_context = _build_pipeline(document, cfg)
+    else:
+        pipeline_context = _build_pipeline(
+            document, cfg, ssmd_voice_bindings=ssmd_voice_bindings
+        )
     with (
-        _build_pipeline(document, cfg) as pipeline,
+        pipeline_context as pipeline,
         pipeline.prepare_units(document.text, unit=prepare_unit) as prepared,
     ):
         return render_prepared(prepared, sink, indices=_selected_indices(prepared, selector))
@@ -170,10 +191,18 @@ def speak_text(
     *,
     selector: str = "all",
     unit: str | None = None,
+    ssmd_voice_bindings: Mapping[str, str] | None = None,
 ) -> None:
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
-        render_text(text, cfg, sink, selector=selector, unit=unit)
+        render_text(
+            text,
+            cfg,
+            sink,
+            selector=selector,
+            unit=unit,
+            ssmd_voice_bindings=ssmd_voice_bindings,
+        )
         sink.finish()
 
 

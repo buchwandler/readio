@@ -1,0 +1,20 @@
+---
+title: Architecture review
+pause_defaults:
+  enabled: true
+  sentence: 220ms
+  paragraph: 650ms
+  voice_change: 300ms
+---
+
+<div voice="moderator">
+Opening.
+</div>
+
+<div voice="architect">
+Proposal.
+</div>
+
+<div voice="skeptic">
+Challenge.
+</div>

@@ -6,18 +6,22 @@ import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from . import __version__
 from .audio import RenderSummary
 from .config import (
     ReadioConfig,
+    bind_voice_role,
     config_path,
     default_config,
     load_config,
+    provider_role_map,
+    provider_voices,
     save_config,
     set_config_value,
+    unbind_voice_role,
     validate_config,
     with_overrides,
 )
@@ -33,8 +37,8 @@ from .spotify import (
     upload_episode,
     wait_for_episode,
 )
-from .ssmd import preflight_ssmd
-from .ssmd_authoring import roundtrip_check
+from .ssmd import analyze_ssmd, preflight_ssmd
+from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
 from .templates import (
     add_template,
     list_templates,
@@ -78,12 +82,41 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--unit", choices=("sentence", "paragraph"))
 
 
+def _add_voice_resolution_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--voice-bind",
+        action="append",
+        default=[],
+        metavar="ROLE=VOICE_ID",
+        help="bind one missing SSMD role for this invocation; repeatable",
+    )
+    parser.add_argument(
+        "--resolve-voices",
+        action="store_true",
+        help="interactively choose missing SSMD voices when attached to a TTY",
+    )
+
+
+def _parse_voice_bindings(values: Sequence[str]) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for value in values:
+        if value.count("=") != 1:
+            raise ValueError("--voice-bind must use ROLE=VOICE_ID")
+        role, voice_id = value.split("=", 1)
+        if not role or not voice_id:
+            raise ValueError("--voice-bind must use non-empty ROLE=VOICE_ID")
+        if role in bindings:
+            raise ValueError(f"duplicate --voice-bind role {role!r}")
+        bindings[role] = voice_id
+    return bindings
+
+
 def _add_runtime_options(parser: argparse.ArgumentParser, *, playback: bool = True) -> None:
     _add_synthesis_options(parser)
+    _add_voice_resolution_options(parser)
     if playback:
         parser.add_argument("--queue-size", type=int, help="audio queue depth")
         parser.add_argument("--device", help="sounddevice output device name or id")
-
 
 def _resolved_config(args: argparse.Namespace) -> ReadioConfig:
     return with_overrides(
@@ -122,30 +155,120 @@ def _validate_live(args: argparse.Namespace) -> None:
         raise ValueError("--live requires piped stdin")
 
 
+def _prompt_for_missing_voices(result: object, cfg: ReadioConfig) -> dict[str, str]:
+    provider = result.provider
+    available = tuple(cfg.voices[provider].ids)
+    print(
+        f"SSMD uses {len(result.unresolved_voice_references)} unconfigured voice references "
+        f"for provider {provider!r}:"
+    )
+    print()
+    for use in result.unresolved_voice_references:
+        print(f"  {use.reference} ({use.count} uses)")
+    print()
+    print("Available voices:")
+    for index, voice in enumerate(available, start=1):
+        print(f"  {index}. {voice}")
+    bindings: dict[str, str] = {}
+    for use in result.unresolved_voice_references:
+        while True:
+            choice = input(f"Voice for {use.reference} [enter number or voice ID]: ").strip()
+            if choice.isdigit() and 1 <= int(choice) <= len(available):
+                bindings[use.reference] = available[int(choice) - 1]
+                break
+            if choice in available:
+                bindings[use.reference] = choice
+                break
+            print(f"unknown voice {choice!r}; choose a number or configured voice ID")
+    print()
+    print("Using for this render:")
+    for role, voice in bindings.items():
+        print(f"  {role} -> {voice}")
+    return bindings
+
+
+def _prepared_input(
+    args: argparse.Namespace,
+    cfg: ReadioConfig,
+) -> tuple[InputDocument, dict[str, str]]:
+    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
+    document = _read_input(args, cfg)
+    if document.format != "ssmd":
+        return document, bindings
+    result = analyze_ssmd(
+        document.text,
+        cfg,
+        source_path=document.source_path,
+        additional_bindings=bindings,
+    )
+    if result.unresolved_voice_references and getattr(args, "resolve_voices", False):
+        if getattr(args, "json", False) or not sys.stdin.isatty():
+            raise ValueError(
+                "--resolve-voices requires an interactive terminal; "
+                "provide --voice-bind ROLE=VOICE_ID instead"
+            )
+        bindings.update(_prompt_for_missing_voices(result, cfg))
+    preflight_ssmd(
+        document.text,
+        cfg,
+        source_path=document.source_path,
+        additional_bindings=bindings,
+    )
+    return document, bindings
+
+
 def _cmd_speak(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     if args.live:
         _validate_live(args)
         speak_live(sys.stdin, cfg.reader, unit=args.unit)
     else:
-        speak_text(_read_input(args, cfg), cfg, selector=args.select, unit=args.unit)
+        document, bindings = _prepared_input(args, cfg)
+        speak_text(
+            document,
+            cfg,
+            selector=args.select,
+            unit=args.unit,
+            ssmd_voice_bindings=bindings,
+        )
     return 0
 
 
-def _render_audio(args: argparse.Namespace, path: Path) -> RenderSummary:
-    cfg = _resolved_config(args)
+def _render_audio(
+    args: argparse.Namespace,
+    path: Path,
+    cfg: ReadioConfig | None = None,
+    document: InputDocument | None = None,
+    bindings: Mapping[str, str] | None = None,
+) -> RenderSummary:
+    cfg = cfg or getattr(args, "_prepared_cfg", None) or _resolved_config(args)
+    document = document or getattr(args, "_prepared_document", None)
+    if bindings is None:
+        bindings = getattr(args, "_prepared_bindings", None)
     with WaveSink(path) as sink:
         if args.live:
             return render_live(sys.stdin, cfg, sink, unit=args.unit)
-        return render_text(_read_input(args, cfg), cfg, sink, selector=args.select, unit=args.unit)
+        document = document or _prepared_input(args, cfg)[0]
+        return render_text(
+            document,
+            cfg,
+            sink,
+            selector=args.select,
+            unit=args.unit,
+            ssmd_voice_bindings=bindings or {},
+        )
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
     if args.live:
         _validate_live(args)
     cfg = _resolved_config(args)
+    prepared = None if args.live else _prepared_input(args, cfg)
     output = resolve_render_output(cfg, explicit=args.output, input_path=args.file)
     output.parent.mkdir(parents=True, exist_ok=True)
+    args._prepared_cfg = cfg
+    if prepared:
+        args._prepared_document, args._prepared_bindings = prepared
     with atomic_wav_path(output, force=args.force) as temporary:
         _render_audio(args, temporary)
     print(output)
@@ -157,6 +280,12 @@ def _cmd_spotify(args: argparse.Namespace) -> int:
         raise ValueError("--wait-timeout requires --wait")
     if args.live:
         _validate_live(args)
+    cfg = _resolved_config(args)
+    prepared = None if args.live else _prepared_input(args, cfg)
+    args._prepared_cfg = cfg
+    if prepared:
+        args._prepared_document, args._prepared_bindings = prepared
+
 
     temporary: Path | None = None
     if args.output is None:
@@ -238,8 +367,39 @@ def _json_value(value: object) -> object:
 
 def _cmd_ssmd(args: argparse.Namespace) -> int:
     cfg = load_config()
+    if args.ssmd_command == "bind":
+        provider = args.provider or cfg.ssmd.voice_provider
+        bindings = _parse_voice_bindings(args.voice_bind)
+        target = materialize_voice_bindings(
+            args.file,
+            bindings,
+            provider=provider,
+            output=args.output,
+            in_place=args.in_place,
+        )
+        print(target)
+        return 0
     document = document_from_file(args.file)
-    consumer = preflight_ssmd(document.text, cfg, source_path=document.source_path)
+    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
+    analysis = analyze_ssmd(
+        document.text,
+        cfg,
+        source_path=document.source_path,
+        additional_bindings=bindings,
+    )
+    if analysis.unresolved_voice_references and args.resolve_voices:
+        if args.json or not sys.stdin.isatty():
+            raise ValueError(
+                "--resolve-voices requires an interactive terminal; "
+                "provide --voice-bind ROLE=VOICE_ID instead"
+            )
+        bindings.update(_prompt_for_missing_voices(analysis, cfg))
+    consumer = preflight_ssmd(
+        document.text,
+        cfg,
+        source_path=document.source_path,
+        additional_bindings=bindings,
+    )
     result: dict[str, object] = {
         "ok": consumer.ok,
         "source": str(document.source_path),
@@ -247,6 +407,10 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
         "consumer": {
             "ok": consumer.ok,
             "unresolved": list(consumer.unresolved_references),
+            "references": [
+                {"name": item.reference, "count": item.count, "lines": list(item.lines)}
+                for item in consumer.voice_references
+            ],
             "diagnostics": [item.to_dict() for item in consumer.diagnostics],
         },
         "bindings": {
@@ -268,6 +432,63 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
         if args.roundtrip:
             print("Roundtrip: OK")
     return 0
+
+
+def _cmd_voices(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    provider = args.provider or cfg.ssmd.voice_provider
+    settings = cfg.voices.get(provider)
+    if settings is None:
+        raise ValueError(f"voice provider {provider!r} is not configured")
+
+    if args.voices_command == "list":
+        reverse = provider_role_map(cfg, provider)
+        voices = [
+            {"id": voice, "roles": list(reverse.get(voice, ())) }
+            for voice in provider_voices(cfg, provider)
+        ]
+        result = {"ok": True, "provider": provider, "voices": voices}
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"Provider: {provider}")
+            print()
+            print("VOICE ID     ROLES")
+            for item in voices:
+                roles = ", ".join(item["roles"]) or "-"
+                print(f"{item['id']:<12} {roles}")
+        return 0
+
+    if args.voices_command == "roles":
+        result = {"ok": True, "provider": provider, "roles": dict(settings.roles)}
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            for role, voice in sorted(settings.roles.items()):
+                print(f"{role} -> {voice}")
+        return 0
+
+    if args.voices_command == "bind":
+        updated = bind_voice_role(cfg, args.role, args.voice_id, provider)
+        path = save_config(updated)
+        result = {"ok": True, "provider": provider, "role": args.role, "voice": args.voice_id, "path": path}
+        if args.json:
+            print(json.dumps(_json_value(result), ensure_ascii=False))
+        else:
+            print(f"{args.role} -> {args.voice_id} ({provider})")
+        return 0
+
+    if args.voices_command == "unbind":
+        updated = unbind_voice_role(cfg, args.role, provider)
+        path = save_config(updated)
+        result = {"ok": True, "provider": provider, "role": args.role, "path": path}
+        if args.json:
+            print(json.dumps(_json_value(result), ensure_ascii=False))
+        else:
+            print(f"removed {args.role} ({provider})")
+        return 0
+
+    raise AssertionError("unreachable")
 
 
 def _cmd_config(args: argparse.Namespace) -> int:
@@ -523,12 +744,42 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_options(spotify, playback=False)
     spotify.set_defaults(func=_cmd_spotify)
 
+    voices = sub.add_parser("voices", help="discover and manage SSMD voices")
+    voices_sub = voices.add_subparsers(dest="voices_command", required=True)
+    voices_list = voices_sub.add_parser("list", help="list configured concrete voices")
+    voices_list.add_argument("--provider")
+    voices_list.add_argument("--json", action="store_true")
+    voices_list.set_defaults(func=_cmd_voices)
+    voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")
+    voices_roles.add_argument("--provider")
+    voices_roles.add_argument("--json", action="store_true")
+    voices_roles.set_defaults(func=_cmd_voices)
+    voices_bind = voices_sub.add_parser("bind", help="persist a logical role binding")
+    voices_bind.add_argument("role")
+    voices_bind.add_argument("voice_id")
+    voices_bind.add_argument("--provider")
+    voices_bind.add_argument("--json", action="store_true")
+    voices_bind.set_defaults(func=_cmd_voices)
+    voices_unbind = voices_sub.add_parser("unbind", help="remove a logical role binding")
+    voices_unbind.add_argument("role")
+    voices_unbind.add_argument("--provider")
+    voices_unbind.add_argument("--json", action="store_true")
+    voices_unbind.set_defaults(func=_cmd_voices)
+
     ssmd = sub.add_parser("ssmd", help="inspect SSMD documents")
     ssmd_sub = ssmd.add_subparsers(dest="ssmd_command", required=True)
+    bind = ssmd_sub.add_parser("bind", help="materialize explicit voice bindings")
+    bind.add_argument("file", type=Path)
+    bind.add_argument("--voice-bind", action="append", default=[], metavar="ROLE=VOICE_ID")
+    bind.add_argument("--provider")
+    bind.add_argument("-o", "--output", type=Path)
+    bind.add_argument("--in-place", action="store_true")
+    bind.set_defaults(func=_cmd_ssmd)
     check = ssmd_sub.add_parser("check", help="check an SSMD document for Readio consumption")
     check.add_argument("file", type=Path)
     check.add_argument("--roundtrip", action="store_true")
     check.add_argument("--json", action="store_true")
+    _add_voice_resolution_options(check)
     check.set_defaults(func=_cmd_ssmd)
 
     cfg = sub.add_parser("config", help="manage persistent configuration")
@@ -591,6 +842,20 @@ def _error_payload(exc: ReadioError) -> dict[str, object]:
         value = getattr(exc, name, None)
         if value is not None:
             payload[name] = value
+    references = getattr(exc, "references", None)
+    if references:
+        payload["references"] = [
+            {
+                "name": item.reference,
+                "count": item.count,
+                "lines": list(item.lines),
+            }
+            for item in references
+        ]
+    for name in ("available_voices", "header_template"):
+        value = getattr(exc, name, None)
+        if value:
+            payload[name] = _json_value(value)
     return payload
 
 

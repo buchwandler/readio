@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import ssmd as ssmd_api
 import yaml
 
 from .config import ReadioConfig
@@ -125,3 +126,37 @@ def roundtrip_check(path: Path, cfg: ReadioConfig) -> Mapping[str, Any]:
             config_path.unlink(missing_ok=True)
         if prepared_path is not None:
             prepared_path.unlink(missing_ok=True)
+
+
+def materialize_voice_bindings(
+    source: Path,
+    bindings: Mapping[str, str],
+    *,
+    provider: str,
+    output: Path | None = None,
+    in_place: bool = False,
+) -> Path:
+    """Write explicit SSMD bindings without invoking the SSMD authoring CLI."""
+    source = source.expanduser()
+    if not bindings:
+        raise SSMDAuthoringError("at least one --voice-bind value is required")
+    if in_place and output is not None and output.expanduser() != source:
+        raise SSMDAuthoringError("--in-place cannot be combined with a different output path")
+    target = source if in_place else (output or source.with_name(f"{source.stem}.bound{source.suffix}"))
+    target = target.expanduser()
+    if target == source and not in_place:
+        raise SSMDAuthoringError("refusing to overwrite the SSMD source; use --in-place explicitly")
+    if target.exists() and target != source:
+        raise SSMDAuthoringError(f"output already exists: {target}; choose another path")
+    try:
+        front_matter = ssmd_api.parse_front_matter(source.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise SSMDAuthoringError(f"invalid SSMD source: {exc}") from exc
+    generated = {"voice_bindings": {provider: dict(bindings)}}
+    merged = ssmd_api.merge_generated_header(front_matter.data, generated)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        ssmd_api.serialize_front_matter(merged, front_matter.body),
+        encoding="utf-8",
+    )
+    return target

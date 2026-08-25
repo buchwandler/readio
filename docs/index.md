@@ -178,3 +178,22 @@ ruff check .
 ```
 
 The main execution path is `readio/cli.py`. Input normalization is in `readio/document.py`, configuration in `readio/config.py`, synthesis orchestration in `readio/reader.py`, audio sinks in `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
+
+## SSMD voice resolution
+
+SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and remain authoritative. Inspect configured voices and persisted role mappings with:
+
+```bash
+readio voices list --provider kokoro --json
+readio voices roles --provider kokoro
+```
+
+Use `readio voices bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
+
+```bash
+readio render --file episode.ssmd \
+  --voice-bind moderator=af_sarah \
+  --voice-bind architect=am_michael
+```
+
+`--resolve-voices` is an explicit interactive convenience. It prompts once per unique missing role only on a usable TTY and never persists choices. JSON and non-TTY execution never prompts. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` is the explicit source-materialization workflow; ordinary `speak`, `render`, and `spotify` commands do not mutate SSMD.

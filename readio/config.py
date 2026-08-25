@@ -399,3 +399,59 @@ def voice_role(cfg: ReadioConfig, role: str, provider: str | None = None) -> str
         return cfg.voices[name].roles[role]
     except KeyError as exc:
         raise ValueError(f"voice role {role!r} is not configured for provider {name!r}") from exc
+
+
+def provider_role_map(
+    cfg: ReadioConfig, provider: str | None = None
+) -> dict[str, tuple[str, ...]]:
+    """Return configured logical roles grouped by concrete voice ID."""
+    name = provider or cfg.ssmd.voice_provider
+    settings = cfg.voices.get(name)
+    if settings is None:
+        raise ValueError(f"voice provider {name!r} is not configured")
+    result: dict[str, list[str]] = {voice: [] for voice in settings.ids}
+    for role, voice in settings.roles.items():
+        result.setdefault(voice, []).append(role)
+    return {voice: tuple(roles) for voice, roles in result.items()}
+
+
+def bind_voice_role(
+    cfg: ReadioConfig,
+    role: str,
+    voice_id: str,
+    provider: str | None = None,
+) -> ReadioConfig:
+    """Return a validated config with a persistent logical role binding."""
+    name = provider or cfg.ssmd.voice_provider
+    settings = cfg.voices.get(name)
+    if settings is None:
+        raise ValueError(f"voice provider {name!r} is not configured")
+    if not role:
+        raise ValueError("voice role must be a non-empty string")
+    if voice_id not in settings.ids:
+        available = ", ".join(settings.ids)
+        raise ValueError(
+            f"voice {voice_id!r} is not configured for provider {name!r}; "
+            f"available voices: {available}"
+        )
+    return set_config_value(cfg, f"voices.{name}.roles.{role}", voice_id)
+
+
+def unbind_voice_role(
+    cfg: ReadioConfig,
+    role: str,
+    provider: str | None = None,
+) -> ReadioConfig:
+    """Return a config without a persistent logical role binding."""
+    name = provider or cfg.ssmd.voice_provider
+    settings = cfg.voices.get(name)
+    if settings is None:
+        raise ValueError(f"voice provider {name!r} is not configured")
+    if role not in settings.roles:
+        raise ValueError(f"voice role {role!r} is not configured for provider {name!r}")
+    voices = dict(cfg.voices)
+    voices[name] = VoiceProviderSettings(
+        ids=settings.ids,
+        roles={key: value for key, value in settings.roles.items() if key != role},
+    )
+    return ReadioConfig(cfg.schema, cfg.reader, cfg.ssmd, cfg.paths, voices)
