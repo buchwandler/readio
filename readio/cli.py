@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
-import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -32,7 +30,6 @@ from .formats import (
     AudioFormat,
     audio_format_diagnostics,
     ensure_audio_format_available,
-    format_suffix,
     normalize_audio_output_path,
     resolve_audio_format,
 )
@@ -42,10 +39,10 @@ from .progress import TerminalProgress
 from .reader import SelectionError, render_live, render_text, speak_live, speak_text
 from .spotify import (
     SpotifyError,
-    build_timeline,
-    set_timeline,
-    upload_episode,
-    wait_for_episode,
+    SpotifyUnavailableError,
+)
+from .spotify import (
+    version as spotify_version,
 )
 from .ssmd import analyze_ssmd, preflight_ssmd
 from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
@@ -147,6 +144,25 @@ def _add_progress_option(parser: argparse.ArgumentParser) -> None:
             "interactive terminal, use --no-progress to disable"
         ),
     )
+
+
+def _extract_global_json(argv: Sequence[str] | None) -> tuple[list[str] | None, bool]:
+    if argv is None:
+        return None, False
+    extracted: list[str] = []
+    enabled = False
+    literal = False
+    for value in argv:
+        if literal:
+            extracted.append(value)
+        elif value == "--":
+            literal = True
+            extracted.append(value)
+        elif value == "--json":
+            enabled = True
+        else:
+            extracted.append(value)
+    return extracted, enabled
 
 
 def progress_enabled(args: argparse.Namespace, stream: object = sys.stderr) -> bool:
@@ -369,107 +385,25 @@ def _cmd_render(args: argparse.Namespace) -> int:
                 **progress_kwargs,
             )
         progress.complete(summary)
-    print(output)
-    return 0
-
-
-def _cmd_spotify(args: argparse.Namespace) -> int:
-    if args.wait_timeout is not None and not (args.wait or args.chapters_from_markers):
-        raise ValueError("--wait-timeout requires --wait")
-    if args.live:
-        _validate_live(args)
-    cfg = _resolved_config(args)
-    audio_format = resolve_audio_format(requested=args.format, output=args.output)
-    ensure_audio_format_available(audio_format)
-    progress = _build_progress(args)
-    progress.__enter__()
-    try:
-        progress.phase("Preparing", _progress_source_label(args))
-        prepared = None if args.live else _prepared_input(args, cfg)
-        args._prepared_cfg = cfg
-        if prepared:
-            args._prepared_document, args._prepared_bindings = prepared
-
-        temporary: Path | None = None
-        if args.output is None:
-            fd, name = tempfile.mkstemp(prefix="readio-", suffix=format_suffix(audio_format))
-            os.close(fd)
-            temporary = Path(name)
-            audio_path = temporary
-        else:
-            audio_path = normalize_audio_output_path(args.output.expanduser(), audio_format)
-
-        progress.phase("Loading TTS")
-        if args.output is None:
-            summary = _render_audio(
-                args,
-                audio_path,
-                audio_format=audio_format,
-                **_progress_kwargs(progress),
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "path": str(output),
+                    "format": audio_format,
+                    "sample_rate": summary.sample_rate,
+                    "sample_count": summary.sample_count,
+                    "channels": summary.channels,
+                    "duration_ms": round(summary.sample_count * 1000 / summary.sample_rate),
+                    "markers": _json_value(summary.markers),
+                },
+                ensure_ascii=False,
             )
-        else:
-            audio_path.parent.mkdir(parents=True, exist_ok=True)
-            with atomic_audio_path(audio_path, force=args.force) as target:
-                summary = _render_audio(
-                    args,
-                    target,
-                    audio_format=audio_format,
-                    **_progress_kwargs(progress),
-                )
-        progress.complete(summary)
-        timeline = (
-            build_timeline(summary.markers, summary.sample_rate)
-            if args.chapters_from_markers
-            else None
         )
-        progress.phase("Uploading")
-        uploaded = upload_episode(
-            audio_path,
-            title=args.title,
-            show_id=args.show_id,
-            new_show=args.new_show,
-            summary=args.summary,
-            image=args.image,
-            language=args.language,
-        )
-        readiness = None
-        if args.wait or args.chapters_from_markers:
-            progress.phase("Waiting for Spotify readiness")
-            readiness = wait_for_episode(uploaded.episode_uri, timeout=args.wait_timeout)
-        if timeline is not None:
-            if readiness is None or readiness.readiness != "READY":
-                raise SpotifyError("episode is not READY; cannot set chapter timeline")
-            progress.phase("Publishing chapters")
-            timeline_path: Path | None = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".json", prefix="readio-timeline-", delete=False
-                ) as timeline_file:
-                    json.dump(timeline, timeline_file)
-                    timeline_path = Path(timeline_file.name)
-                set_timeline(uploaded.episode_uri, timeline_path)
-            finally:
-                if timeline_path is not None:
-                    timeline_path.unlink(missing_ok=True)
-        result = {
-            "ok": True,
-            "episode_uri": uploaded.episode_uri,
-            "upload_status": uploaded.status,
-            "readiness": readiness.readiness if readiness is not None else None,
-            "audio_path": str(audio_path) if args.output is not None else None,
-            "audio_format": audio_format,
-        }
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False))
-        else:
-            print(uploaded.episode_uri)
-            if readiness is not None:
-                print(readiness.readiness)
-        return 0
-    finally:
-        progress.close()
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    else:
+        print(output)
+    return 0
 
 
 def _json_value(value: object) -> object:
@@ -754,7 +688,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_doctor(_: argparse.Namespace) -> int:
+def _cmd_doctor(args: argparse.Namespace | None) -> int:
     cfg = load_config()
     provider = cfg.ssmd.voice_provider
     settings = cfg.voices.get(provider)
@@ -792,6 +726,20 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
     except ValueError:
         template_names = []
 
+    upstream_path = shutil.which("save-to-spotify")
+    upstream: dict[str, object] = {
+        "path": upstream_path or "not found",
+        "version": None,
+        "commit": None,
+        "probe_error": None,
+    }
+    if upstream_path is not None:
+        try:
+            detected = spotify_version()
+            upstream.update(version=detected.version, commit=detected.commit)
+        except SpotifyError as exc:
+            upstream["probe_error"] = str(exc)
+
     result = {
         "readio": __version__,
         "config": {"path": str(config_path()), "exists": config_path().exists()},
@@ -824,10 +772,20 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
         "sounddevice": sounddevice_check,
         "soundfile": soundfile_check,
         "audio_formats": audio_format_diagnostics(),
-        "save-to-spotify": shutil.which("save-to-spotify") or "not found",
+        "save-to-spotify": upstream,
         "templates": {"count": len(template_names), "names": template_names},
     }
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    json_mode = args is None or getattr(args, "json", False)
+    if json_mode:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"Readio {__version__}")
+        print(f"Config: {result['config']['path']}")
+        print(f"SSMD: {provider} ({consumer_preflight})")
+        print(
+            f"save-to-spotify: {upstream['path']} ({upstream['version'] or 'version unavailable'})"
+        )
+        print(f"Audio formats: {', '.join(audio_format_diagnostics())}")
     return 0
 
 
@@ -853,35 +811,12 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--force", action="store_true", help="replace an existing output")
     _add_runtime_options(render, playback=False)
     _add_progress_option(render)
+    render.add_argument("--json", action="store_true", help="emit one JSON result object")
     render.set_defaults(func=_cmd_render)
 
-    spotify = sub.add_parser("spotify", help="render and publish speech through save-to-spotify")
-    _add_input_options(spotify)
-    _add_audio_output_options(spotify)
-    spotify.add_argument("--title", required=True, help="episode title")
-    show = spotify.add_mutually_exclusive_group()
-    show.add_argument("--show-id", help="Spotify show ID or URI")
-    show.add_argument("--new-show", help="create or select a new show")
-    spotify.add_argument("--summary")
-    spotify.add_argument("--image", type=Path)
-    spotify.add_argument("--language")
-    spotify.add_argument("--wait", action="store_true", help="wait for Spotify readiness")
-    spotify.add_argument("--wait-timeout", help="readiness timeout, for example 2m")
-    spotify.add_argument(
-        "--output",
-        type=Path,
-        help="keep the generated audio at this path (.wav, .mp3, .m4a, or .ogg)",
-    )
-    spotify.add_argument("--force", action="store_true", help="replace an existing output")
-    spotify.add_argument("--json", action="store_true", help="emit one JSON result object")
-    spotify.add_argument(
-        "--chapters-from-markers",
-        action="store_true",
-        help="publish SSMD markers as Spotify chapters",
-    )
-    _add_runtime_options(spotify, playback=False)
-    _add_progress_option(spotify)
-    spotify.set_defaults(func=_cmd_spotify)
+    from .spotify_cli import add_spotify_parser
+
+    add_spotify_parser(sub)
 
     voices = sub.add_parser("voices", help="discover and manage SSMD voices")
     voices_sub = voices.add_subparsers(dest="voices_command", required=True)
@@ -970,12 +905,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor", help="check runtime dependencies and storage")
     doctor.set_defaults(func=_cmd_doctor)
+    doctor.add_argument("--json", action="store_true", help="emit one JSON result object")
     return parser
 
 
-def _error_payload(exc: ReadioError) -> dict[str, object]:
-    payload: dict[str, object] = {"ok": False, "code": exc.code, "error": str(exc)}
-    if exc.source_path is not None:
+def _error_code(exc: Exception) -> str:
+    if isinstance(exc, ReadioError):
+        return exc.code
+    if isinstance(exc, SpotifyUnavailableError):
+        return "spotify_unavailable"
+    if isinstance(exc, SpotifyError):
+        message = str(exc).lower()
+        if "auth" in message or "log in" in message:
+            return "spotify_not_authenticated"
+        if "json" in message or "response" in message:
+            return "spotify_protocol_error"
+        return "spotify_command_error"
+    if isinstance(exc, (ValueError, SelectionError, KeyError)):
+        return "invalid_argument"
+    if isinstance(exc, OSError):
+        return "io_error"
+    return "readio_error"
+
+
+def _error_payload(exc: Exception) -> dict[str, object]:
+    payload: dict[str, object] = {"ok": False, "code": _error_code(exc), "error": str(exc)}
+    if isinstance(exc, ReadioError) and exc.source_path is not None:
         payload["source"] = str(exc.source_path)
     for name in ("provider", "reference"):
         value = getattr(exc, name, None)
@@ -1000,7 +955,11 @@ def _error_payload(exc: ReadioError) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    normalized_argv, global_json = _extract_global_json(raw_argv)
+    args = parser.parse_args(normalized_argv)
+    if global_json:
+        args.json = True
     try:
         code = args.func(args)
     except ReadioError as exc:
@@ -1018,7 +977,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ImportError,
     ) as exc:
         if getattr(args, "json", False):
-            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+            print(json.dumps(_error_payload(exc), ensure_ascii=False))
             raise SystemExit(2)
         parser.exit(2, f"readio: {exc}\n")
     raise SystemExit(code)

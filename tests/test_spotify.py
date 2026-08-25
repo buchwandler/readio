@@ -126,3 +126,46 @@ def test_upload_accepts_non_wav_media_path(monkeypatch, tmp_path: Path):
 
     assert result.episode_uri == "spotify:episode:2"
     assert str(path) in calls[0]
+
+
+def test_version_probe_and_api_timeout_forwarding(monkeypatch):
+    commands = []
+    monkeypatch.setattr(spotify.shutil, "which", lambda name: "/bin/save-to-spotify")
+    monkeypatch.setattr(
+        spotify.subprocess,
+        "run",
+        lambda command, **kwargs: (
+            commands.append(command) or completed({"version": "0.2.0", "commit": "abc"})
+        ),
+    )
+
+    result = spotify.version(api_timeout="10s")
+
+    assert result.version == "0.2.0"
+    assert result.commit == "abc"
+    assert commands == [["/bin/save-to-spotify", "--json", "--timeout", "10s", "version"]]
+
+
+def test_list_shows_and_status_accept_ids_and_uris(monkeypatch):
+    commands = []
+    monkeypatch.setattr(spotify.shutil, "which", lambda name: "/bin/save-to-spotify")
+    responses = iter(
+        [
+            {"shows": [{"uri": "spotify:show:1", "title": "Briefings"}]},
+            {"readiness": "READY", "future_field": "ignored"},
+        ]
+    )
+    monkeypatch.setattr(
+        spotify.subprocess,
+        "run",
+        lambda command, **kwargs: commands.append(command) or completed(next(responses)),
+    )
+
+    shows = spotify.list_shows()
+    status = spotify.episode_status("abc", wait=True)
+
+    assert shows[0].show_uri == "spotify:show:1"
+    assert status.episode_uri == "abc"
+    assert status.readiness == "READY"
+    assert commands[0] == ["/bin/save-to-spotify", "--json", "shows"]
+    assert commands[1] == ["/bin/save-to-spotify", "--json", "episodes", "status", "abc", "--wait"]

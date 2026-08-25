@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Replaced the bare `readio spotify` publisher with the clean command family: `publish`, `upload`, `shows`, `status`, and `doctor`.
+- Added position-independent JSON output, render envelopes, optional-duration readiness waits, direct media upload, timeline pass-through, and upstream version diagnostics.
+- Split the Readio skill into a concise workflow page with CLI, input-format, SSMD, Spotify, and troubleshooting references.
+
 ## [v0.1.2] - 2026-08-25
 
 ### Added

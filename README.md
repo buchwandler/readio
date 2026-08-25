@@ -111,10 +111,12 @@ readio render "Hello" --format ogg
 ```bash
 readio render --file episode.ssmd -o episode.mp3 --progress
 readio render --file episode.ssmd -o episode.mp3 --no-progress
-readio spotify --file episode.ssmd --title "Episode" --json
+readio render --file episode.ssmd -o episode.mp3 --json
+readio spotify publish --file episode.ssmd --title "Episode" --json
+readio --json spotify status spotify:episode:abc --wait
 ```
 
-Progress includes the current phase, completed units, elapsed time, approximate ETA for bounded renders, generated audio duration, and finalization. Live renders show cumulative units without a percentage or ETA. The default is automatic TTY behavior; use `--progress` to force log-friendly updates when stderr is redirected, or `--no-progress` to suppress them. Progress never changes the render path printed on stdout or the single JSON result printed by `spotify --json`.
+Progress includes the current phase, completed units, elapsed time, approximate ETA for bounded renders, generated audio duration, and finalization. Live renders show cumulative units without a percentage or ETA. `--json` keeps stdout to one result object; automatic progress is disabled in JSON mode, while explicit `--progress` remains stderr-only.
 When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the encoder. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
 
 M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 and OGG use the installed SoundFile/libsndfile codecs.
@@ -135,12 +137,19 @@ readio ssmd check episode.ssmd --roundtrip
 
 ## Spotify publishing
 
+Publishing is explicit and uses the clean command family:
+
 ```bash
-readio spotify --file "$draft" --title "Weekly Review" --format mp3
-readio spotify --file episode.ssmd --title "Episode" --output episode.m4a
+readio spotify publish --file "$draft" --title "Weekly Review" --format mp3 --wait
+readio spotify upload recording.m4a --title "Lecture 3" --show-id spotify:show:abc --wait 2m
+readio spotify shows --json
+readio spotify status spotify:episode:abc --wait
+readio spotify doctor --json
 ```
 
-Spotify accepts the same four formats as `render`. A recognized `--output` suffix selects the format, or use `--format` when creating a temporary upload. Without `--output`, Readio renders a secure temporary file with the selected suffix and deletes it after upload or failure. With `--output`, it retains and uploads that file. M4A output requires `ffmpeg` on `PATH`. Readio invokes `save-to-spotify --json` and does not inspect credentials or perform authentication.
+Publish renders and uploads Readio source. Direct upload starts from caller-owned WAV, MP3, M4A, or OGG and never deletes or overwrites it. Without `--output`, generated publish media is temporary and deleted after success or failure; with `--output`, it is retained. `--chapters-from-markers` and caller-owned `--timeline FILE` are mutually exclusive, and either timeline path waits for READY before publishing. `--wait` optionally accepts a duration; `--wait-timeout` is deprecated. `--api-timeout` controls an upstream request separately from readiness waiting.
+
+Readio invokes `save-to-spotify --json`, reports its detected version in diagnostics, and does not inspect credentials, expose tokens, or perform authentication.
 
 ## Doctor
 
@@ -148,7 +157,7 @@ Spotify accepts the same four formats as `render`. A recognized `--output` suffi
 readio doctor
 ```
 
-Doctor is offline. It reports Readio configuration, configured directories and their existence, PyKokoro, SSMD module and executable availability, the selected provider, voice IDs, logical roles, sound dependencies, and `save-to-spotify`. It does not create directories, modify configuration, inspect credentials, or call the network.
+Doctor is offline/local by default and supports `readio doctor --json`. It reports Readio configuration, directories, TTS/SSMD dependencies, audio formats, and the upstream `save-to-spotify` path/version probe. It does not authenticate, inspect credentials, or perform Spotify network operations; use `readio spotify doctor` for the explicit external integration check.
 
 ## Agent Skill
 

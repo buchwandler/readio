@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from readio import cli
+from readio.audio import RenderSummary
 from readio.cli import _validate_live, build_parser
 from readio.config import PathSettings, ReadioConfig
 from readio.document import InputDocument
@@ -22,7 +24,7 @@ def test_render_parser_has_shared_input_and_output_options():
 def test_render_and_spotify_parse_audio_format():
     render = build_parser().parse_args(["render", "text", "--format", "mp3"])
     spotify = build_parser().parse_args(
-        ["spotify", "text", "--title", "Episode", "--format", "m4a"]
+        ["spotify", "publish", "text", "--title", "Episode", "--format", "m4a"]
     )
     assert render.format == "mp3"
     assert spotify.format == "m4a"
@@ -93,7 +95,7 @@ def test_render_progress_flags_and_defaults():
     assert parser.parse_args(["render", "text"]).progress is None
     assert parser.parse_args(["render", "text", "--progress"]).progress is True
     assert parser.parse_args(["render", "text", "--no-progress"]).progress is False
-    assert parser.parse_args(["spotify", "text", "--title", "Episode"]).progress is None
+    assert parser.parse_args(["spotify", "publish", "text", "--title", "Episode"]).progress is None
 
 
 def test_progress_enablement_respects_tty_and_json():
@@ -108,10 +110,12 @@ def test_progress_enablement_respects_tty_and_json():
     assert cli.progress_enabled(auto, Stream(True))
     assert not cli.progress_enabled(auto, Stream(False))
 
-    json_args = build_parser().parse_args(["spotify", "text", "--title", "Episode", "--json"])
+    json_args = build_parser().parse_args(
+        ["spotify", "publish", "text", "--title", "Episode", "--json"]
+    )
     assert not cli.progress_enabled(json_args, Stream(True))
     explicit = build_parser().parse_args(
-        ["spotify", "text", "--title", "Episode", "--json", "--progress"]
+        ["spotify", "publish", "text", "--title", "Episode", "--json", "--progress"]
     )
     assert cli.progress_enabled(explicit, Stream(False))
 
@@ -167,3 +171,29 @@ def test_no_progress_suppresses_render_status(monkeypatch, capsys, tmp_path: Pat
 
     assert cli._cmd_render(args) == 0
     assert capsys.readouterr().err == ""
+
+
+def test_render_json_reports_stable_envelope(monkeypatch, capsys, tmp_path: Path):
+    cfg = ReadioConfig(
+        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
+    )
+    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    monkeypatch.setattr(
+        cli,
+        "_prepared_input",
+        lambda args, cfg: (InputDocument("text", None, "text"), {}),
+    )
+
+    def render(args, path, *, audio_format, **kwargs):
+        path.write_bytes(b"wav")
+        return RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
+
+    monkeypatch.setattr(cli, "_render_audio", render)
+    output = tmp_path / "episode.wav"
+    args = build_parser().parse_args(["render", "text", "--json", "-o", str(output)])
+
+    assert cli._cmd_render(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["duration_ms"] == 1000
+    assert result["path"] == str(output)

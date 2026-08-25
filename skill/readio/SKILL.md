@@ -6,136 +6,33 @@ compatibility: Requires the readio command and a configured local TTS backend. S
 
 # Readio
 
-Use Readio for local text to speech. It can play speech, render bounded-memory WAV, MP3, M4A, or OGG files, or publish completed audio in any of those four formats through `save-to-spotify`. Plain text is the default input for summaries, recaps, explanations, implementation status, reading, and one-voice narration.
+Use Readio for local text to speech, bounded-memory audio rendering, and explicit publication of completed media. Readio supports WAV, MP3, M4A, and OGG output. Keep the core workflow deterministic and non-interactive for agents.
 
-## Exact reading
+## Workflow decisions
 
-When the user asks to read existing text, extract the exact requested text. Do not paraphrase or add an introduction.
+1. **Exact reading:** When asked to read existing text, preserve the requested text and use `readio speak`; do not paraphrase or add an introduction.
+2. **Narrated summaries:** Generate plain text and render it directly. Do not create SSMD unless voice, role, prosody, markers, or multi-speaker semantics are required.
+3. **Markdown:** Pass Markdown directly to Readio; it projects structure into speech-friendly text. Use `--input-format text` only when Markdown-looking input must be read literally.
+4. **SSMD:** Use SSMD for multiple speakers, explicit roles, prosody, markers, or chapters. Run deterministic `readio ssmd check FILE --json` before rendering and resolve voices with repeatable `--voice-bind` options.
+5. **Publishing:** Spotify is an external write. Publish only after explicit user intent; never infer permission from a request merely to render audio.
+6. **Agents:** Prefer complete files, explicit output paths, `--json`, and non-interactive voice bindings. Never rely on `--resolve-voices` outside an interactive human TTY.
 
-```bash
-readio speak <<'READIO_EOF'
-<exact selected text>
-READIO_EOF
+## Main production steps
+
+```text
+choose input -> validate/preflight -> resolve voice/format -> render -> inspect artifact -> optionally publish
 ```
 
-For a local file:
+Keep caller-requested output files. Readio owns and removes only generated temporary Spotify media; direct-upload inputs and caller-provided timeline files remain untouched.
 
-```bash
-readio speak --file path/to/document.md
-readio speak --file path/to/document.md --select last-paragraph
-readio speak --file path/to/document.md --select paragraph:3
-```
+## Command references
 
-For local Markdown files, pass the Markdown directly; Readio parses structure before synthesis and does not require manual extraction or rewriting as SSMD:
+- [CLI and JSON](references/cli.md)
+- [Input formats](references/input-formats.md)
+- [SSMD and voice resolution](references/ssmd.md)
+- [Spotify publishing](references/spotify.md)
+- [Troubleshooting](references/troubleshooting.md)
 
-```bash
-readio speak --file path/to/document.md
-readio render --file docs/guide.md
-```
+## Safety boundary
 
-For generated or piped Markdown, select the format explicitly:
-
-```bash
-readio render --input-format markdown <<'READIO_EOF'
-# Summary
-
-- First point
-- Second point
-READIO_EOF
-```
-
-Markdown headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Markdown styling does not create prosody. Use SSMD for explicit voices, rate, volume, pitch, breaks, markers, or multi-speaker structure. Use `--input-format text` to force literal reading of Markdown-looking content.
-
-```bash
-producer-command | readio speak --live
-```
-
-Markdown and SSMD live input are rejected because their complete-document structures cannot be parsed incrementally; use a complete non-live input instead.
-
-## Narrated summaries and status
-
-For a summary, recap, explanation, implementation status, or other one-voice narration, generate plain text and render it directly. Do not create an SSMD template just because the output is audio.
-
-```bash
-readio render <<'READIO_EOF'
-<generated summary text>
-READIO_EOF
-```
-
-Use an ingest artifact when the text should be retained or edited:
-
-```bash
-source="$(readio ingest new --name implementation-summary.txt)"
-cat >"$source" <<'READIO_EOF'
-<generated summary text>
-READIO_EOF
-readio render --file "$source"
-```
-
-## Use SSMD when semantics require it
-
-Use SSMD for multiple speakers, dialogue, an explicitly requested podcast, logical roles, marks or chapters, or supported SSMD annotations and prosody. Preserve document bindings as authoritative and let Readio supply only missing configured defaults.
-
-```bash
-draft="$(readio template use podcast)"
-readio ssmd check "$draft" --json
-readio render --file "$draft"
-```
-
-When an SSMD file fails, run `readio ssmd check FILE --json`, inspect the diagnostic, and correct the source or configuration. Do not repeatedly guess at front matter or SSMD syntax. Do not silently downgrade explicitly requested multi-speaker output to one voice. Plain text is an acceptable fallback only when the user requested a narrated summary without multi-role semantics.
-
-## Destinations
-
-`readio render --file path` creates a WAV in the configured output directory when `-o` is omitted. Use `--format mp3`, `--format m4a`, or `--format ogg` to select another automatic suffix. An explicit `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix is sufficient to select the encoder, and explicit format/suffix combinations must agree. Extensionless output is normalized to the selected format. The command prints the final path and uses `--force` to replace an existing output.
-
-`readio spotify --file path --title "Episode title"` publishes only when the user explicitly requests publishing. Spotify supports all four formats. Without `--output`, Readio uses and deletes a secure temporary file; `--format` selects its suffix. With `--output`, it retains the requested audio file. M4A requires the configured FFmpeg backend to be available.
-
-For compact Spotify uploads, prefer MP3 unless the user requests another supported format. Keep WAV when lossless PCM or exact local archival output is desired.
-
-## Local files, templates, and diagnostics
-
-```bash
-readio config init
-readio template list
-readio template validate --all
-readio template show podcast
-readio template use podcast
-readio ingest path
-readio ingest new --template briefing
-readio ingest list
-readio doctor
-```
-
-User templates live outside the installed package and can be modified directly. `readio config init --force` seeds only missing templates. Use `readio template reset NAME` or `readio template reset --all` to intentionally restore packaged defaults. `readio template validate` uses Readio consumer preflight by default; add `--roundtrip` for strict SSMD authoring checks.
-
-## Publishing safety
-
-Publishing is an external write action. Perform it only with explicit user intent. Do not inspect Spotify token files, call authentication commands, or send transcript text separately from requested media metadata. Report the returned Spotify URI and readiness state when waiting was requested.
-
-## SSMD voice resolution
-
-Document-local bindings use this YAML shape and have highest precedence:
-
-```yaml
-voice_bindings:
-  kokoro:
-    moderator: af_sarah
-    architect: am_michael
-```
-
-Before rendering generated multi-speaker SSMD, inspect deterministic diagnostics:
-
-```bash
-readio voices list --json
-readio ssmd check FILE --json
-```
-
-Resolve missing roles without editing the source with repeatable bindings:
-
-```bash
-readio render --file FILE \
-  --voice-bind moderator=af_sarah \
-  --voice-bind architect=am_michael
-```
-
-Persist a reusable role explicitly with `readio voices bind ROLE VOICE_ID`. Use `readio voices roles` to inspect persisted mappings. `--resolve-voices` is an explicit human-only TTY convenience and keeps choices local to the invocation. Agents, scripts, JSON commands, and non-TTY processes must never rely on it or prompt. Do not guess role semantics or silently collapse multi-speaker SSMD to one voice.
+Readio creates speech and may delegate completed media to `save-to-spotify`. It does not own Spotify authentication, token files, access tokens, destructive Spotify administration, or upstream TTS engine management. Advanced account operations remain explicit `save-to-spotify` operations outside this skill.
