@@ -9,6 +9,7 @@ import ssmd as ssmd_api
 
 from .config import ReadioConfig
 from .errors import SSMDInputError, VoiceResolutionError
+from .synthesis import ResolvedSynthesis
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,14 +84,27 @@ def document_voice_bindings(text: str) -> dict[str, dict[str, str]]:
     return normalized
 
 
+def _available_voice_context(
+    cfg: ReadioConfig,
+    synthesis: ResolvedSynthesis | None,
+) -> tuple[str | None, tuple[str, ...]]:
+    provider = cfg.ssmd.voice_provider
+    if synthesis is not None and synthesis.model is not None:
+        from .models import get_model_info
+
+        model, _ = get_model_info(synthesis.model)
+        return synthesis.model, model.voices
+    return None, tuple(cfg.voices[provider].ids)
+
+
 def _validated_runtime_bindings(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> dict[str, str]:
     if additional_bindings is None:
         return {}
-    provider = cfg.ssmd.voice_provider
-    available = cfg.voices[provider].ids
+    _, available = _available_voice_context(cfg, synthesis)
     bindings = dict(additional_bindings)
     for reference, target in bindings.items():
         if not isinstance(reference, str) or not reference:
@@ -100,8 +114,7 @@ def _validated_runtime_bindings(
         if target not in available:
             choices = ", ".join(available)
             raise ValueError(
-                f"voice {target!r} is not configured for provider {provider!r}; "
-                f"available voices: {choices}"
+                f"voice {target!r} is not available for active model; available voices: {choices}"
             )
     return bindings
 
@@ -110,12 +123,13 @@ def default_role_bindings(
     text: str,
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> dict[str, dict[str, str]]:
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
     configured = cfg.voices[provider].roles
     defaults = {role: target for role, target in configured.items() if role not in document}
-    runtime = _validated_runtime_bindings(cfg, additional_bindings)
+    runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
     defaults.update(
         {
             role: target
@@ -130,12 +144,13 @@ def build_ssmd_render_config(
     text: str,
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> Any:
     from pykokoro import SSMDRenderConfig
 
     return SSMDRenderConfig(
         provider=cfg.ssmd.voice_provider,
-        voice_bindings=default_role_bindings(text, cfg, additional_bindings),
+        voice_bindings=default_role_bindings(text, cfg, additional_bindings, synthesis),
         missing_voice="error",
     )
 
@@ -162,11 +177,12 @@ def analyze_ssmd(
     *,
     source_path: Path | None = None,
     additional_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> SSMDPreflightResult:
     """Analyze an SSMD document without raising for unresolved voice references."""
 
     provider = cfg.ssmd.voice_provider
-    runtime = _validated_runtime_bindings(cfg, additional_bindings)
+    runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
     try:
         ssmd_api.parse_ssmd(text, strict_parse=True)
         references = ssmd_api.extract_voice_references(text)
@@ -174,10 +190,10 @@ def analyze_ssmd(
         raise SSMDInputError(f"SSMD consumer parse failed: {exc}", source_path=source_path) from exc
 
     document = document_voice_bindings(text).get(provider, {})
-    defaults = default_role_bindings(text, cfg).get(provider, {})
+    defaults = default_role_bindings(text, cfg, synthesis=synthesis).get(provider, {})
     unresolved: list[Any] = []
     diagnostics: list[Diagnostic] = []
-    available = cfg.voices[provider].ids
+    active_model, available = _available_voice_context(cfg, synthesis)
 
     for use in references:
         if use.reference in document:
@@ -188,14 +204,21 @@ def analyze_ssmd(
                         code="ssmd.document_binding_invalid",
                         severity="error",
                         message=(
-                            f"document binding {use.reference!r} -> {target!r} is not a configured "
-                            f"voice for provider {provider!r}"
+                            f"document binding {use.reference!r} -> {target!r} is incompatible "
+                            f"with active model {active_model!r}"
+                            if active_model
+                            else f"document binding {use.reference!r} -> {target!r} is not a "
+                            f"configured voice for provider {provider!r}"
                         ),
                         line=use.lines[0] if use.lines else None,
                     )
                 )
             continue
-        target = _resolved_target(use.reference, document, runtime, cfg)
+        target = (
+            use.reference
+            if use.reference in available
+            else _resolved_target(use.reference, document, runtime, cfg)
+        )
         if target is None or target not in available:
             unresolved.append(use)
 
@@ -228,8 +251,9 @@ def _voice_resolution_error(
     cfg: ReadioConfig,
     *,
     source_path: Path | None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> VoiceResolutionError:
-    available = tuple(cfg.voices[result.provider].ids)
+    active_model, available = _available_voice_context(cfg, synthesis)
     invalid = next(
         (item for item in result.diagnostics if item.code == "ssmd.document_binding_invalid"),
         None,
@@ -253,7 +277,11 @@ def _voice_resolution_error(
             f"cannot resolve {len(references)} SSMD voice reference"
             f"{'s' if len(references) != 1 else ''} for provider {result.provider!r}\n"
             + "\n".join(f"  {use.reference} ({use.count} uses)" for use in references)
-            + "\n\nConfigured voices: "
+            + (
+                f"\n\nAvailable voices for active model {active_model!r}: "
+                if active_model
+                else "\n\nConfigured voices: "
+            )
             + ", ".join(available)
             + "\n\n"
             + f"\n\nConfigure voices.{result.provider}.roles.{references[0].reference} or add document-local bindings:\n"
@@ -267,7 +295,11 @@ def _voice_resolution_error(
             + "".join(
                 f"    --voice-bind {use.reference}=<voice-id> \\\n" for use in references
             ).rstrip(" \\\n")
-            + f"\n\nRun `readio voices list --provider {result.provider}` to inspect valid voice IDs."
+            + (
+                f"\n\nRun `readio voices list --model {active_model}` to inspect valid voice IDs."
+                if active_model
+                else f"\n\nRun `readio voices list --provider {result.provider}` to inspect valid voice IDs."
+            )
         )
         reference = references[0].reference
     return VoiceResolutionError(
@@ -287,6 +319,7 @@ def preflight_ssmd(
     *,
     source_path: Path | None = None,
     additional_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> SSMDPreflightResult:
     """Check an SSMD document with the same binding map used by the pipeline."""
 
@@ -295,7 +328,8 @@ def preflight_ssmd(
         cfg,
         source_path=source_path,
         additional_bindings=additional_bindings,
+        synthesis=synthesis,
     )
     if not result.ok:
-        raise _voice_resolution_error(result, cfg, source_path=source_path)
+        raise _voice_resolution_error(result, cfg, source_path=source_path, synthesis=synthesis)
     return result

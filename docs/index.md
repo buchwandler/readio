@@ -83,6 +83,18 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
+Runtime discovery and per-language defaults are separate from legacy provider role configuration:
+
+```bash
+readio models list --language de
+readio models show de-thorsten
+readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+readio defaults show de
+readio render --lang de --file notes.md
+```
+
+`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `defaults` stores user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons.
+
 ## Render progress
 
 `render` uses a dependency-free progress reporter on stderr. In default `auto` mode it is enabled only for an interactive stderr; `--progress` forces it and `--no-progress` disables it. `--json` keeps stdout to exactly one result object, disables automatic progress, and still permits explicit stderr progress:
@@ -107,14 +119,15 @@ readio config show
 readio config validate
 ```
 
-`READIO_CONFIG` overrides the default configuration file path. Configuration is TOML with schema 1. The main sections are:
+`READIO_CONFIG` overrides the default configuration file path. Configuration is TOML with schema 2; schema-0/1 files remain readable and are upgraded when saved. The main sections are:
 
 - `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, and `device`.
 - `[ssmd]`: the selected `voice_provider` and SSMD validation behavior.
 - `[paths]`: user template, ingest, and audio output directories.
 - `[voices.<provider>]`: concrete voice IDs and logical role mappings.
 
-Set values with dotted keys. Aliases `voice`, `lang`, and `speed` target the corresponding reader settings:
+- `[languages.<locale>]`: validated model, source, quality, voice, ordered lexicons, and experimental opt-in defaults.
+  Set values with dotted keys. Aliases `voice`, `lang`, and `speed` target the corresponding reader settings:
 
 ```bash
 readio config set reader.voice bf_emma

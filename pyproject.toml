@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = [
-  "pykokoro[playback]>=0.8.6,<0.9",
+  "pykokoro[playback]>=0.8.8,<0.9",
   "platformdirs>=4.0",
   "soundfile>=0.12",
   "tomli>=2.0; python_version < '3.11'",

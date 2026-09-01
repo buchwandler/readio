@@ -170,6 +170,7 @@ def cmd_spotify_publish(args: argparse.Namespace) -> int:
     if args.live:
         _cli._validate_live(args)
     cfg = _cli._resolved_config(args)
+    args._resolved_synthesis = _cli.resolve_synthesis(cfg, args)
     audio_format = resolve_audio_format(requested=args.format, output=args.output)
     _cli.ensure_audio_format_available(audio_format)
     progress = _cli._build_progress(args)

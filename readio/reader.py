@@ -18,6 +18,7 @@ from .document import InputDocument, document_from_text
 from .errors import InputError
 from .markdown import markdown_to_speech
 from .ssmd import build_ssmd_render_config, preflight_ssmd
+from .synthesis import ResolvedSynthesis, resolve_synthesis
 from .text import iter_live_paragraphs
 
 
@@ -43,20 +44,35 @@ def pipeline_config_for_document(
     cfg: ReadioConfig,
     *,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> Any:
     from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
+    from pykokoro.tokenizer import TokenizerConfig
 
+    resolved = synthesis or resolve_synthesis(cfg)
     generation = GenerationConfig(
-        lang=cfg.reader.lang,
-        speed=cfg.reader.speed,
-        pause_mode=cfg.reader.pause_mode,
+        lang=resolved.language,
+        speed=resolved.speed,
+        pause_mode=resolved.pause_mode,
+    )
+    tokenizer_config = (
+        TokenizerConfig(lexicons=resolved.lexicons) if resolved.lexicons is not None else None
     )
     ssmd = (
-        build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings)
+        build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings, synthesis)
         if document.format == "ssmd"
         else SSMDRenderConfig()
     )
-    return PipelineConfig(voice=cfg.reader.voice, generation=generation, ssmd=ssmd)
+    return PipelineConfig(
+        voice=resolved.voice,
+        model_source=resolved.source,
+        model_variant=resolved.model,
+        model_quality=resolved.quality,
+        allow_experimental_frontend=resolved.allow_experimental,
+        generation=generation,
+        tokenizer_config=tokenizer_config,
+        ssmd=ssmd,
+    )
 
 
 def _build_pipeline(
@@ -64,6 +80,7 @@ def _build_pipeline(
     cfg: ReadioConfig | ReaderSettings,
     *,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> AbstractContextManager[Any]:
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
 
@@ -74,9 +91,12 @@ def _build_pipeline(
                 cfg,
                 source_path=document.source_path,
                 additional_bindings=ssmd_voice_bindings,
+                synthesis=synthesis,
             )
         return KokoroPipeline(
-            pipeline_config_for_document(document, cfg, ssmd_voice_bindings=ssmd_voice_bindings)
+            pipeline_config_for_document(
+                document, cfg, ssmd_voice_bindings=ssmd_voice_bindings, synthesis=synthesis
+            )
         )
 
     generation = GenerationConfig(
@@ -117,6 +137,7 @@ def render_text(
     selector: str = "all",
     unit: str | None = None,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
     on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
     document = text if isinstance(text, InputDocument) else document_from_text(text)
@@ -124,12 +145,16 @@ def render_text(
     if not document.text.strip():
         raise ValueError("no text to read")
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
-    effective_unit = unit or reader_cfg.unit
+    effective_unit = unit or (synthesis.unit if synthesis is not None else reader_cfg.unit)
     prepare_unit = "paragraph" if selector != "all" else effective_unit
-    if ssmd_voice_bindings is None:
+    if ssmd_voice_bindings is None and synthesis is None:
         pipeline_context = _build_pipeline(document, cfg)
+    elif ssmd_voice_bindings is None:
+        pipeline_context = _build_pipeline(document, cfg, synthesis=synthesis)
     else:
-        pipeline_context = _build_pipeline(document, cfg, ssmd_voice_bindings=ssmd_voice_bindings)
+        pipeline_context = _build_pipeline(
+            document, cfg, ssmd_voice_bindings=ssmd_voice_bindings, synthesis=synthesis
+        )
     with (
         pipeline_context as pipeline,
         pipeline.prepare_units(document.text, unit=prepare_unit) as prepared,
@@ -151,10 +176,11 @@ def render_live(
     sink: AudioSink,
     *,
     unit: str | None = None,
+    synthesis: ResolvedSynthesis | None = None,
     on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
-    effective_unit = unit or reader_cfg.unit
+    effective_unit = unit or (synthesis.unit if synthesis is not None else reader_cfg.unit)
     saw_text = False
     sample_rate = 0
     sample_count = 0
@@ -182,7 +208,7 @@ def render_live(
                 )
             )
 
-    with _build_pipeline(document_from_text(""), cfg) as pipeline:
+    with _build_pipeline(document_from_text(""), cfg, synthesis=synthesis) as pipeline:
         for paragraph in iter_live_paragraphs(lines):
             saw_text = True
             with pipeline.prepare_units(paragraph, unit=effective_unit) as prepared:
@@ -243,6 +269,7 @@ def speak_text(
     selector: str = "all",
     unit: str | None = None,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> None:
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
@@ -253,14 +280,19 @@ def speak_text(
             selector=selector,
             unit=unit,
             ssmd_voice_bindings=ssmd_voice_bindings,
+            synthesis=synthesis,
         )
         sink.finish()
 
 
 def speak_live(
-    lines: Iterable[str], cfg: ReadioConfig | ReaderSettings, *, unit: str | None = None
+    lines: Iterable[str],
+    cfg: ReadioConfig | ReaderSettings,
+    *,
+    unit: str | None = None,
+    synthesis: ResolvedSynthesis | None = None,
 ) -> None:
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
-        render_live(lines, cfg, sink, unit=unit)
+        render_live(lines, cfg, sink, unit=unit, synthesis=synthesis)
         sink.finish()

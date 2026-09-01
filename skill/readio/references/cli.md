@@ -17,6 +17,31 @@ Agents should use `--json`. It is accepted before or after the command, and lite
 
 `render --json` reports `path`, `format`, `sample_rate`, `sample_count`, `channels`, `duration_ms`, and `markers`. Human render output remains the final path for shell compatibility.
 
+## Model discovery
+
+Use PyKokoro metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
+
+```bash
+readio models list --language de --json
+readio models list --status ready --offline
+readio models show de-thorsten --json
+```
+
+JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
+
+## Language defaults
+
+`defaults` persists validated user choices independently of the runtime catalog:
+
+```bash
+readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+readio defaults show de-at --json
+readio defaults list --json
+readio defaults reset de
+```
+
+Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
+
 ## Audio
 
 Supported formats are WAV, MP3, M4A, and OGG. Infer the format from an output suffix where possible; explicit format and suffix must agree. M4A requires FFmpeg. Use `--force` to replace an existing output.

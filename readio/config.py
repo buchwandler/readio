@@ -47,6 +47,16 @@ ReaderConfig = ReaderSettings
 
 
 @dataclass(frozen=True, slots=True)
+class LanguageSettings:
+    model: str | None = None
+    source: str | None = None
+    quality: str | None = None
+    voice: str | None = None
+    lexicons: tuple[str, ...] | None = None
+    allow_experimental: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class SSMDSettings:
     voice_provider: str = "kokoro"
     validate_before_render: bool = True
@@ -69,13 +79,14 @@ class VoiceProviderSettings:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ReadioConfig:
-    schema: int = 1
+    schema: int = 2
     reader: ReaderSettings = field(default_factory=ReaderSettings)
     ssmd: SSMDSettings = field(default_factory=SSMDSettings)
     paths: PathSettings = field(default_factory=PathSettings)
     voices: Mapping[str, VoiceProviderSettings] = field(
         default_factory=lambda: {"kokoro": VoiceProviderSettings()}
     )
+    languages: Mapping[str, LanguageSettings] = field(default_factory=dict)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, ReadioConfig):
@@ -85,6 +96,7 @@ class ReadioConfig:
                 and self.ssmd == other.ssmd
                 and self.paths == other.paths
                 and dict(self.voices) == dict(other.voices)
+                and dict(self.languages) == dict(other.languages)
             )
         if isinstance(other, ReaderSettings):
             return self.reader == other
@@ -94,6 +106,7 @@ class ReadioConfig:
 _READER_KEYS = tuple(ReaderSettings.__dataclass_fields__)
 _SSMD_KEYS = tuple(SSMDSettings.__dataclass_fields__)
 _PATH_KEYS = tuple(PathSettings.__dataclass_fields__)
+_LANGUAGE_KEYS = tuple(LanguageSettings.__dataclass_fields__)
 
 
 def config_path() -> Path:
@@ -103,6 +116,16 @@ def config_path() -> Path:
 
 def default_config() -> ReadioConfig:
     return ReadioConfig()
+
+
+def normalize_language_key(language: str) -> str:
+    """Normalize locale keys in the same way as PyKokoro."""
+    if not isinstance(language, str):
+        raise TypeError("language must be a string")
+    normalized = language.strip().lower().replace("_", "-")
+    if not normalized:
+        raise ValueError("language must be a non-empty string")
+    return normalized
 
 
 def _coerce_reader_value(key: str, value: Any) -> Any:
@@ -160,7 +183,6 @@ def _provider(value: Any, name: str) -> VoiceProviderSettings:
         raise TypeError(f"voices.{name}.ids must be a list")
     if any(not isinstance(item, str) or not item for item in ids):
         raise ValueError(f"voices.{name}.ids must contain non-empty strings")
-    normalized_ids = tuple(ids)
     roles_value = value.get("roles", {})
     if not isinstance(roles_value, dict):
         raise TypeError(f"voices.{name}.roles must be a TOML table")
@@ -169,8 +191,54 @@ def _provider(value: Any, name: str) -> VoiceProviderSettings:
         for role, target in roles_value.items()
     ):
         raise ValueError(f"voices.{name}.roles must contain non-empty strings")
-    roles = dict(roles_value)
-    return VoiceProviderSettings(ids=normalized_ids, roles=roles)
+    return VoiceProviderSettings(ids=tuple(ids), roles=dict(roles_value))
+
+
+def _optional_string(value: Any, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"languages profile {field_name} must be a non-empty string")
+    return value.strip()
+
+
+def _language(value: Any, language: str) -> LanguageSettings:
+    if not isinstance(value, dict):
+        raise TypeError(f"languages.{language} must be a TOML table")
+    lexicons = value.get("lexicons")
+    if lexicons is not None:
+        if not isinstance(lexicons, (list, tuple)):
+            raise TypeError(f"languages.{language}.lexicons must be a list")
+        lexicons = tuple(lexicons)
+        if any(not isinstance(item, str) or not item.strip() for item in lexicons):
+            raise ValueError(f"languages.{language}.lexicons must contain non-empty strings")
+        if len(lexicons) != len(set(lexicons)):
+            raise ValueError(f"languages.{language}.lexicons must not contain duplicates")
+    allow_experimental = value.get("allow_experimental", False)
+    if not isinstance(allow_experimental, bool):
+        raise TypeError(f"languages.{language}.allow_experimental must be a boolean")
+    return LanguageSettings(
+        model=_optional_string(value.get("model"), "model"),
+        source=_optional_string(value.get("source"), "source"),
+        quality=_optional_string(value.get("quality"), "quality"),
+        voice=_optional_string(value.get("voice"), "voice"),
+        lexicons=lexicons,
+        allow_experimental=allow_experimental,
+    )
+
+
+def _languages(values: Any) -> dict[str, LanguageSettings]:
+    if values is None:
+        return {}
+    if not isinstance(values, dict):
+        raise TypeError("[languages] must be a TOML table")
+    result: dict[str, LanguageSettings] = {}
+    for raw_key, value in values.items():
+        key = normalize_language_key(raw_key)
+        if key in result:
+            raise ValueError(f"duplicate normalized language key {key!r}")
+        result[key] = _language(value, key)
+    return result
 
 
 def validate_config(cfg: ReadioConfig) -> ReadioConfig:
@@ -184,6 +252,23 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
         value = getattr(cfg.paths, field_name)
         if not isinstance(value, Path) or not str(value):
             raise ValueError(f"paths.{field_name} must be a non-empty path")
+    normalized_keys: set[str] = set()
+    for language, settings in cfg.languages.items():
+        normalized = normalize_language_key(language)
+        if language != normalized or normalized in normalized_keys:
+            raise ValueError(f"duplicate or non-normalized language key {language!r}")
+        normalized_keys.add(normalized)
+        _language(
+            {
+                "model": settings.model,
+                "source": settings.source,
+                "quality": settings.quality,
+                "voice": settings.voice,
+                "lexicons": list(settings.lexicons) if settings.lexicons is not None else None,
+                "allow_experimental": settings.allow_experimental,
+            },
+            language,
+        )
     for provider, settings in cfg.voices.items():
         if not provider:
             raise ValueError("voice provider names must be non-empty")
@@ -214,6 +299,46 @@ def _reader_from(values: Mapping[str, Any]) -> ReaderSettings:
     return ReaderSettings(**updates)
 
 
+def _config_from_data(data: Mapping[str, Any]) -> ReadioConfig:
+    reader_values = data.get("reader", {})
+    if not isinstance(reader_values, dict):
+        raise TypeError("[reader] must be a TOML table")
+    if "reader" not in data:
+        reader_values = data
+    reader = _reader_from(reader_values)
+    ssmd_values = data.get("ssmd", {})
+    if not isinstance(ssmd_values, dict):
+        raise TypeError("[ssmd] must be a TOML table")
+    ssmd = SSMDSettings(
+        **{
+            key: _coerce_ssmd_value(key, value)
+            for key, value in ssmd_values.items()
+            if key in _SSMD_KEYS
+        }
+    )
+    path_values = data.get("paths", {})
+    if not isinstance(path_values, dict):
+        raise TypeError("[paths] must be a TOML table")
+    paths = PathSettings(
+        **{key: _path_value(value, key) for key, value in path_values.items() if key in _PATH_KEYS}
+    )
+    voices: dict[str, VoiceProviderSettings] = {"kokoro": VoiceProviderSettings()}
+    voices_values = data.get("voices")
+    if voices_values is not None:
+        if not isinstance(voices_values, dict):
+            raise TypeError("[voices] must be a TOML table")
+        voices = {name: _provider(value, name) for name, value in voices_values.items()}
+    cfg = ReadioConfig(
+        schema=int(data.get("schema", 0)),
+        reader=reader,
+        ssmd=ssmd,
+        paths=paths,
+        voices=voices,
+        languages=_languages(data.get("languages")),
+    )
+    return validate_config(cfg)
+
+
 def load_config(path: Path | None = None) -> ReadioConfig:
     path = path or config_path()
     if not path.exists():
@@ -221,42 +346,7 @@ def load_config(path: Path | None = None) -> ReadioConfig:
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise TypeError(f"invalid config at {path}: expected a TOML table")
-
-    reader_values = raw.get("reader", {})
-    if not isinstance(reader_values, dict):
-        raise TypeError(f"invalid config at {path}: [reader] must be a TOML table")
-    if "reader" not in raw:
-        reader_values = raw
-    reader = _reader_from(reader_values)
-    ssmd = SSMDSettings()
-    if isinstance(raw.get("ssmd"), dict):
-        ssmd = SSMDSettings(
-            **{
-                key: _coerce_ssmd_value(key, value)
-                for key, value in raw["ssmd"].items()
-                if key in _SSMD_KEYS
-            }
-        )
-    paths = PathSettings()
-    if isinstance(raw.get("paths"), dict):
-        paths = PathSettings(
-            **{
-                key: _path_value(value, key)
-                for key, value in raw["paths"].items()
-                if key in _PATH_KEYS
-            }
-        )
-    voices: dict[str, VoiceProviderSettings] = {"kokoro": VoiceProviderSettings()}
-    if isinstance(raw.get("voices"), dict):
-        voices = {name: _provider(value, name) for name, value in raw["voices"].items()}
-    cfg = ReadioConfig(
-        schema=int(raw.get("schema", 0)),
-        reader=reader,
-        ssmd=ssmd,
-        paths=paths,
-        voices=voices,
-    )
-    return validate_config(cfg)
+    return _config_from_data(raw)
 
 
 def with_overrides(
@@ -274,8 +364,29 @@ def with_overrides(
         if value is not None:
             reader_values[key] = _coerce_reader_value(key, value)
     return ReadioConfig(
-        cfg.schema, ReaderSettings(**reader_values), cfg.ssmd, cfg.paths, cfg.voices
+        schema=cfg.schema,
+        reader=ReaderSettings(**reader_values),
+        ssmd=cfg.ssmd,
+        paths=cfg.paths,
+        voices=cfg.voices,
+        languages=cfg.languages,
     )
+
+
+def language_profile(
+    cfg: ReadioConfig, language: str
+) -> tuple[str | None, LanguageSettings | None]:
+    """Resolve an exact locale profile, then its base language profile."""
+    normalized = normalize_language_key(language)
+    exact = cfg.languages.get(normalized)
+    if exact is not None:
+        return normalized, exact
+    base = normalized.partition("-")[0]
+    if base != normalized:
+        fallback = cfg.languages.get(base)
+        if fallback is not None:
+            return base, fallback
+    return None, None
 
 
 def _set_nested(mapping: dict[str, Any], parts: list[str], value: Any) -> None:
@@ -285,6 +396,49 @@ def _set_nested(mapping: dict[str, Any], parts: list[str], value: Any) -> None:
             current[part] = {}
         current = current[part]
     current[parts[-1]] = value
+
+
+def _coerce_bool(value: Any, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "1", "on"}:
+        return True
+    if text in {"false", "no", "0", "off"}:
+        return False
+    raise ValueError(f"{field_name} must be a boolean")
+
+
+def _serializable_data(cfg: ReadioConfig, *, schema: int = 2) -> dict[str, Any]:
+    return {
+        "schema": schema,
+        "reader": {
+            key: getattr(cfg.reader, key)
+            for key in _READER_KEYS
+            if getattr(cfg.reader, key) is not None
+        },
+        "ssmd": {key: getattr(cfg.ssmd, key) for key in _SSMD_KEYS},
+        "paths": {key: str(getattr(cfg.paths, key)) for key in _PATH_KEYS},
+        "voices": {
+            provider: {"ids": list(settings.ids), "roles": dict(settings.roles)}
+            for provider, settings in cfg.voices.items()
+        },
+        "languages": {
+            normalize_language_key(language): {
+                key: list(value) if isinstance(value, tuple) else value
+                for key, value in {
+                    "model": settings.model,
+                    "source": settings.source,
+                    "quality": settings.quality,
+                    "voice": settings.voice,
+                    "lexicons": settings.lexicons,
+                    "allow_experimental": settings.allow_experimental,
+                }.items()
+                if value is not None
+            }
+            for language, settings in cfg.languages.items()
+        },
+    }
 
 
 def set_config_value(
@@ -298,16 +452,8 @@ def set_config_value(
         if key not in _READER_KEYS:
             raise KeyError(f"unknown config key {key!r}")
         return with_overrides(cfg, **{key: value})
-    data = {
-        "schema": cfg.schema,
-        "reader": {key: getattr(cfg.reader, key) for key in _READER_KEYS},
-        "ssmd": {key: getattr(cfg.ssmd, key) for key in _SSMD_KEYS},
-        "paths": {key: str(getattr(cfg.paths, key)) for key in _PATH_KEYS},
-        "voices": {
-            provider: {"ids": list(settings.ids), "roles": dict(settings.roles)}
-            for provider, settings in cfg.voices.items()
-        },
-    }
+
+    data = _serializable_data(cfg, schema=2)
     parts = key.split(".")
     if parts[0] == "reader" and len(parts) == 2:
         value = _coerce_reader_value(parts[1], value)
@@ -319,26 +465,26 @@ def set_config_value(
         value = str(value)
     elif len(parts) == 3 and parts[0] == "voices" and parts[2] == "ids":
         value = [str(item) for item in str(value).split(",") if item]
+    elif len(parts) == 3 and parts[0] == "languages":
+        language = normalize_language_key(parts[1])
+        field_name = parts[2]
+        if field_name not in _LANGUAGE_KEYS:
+            raise KeyError(f"unknown language config key {field_name!r}")
+        data.setdefault("languages", {}).setdefault(language, {})
+        if field_name == "lexicons":
+            value = tuple(item.strip() for item in str(value).split(","))
+        elif field_name == "allow_experimental":
+            value = _coerce_bool(value, f"languages.{language}.{field_name}")
+        elif field_name in {"model", "source", "quality", "voice"}:
+            value = _optional_string(value, field_name)
+        _set_nested(data, ["languages", language, field_name], value)
+        return _config_from_data(data)
     elif key != "schema":
         raise KeyError(f"unknown config key {key!r}")
     else:
         value = int(value)
     _set_nested(data, parts, value)
     return _config_from_data(data)
-
-
-def _config_from_data(data: Mapping[str, Any]) -> ReadioConfig:
-    reader = _reader_from(data.get("reader", {}))
-    ssmd_values = data.get("ssmd", {})
-    ssmd = SSMDSettings(
-        **{key: _coerce_ssmd_value(key, value) for key, value in ssmd_values.items()}
-    )
-    path_values = data.get("paths", {})
-    paths = PathSettings(**{key: _path_value(value, key) for key, value in path_values.items()})
-    voices = {name: _provider(value, name) for name, value in data.get("voices", {}).items()}
-    return validate_config(
-        ReadioConfig(schema=1, reader=reader, ssmd=ssmd, paths=paths, voices=voices)
-    )
 
 
 def dumps_config(cfg: ReadioConfig | ReaderSettings) -> str:
@@ -349,20 +495,8 @@ def dumps_config(cfg: ReadioConfig | ReaderSettings) -> str:
             }
         }
     else:
-        data = {
-            "schema": 1,
-            "reader": {
-                key: getattr(cfg.reader, key)
-                for key in _READER_KEYS
-                if getattr(cfg.reader, key) is not None
-            },
-            "ssmd": {key: getattr(cfg.ssmd, key) for key in _SSMD_KEYS},
-            "paths": {key: str(getattr(cfg.paths, key)) for key in _PATH_KEYS},
-            "voices": {
-                provider: {"ids": list(settings.ids), "roles": dict(settings.roles)}
-                for provider, settings in cfg.voices.items()
-            },
-        }
+        validate_config(cfg)
+        data = _serializable_data(cfg, schema=2)
     return tomli_w.dumps(data)
 
 
@@ -414,10 +548,7 @@ def provider_role_map(cfg: ReadioConfig, provider: str | None = None) -> dict[st
 
 
 def bind_voice_role(
-    cfg: ReadioConfig,
-    role: str,
-    voice_id: str,
-    provider: str | None = None,
+    cfg: ReadioConfig, role: str, voice_id: str, provider: str | None = None
 ) -> ReadioConfig:
     """Return a validated config with a persistent logical role binding."""
     name = provider or cfg.ssmd.voice_provider
@@ -429,17 +560,12 @@ def bind_voice_role(
     if voice_id not in settings.ids:
         available = ", ".join(settings.ids)
         raise ValueError(
-            f"voice {voice_id!r} is not configured for provider {name!r}; "
-            f"available voices: {available}"
+            f"voice {voice_id!r} is not configured for provider {name!r}; available voices: {available}"
         )
-    return set_config_value(cfg, f"voices.{name}.roles.{role}", voice_id)
+    return set_config_value(cfg, f"voices.{name}.roles.{role}", voice_id)  # type: ignore[return-value]
 
 
-def unbind_voice_role(
-    cfg: ReadioConfig,
-    role: str,
-    provider: str | None = None,
-) -> ReadioConfig:
+def unbind_voice_role(cfg: ReadioConfig, role: str, provider: str | None = None) -> ReadioConfig:
     """Return a config without a persistent logical role binding."""
     name = provider or cfg.ssmd.voice_provider
     settings = cfg.voices.get(name)
@@ -452,4 +578,11 @@ def unbind_voice_role(
         ids=settings.ids,
         roles={key: value for key, value in settings.roles.items() if key != role},
     )
-    return ReadioConfig(cfg.schema, cfg.reader, cfg.ssmd, cfg.paths, voices)
+    return ReadioConfig(
+        schema=cfg.schema,
+        reader=cfg.reader,
+        ssmd=cfg.ssmd,
+        paths=cfg.paths,
+        voices=voices,
+        languages=cfg.languages,
+    )

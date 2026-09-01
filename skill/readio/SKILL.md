@@ -17,6 +17,25 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
 5. **Publishing:** Spotify is an external write. Publish only after explicit user intent; never infer permission from a request merely to render audio.
 6. **Agents:** Prefer complete files, explicit output paths, `--json`, and non-interactive voice bindings. Never rely on `--resolve-voices` outside an interactive human TTY.
 
+## Model discovery and defaults
+
+PyKokoro is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
+
+```bash
+readio models list --language de --json
+readio models show de-thorsten --json
+```
+
+Persist user policy with the validated defaults workflow:
+
+```bash
+readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+readio defaults show de --json
+readio render --lang de --file article.md --json
+```
+
+Use `--offline` for cache-only discovery and `--refresh` to explicitly refresh the registry. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
+
 ## Main production steps
 
 ```text

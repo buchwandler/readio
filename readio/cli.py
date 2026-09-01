@@ -5,16 +5,20 @@ import json
 import shutil
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from . import __version__
 from .audio import RenderProgressCallback, RenderSummary
 from .config import (
+    LanguageSettings,
     ReadioConfig,
     bind_voice_role,
     config_path,
     default_config,
+    language_profile,
     load_config,
+    normalize_language_key,
     provider_role_map,
     provider_voices,
     save_config,
@@ -34,6 +38,7 @@ from .formats import (
     resolve_audio_format,
 )
 from .ingest import list_ingest, new_ingest
+from .models import ModelDiscoveryError, discover_model_info, get_model_info
 from .paths import resolve_render_output
 from .progress import TerminalProgress
 from .reader import SelectionError, render_live, render_text, speak_live, speak_text
@@ -46,6 +51,7 @@ from .spotify import (
 )
 from .ssmd import analyze_ssmd, preflight_ssmd
 from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
+from .synthesis import resolve_synthesis
 from .templates import (
     add_template,
     list_templates,
@@ -92,6 +98,17 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
 def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--voice", help="PyKokoro voice, e.g. af_sarah")
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
+    parser.add_argument("--model", help="PyKokoro model ID")
+    parser.add_argument("--model-source", help="advanced model source override")
+    parser.add_argument("--quality", help="model quality/quantization")
+    lexicon_group = parser.add_mutually_exclusive_group()
+    lexicon_group.add_argument("--lexicon", dest="lexicons", action="append", metavar="NAME")
+    lexicon_group.add_argument(
+        "--no-lexicons", action="store_true", help="clear configured named lexicons"
+    )
+    parser.add_argument(
+        "--allow-experimental", action="store_true", help="allow experimental frontends"
+    )
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
     parser.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
     parser.add_argument("--unit", choices=("sentence", "paragraph"))
@@ -278,6 +295,7 @@ def _prepared_input(
         cfg,
         source_path=document.source_path,
         additional_bindings=bindings,
+        synthesis=getattr(args, "_resolved_synthesis", None),
     )
     if result.unresolved_voice_references and getattr(args, "resolve_voices", False):
         if getattr(args, "json", False) or not sys.stdin.isatty():
@@ -297,9 +315,10 @@ def _prepared_input(
 
 def _cmd_speak(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
+    args._resolved_synthesis = resolve_synthesis(cfg, args)
     if args.live:
         _validate_live(args)
-        speak_live(sys.stdin, cfg.reader, unit=args.unit)
+        speak_live(sys.stdin, cfg, unit=args.unit, synthesis=args._resolved_synthesis)
     else:
         document, bindings = _prepared_input(args, cfg)
         speak_text(
@@ -308,6 +327,7 @@ def _cmd_speak(args: argparse.Namespace) -> int:
             selector=args.select,
             unit=args.unit,
             ssmd_voice_bindings=bindings,
+            synthesis=args._resolved_synthesis,
         )
     return 0
 
@@ -334,6 +354,7 @@ def _render_audio(
                 cfg,
                 sink,
                 unit=args.unit,
+                synthesis=getattr(args, "_resolved_synthesis", None),
                 on_progress=on_progress,
             )
         else:
@@ -344,6 +365,7 @@ def _render_audio(
                 sink,
                 selector=args.select,
                 unit=args.unit,
+                synthesis=getattr(args, "_resolved_synthesis", None),
                 ssmd_voice_bindings=bindings or {},
                 on_progress=on_progress,
             )
@@ -358,6 +380,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if args.live:
         _validate_live(args)
     cfg = _resolved_config(args)
+    args._resolved_synthesis = resolve_synthesis(cfg, args)
     audio_format = resolve_audio_format(requested=args.format, output=args.output)
     output = resolve_render_output(
         cfg,
@@ -487,10 +510,236 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _language_settings_payload(settings: LanguageSettings | None) -> dict[str, object] | None:
+    if settings is None:
+        return None
+    return {
+        "model": settings.model,
+        "source": settings.source,
+        "quality": settings.quality,
+        "voice": settings.voice,
+        "lexicons": list(settings.lexicons) if settings.lexicons is not None else None,
+        "allow_experimental": settings.allow_experimental,
+    }
+
+
+def _print_language_settings(settings: LanguageSettings) -> None:
+    print(f"Model:           {settings.model or '-'}")
+    print(f"Source:          {settings.source or '-'}")
+    print(f"Quality:         {settings.quality or '-'}")
+    print(f"Voice:           {settings.voice or '-'}")
+    print(f"Lexicons:        {_lexicons_label(settings.lexicons)}")
+    print(f"Allow experimental: {'yes' if settings.allow_experimental else 'no'}")
+
+
+def _cmd_defaults(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    language = normalize_language_key(args.language) if getattr(args, "language", None) else None
+    if args.defaults_command == "list":
+        profiles = [
+            {"language": key, **(_language_settings_payload(value) or {})}
+            for key, value in sorted(cfg.languages.items())
+        ]
+        payload = {"ok": True, "defaults": profiles}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+        else:
+            print("LANG  MODEL        VOICE     QUALITY  LEXICA  SOURCE")
+            for item in profiles:
+                print(
+                    f"{item['language']:<5} {item['model'] or '-'!s: <12} "
+                    f"{item['voice'] or '-'!s: <9} {item['quality'] or '-'!s: <8} "
+                    f"{_lexicons_label(item['lexicons']):<7} {item['source'] or '-'}"
+                )
+        return 0
+
+    if args.defaults_command == "show":
+        matched, settings = language_profile(cfg, language)
+        fallback = "exact" if matched == language else "base" if matched else None
+        payload = {
+            "ok": True,
+            "language": language,
+            "matched_key": matched,
+            "match": fallback,
+            "profile": _language_settings_payload(settings),
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        print(f"Language:        {language}")
+        print(f"Matched default: {matched or '-'}")
+        if settings is None:
+            print("No persisted language default.")
+        else:
+            _print_language_settings(settings)
+        return 0
+
+    if args.defaults_command == "reset":
+        if language not in cfg.languages:
+            raise ValueError(f"No persisted language default for '{language}'.")
+        languages = dict(cfg.languages)
+        del languages[language]
+        updated = replace(cfg, schema=2, languages=languages)
+        path = save_config(updated)
+        payload = {"ok": True, "language": language, "reset": True, "path": str(path)}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+        else:
+            print(f"Removed language default: {language}")
+        return 0
+
+    existing = cfg.languages.get(language, LanguageSettings())
+    model_id = args.model if args.model is not None else existing.model
+    source = args.model_source if args.model_source is not None else existing.source
+    quality = args.quality if args.quality is not None else existing.quality
+    voice = args.voice if args.voice is not None else existing.voice
+    if args.lexicons is not None:
+        lexicons = tuple(args.lexicons)
+    elif args.no_lexicons:
+        lexicons = None
+    else:
+        lexicons = existing.lexicons
+    allow_experimental = existing.allow_experimental or args.allow_experimental
+    model = None
+    if model_id is not None:
+        model, _ = get_model_info(model_id, offline=args.offline, refresh=args.refresh)
+        source = source or model.source
+        voice = voice or model.default_voice
+        if quality is None and model.qualities:
+            quality = "fp32" if "fp32" in model.qualities else model.qualities[0]
+    settings = LanguageSettings(
+        model=model_id,
+        source=source,
+        quality=quality,
+        voice=voice,
+        lexicons=lexicons,
+        allow_experimental=allow_experimental,
+    )
+    if model is not None:
+        from .models import validate_language_settings
+
+        validate_language_settings(language, settings, model)
+    else:
+        # Readio's structural validator still runs without network discovery.
+        validate_config(replace(cfg, schema=2, languages={**cfg.languages, language: settings}))
+    languages = dict(cfg.languages)
+    languages[language] = settings
+    updated = replace(cfg, schema=2, languages=languages)
+    path = save_config(updated)
+    payload = {
+        "ok": True,
+        "language": language,
+        "profile": _language_settings_payload(settings),
+        "path": str(path),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(f"Saved language default: {language}")
+        _print_language_settings(settings)
+    return 0
+
+
+def _lexicons_label(lexicons: tuple[str, ...] | None) -> str:
+    if lexicons is None:
+        return "unknown"
+    return ", ".join(lexicons) or "-"
+
+
+def _model_registry_payload(result: object, *, offline: bool) -> dict[str, object]:
+    return {
+        "source": result.registry_source,
+        "cache_fallback": result.cache_fallback,
+        "offline": offline,
+    }
+
+
+def _cmd_models(args: argparse.Namespace) -> int:
+    if args.models_command == "list":
+        models, discovery = discover_model_info(
+            language=args.language,
+            status=args.status,
+            offline=args.offline,
+            refresh=args.refresh,
+        )
+        payload = {
+            "ok": True,
+            "registry": _model_registry_payload(discovery, offline=args.offline),
+            "models": [model.to_dict() for model in models],
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        if discovery.cache_fallback:
+            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
+        if not models:
+            print("No models matched.")
+            return 0
+        print(
+            "MODEL          LANGUAGES  DEFAULT   VOICES  G2P        LEXICA                 QUALITIES  STATUS"
+        )
+        for model in models:
+            languages = ", ".join(model.languages) or "-"
+            voices = ", ".join(model.voices) if len(model.voices) <= 3 else str(len(model.voices))
+            g2p = model.g2p_backend or "-"
+            qualities = ", ".join(model.qualities) or "-"
+            print(
+                f"{model.id:<14} {languages:<9} {model.default_voice:<9} "
+                f"{voices:<7} {g2p:<10} {_lexicons_label(model.lexicons):<22} "
+                f"{qualities:<9} {model.status}"
+            )
+        return 0
+
+    model, discovery = get_model_info(args.model_id, offline=args.offline, refresh=args.refresh)
+    payload = {
+        "ok": True,
+        "registry": _model_registry_payload(discovery, offline=args.offline),
+        "model": model.to_dict(),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
+    print(f"Model:          {model.id}")
+    print(f"Status:         {model.status}")
+    print(f"Source:         {model.source}")
+    print(f"Languages:      {', '.join(model.languages) or '-'}")
+    print(f"Default voice:  {model.default_voice}")
+    print("Voices:")
+    for voice in model.voices:
+        print(f"  - {voice}")
+    print("Qualities:")
+    for quality in model.qualities:
+        print(f"  - {quality}")
+    print(f"G2P backend:    {model.g2p_backend or 'unknown'}")
+    print("Lexicons:")
+    if model.lexicons is None:
+        print("  - unknown")
+    elif not model.lexicons:
+        print("  - none")
+    else:
+        for lexicon in model.lexicons:
+            print(f"  - {lexicon}")
+    print(f"Frontend:       {model.frontend or 'unknown'}")
+    print(f"Experimental:   {'yes' if model.experimental else 'no'}")
+    return 0
+
+
 def _cmd_voices(args: argparse.Namespace) -> int:
     cfg = load_config()
     provider = args.provider or cfg.ssmd.voice_provider
     settings = cfg.voices.get(provider)
+    if args.voices_command == "list" and getattr(args, "model", None):
+        model, _ = get_model_info(args.model)
+        voices = [{"id": voice, "default": voice == model.default_voice} for voice in model.voices]
+        result = {"ok": True, "model": model.id, "voices": voices}
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"Model: {model.id}")
+            print("VOICE     DEFAULT")
+            for item in voices:
+                print(f"{item['id']:<9} {'yes' if item['default'] else 'no'}")
+        return 0
     if settings is None:
         raise ValueError(f"voice provider {provider!r} is not configured")
 
@@ -505,6 +754,7 @@ def _cmd_voices(args: argparse.Namespace) -> int:
             print(json.dumps(result, ensure_ascii=False))
         else:
             print(f"Provider: {provider}")
+            print("Configured/legacy voice IDs; use `readio models list` for runtime catalogs.")
             print()
             print("VOICE ID     ROLES")
             for item in voices:
@@ -688,6 +938,52 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
+    try:
+        from pykokoro.model_registry import RegistryClient
+
+        cache_path = RegistryClient().cache_path
+    except (ImportError, OSError) as exc:
+        return {"registry_cache": {"available": False, "error": str(exc)}}
+    diagnostics: dict[str, object] = {
+        "registry_cache": {"available": cache_path.is_file(), "source": str(cache_path)},
+        "language_defaults": {},
+    }
+    try:
+        models, _ = discover_model_info(offline=True)
+        by_id = {model.id: model for model in models}
+        from .models import validate_language_settings
+
+        defaults: dict[str, object] = {}
+        for language, settings in cfg.languages.items():
+            item: dict[str, object] = {
+                **(_language_settings_payload(settings) or {}),
+                "valid": True,
+            }
+            if settings.model is not None:
+                model = by_id.get(settings.model)
+                if model is None:
+                    item.update(valid=False, error=f"unknown cached model '{settings.model}'")
+                else:
+                    try:
+                        validate_language_settings(language, settings, model)
+                    except ValueError as exc:
+                        item.update(valid=False, error=str(exc))
+            defaults[language] = item
+        diagnostics["language_defaults"] = defaults
+    except (ModelDiscoveryError, ValueError, OSError) as exc:
+        diagnostics["registry_cache"] = {
+            "available": cache_path.is_file(),
+            "source": str(cache_path),
+            "error": str(exc),
+        }
+        diagnostics["language_defaults"] = {
+            language: {**(_language_settings_payload(settings) or {}), "valid": None}
+            for language, settings in cfg.languages.items()
+        }
+    return diagnostics
+
+
 def _cmd_doctor(args: argparse.Namespace | None) -> int:
     cfg = load_config()
     provider = cfg.ssmd.voice_provider
@@ -752,6 +1048,7 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
             }.items()
         },
         "pykokoro": pykokoro_check,
+        "models": _model_diagnostics(cfg),
         "ssmd": {
             "python_api": "ok" if not ssmd_module.startswith("ERROR:") else ssmd_module,
             "module_version": ssmd_module,
@@ -782,6 +1079,11 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
         print(f"Readio {__version__}")
         print(f"Config: {result['config']['path']}")
         print(f"SSMD: {provider} ({consumer_preflight})")
+        registry = result["models"]["registry_cache"]
+        if registry["available"]:
+            print(f"PyKokoro model registry cache: {registry.get('source', 'available')}")
+        else:
+            print("PyKokoro model registry cache: not present")
         print(
             f"save-to-spotify: {upstream['path']} ({upstream['version'] or 'version unavailable'})"
         )
@@ -818,10 +1120,55 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_spotify_parser(sub)
 
+    models = sub.add_parser("models", help="discover PyKokoro runtime models")
+    models_sub = models.add_subparsers(dest="models_command", required=True)
+    models_list = models_sub.add_parser("list", help="list registry models and capabilities")
+    models_list.add_argument("--language")
+    models_list.add_argument("--status")
+    models_list.add_argument("--offline", action="store_true")
+    models_list.add_argument("--refresh", action="store_true")
+    models_list.add_argument("--json", action="store_true")
+    models_list.set_defaults(func=_cmd_models)
+    models_show = models_sub.add_parser("show", help="show one model's capabilities")
+    models_show.add_argument("model_id")
+    models_show.add_argument("--offline", action="store_true")
+    models_show.add_argument("--json", action="store_true")
+    models_show.add_argument("--refresh", action="store_true")
+    models_show.set_defaults(func=_cmd_models)
+
+    defaults = sub.add_parser("defaults", help="manage per-language synthesis defaults")
+    defaults_sub = defaults.add_subparsers(dest="defaults_command", required=True)
+    defaults_list = defaults_sub.add_parser("list", help="list persisted language defaults")
+    defaults_list.add_argument("--json", action="store_true")
+    defaults_list.set_defaults(func=_cmd_defaults)
+    defaults_show = defaults_sub.add_parser("show", help="show a language default")
+    defaults_show.add_argument("language")
+    defaults_show.add_argument("--json", action="store_true")
+    defaults_show.set_defaults(func=_cmd_defaults)
+    defaults_set = defaults_sub.add_parser("set", help="validate and save a language default")
+    defaults_set.add_argument("language")
+    defaults_set.add_argument("--model")
+    defaults_set.add_argument("--model-source")
+    defaults_set.add_argument("--quality")
+    defaults_set.add_argument("--voice")
+    lexicon_group = defaults_set.add_mutually_exclusive_group()
+    lexicon_group.add_argument("--lexicon", dest="lexicons", action="append")
+    lexicon_group.add_argument("--no-lexicons", action="store_true")
+    defaults_set.add_argument("--allow-experimental", action="store_true")
+    defaults_set.add_argument("--offline", action="store_true")
+    defaults_set.add_argument("--refresh", action="store_true")
+    defaults_set.add_argument("--json", action="store_true")
+    defaults_set.set_defaults(func=_cmd_defaults)
+    defaults_reset = defaults_sub.add_parser("reset", help="remove a language default")
+    defaults_reset.add_argument("language")
+    defaults_reset.add_argument("--json", action="store_true")
+    defaults_reset.set_defaults(func=_cmd_defaults)
+
     voices = sub.add_parser("voices", help="discover and manage SSMD voices")
     voices_sub = voices.add_subparsers(dest="voices_command", required=True)
     voices_list = voices_sub.add_parser("list", help="list configured concrete voices")
     voices_list.add_argument("--provider")
+    voices_list.add_argument("--model", help="list voices for a discovered model")
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
     voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")

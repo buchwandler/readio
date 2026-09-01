@@ -52,9 +52,29 @@ readio config set voices.kokoro.roles.analyst am_michael
 readio config set ssmd.voice_provider kokoro
 ```
 
-The default configuration uses `platformdirs` for the config, template, ingest, and output locations. `READIO_CONFIG` overrides the config file path. Existing legacy files containing only `[reader]` continue to load and are upgraded to schema 1 when saved.
+The default configuration uses `platformdirs` for the config, template, ingest, and output locations. `READIO_CONFIG` overrides the config file path. Existing legacy files containing only `[reader]` continue to load and are upgraded to schema 2 when saved.
 
 The configuration contains reader settings, SSMD defaults, provider-specific voice IDs, and logical role bindings. Templates refer to roles such as `host`, `analyst`, `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`.
+
+### Model discovery and language defaults
+
+PyKokoro owns the runtime model, language, voice, quality, frontend, and named-lexicon catalog. Inspect it without downloading model weights:
+
+```bash
+readio models list --language de
+readio models show de-thorsten
+readio models list --offline --json
+```
+
+Persist a validated default per language. Language keys are normalized, and locale-specific profiles fall back to their base language:
+
+```bash
+readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+readio defaults show de
+readio render --lang de --file notes.md
+```
+
+Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
 
 ## Templates
 
