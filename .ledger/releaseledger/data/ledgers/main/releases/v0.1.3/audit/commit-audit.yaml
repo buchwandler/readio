@@ -1,0 +1,132 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.1.3
+git_base_ref: v0.1.2
+git_base_sha: 33a4dc7d76f464eca3597877350afa5452f5c66a
+git_head_ref: HEAD
+git_head_sha: 64e85d4c904d767ab2d4d7a04929e59b14023c54
+git_range: 33a4dc7d76f464eca3597877350afa5452f5c66a..64e85d4c904d767ab2d4d7a04929e59b14023c54
+commit_count: 2
+rows:
+  - sha: 569eaee0fff8c26d86501358bb005c8f86540d51
+    source_ref: git:569eaee0fff8c26d86501358bb005c8f86540d51
+    short_sha: 569eaee
+    changed_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/spotify.py
+      - readio/spotify_cli.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/input-formats.md
+      - skill/readio/references/spotify.md
+      - skill/readio/references/ssmd.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_cli.py
+      - tests/test_skill_integrity.py
+      - tests/test_spotify.py
+      - tests/test_spotify_cli.py
+      - tests/test_spotify_lifecycle.py
+    stats:
+      files_changed: 0
+      insertions: 1051
+      deletions: 424
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/spotify.py
+      - readio/spotify_cli.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/input-formats.md
+      - skill/readio/references/spotify.md
+      - skill/readio/references/ssmd.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_cli.py
+      - tests/test_skill_integrity.py
+      - tests/test_spotify.py
+      - tests/test_spotify_cli.py
+      - tests/test_spotify_lifecycle.py
+    observed_behavior:
+      Added explicit Spotify publish, upload, shows, status, and doctor
+      workflows with position-independent JSON output, optional readiness waits, direct
+      media upload, and timeline publication controls; updated the agent and user documentation
+      and covered the workflows with tests.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: json parameter and better spotify commands"
+    target_entry_key: spotify-workflows
+    target_entry_id: entry-0001
+    notes:
+      Reviewed the commit patch, changed documentation, implementation paths, and
+      related CLI, adapter, and lifecycle tests.
+  - sha: 64e85d4c904d767ab2d4d7a04929e59b14023c54
+    source_ref: git:64e85d4c904d767ab2d4d7a04929e59b14023c54
+    short_sha: 64e85d4
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/config.py
+      - readio/models.py
+      - readio/reader.py
+      - readio/spotify_cli.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_defaults_cli.py
+      - tests/test_language_defaults_config.py
+      - tests/test_models_cli.py
+      - tests/test_reader_synthesis.py
+      - tests/test_ssmd_model_roster.py
+      - tests/test_synthesis.py
+    stats:
+      files_changed: 0
+      insertions: 1379
+      deletions: 123
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/index.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/config.py
+      - readio/models.py
+      - readio/reader.py
+      - readio/spotify_cli.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_defaults_cli.py
+      - tests/test_language_defaults_config.py
+      - tests/test_models_cli.py
+      - tests/test_reader_synthesis.py
+      - tests/test_ssmd_model_roster.py
+      - tests/test_synthesis.py
+    observed_behavior:
+      Added runtime model discovery and capability inspection, schema-2
+      per-language synthesis defaults with locale fallback and validation, and CLI overrides
+      for model, quality, voice, frontend source, and lexicons across speaking and rendering
+      workflows; expanded synthesis and model-roster tests and updated the PyKokoro
+      dependency and documentation.
+    public_impact: public
+    decision: accepted
+    evidence_subject: "feat: per language defaults and better model viewer"
+    target_entry_key: synthesis-defaults
+    target_entry_id: entry-0002
+    notes:
+      Reviewed the commit patch, configuration and synthesis pipeline, model and
+      SSMD validation, documentation, and related tests.
