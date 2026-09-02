@@ -58,24 +58,28 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 
 ### Model discovery and language defaults
 
-PyKokoro owns the runtime model, language, voice, quality, frontend, and named-lexicon catalog. Inspect it without downloading model weights:
+PyKokoro 0.9.x is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
 
 ```bash
-readio models list --language de
-readio models show de-thorsten
-readio models list --offline --json
+readio models list --language de --offline
+readio models show de-thorsten --offline
+readio voices list --model de-thorsten --json
 ```
+
+Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 
 Persist a validated default per language. Language keys are normalized, and locale-specific profiles fall back to their base language:
 
 ```bash
-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
-readio defaults show de
+readio defaults set de --model de-thorsten --lexicon crane --offline
+readio defaults show de --json
+readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
 
-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
+When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` clears an inherited explicit selection. Repeat `--lexicon` to preserve ordered layered lookup.
 
+Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
 ## Templates
 
 Built-in templates are copied into the user template directory during initialization. They are user-owned and are not overwritten by normal initialization or package upgrades.
@@ -143,7 +147,7 @@ M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 
 
 ## SSMD consumption and authoring checks
 
-For `.ssmd` inputs, Readio parses the document through SSMD 0.8.3 and passes a PyKokoro `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+For `.ssmd` inputs, Readio parses the document through SSMD 0.8.6 and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
 
 Inspect a document before rendering:
 
@@ -195,6 +199,7 @@ voice_bindings:
 ```
 
 Discover configured IDs and persisted roles with `readio voices list --json` and `readio voices roles`. Persist a reusable missing-role mapping with `readio voices bind ROLE VOICE_ID`. For deterministic one-run automation, use repeatable options:
+Runtime voice inventories are model-specific. Use `readio voices list --model MODEL --json` for concrete IDs; a configured portable role such as `host` must be bound to a voice supported by the selected model. Readio reports the active model and valid voices before inference when a binding is incompatible.
 
 ```bash
 readio render --file episode.ssmd \

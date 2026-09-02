@@ -38,7 +38,7 @@ from .formats import (
     resolve_audio_format,
 )
 from .ingest import list_ingest, new_ingest
-from .models import ModelDiscoveryError, discover_model_info, get_model_info
+from .models import PYKOKORO_REQUIRED, ModelDiscoveryError, discover_model_info, get_model_info
 from .paths import resolve_render_output
 from .progress import TerminalProgress
 from .reader import SelectionError, render_live, render_text, speak_live, speak_text
@@ -535,6 +535,8 @@ def _print_language_settings(settings: LanguageSettings) -> None:
 def _cmd_defaults(args: argparse.Namespace) -> int:
     cfg = load_config()
     language = normalize_language_key(args.language) if getattr(args, "language", None) else None
+    if getattr(args, "offline", False) and getattr(args, "refresh", False):
+        raise ModelDiscoveryError("--offline and --refresh cannot be combined", code="pykokoro.invalid_options")
     if args.defaults_command == "list":
         profiles = [
             {"language": key, **(_language_settings_payload(value) or {})}
@@ -700,9 +702,14 @@ def _cmd_models(args: argparse.Namespace) -> int:
         print(json.dumps(payload, ensure_ascii=False))
         return 0
     print(f"Model:          {model.id}")
-    print(f"Status:         {model.status}")
-    print(f"Source:         {model.source}")
-    print(f"Languages:      {', '.join(model.languages) or '-'}")
+    print(f"ID:              {model.id}")
+    print(f"Source:          {model.source}")
+    print(f"Languages:       {', '.join(model.languages) or '-'}")
+    print(f"Frontend:        {model.frontend or 'unknown'}")
+    print(f"Status:          {model.status}")
+    print(f"Experimental:    {'yes' if model.experimental else 'no'}")
+    print(f"Runtime available: {'yes' if model.runtime_available else 'no'}")
+    print(f"Redistribution allowed: {'yes' if model.redistribution_allowed else 'no'}")
     print(f"Default voice:  {model.default_voice}")
     print("Voices:")
     for voice in model.voices:
@@ -710,17 +717,11 @@ def _cmd_models(args: argparse.Namespace) -> int:
     print("Qualities:")
     for quality in model.qualities:
         print(f"  - {quality}")
-    print(f"G2P backend:    {model.g2p_backend or 'unknown'}")
-    print("Lexicons:")
-    if model.lexicons is None:
-        print("  - unknown")
-    elif not model.lexicons:
-        print("  - none")
-    else:
+    print(f"G2P backend:     {model.g2p_backend or 'unknown'}")
+    print(f"Lexicons:        {_lexicons_label(model.lexicons)}")
+    if model.lexicons:
         for lexicon in model.lexicons:
             print(f"  - {lexicon}")
-    print(f"Frontend:       {model.frontend or 'unknown'}")
-    print(f"Experimental:   {'yes' if model.experimental else 'no'}")
     return 0
 
 
@@ -728,17 +729,53 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     cfg = load_config()
     provider = args.provider or cfg.ssmd.voice_provider
     settings = cfg.voices.get(provider)
-    if args.voices_command == "list" and getattr(args, "model", None):
-        model, _ = get_model_info(args.model)
-        voices = [{"id": voice, "default": voice == model.default_voice} for voice in model.voices]
-        result = {"ok": True, "model": model.id, "voices": voices}
+    if args.voices_command == "list" and (getattr(args, "model", None) or getattr(args, "language", None)):
+        if getattr(args, "model", None):
+            model, discovery = get_model_info(
+                args.model, offline=args.offline, refresh=args.refresh
+            )
+            models = (model,)
+        else:
+            models, discovery = discover_model_info(
+                language=args.language, offline=args.offline, refresh=args.refresh
+            )
+        configured_roles = settings.roles if settings is not None else {}
+        voices = [
+            {
+                "id": voice,
+                "default": voice == model.default_voice,
+                "model": model.id,
+                "source": model.source,
+                "roles": [
+                    role for role, target in configured_roles.items() if target == voice
+                ],
+            }
+            for model in models
+            for voice in model.voices
+        ]
+        result = {
+            "ok": True,
+            "provider": provider,
+            "model": args.model if getattr(args, "model", None) else None,
+            "source": models[0].source if len(models) == 1 else None,
+            "language": getattr(args, "language", None),
+            "registry": _model_registry_payload(discovery, offline=args.offline),
+            "voices": voices,
+        }
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
         else:
-            print(f"Model: {model.id}")
-            print("VOICE     DEFAULT")
+            if args.model:
+                print(f"Model: {args.model}")
+            else:
+                print(f"Language: {args.language}")
+            print("VOICE       MODEL          DEFAULT  ROLES")
             for item in voices:
-                print(f"{item['id']:<9} {'yes' if item['default'] else 'no'}")
+                roles = ", ".join(item["roles"]) or "-"
+                print(
+                    f"{item['id']:<11} {item['model']:<14} "
+                    f"{'yes' if item['default'] else 'no':<8} {roles}"
+                )
         return 0
     if settings is None:
         raise ValueError(f"voice provider {provider!r} is not configured")
@@ -939,21 +976,30 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
-    try:
-        from pykokoro.model_registry import RegistryClient
-
-        cache_path = RegistryClient().cache_path
-    except (ImportError, OSError) as exc:
-        return {"registry_cache": {"available": False, "error": str(exc)}}
     diagnostics: dict[str, object] = {
-        "registry_cache": {"available": cache_path.is_file(), "source": str(cache_path)},
+        "ok": False,
+        "registry_source": None,
+        "cache_fallback": False,
+        "count": 0,
+        "registry_cache": {"available": False},
         "language_defaults": {},
     }
     try:
-        models, _ = discover_model_info(offline=True)
+        models, result = discover_model_info(offline=True)
         by_id = {model.id: model for model in models}
         from .models import validate_language_settings
 
+        diagnostics.update(
+            ok=True,
+            registry_source=result.registry_source,
+            cache_fallback=result.cache_fallback,
+            count=len(models),
+            registry_cache={
+                "available": True,
+                "source": result.registry_source,
+                "cache_fallback": result.cache_fallback,
+            },
+        )
         defaults: dict[str, object] = {}
         for language, settings in cfg.languages.items():
             item: dict[str, object] = {
@@ -967,16 +1013,22 @@ def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
                 else:
                     try:
                         validate_language_settings(language, settings, model)
-                    except ValueError as exc:
-                        item.update(valid=False, error=str(exc))
+                    except ModelDiscoveryError as exc:
+                        item.update(valid=False, error=str(exc), error_code=exc.code)
             defaults[language] = item
         diagnostics["language_defaults"] = defaults
-    except (ModelDiscoveryError, ValueError, OSError) as exc:
-        diagnostics["registry_cache"] = {
-            "available": cache_path.is_file(),
-            "source": str(cache_path),
-            "error": str(exc),
+    except ModelDiscoveryError as exc:
+        diagnostics.update(
+            error=str(exc),
+            error_code=exc.code,
+            installed_version=exc.installed_version,
+        )
+        diagnostics["language_defaults"] = {
+            language: {**(_language_settings_payload(settings) or {}), "valid": None}
+            for language, settings in cfg.languages.items()
         }
+    except (ValueError, OSError) as exc:
+        diagnostics.update(error=str(exc), error_code="pykokoro.registry_unavailable")
         diagnostics["language_defaults"] = {
             language: {**(_language_settings_payload(settings) or {}), "valid": None}
             for language, settings in cfg.languages.items()
@@ -991,9 +1043,23 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
     try:
         import pykokoro
 
-        pykokoro_check = getattr(pykokoro, "__version__", "installed")
-    except (ImportError, OSError) as exc:  # pragma: no cover - environment dependent
-        pykokoro_check = f"ERROR: {exc}"
+        pykokoro_version = str(getattr(pykokoro, "__version__", "unknown"))
+        discovery_api = callable(getattr(pykokoro, "discover_models", None))
+        pykokoro_check: dict[str, object] = {
+            "version": pykokoro_version,
+            "required": PYKOKORO_REQUIRED,
+            "discovery_api": discovery_api,
+        }
+        if not discovery_api:
+            pykokoro_check["error_code"] = "pykokoro.discovery_api_missing"
+    except Exception as exc:  # pragma: no cover - environment dependent  # noqa: BLE001
+        pykokoro_check = {
+            "version": None,
+            "required": PYKOKORO_REQUIRED,
+            "discovery_api": False,
+            "error_code": "pykokoro.import_failed",
+            "error": str(exc),
+        }
     try:
         import ssmd
 
@@ -1078,12 +1144,20 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
     else:
         print(f"Readio {__version__}")
         print(f"Config: {result['config']['path']}")
-        print(f"SSMD: {provider} ({consumer_preflight})")
+        print(
+            f"PyKokoro: {result['pykokoro']['version'] or 'unavailable'} "
+            f"(required {result['pykokoro']['required']}; "
+            f"discovery API: {'yes' if result['pykokoro']['discovery_api'] else 'no'})"
+        )
         registry = result["models"]["registry_cache"]
         if registry["available"]:
-            print(f"PyKokoro model registry cache: {registry.get('source', 'available')}")
+            print(
+                "PyKokoro model registry: "
+                f"{registry.get('source', 'available')} "
+                f"(cache fallback: {'yes' if registry.get('cache_fallback') else 'no'})"
+            )
         else:
-            print("PyKokoro model registry cache: not present")
+            print("PyKokoro model registry: unavailable offline")
         print(
             f"save-to-spotify: {upstream['path']} ({upstream['version'] or 'version unavailable'})"
         )
@@ -1169,6 +1243,9 @@ def build_parser() -> argparse.ArgumentParser:
     voices_list = voices_sub.add_parser("list", help="list configured concrete voices")
     voices_list.add_argument("--provider")
     voices_list.add_argument("--model", help="list voices for a discovered model")
+    voices_list.add_argument("--language")
+    voices_list.add_argument("--offline", action="store_true")
+    voices_list.add_argument("--refresh", action="store_true")
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
     voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")
@@ -1259,6 +1336,8 @@ def build_parser() -> argparse.ArgumentParser:
 def _error_code(exc: Exception) -> str:
     if isinstance(exc, ReadioError):
         return exc.code
+    if isinstance(exc, ModelDiscoveryError):
+        return exc.code
     if isinstance(exc, SpotifyUnavailableError):
         return "spotify_unavailable"
     if isinstance(exc, SpotifyError):
@@ -1279,6 +1358,8 @@ def _error_payload(exc: Exception) -> dict[str, object]:
     payload: dict[str, object] = {"ok": False, "code": _error_code(exc), "error": str(exc)}
     if isinstance(exc, ReadioError) and exc.source_path is not None:
         payload["source"] = str(exc.source_path)
+    if isinstance(exc, ModelDiscoveryError) and exc.installed_version is not None:
+        payload["installed_version"] = exc.installed_version
     for name in ("provider", "reference"):
         value = getattr(exc, name, None)
         if value is not None:

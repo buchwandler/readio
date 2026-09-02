@@ -83,18 +83,18 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration:
+Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio 0.2.0 requires the PyKokoro 0.9.x public discovery contract:
 
 ```bash
-readio models list --language de
-readio models show de-thorsten
-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
-readio defaults show de
+readio models list --language de --offline
+readio models show de-thorsten --offline
+readio voices list --model de-thorsten --json
+readio defaults set de --model de-thorsten --lexicon crane --offline
+readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
 
-`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `defaults` stores user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons.
-
+`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `defaults` stores validated user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons. Repeated named lexicons retain their order for layered lookup.
 ## Render progress
 
 `render` uses a dependency-free progress reporter on stderr. In default `auto` mode it is enabled only for an interactive stderr; `--progress` forces it and `--no-progress` disables it. `--json` keeps stdout to exactly one result object, disables automatic progress, and still permits explicit stderr progress:
@@ -221,6 +221,7 @@ readio voices list --provider kokoro --json
 readio voices roles --provider kokoro
 ```
 
+For a selected model, inspect concrete voices with `readio voices list --model MODEL --language LANG --json`. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
 Use `readio voices bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
 
 ```bash

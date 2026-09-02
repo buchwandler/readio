@@ -19,28 +19,29 @@ Agents should use `--json`. It is accepted before or after the command, and lite
 
 ## Model discovery
 
-Use PyKokoro metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
+Use PyKokoro 0.9.x metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
 
 ```bash
-readio models list --language de --json
+readio models list --language de --offline --json
 readio models list --status ready --offline
-readio models show de-thorsten --json
+readio models show de-thorsten --offline --json
+readio voices list --model de-thorsten --json
 ```
 
-JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
+`--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
 
 ## Language defaults
 
 `defaults` persists validated user choices independently of the runtime catalog:
 
 ```bash
-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+readio defaults set de --model de-thorsten --lexicon crane --offline --json
 readio defaults show de-at --json
 readio defaults list --json
 readio defaults reset de
 ```
 
-Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
+When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
 
 ## Audio
 

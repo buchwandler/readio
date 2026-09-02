@@ -128,14 +128,10 @@ def default_role_bindings(
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
     configured = cfg.voices[provider].roles
-    defaults = {role: target for role, target in configured.items() if role not in document}
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
+    defaults = {role: target for role, target in configured.items() if role not in document}
     defaults.update(
-        {
-            role: target
-            for role, target in runtime.items()
-            if role not in document and role not in configured
-        }
+        {role: target for role, target in runtime.items() if role not in document}
     )
     return {provider: defaults} if defaults else {}
 
@@ -164,11 +160,13 @@ def _resolved_target(
     settings = cfg.voices[cfg.ssmd.voice_provider]
     if reference in document:
         return document[reference]
+    if reference in runtime:
+        return runtime[reference]
     if reference in settings.roles:
         return settings.roles[reference]
     if reference in settings.ids:
         return reference
-    return runtime.get(reference)
+    return None
 
 
 def analyze_ssmd(
@@ -259,8 +257,6 @@ def _voice_resolution_error(
         None,
     )
     if invalid is not None:
-        message = invalid.message
-        reference = result.document_bindings.get(result.voice_references[0].reference, "")
         first_reference = next(
             use.reference
             for use in result.voice_references
@@ -270,6 +266,15 @@ def _voice_resolution_error(
                 if diagnostic.code == "ssmd.document_binding_invalid"
             )
         )
+        target = result.document_bindings[first_reference]
+        if active_model:
+            available_label = ", ".join(available) or "none"
+            message = (
+                f"Voice {target!r} is not available for active model {active_model!r}. "
+                f"Available concrete voices: {available_label}."
+            )
+        else:
+            message = invalid.message
         reference = first_reference
     else:
         references = result.unresolved_voice_references
@@ -278,7 +283,7 @@ def _voice_resolution_error(
             f"{'s' if len(references) != 1 else ''} for provider {result.provider!r}\n"
             + "\n".join(f"  {use.reference} ({use.count} uses)" for use in references)
             + (
-                f"\n\nAvailable voices for active model {active_model!r}: "
+                f"\n\nAvailable concrete voices for active model {active_model!r}: "
                 if active_model
                 else "\n\nConfigured voices: "
             )

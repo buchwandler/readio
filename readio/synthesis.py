@@ -36,10 +36,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     lexicons = profile.lexicons if profile is not None else None
     allow_experimental = profile.allow_experimental if profile is not None else False
 
-    if model is None:
-        model = None
-    if getattr(args, "model", None) is not None:
-        model = args.model
+    explicit_model = getattr(args, "model", None)
+    if explicit_model is not None:
+        model = explicit_model
     if getattr(args, "model_source", None) is not None:
         source = args.model_source
     if getattr(args, "quality", None) is not None:
@@ -52,9 +51,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         lexicons = None
     allow_experimental = allow_experimental or bool(getattr(args, "allow_experimental", False))
 
-    # Explicit model selection is the one rendering path that needs discovery;
-    # persisted settings already contain source/quality/model reconstruction data.
-    if getattr(args, "model", None) is not None:
+    # Explicit model selection is resolved and validated before rendering.
+    needs_discovery = explicit_model is not None
+    if needs_discovery:
         from .config import LanguageSettings
         from .models import get_model_info, validate_language_settings
 
@@ -63,7 +62,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
             offline=bool(getattr(args, "offline", False)),
             refresh=bool(getattr(args, "refresh", False)),
         )
-        source = getattr(args, "model_source", None) or discovered.source
+        source = source or discovered.source
         if voice is None:
             voice = discovered.default_voice
         if quality is None and discovered.qualities:

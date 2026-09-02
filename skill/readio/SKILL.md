@@ -19,22 +19,23 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
 
 ## Model discovery and defaults
 
-PyKokoro is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
+PyKokoro 0.9.x is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
 
 ```bash
-readio models list --language de --json
-readio models show de-thorsten --json
+readio models list --language de --offline --json
+readio models show de-thorsten --offline --json
+readio voices list --model de-thorsten --json
 ```
 
 Persist user policy with the validated defaults workflow:
 
 ```bash
-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+readio defaults set de --model de-thorsten --lexicon crane --offline --json
 readio defaults show de --json
-readio render --lang de --file article.md --json
+readio defaults show de-at --json
 ```
 
-Use `--offline` for cache-only discovery and `--refresh` to explicitly refresh the registry. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
+Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `--offline --refresh` is invalid. Offline registry metadata and offline model synthesis are separate: synthesis also requires cached model and voice assets. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
 
 ## Main production steps
 

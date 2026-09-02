@@ -8,6 +8,9 @@
 - Added position-independent JSON output, render envelopes, optional-duration readiness waits, direct media upload, timeline pass-through, and upstream version diagnostics.
 - Split the Readio skill into a concise workflow page with CLI, input-format, SSMD, Spotify, and troubleshooting references.
 
+- Migrated the PyKokoro integration to the 0.9 public model registry and runtime contract.
+- Added model-specific voice and quality discovery, validated German language defaults, ordered named lexicons, and experimental frontend checks.
+- Improved offline registry, runtime asset, and PyKokoro API/version diagnostics.
 ## [v0.1.3] - 2026-09-01
 
 ### Added
