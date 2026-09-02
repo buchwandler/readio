@@ -7,7 +7,7 @@ versioning:
 version: v0.1.3
 status: released
 title: Readio 0.1.3
-released_at: '2026-09-01'
+released_at: "2026-09-01"
 previous_version: v0.1.2
 cancel_reason: null
 superseded_by: null

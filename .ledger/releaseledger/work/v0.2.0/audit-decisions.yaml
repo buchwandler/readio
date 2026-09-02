@@ -1,22 +1,22 @@
 rows:
-- sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
-  inspected: true
-  inspected_paths:
-  - README.md
-  - docs/changelog.md
-  - docs/index.md
-  - pyproject.toml
-  - readio/cli.py
-  - readio/models.py
-  - readio/ssmd.py
-  - readio/synthesis.py
-  - skill/readio/SKILL.md
-  - skill/readio/references/cli.md
-  - skill/readio/references/troubleshooting.md
-  - tests/test_pykokoro_09_contract.py
-  - tests/test_pykokoro_09_regressions.py
-  observed_behavior: Added the PyKokoro 0.9 public model registry and runtime contract, model-specific voice and quality discovery, validated language defaults, ordered named lexicons, experimental frontend checks, offline registry handling, and API/version diagnostics; updated user and agent documentation and added focused contract and regression tests.
-  public_impact: public
-  decision: accepted
-  target_entry_key: pykokoro-09-contract
-  notes: Reviewed the implementation, dependency changes, documentation, and focused PyKokoro contract and regression tests.
+  - sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/models.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_pykokoro_09_contract.py
+      - tests/test_pykokoro_09_regressions.py
+    observed_behavior: Added the PyKokoro 0.9 public model registry and runtime contract, model-specific voice and quality discovery, validated language defaults, ordered named lexicons, experimental frontend checks, offline registry handling, and API/version diagnostics; updated user and agent documentation and added focused contract and regression tests.
+    public_impact: public
+    decision: accepted
+    target_entry_key: pykokoro-09-contract
+    notes: Reviewed the implementation, dependency changes, documentation, and focused PyKokoro contract and regression tests.

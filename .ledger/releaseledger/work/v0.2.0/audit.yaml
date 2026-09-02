@@ -11,30 +11,30 @@ git_head_sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
 git_range: 72a80de79ba62a6f236957b019735e991bafc750..4ecf165e8df2db38f956ca44012d69d01979c8ef
 commit_count: 1
 rows:
-- sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
-  source_ref: git:4ecf165e8df2db38f956ca44012d69d01979c8ef
-  short_sha: 4ecf165
-  changed_paths:
-  - README.md
-  - docs/changelog.md
-  - docs/index.md
-  - pyproject.toml
-  - readio/cli.py
-  - readio/models.py
-  - readio/ssmd.py
-  - readio/synthesis.py
-  - skill/readio/SKILL.md
-  - skill/readio/references/cli.md
-  - skill/readio/references/troubleshooting.md
-  - tests/test_pykokoro_09_contract.py
-  - tests/test_pykokoro_09_regressions.py
-  stats:
-    files_changed: 0
-    insertions: 467
-    deletions: 126
-  inspected: false
-  inspected_paths: []
-  observed_behavior: ''
-  public_impact: unknown
-  decision: needs_review
-  evidence_subject: 'feat: prepare 0.2.0'
+  - sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
+    source_ref: git:4ecf165e8df2db38f956ca44012d69d01979c8ef
+    short_sha: 4ecf165
+    changed_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/models.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_pykokoro_09_contract.py
+      - tests/test_pykokoro_09_regressions.py
+    stats:
+      files_changed: 0
+      insertions: 467
+      deletions: 126
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    evidence_subject: "feat: prepare 0.2.0"

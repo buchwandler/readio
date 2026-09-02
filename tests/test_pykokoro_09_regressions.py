@@ -44,9 +44,7 @@ def test_discovery_api_mismatch_reports_installed_version(monkeypatch) -> None:
 
 def test_model_validation_rejects_quality_and_known_lexicon() -> None:
     with pytest.raises(ModelDiscoveryError) as quality_error:
-        validate_language_settings(
-            "de", LanguageSettings(model=MODEL.id, quality="int8"), MODEL
-        )
+        validate_language_settings("de", LanguageSettings(model=MODEL.id, quality="int8"), MODEL)
     assert quality_error.value.code == "pykokoro.quality_invalid"
 
     with pytest.raises(ModelDiscoveryError) as lexicon_error:
@@ -75,7 +73,10 @@ def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> No
     monkeypatch.setattr(
         cli,
         "get_model_info",
-        lambda *args, **kwargs: (MODEL, SimpleNamespace(registry_source="cache", cache_fallback=False)),
+        lambda *args, **kwargs: (
+            MODEL,
+            SimpleNamespace(registry_source="cache", cache_fallback=False),
+        ),
     )
     args = cli.build_parser().parse_args(["voices", "list", "--model", MODEL.id, "--json"])
     assert cli._cmd_voices(args) == 0

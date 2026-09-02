@@ -13,13 +13,13 @@ audience: null
 scopes: []
 source_refs: []
 paths:
-- readio/cli.py
-- readio/models.py
-- skill/readio/references/troubleshooting.md
+  - readio/cli.py
+  - readio/models.py
+  - skill/readio/references/troubleshooting.md
 issues: []
 prs: []
 sources:
-- git:4ecf165e8df2db38f956ca44012d69d01979c8ef
+  - git:4ecf165e8df2db38f956ca44012d69d01979c8ef
 contributors: []
 breaking: false
 internal: false

@@ -3,10 +3,13 @@
 ## Unreleased
 
 ## [v0.2.0] - 2026-09-02
+
 ### Added
+
 - Added model-specific voice and quality discovery, validated language defaults, ordered lexicons, and frontend checks
 
 ### Changed
+
 - Changed PyKokoro integration to the 0.9 public model registry and runtime contract
 - Improved offline registry, runtime asset, and PyKokoro API/version diagnostics
 

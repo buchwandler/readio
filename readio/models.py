@@ -53,9 +53,7 @@ class ModelInfo:
                 default_voice=capabilities.default_voice,
                 qualities=tuple(capabilities.qualities),
                 g2p_backend=capabilities.g2p_backend,
-                lexicons=None
-                if capabilities.lexicons is None
-                else tuple(capabilities.lexicons),
+                lexicons=None if capabilities.lexicons is None else tuple(capabilities.lexicons),
                 frontend=capabilities.frontend,
                 status=capabilities.status,
                 experimental=capabilities.experimental,
@@ -138,7 +136,11 @@ def _pykokoro_discovery() -> Any:
 def _registry_error(exc: Exception) -> ModelDiscoveryError:
     message = str(exc) or exc.__class__.__name__
     name = exc.__class__.__name__.lower()
-    code = "pykokoro.registry_invalid" if "invalid" in name or "schema" in message.lower() else "pykokoro.registry_unavailable"
+    code = (
+        "pykokoro.registry_invalid"
+        if "invalid" in name or "schema" in message.lower()
+        else "pykokoro.registry_unavailable"
+    )
     return ModelDiscoveryError(message, code=code)
 
 

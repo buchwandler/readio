@@ -18,12 +18,12 @@ index fe47377..e49d1db 100644
 --- a/README.md
 +++ b/README.md
 @@ -58,24 +58,28 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
- 
+
  ### Model discovery and language defaults
- 
+
 -PyKokoro owns the runtime model, language, voice, quality, frontend, and named-lexicon catalog. Inspect it without downloading model weights:
 +PyKokoro 0.9.x is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
- 
+
  ```bash
 -readio models list --language de
 -readio models show de-thorsten
@@ -32,11 +32,11 @@ index fe47377..e49d1db 100644
 +readio models show de-thorsten --offline
 +readio voices list --model de-thorsten --json
  ```
- 
+
 +Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 +
  Persist a validated default per language. Language keys are normalized, and locale-specific profiles fall back to their base language:
- 
+
  ```bash
 -readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
 -readio defaults show de
@@ -45,29 +45,29 @@ index fe47377..e49d1db 100644
 +readio defaults show de-at --json
  readio render --lang de --file notes.md
  ```
- 
+
 -Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
 +When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` clears an inherited explicit selection. Repeat `--lexicon` to preserve ordered layered lookup.
- 
+
 +Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
  ## Templates
- 
+
  Built-in templates are copied into the user template directory during initialization. They are user-owned and are not overwritten by normal initialization or package upgrades.
 @@ -143,7 +147,7 @@ M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3
- 
+
  ## SSMD consumption and authoring checks
- 
+
 -For `.ssmd` inputs, Readio parses the document through SSMD 0.8.3 and passes a PyKokoro `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
 +For `.ssmd` inputs, Readio parses the document through SSMD 0.8.6 and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
- 
+
  Inspect a document before rendering:
- 
+
 @@ -195,6 +199,7 @@ voice_bindings:
  ```
- 
+
  Discover configured IDs and persisted roles with `readio voices list --json` and `readio voices roles`. Persist a reusable missing-role mapping with `readio voices bind ROLE VOICE_ID`. For deterministic one-run automation, use repeatable options:
 +Runtime voice inventories are model-specific. Use `readio voices list --model MODEL --json` for concrete IDs; a configured portable role such as `host` must be bound to a voice supported by the selected model. Readio reports the active model and valid voices before inference when a binding is incompatible.
- 
+
  ```bash
  readio render --file episode.ssmd \
 diff --git a/docs/changelog.md b/docs/changelog.md
@@ -77,12 +77,12 @@ index 724aa4b..7d1ea3a 100644
 @@ -8,6 +8,9 @@
  - Added position-independent JSON output, render envelopes, optional-duration readiness waits, direct media upload, timeline pass-through, and upstream version diagnostics.
  - Split the Readio skill into a concise workflow page with CLI, input-format, SSMD, Spotify, and troubleshooting references.
- 
+
 +- Migrated the PyKokoro integration to the 0.9 public model registry and runtime contract.
 +- Added model-specific voice and quality discovery, validated German language defaults, ordered named lexicons, and experimental frontend checks.
 +- Improved offline registry, runtime asset, and PyKokoro API/version diagnostics.
  ## [v0.1.3] - 2026-09-01
- 
+
  ### Added
 diff --git a/docs/index.md b/docs/index.md
 index 527d767..97be86d 100644
@@ -91,10 +91,10 @@ index 527d767..97be86d 100644
 @@ -83,18 +83,18 @@ Synthesis options are available on all three commands:
  --unit UNIT         sentence or paragraph
  ```
- 
+
 -Runtime discovery and per-language defaults are separate from legacy provider role configuration:
 +Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio 0.2.0 requires the PyKokoro 0.9.x public discovery contract:
- 
+
  ```bash
 -readio models list --language de
 -readio models show de-thorsten
@@ -107,20 +107,20 @@ index 527d767..97be86d 100644
 +readio defaults show de-at --json
  readio render --lang de --file notes.md
  ```
- 
+
 -`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `defaults` stores user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons.
 -
 +`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `defaults` stores validated user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons. Repeated named lexicons retain their order for layered lookup.
  ## Render progress
- 
+
  `render` uses a dependency-free progress reporter on stderr. In default `auto` mode it is enabled only for an interactive stderr; `--progress` forces it and `--no-progress` disables it. `--json` keeps stdout to exactly one result object, disables automatic progress, and still permits explicit stderr progress:
 @@ -221,6 +221,7 @@ readio voices list --provider kokoro --json
  readio voices roles --provider kokoro
  ```
- 
+
 +For a selected model, inspect concrete voices with `readio voices list --model MODEL --language LANG --json`. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
  Use `readio voices bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
- 
+
  ```bash
 diff --git a/pyproject.toml b/pyproject.toml
 index fdb506e..84273f3 100644
@@ -202,8 +202,8 @@ index 40f04f6..f430d8e 100644
 -    print(f"Frontend:       {model.frontend or 'unknown'}")
 -    print(f"Experimental:   {'yes' if model.experimental else 'no'}")
      return 0
- 
- 
+
+
 @@ -728,17 +729,53 @@ def _cmd_voices(args: argparse.Namespace) -> int:
      cfg = load_config()
      provider = args.provider or cfg.ssmd.voice_provider
@@ -266,8 +266,8 @@ index 40f04f6..f430d8e 100644
      if settings is None:
          raise ValueError(f"voice provider {provider!r} is not configured")
 @@ -939,21 +976,30 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
- 
- 
+
+
  def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
 -    try:
 -        from pykokoro.model_registry import RegistryClient
@@ -289,7 +289,7 @@ index 40f04f6..f430d8e 100644
 +        models, result = discover_model_info(offline=True)
          by_id = {model.id: model for model in models}
          from .models import validate_language_settings
- 
+
 +        diagnostics.update(
 +            ok=True,
 +            registry_source=result.registry_source,
@@ -337,7 +337,7 @@ index 40f04f6..f430d8e 100644
 @@ -991,9 +1043,23 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
      try:
          import pykokoro
- 
+
 -        pykokoro_check = getattr(pykokoro, "__version__", "installed")
 -    except (ImportError, OSError) as exc:  # pragma: no cover - environment dependent
 -        pykokoro_check = f"ERROR: {exc}"
@@ -360,7 +360,7 @@ index 40f04f6..f430d8e 100644
 +        }
      try:
          import ssmd
- 
+
 @@ -1078,12 +1144,20 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
      else:
          print(f"Readio {__version__}")
@@ -418,21 +418,21 @@ index 7a6411b..68a3170 100644
 --- a/readio/models.py
 +++ b/readio/models.py
 @@ -2,15 +2,29 @@
- 
+
  from __future__ import annotations
- 
+
 +import re
  from dataclasses import dataclass
  from typing import Any
- 
+
  from .config import LanguageSettings, normalize_language_key
- 
+
 +PYKOKORO_REQUIRED = ">=0.9.0,<0.10"
 +
- 
+
  class ModelDiscoveryError(ValueError):
      """A model registry could not be inspected or contained an invalid choice."""
- 
+
 +    def __init__(
 +        self,
 +        message: str,
@@ -444,11 +444,11 @@ index 7a6411b..68a3170 100644
 +        self.code = code
 +        self.installed_version = installed_version
 +
- 
+
  @dataclass(frozen=True, slots=True)
  class ModelInfo:
 @@ -30,21 +44,29 @@ class ModelInfo:
- 
+
      @classmethod
      def from_capabilities(cls, capabilities: Any) -> ModelInfo:
 -        return cls(
@@ -489,13 +489,13 @@ index 7a6411b..68a3170 100644
 +                f"PyKokoro returned invalid model capability metadata: {exc}",
 +                code="pykokoro.registry_invalid",
 +            ) from exc
- 
+
      def to_dict(self) -> dict[str, Any]:
          return {
 @@ -65,12 +87,59 @@ class ModelInfo:
          }
- 
- 
+
+
 +def _version_supported(version: str) -> bool:
 +    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", version)
 +    if match is None:
@@ -553,8 +553,8 @@ index 7a6411b..68a3170 100644
 +    name = exc.__class__.__name__.lower()
 +    code = "pykokoro.registry_invalid" if "invalid" in name or "schema" in message.lower() else "pykokoro.registry_unavailable"
 +    return ModelDiscoveryError(message, code=code)
- 
- 
+
+
  def discover_model_info(
 @@ -81,15 +150,29 @@ def discover_model_info(
      refresh: bool = False,
@@ -599,8 +599,8 @@ index 7a6411b..68a3170 100644
 +        f"Unknown model '{model_id}'. Run `readio models list` to inspect available models.",
 +        code="pykokoro.model_not_found",
      )
- 
- 
+
+
 @@ -129,26 +213,45 @@ def validate_language_settings(
  ) -> LanguageSettings:
      """Validate a language profile against already-discovered model metadata."""
@@ -668,8 +668,8 @@ index 7a6411b..68a3170 100644
 -            "Re-run with --allow-experimental to persist this default."
 -        )
      return settings
- 
- 
+
+
  __all__ = [
 +    "PYKOKORO_REQUIRED",
      "ModelDiscoveryError",
@@ -695,7 +695,7 @@ index 54790ca..5171232 100644
 +        {role: target for role, target in runtime.items() if role not in document}
      )
      return {provider: defaults} if defaults else {}
- 
+
 @@ -164,11 +160,13 @@ def _resolved_target(
      settings = cfg.voices[cfg.ssmd.voice_provider]
      if reference in document:
@@ -708,8 +708,8 @@ index 54790ca..5171232 100644
          return reference
 -    return runtime.get(reference)
 +    return None
- 
- 
+
+
  def analyze_ssmd(
 @@ -259,8 +257,6 @@ def _voice_resolution_error(
          None,
@@ -752,7 +752,7 @@ index 41fc731..c7536c5 100644
 @@ -36,10 +36,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
      lexicons = profile.lexicons if profile is not None else None
      allow_experimental = profile.allow_experimental if profile is not None else False
- 
+
 -    if model is None:
 -        model = None
 -    if getattr(args, "model", None) is not None:
@@ -766,7 +766,7 @@ index 41fc731..c7536c5 100644
 @@ -52,9 +51,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
          lexicons = None
      allow_experimental = allow_experimental or bool(getattr(args, "allow_experimental", False))
- 
+
 -    # Explicit model selection is the one rendering path that needs discovery;
 -    # persisted settings already contain source/quality/model reconstruction data.
 -    if getattr(args, "model", None) is not None:
@@ -775,7 +775,7 @@ index 41fc731..c7536c5 100644
 +    if needs_discovery:
          from .config import LanguageSettings
          from .models import get_model_info, validate_language_settings
- 
+
 @@ -63,7 +62,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
              offline=bool(getattr(args, "offline", False)),
              refresh=bool(getattr(args, "refresh", False)),
@@ -790,12 +790,12 @@ index 3442a83..5a13314 100644
 --- a/skill/readio/SKILL.md
 +++ b/skill/readio/SKILL.md
 @@ -19,22 +19,23 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
- 
+
  ## Model discovery and defaults
- 
+
 -PyKokoro is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
 +PyKokoro 0.9.x is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
- 
+
  ```bash
 -readio models list --language de --json
 -readio models show de-thorsten --json
@@ -803,9 +803,9 @@ index 3442a83..5a13314 100644
 +readio models show de-thorsten --offline --json
 +readio voices list --model de-thorsten --json
  ```
- 
+
  Persist user policy with the validated defaults workflow:
- 
+
  ```bash
 -readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
 +readio defaults set de --model de-thorsten --lexicon crane --offline --json
@@ -813,23 +813,23 @@ index 3442a83..5a13314 100644
 -readio render --lang de --file article.md --json
 +readio defaults show de-at --json
  ```
- 
+
 -Use `--offline` for cache-only discovery and `--refresh` to explicitly refresh the registry. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
 +Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `--offline --refresh` is invalid. Offline registry metadata and offline model synthesis are separate: synthesis also requires cached model and voice assets. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
- 
+
  ## Main production steps
- 
+
 diff --git a/skill/readio/references/cli.md b/skill/readio/references/cli.md
 index 6479021..b63a627 100644
 --- a/skill/readio/references/cli.md
 +++ b/skill/readio/references/cli.md
 @@ -19,28 +19,29 @@ Agents should use `--json`. It is accepted before or after the command, and lite
- 
+
  ## Model discovery
- 
+
 -Use PyKokoro metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
 +Use PyKokoro 0.9.x metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
- 
+
  ```bash
 -readio models list --language de --json
 +readio models list --language de --offline --json
@@ -838,14 +838,14 @@ index 6479021..b63a627 100644
 +readio models show de-thorsten --offline --json
 +readio voices list --model de-thorsten --json
  ```
- 
+
 -JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
 +`--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
- 
+
  ## Language defaults
- 
+
  `defaults` persists validated user choices independently of the runtime catalog:
- 
+
  ```bash
 -readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
 +readio defaults set de --model de-thorsten --lexicon crane --offline --json
@@ -853,20 +853,20 @@ index 6479021..b63a627 100644
  readio defaults list --json
  readio defaults reset de
  ```
- 
+
 -Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
 +When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
- 
+
  ## Audio
- 
+
 diff --git a/skill/readio/references/troubleshooting.md b/skill/readio/references/troubleshooting.md
 index 81b8b43..135ea12 100644
 --- a/skill/readio/references/troubleshooting.md
 +++ b/skill/readio/references/troubleshooting.md
 @@ -8,6 +8,10 @@ readio config validate
- 
+
  ## Model discovery and defaults
- 
+
 +- **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install the required PyKokoro 0.9.x release and verify `python -c "from pykokoro import discover_models"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
 +- **Offline registry failure:** `pykokoro.registry_unavailable` means registry metadata or its cache is unavailable. Use an online `readio models list` once to populate the cache.
 +- **Offline runtime asset failure:** registry metadata can be available while synthesis fails because model or voice assets are not cached. Install or cache the selected assets; this is distinct from registry discovery failure.

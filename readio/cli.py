@@ -536,7 +536,9 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
     cfg = load_config()
     language = normalize_language_key(args.language) if getattr(args, "language", None) else None
     if getattr(args, "offline", False) and getattr(args, "refresh", False):
-        raise ModelDiscoveryError("--offline and --refresh cannot be combined", code="pykokoro.invalid_options")
+        raise ModelDiscoveryError(
+            "--offline and --refresh cannot be combined", code="pykokoro.invalid_options"
+        )
     if args.defaults_command == "list":
         profiles = [
             {"language": key, **(_language_settings_payload(value) or {})}
@@ -729,7 +731,9 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     cfg = load_config()
     provider = args.provider or cfg.ssmd.voice_provider
     settings = cfg.voices.get(provider)
-    if args.voices_command == "list" and (getattr(args, "model", None) or getattr(args, "language", None)):
+    if args.voices_command == "list" and (
+        getattr(args, "model", None) or getattr(args, "language", None)
+    ):
         if getattr(args, "model", None):
             model, discovery = get_model_info(
                 args.model, offline=args.offline, refresh=args.refresh
@@ -746,9 +750,7 @@ def _cmd_voices(args: argparse.Namespace) -> int:
                 "default": voice == model.default_voice,
                 "model": model.id,
                 "source": model.source,
-                "roles": [
-                    role for role, target in configured_roles.items() if target == voice
-                ],
+                "roles": [role for role, target in configured_roles.items() if target == voice],
             }
             for model in models
             for voice in model.voices

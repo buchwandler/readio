@@ -130,9 +130,7 @@ def default_role_bindings(
     configured = cfg.voices[provider].roles
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
     defaults = {role: target for role, target in configured.items() if role not in document}
-    defaults.update(
-        {role: target for role, target in runtime.items() if role not in document}
-    )
+    defaults.update({role: target for role, target in runtime.items() if role not in document})
     return {provider: defaults} if defaults else {}
 
 
