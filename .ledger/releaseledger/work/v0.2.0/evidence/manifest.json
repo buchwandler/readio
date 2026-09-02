@@ -1,0 +1,37 @@
+{
+  "candidate_count": 1,
+  "candidates": [
+    {
+      "additions": 467,
+      "deletions": 126,
+      "patch_file": "4ecf165.patch",
+      "patch_sha256": "a0115a0f60c1254a1a3d8b417434f0b52052106c87d25d33777061db2a227dfb",
+      "paths": [
+        "README.md",
+        "docs/changelog.md",
+        "docs/index.md",
+        "pyproject.toml",
+        "readio/cli.py",
+        "readio/models.py",
+        "readio/ssmd.py",
+        "readio/synthesis.py",
+        "skill/readio/SKILL.md",
+        "skill/readio/references/cli.md",
+        "skill/readio/references/troubleshooting.md",
+        "tests/test_pykokoro_09_contract.py",
+        "tests/test_pykokoro_09_regressions.py"
+      ],
+      "sha": "4ecf165e8df2db38f956ca44012d69d01979c8ef",
+      "short_sha": "4ecf165",
+      "source_ref": "git:4ecf165e8df2db38f956ca44012d69d01979c8ef"
+    }
+  ],
+  "git_base_ref": "72a80de79ba62a6f236957b019735e991bafc750",
+  "git_base_sha": "72a80de79ba62a6f236957b019735e991bafc750",
+  "git_head_ref": "4ecf165e8df2db38f956ca44012d69d01979c8ef",
+  "git_head_sha": "4ecf165e8df2db38f956ca44012d69d01979c8ef",
+  "include_merges": "nontrivial",
+  "object_type": "git_evidence_manifest",
+  "release_version": "v0.2.0",
+  "schema_version": 1
+}

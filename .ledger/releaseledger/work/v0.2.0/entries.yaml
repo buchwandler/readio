@@ -1,0 +1,69 @@
+schema: releaseledger.entry-batch.v1
+operation: create
+schema_version: 1
+object_type: release_entry_batch
+release_version: v0.2.0
+git_base_ref: 72a80de79ba62a6f236957b019735e991bafc750
+git_base_sha: 72a80de79ba62a6f236957b019735e991bafc750
+git_head_ref: 4ecf165e8df2db38f956ca44012d69d01979c8ef
+git_head_sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
+include_merges: nontrivial
+entries:
+- key: pykokoro-09-contract
+  kind: changed
+  summary: Changed PyKokoro integration to the 0.9 public model registry and runtime contract
+  status: accepted
+  source_refs:
+  - git:4ecf165e8df2db38f956ca44012d69d01979c8ef
+  paths:
+  - pyproject.toml
+  - readio/models.py
+  - readio/cli.py
+  - tests/test_pykokoro_09_contract.py
+  - tests/test_pykokoro_09_regressions.py
+  issues: []
+  prs: []
+  sources: []
+  contributors: []
+  breaking: false
+  internal: false
+  order: 1
+- key: model-capability-validation
+  kind: added
+  summary: Added model-specific voice and quality discovery, validated language defaults, ordered lexicons, and frontend checks
+  status: accepted
+  source_refs: []
+  paths:
+  - readio/cli.py
+  - readio/models.py
+  - readio/ssmd.py
+  - readio/synthesis.py
+  - docs/index.md
+  - README.md
+  - skill/readio/SKILL.md
+  - skill/readio/references/cli.md
+  sources:
+  - git:4ecf165e8df2db38f956ca44012d69d01979c8ef
+  prs: []
+  issues: []
+  contributors: []
+  breaking: false
+  internal: false
+  order: 2
+- key: model-diagnostics
+  kind: changed
+  summary: Improved offline registry, runtime asset, and PyKokoro API/version diagnostics
+  status: accepted
+  source_refs: []
+  paths:
+  - readio/cli.py
+  - readio/models.py
+  - skill/readio/references/troubleshooting.md
+  sources:
+  - git:4ecf165e8df2db38f956ca44012d69d01979c8ef
+  prs: []
+  issues: []
+  contributors: []
+  breaking: false
+  internal: false
+  order: 3

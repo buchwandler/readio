@@ -1,0 +1,1029 @@
+ README.md                                  |  21 ++--
+ docs/changelog.md                          |   3 +
+ docs/index.md                              |  15 +--
+ pyproject.toml                             |   4 +-
+ readio/cli.py                              | 163 +++++++++++++++++++-------
+ readio/models.py                           | 176 ++++++++++++++++++++++-------
+ readio/ssmd.py                             |  25 ++--
+ readio/synthesis.py                        |  15 ++-
+ skill/readio/SKILL.md                      |  13 ++-
+ skill/readio/references/cli.md             |  13 ++-
+ skill/readio/references/troubleshooting.md |   4 +
+ tests/test_pykokoro_09_contract.py         |  56 +++++++++
+ tests/test_pykokoro_09_regressions.py      |  85 ++++++++++++++
+ 13 files changed, 467 insertions(+), 126 deletions(-)
+
+diff --git a/README.md b/README.md
+index fe47377..e49d1db 100644
+--- a/README.md
++++ b/README.md
+@@ -58,24 +58,28 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
+ 
+ ### Model discovery and language defaults
+ 
+-PyKokoro owns the runtime model, language, voice, quality, frontend, and named-lexicon catalog. Inspect it without downloading model weights:
++PyKokoro 0.9.x is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
+ 
+ ```bash
+-readio models list --language de
+-readio models show de-thorsten
+-readio models list --offline --json
++readio models list --language de --offline
++readio models show de-thorsten --offline
++readio voices list --model de-thorsten --json
+ ```
+ 
++Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
++
+ Persist a validated default per language. Language keys are normalized, and locale-specific profiles fall back to their base language:
+ 
+ ```bash
+-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+-readio defaults show de
++readio defaults set de --model de-thorsten --lexicon crane --offline
++readio defaults show de --json
++readio defaults show de-at --json
+ readio render --lang de --file notes.md
+ ```
+ 
+-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
++When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` clears an inherited explicit selection. Repeat `--lexicon` to preserve ordered layered lookup.
+ 
++Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
+ ## Templates
+ 
+ Built-in templates are copied into the user template directory during initialization. They are user-owned and are not overwritten by normal initialization or package upgrades.
+@@ -143,7 +147,7 @@ M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3
+ 
+ ## SSMD consumption and authoring checks
+ 
+-For `.ssmd` inputs, Readio parses the document through SSMD 0.8.3 and passes a PyKokoro `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
++For `.ssmd` inputs, Readio parses the document through SSMD 0.8.6 and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+ 
+ Inspect a document before rendering:
+ 
+@@ -195,6 +199,7 @@ voice_bindings:
+ ```
+ 
+ Discover configured IDs and persisted roles with `readio voices list --json` and `readio voices roles`. Persist a reusable missing-role mapping with `readio voices bind ROLE VOICE_ID`. For deterministic one-run automation, use repeatable options:
++Runtime voice inventories are model-specific. Use `readio voices list --model MODEL --json` for concrete IDs; a configured portable role such as `host` must be bound to a voice supported by the selected model. Readio reports the active model and valid voices before inference when a binding is incompatible.
+ 
+ ```bash
+ readio render --file episode.ssmd \
+diff --git a/docs/changelog.md b/docs/changelog.md
+index 724aa4b..7d1ea3a 100644
+--- a/docs/changelog.md
++++ b/docs/changelog.md
+@@ -8,6 +8,9 @@
+ - Added position-independent JSON output, render envelopes, optional-duration readiness waits, direct media upload, timeline pass-through, and upstream version diagnostics.
+ - Split the Readio skill into a concise workflow page with CLI, input-format, SSMD, Spotify, and troubleshooting references.
+ 
++- Migrated the PyKokoro integration to the 0.9 public model registry and runtime contract.
++- Added model-specific voice and quality discovery, validated German language defaults, ordered named lexicons, and experimental frontend checks.
++- Improved offline registry, runtime asset, and PyKokoro API/version diagnostics.
+ ## [v0.1.3] - 2026-09-01
+ 
+ ### Added
+diff --git a/docs/index.md b/docs/index.md
+index 527d767..97be86d 100644
+--- a/docs/index.md
++++ b/docs/index.md
+@@ -83,18 +83,18 @@ Synthesis options are available on all three commands:
+ --unit UNIT         sentence or paragraph
+ ```
+ 
+-Runtime discovery and per-language defaults are separate from legacy provider role configuration:
++Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio 0.2.0 requires the PyKokoro 0.9.x public discovery contract:
+ 
+ ```bash
+-readio models list --language de
+-readio models show de-thorsten
+-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
+-readio defaults show de
++readio models list --language de --offline
++readio models show de-thorsten --offline
++readio voices list --model de-thorsten --json
++readio defaults set de --model de-thorsten --lexicon crane --offline
++readio defaults show de-at --json
+ readio render --lang de --file notes.md
+ ```
+ 
+-`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `defaults` stores user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons.
+-
++`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `defaults` stores validated user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons. Repeated named lexicons retain their order for layered lookup.
+ ## Render progress
+ 
+ `render` uses a dependency-free progress reporter on stderr. In default `auto` mode it is enabled only for an interactive stderr; `--progress` forces it and `--no-progress` disables it. `--json` keeps stdout to exactly one result object, disables automatic progress, and still permits explicit stderr progress:
+@@ -221,6 +221,7 @@ readio voices list --provider kokoro --json
+ readio voices roles --provider kokoro
+ ```
+ 
++For a selected model, inspect concrete voices with `readio voices list --model MODEL --language LANG --json`. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
+ Use `readio voices bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
+ 
+ ```bash
+diff --git a/pyproject.toml b/pyproject.toml
+index fdb506e..84273f3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,14 +10,14 @@ readme = "README.md"
+ requires-python = ">=3.10"
+ license = {text = "Apache-2.0"}
+ dependencies = [
+-  "pykokoro[playback]>=0.8.8,<0.9",
++  "pykokoro[playback]>=0.9.0,<0.10",
+   "platformdirs>=4.0",
+   "soundfile>=0.12",
+   "tomli>=2.0; python_version < '3.11'",
+   "typing_extensions>=4.0",
+   "tomli-w>=1.0",
+   "PyYAML>=6.0",
+-  "ssmd>=0.8.3,<0.9",
++  "ssmd>=0.8.6,<0.9",
+   "markdown-it-py>=3.0,<5.0",
+   "mdit-py-plugins>=0.4,<1.0",
+ ]
+diff --git a/readio/cli.py b/readio/cli.py
+index 40f04f6..f430d8e 100644
+--- a/readio/cli.py
++++ b/readio/cli.py
+@@ -38,7 +38,7 @@ from .formats import (
+     resolve_audio_format,
+ )
+ from .ingest import list_ingest, new_ingest
+-from .models import ModelDiscoveryError, discover_model_info, get_model_info
++from .models import PYKOKORO_REQUIRED, ModelDiscoveryError, discover_model_info, get_model_info
+ from .paths import resolve_render_output
+ from .progress import TerminalProgress
+ from .reader import SelectionError, render_live, render_text, speak_live, speak_text
+@@ -535,6 +535,8 @@ def _print_language_settings(settings: LanguageSettings) -> None:
+ def _cmd_defaults(args: argparse.Namespace) -> int:
+     cfg = load_config()
+     language = normalize_language_key(args.language) if getattr(args, "language", None) else None
++    if getattr(args, "offline", False) and getattr(args, "refresh", False):
++        raise ModelDiscoveryError("--offline and --refresh cannot be combined", code="pykokoro.invalid_options")
+     if args.defaults_command == "list":
+         profiles = [
+             {"language": key, **(_language_settings_payload(value) or {})}
+@@ -700,9 +702,14 @@ def _cmd_models(args: argparse.Namespace) -> int:
+         print(json.dumps(payload, ensure_ascii=False))
+         return 0
+     print(f"Model:          {model.id}")
+-    print(f"Status:         {model.status}")
+-    print(f"Source:         {model.source}")
+-    print(f"Languages:      {', '.join(model.languages) or '-'}")
++    print(f"ID:              {model.id}")
++    print(f"Source:          {model.source}")
++    print(f"Languages:       {', '.join(model.languages) or '-'}")
++    print(f"Frontend:        {model.frontend or 'unknown'}")
++    print(f"Status:          {model.status}")
++    print(f"Experimental:    {'yes' if model.experimental else 'no'}")
++    print(f"Runtime available: {'yes' if model.runtime_available else 'no'}")
++    print(f"Redistribution allowed: {'yes' if model.redistribution_allowed else 'no'}")
+     print(f"Default voice:  {model.default_voice}")
+     print("Voices:")
+     for voice in model.voices:
+@@ -710,17 +717,11 @@ def _cmd_models(args: argparse.Namespace) -> int:
+     print("Qualities:")
+     for quality in model.qualities:
+         print(f"  - {quality}")
+-    print(f"G2P backend:    {model.g2p_backend or 'unknown'}")
+-    print("Lexicons:")
+-    if model.lexicons is None:
+-        print("  - unknown")
+-    elif not model.lexicons:
+-        print("  - none")
+-    else:
++    print(f"G2P backend:     {model.g2p_backend or 'unknown'}")
++    print(f"Lexicons:        {_lexicons_label(model.lexicons)}")
++    if model.lexicons:
+         for lexicon in model.lexicons:
+             print(f"  - {lexicon}")
+-    print(f"Frontend:       {model.frontend or 'unknown'}")
+-    print(f"Experimental:   {'yes' if model.experimental else 'no'}")
+     return 0
+ 
+ 
+@@ -728,17 +729,53 @@ def _cmd_voices(args: argparse.Namespace) -> int:
+     cfg = load_config()
+     provider = args.provider or cfg.ssmd.voice_provider
+     settings = cfg.voices.get(provider)
+-    if args.voices_command == "list" and getattr(args, "model", None):
+-        model, _ = get_model_info(args.model)
+-        voices = [{"id": voice, "default": voice == model.default_voice} for voice in model.voices]
+-        result = {"ok": True, "model": model.id, "voices": voices}
++    if args.voices_command == "list" and (getattr(args, "model", None) or getattr(args, "language", None)):
++        if getattr(args, "model", None):
++            model, discovery = get_model_info(
++                args.model, offline=args.offline, refresh=args.refresh
++            )
++            models = (model,)
++        else:
++            models, discovery = discover_model_info(
++                language=args.language, offline=args.offline, refresh=args.refresh
++            )
++        configured_roles = settings.roles if settings is not None else {}
++        voices = [
++            {
++                "id": voice,
++                "default": voice == model.default_voice,
++                "model": model.id,
++                "source": model.source,
++                "roles": [
++                    role for role, target in configured_roles.items() if target == voice
++                ],
++            }
++            for model in models
++            for voice in model.voices
++        ]
++        result = {
++            "ok": True,
++            "provider": provider,
++            "model": args.model if getattr(args, "model", None) else None,
++            "source": models[0].source if len(models) == 1 else None,
++            "language": getattr(args, "language", None),
++            "registry": _model_registry_payload(discovery, offline=args.offline),
++            "voices": voices,
++        }
+         if args.json:
+             print(json.dumps(result, ensure_ascii=False))
+         else:
+-            print(f"Model: {model.id}")
+-            print("VOICE     DEFAULT")
++            if args.model:
++                print(f"Model: {args.model}")
++            else:
++                print(f"Language: {args.language}")
++            print("VOICE       MODEL          DEFAULT  ROLES")
+             for item in voices:
+-                print(f"{item['id']:<9} {'yes' if item['default'] else 'no'}")
++                roles = ", ".join(item["roles"]) or "-"
++                print(
++                    f"{item['id']:<11} {item['model']:<14} "
++                    f"{'yes' if item['default'] else 'no':<8} {roles}"
++                )
+         return 0
+     if settings is None:
+         raise ValueError(f"voice provider {provider!r} is not configured")
+@@ -939,21 +976,30 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
+ 
+ 
+ def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
+-    try:
+-        from pykokoro.model_registry import RegistryClient
+-
+-        cache_path = RegistryClient().cache_path
+-    except (ImportError, OSError) as exc:
+-        return {"registry_cache": {"available": False, "error": str(exc)}}
+     diagnostics: dict[str, object] = {
+-        "registry_cache": {"available": cache_path.is_file(), "source": str(cache_path)},
++        "ok": False,
++        "registry_source": None,
++        "cache_fallback": False,
++        "count": 0,
++        "registry_cache": {"available": False},
+         "language_defaults": {},
+     }
+     try:
+-        models, _ = discover_model_info(offline=True)
++        models, result = discover_model_info(offline=True)
+         by_id = {model.id: model for model in models}
+         from .models import validate_language_settings
+ 
++        diagnostics.update(
++            ok=True,
++            registry_source=result.registry_source,
++            cache_fallback=result.cache_fallback,
++            count=len(models),
++            registry_cache={
++                "available": True,
++                "source": result.registry_source,
++                "cache_fallback": result.cache_fallback,
++            },
++        )
+         defaults: dict[str, object] = {}
+         for language, settings in cfg.languages.items():
+             item: dict[str, object] = {
+@@ -967,16 +1013,22 @@ def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
+                 else:
+                     try:
+                         validate_language_settings(language, settings, model)
+-                    except ValueError as exc:
+-                        item.update(valid=False, error=str(exc))
++                    except ModelDiscoveryError as exc:
++                        item.update(valid=False, error=str(exc), error_code=exc.code)
+             defaults[language] = item
+         diagnostics["language_defaults"] = defaults
+-    except (ModelDiscoveryError, ValueError, OSError) as exc:
+-        diagnostics["registry_cache"] = {
+-            "available": cache_path.is_file(),
+-            "source": str(cache_path),
+-            "error": str(exc),
++    except ModelDiscoveryError as exc:
++        diagnostics.update(
++            error=str(exc),
++            error_code=exc.code,
++            installed_version=exc.installed_version,
++        )
++        diagnostics["language_defaults"] = {
++            language: {**(_language_settings_payload(settings) or {}), "valid": None}
++            for language, settings in cfg.languages.items()
+         }
++    except (ValueError, OSError) as exc:
++        diagnostics.update(error=str(exc), error_code="pykokoro.registry_unavailable")
+         diagnostics["language_defaults"] = {
+             language: {**(_language_settings_payload(settings) or {}), "valid": None}
+             for language, settings in cfg.languages.items()
+@@ -991,9 +1043,23 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
+     try:
+         import pykokoro
+ 
+-        pykokoro_check = getattr(pykokoro, "__version__", "installed")
+-    except (ImportError, OSError) as exc:  # pragma: no cover - environment dependent
+-        pykokoro_check = f"ERROR: {exc}"
++        pykokoro_version = str(getattr(pykokoro, "__version__", "unknown"))
++        discovery_api = callable(getattr(pykokoro, "discover_models", None))
++        pykokoro_check: dict[str, object] = {
++            "version": pykokoro_version,
++            "required": PYKOKORO_REQUIRED,
++            "discovery_api": discovery_api,
++        }
++        if not discovery_api:
++            pykokoro_check["error_code"] = "pykokoro.discovery_api_missing"
++    except Exception as exc:  # pragma: no cover - environment dependent  # noqa: BLE001
++        pykokoro_check = {
++            "version": None,
++            "required": PYKOKORO_REQUIRED,
++            "discovery_api": False,
++            "error_code": "pykokoro.import_failed",
++            "error": str(exc),
++        }
+     try:
+         import ssmd
+ 
+@@ -1078,12 +1144,20 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
+     else:
+         print(f"Readio {__version__}")
+         print(f"Config: {result['config']['path']}")
+-        print(f"SSMD: {provider} ({consumer_preflight})")
++        print(
++            f"PyKokoro: {result['pykokoro']['version'] or 'unavailable'} "
++            f"(required {result['pykokoro']['required']}; "
++            f"discovery API: {'yes' if result['pykokoro']['discovery_api'] else 'no'})"
++        )
+         registry = result["models"]["registry_cache"]
+         if registry["available"]:
+-            print(f"PyKokoro model registry cache: {registry.get('source', 'available')}")
++            print(
++                "PyKokoro model registry: "
++                f"{registry.get('source', 'available')} "
++                f"(cache fallback: {'yes' if registry.get('cache_fallback') else 'no'})"
++            )
+         else:
+-            print("PyKokoro model registry cache: not present")
++            print("PyKokoro model registry: unavailable offline")
+         print(
+             f"save-to-spotify: {upstream['path']} ({upstream['version'] or 'version unavailable'})"
+         )
+@@ -1169,6 +1243,9 @@ def build_parser() -> argparse.ArgumentParser:
+     voices_list = voices_sub.add_parser("list", help="list configured concrete voices")
+     voices_list.add_argument("--provider")
+     voices_list.add_argument("--model", help="list voices for a discovered model")
++    voices_list.add_argument("--language")
++    voices_list.add_argument("--offline", action="store_true")
++    voices_list.add_argument("--refresh", action="store_true")
+     voices_list.add_argument("--json", action="store_true")
+     voices_list.set_defaults(func=_cmd_voices)
+     voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")
+@@ -1259,6 +1336,8 @@ def build_parser() -> argparse.ArgumentParser:
+ def _error_code(exc: Exception) -> str:
+     if isinstance(exc, ReadioError):
+         return exc.code
++    if isinstance(exc, ModelDiscoveryError):
++        return exc.code
+     if isinstance(exc, SpotifyUnavailableError):
+         return "spotify_unavailable"
+     if isinstance(exc, SpotifyError):
+@@ -1279,6 +1358,8 @@ def _error_payload(exc: Exception) -> dict[str, object]:
+     payload: dict[str, object] = {"ok": False, "code": _error_code(exc), "error": str(exc)}
+     if isinstance(exc, ReadioError) and exc.source_path is not None:
+         payload["source"] = str(exc.source_path)
++    if isinstance(exc, ModelDiscoveryError) and exc.installed_version is not None:
++        payload["installed_version"] = exc.installed_version
+     for name in ("provider", "reference"):
+         value = getattr(exc, name, None)
+         if value is not None:
+diff --git a/readio/models.py b/readio/models.py
+index 7a6411b..68a3170 100644
+--- a/readio/models.py
++++ b/readio/models.py
+@@ -2,15 +2,29 @@
+ 
+ from __future__ import annotations
+ 
++import re
+ from dataclasses import dataclass
+ from typing import Any
+ 
+ from .config import LanguageSettings, normalize_language_key
+ 
++PYKOKORO_REQUIRED = ">=0.9.0,<0.10"
++
+ 
+ class ModelDiscoveryError(ValueError):
+     """A model registry could not be inspected or contained an invalid choice."""
+ 
++    def __init__(
++        self,
++        message: str,
++        *,
++        code: str = "pykokoro.registry_unavailable",
++        installed_version: str | None = None,
++    ) -> None:
++        super().__init__(message)
++        self.code = code
++        self.installed_version = installed_version
++
+ 
+ @dataclass(frozen=True, slots=True)
+ class ModelInfo:
+@@ -30,21 +44,29 @@ class ModelInfo:
+ 
+     @classmethod
+     def from_capabilities(cls, capabilities: Any) -> ModelInfo:
+-        return cls(
+-            id=capabilities.model_id,
+-            source=capabilities.source,
+-            languages=tuple(capabilities.languages),
+-            voices=tuple(capabilities.voices),
+-            default_voice=capabilities.default_voice,
+-            qualities=tuple(capabilities.qualities),
+-            g2p_backend=capabilities.g2p_backend,
+-            lexicons=None if capabilities.lexicons is None else tuple(capabilities.lexicons),
+-            frontend=capabilities.frontend,
+-            status=capabilities.status,
+-            experimental=capabilities.experimental,
+-            runtime_available=capabilities.runtime_available,
+-            redistribution_allowed=capabilities.redistribution_allowed,
+-        )
++        try:
++            return cls(
++                id=capabilities.model_id,
++                source=capabilities.source,
++                languages=tuple(capabilities.languages),
++                voices=tuple(capabilities.voices),
++                default_voice=capabilities.default_voice,
++                qualities=tuple(capabilities.qualities),
++                g2p_backend=capabilities.g2p_backend,
++                lexicons=None
++                if capabilities.lexicons is None
++                else tuple(capabilities.lexicons),
++                frontend=capabilities.frontend,
++                status=capabilities.status,
++                experimental=capabilities.experimental,
++                runtime_available=capabilities.runtime_available,
++                redistribution_allowed=capabilities.redistribution_allowed,
++            )
++        except (AttributeError, TypeError, ValueError) as exc:
++            raise ModelDiscoveryError(
++                f"PyKokoro returned invalid model capability metadata: {exc}",
++                code="pykokoro.registry_invalid",
++            ) from exc
+ 
+     def to_dict(self) -> dict[str, Any]:
+         return {
+@@ -65,12 +87,59 @@ class ModelInfo:
+         }
+ 
+ 
++def _version_supported(version: str) -> bool:
++    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", version)
++    if match is None:
++        return False
++    major, minor = int(match.group(1)), int(match.group(2))
++    patch = int(match.group(3) or 0)
++    is_09 = (major, minor) == (0, 9)
++    is_api_bearing_dev = (major, minor, patch) == (0, 8, 9) and "dev" in version
++    return is_09 or is_api_bearing_dev
++
++
+ def _pykokoro_discovery() -> Any:
+     try:
+-        from pykokoro import discover_models
+-    except (ImportError, OSError) as exc:
+-        raise ModelDiscoveryError(f"PyKokoro model discovery is unavailable: {exc}") from exc
+-    return discover_models
++        import pykokoro
++    except Exception as exc:
++        raise ModelDiscoveryError(
++            f"Unable to import PyKokoro for model discovery: {exc}",
++            code="pykokoro.import_failed",
++        ) from exc
++
++    version = str(getattr(pykokoro, "__version__", "unknown"))
++    if not _version_supported(version):
++        raise ModelDiscoveryError(
++            "Installed PyKokoro does not support Readio's model-discovery contract "
++            f"(installed: {version}; required: {PYKOKORO_REQUIRED}).",
++            code="pykokoro.version_unsupported",
++            installed_version=version,
++        )
++    try:
++        discovery = pykokoro.discover_models
++    except AttributeError as exc:
++        raise ModelDiscoveryError(
++            "Installed PyKokoro does not provide the model-discovery API required by "
++            f"Readio 0.2.0 (installed: {version}; required: {PYKOKORO_REQUIRED} "
++            "with discover_models).",
++            code="pykokoro.discovery_api_missing",
++            installed_version=version,
++        ) from exc
++    if not callable(discovery):
++        raise ModelDiscoveryError(
++            "Installed PyKokoro exposes a non-callable discover_models value "
++            f"(installed: {version}).",
++            code="pykokoro.discovery_api_missing",
++            installed_version=version,
++        )
++    return discovery
++
++
++def _registry_error(exc: Exception) -> ModelDiscoveryError:
++    message = str(exc) or exc.__class__.__name__
++    name = exc.__class__.__name__.lower()
++    code = "pykokoro.registry_invalid" if "invalid" in name or "schema" in message.lower() else "pykokoro.registry_unavailable"
++    return ModelDiscoveryError(message, code=code)
+ 
+ 
+ def discover_model_info(
+@@ -81,15 +150,29 @@ def discover_model_info(
+     refresh: bool = False,
+ ) -> tuple[tuple[ModelInfo, ...], Any]:
+     if offline and refresh:
+-        raise ModelDiscoveryError("--offline and --refresh cannot be combined")
++        raise ModelDiscoveryError(
++            "--offline and --refresh cannot be combined",
++            code="pykokoro.invalid_options",
++        )
+     try:
+         result = _pykokoro_discovery()(offline=offline, refresh=refresh)
++    except ModelDiscoveryError:
++        raise
+     except Exception as exc:
+-        if isinstance(exc, ModelDiscoveryError):
+-            raise
+-        raise ModelDiscoveryError(str(exc)) from exc
++        raise _registry_error(exc) from exc
++
++    try:
++        raw_models = result.models
++        models = tuple(ModelInfo.from_capabilities(item) for item in raw_models)
++    except ModelDiscoveryError:
++        raise
++    except (AttributeError, TypeError, ValueError) as exc:
++        raise ModelDiscoveryError(
++            f"PyKokoro returned invalid model discovery data: {exc}",
++            code="pykokoro.registry_invalid",
++        ) from exc
++
+     requested = normalize_language_key(language) if language else None
+-    models = tuple(ModelInfo.from_capabilities(item) for item in result.models)
+     if requested is not None:
+         models = tuple(item for item in models if language_matches(requested, item.languages))
+     if status is not None:
+@@ -118,7 +201,8 @@ def get_model_info(
+         if model.id == model_id:
+             return model, result
+     raise ModelDiscoveryError(
+-        f"Unknown model '{model_id}'. Run `readio models list` to inspect available models."
++        f"Unknown model '{model_id}'. Run `readio models list` to inspect available models.",
++        code="pykokoro.model_not_found",
+     )
+ 
+ 
+@@ -129,26 +213,45 @@ def validate_language_settings(
+ ) -> LanguageSettings:
+     """Validate a language profile against already-discovered model metadata."""
+     normalized = normalize_language_key(language)
+-    if model.status != "ready":
+-        raise ModelDiscoveryError(f"Model '{model.id}' is not runnable: {model.status}")
++    if not model.runtime_available:
++        raise ModelDiscoveryError(
++            f"Model '{model.id}' is not available in the installed runtime.",
++            code="pykokoro.model_unsupported",
++        )
++    if model.experimental and not settings.allow_experimental:
++        raise ModelDiscoveryError(
++            f"Model '{model.id}' uses an experimental PyKokoro frontend. "
++            "Re-run with --allow-experimental or persist allow_experimental=true "
++            "for this language profile.",
++            code="pykokoro.experimental_required",
++        )
++    if model.status != "ready" and not (model.experimental and settings.allow_experimental):
++        raise ModelDiscoveryError(
++            f"Model '{model.id}' is not runnable: {model.status}",
++            code="pykokoro.model_unsupported",
++        )
+     if not language_matches(normalized, model.languages):
+         declared = ", ".join(model.languages) or "none"
+         raise ModelDiscoveryError(
+-            f"Model '{model.id}' does not declare language '{normalized}'. Declared languages: {declared}"
++            f"Model '{model.id}' does not declare language '{normalized}'. Declared languages: {declared}",
++            code="pykokoro.model_unsupported",
+         )
+-    if settings.source is not None and settings.source != model.source:
++    if settings.source is not None and settings.source not in {"github", "huggingface"}:
+         raise ModelDiscoveryError(
+-            f"Model '{model.id}' is provided by source '{model.source}', not '{settings.source}'."
++            f"Model source '{settings.source}' is not supported; use github or huggingface.",
++            code="pykokoro.model_unsupported",
+         )
+     if settings.quality is not None and settings.quality not in model.qualities:
+         available = ", ".join(model.qualities) or "none"
+         raise ModelDiscoveryError(
+-            f"Quality '{settings.quality}' is not available for model '{model.id}'. Available qualities: {available}"
++            f"Quality '{settings.quality}' is not available for model '{model.id}'. Available qualities: {available}",
++            code="pykokoro.quality_invalid",
+         )
+     if settings.voice is not None and settings.voice not in model.voices:
+         available = ", ".join(model.voices) or "none"
+         raise ModelDiscoveryError(
+-            f"Voice '{settings.voice}' is not available for model '{model.id}'. Available voices: {available}"
++            f"Voice '{settings.voice}' is not available for model '{model.id}'. Available voices: {available}",
++            code="pykokoro.voice_invalid",
+         )
+     if settings.lexicons is not None and model.lexicons is not None:
+         missing = tuple(item for item in settings.lexicons if item not in model.lexicons)
+@@ -156,17 +259,14 @@ def validate_language_settings(
+             available = ", ".join(model.lexicons) or "none"
+             raise ModelDiscoveryError(
+                 f"Lexicon '{missing[0]}' is not available for model '{model.id}' / language '{normalized}'. "
+-                f"Available lexicons: {available}"
++                f"Available lexicons: {available}",
++                code="pykokoro.lexicon_invalid",
+             )
+-    if model.experimental and not settings.allow_experimental:
+-        raise ModelDiscoveryError(
+-            f"Model '{model.id}' uses an experimental frontend. "
+-            "Re-run with --allow-experimental to persist this default."
+-        )
+     return settings
+ 
+ 
+ __all__ = [
++    "PYKOKORO_REQUIRED",
+     "ModelDiscoveryError",
+     "ModelInfo",
+     "discover_model_info",
+diff --git a/readio/ssmd.py b/readio/ssmd.py
+index 54790ca..5171232 100644
+--- a/readio/ssmd.py
++++ b/readio/ssmd.py
+@@ -128,14 +128,10 @@ def default_role_bindings(
+     provider = cfg.ssmd.voice_provider
+     document = document_voice_bindings(text).get(provider, {})
+     configured = cfg.voices[provider].roles
+-    defaults = {role: target for role, target in configured.items() if role not in document}
+     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
++    defaults = {role: target for role, target in configured.items() if role not in document}
+     defaults.update(
+-        {
+-            role: target
+-            for role, target in runtime.items()
+-            if role not in document and role not in configured
+-        }
++        {role: target for role, target in runtime.items() if role not in document}
+     )
+     return {provider: defaults} if defaults else {}
+ 
+@@ -164,11 +160,13 @@ def _resolved_target(
+     settings = cfg.voices[cfg.ssmd.voice_provider]
+     if reference in document:
+         return document[reference]
++    if reference in runtime:
++        return runtime[reference]
+     if reference in settings.roles:
+         return settings.roles[reference]
+     if reference in settings.ids:
+         return reference
+-    return runtime.get(reference)
++    return None
+ 
+ 
+ def analyze_ssmd(
+@@ -259,8 +257,6 @@ def _voice_resolution_error(
+         None,
+     )
+     if invalid is not None:
+-        message = invalid.message
+-        reference = result.document_bindings.get(result.voice_references[0].reference, "")
+         first_reference = next(
+             use.reference
+             for use in result.voice_references
+@@ -270,6 +266,15 @@ def _voice_resolution_error(
+                 if diagnostic.code == "ssmd.document_binding_invalid"
+             )
+         )
++        target = result.document_bindings[first_reference]
++        if active_model:
++            available_label = ", ".join(available) or "none"
++            message = (
++                f"Voice {target!r} is not available for active model {active_model!r}. "
++                f"Available concrete voices: {available_label}."
++            )
++        else:
++            message = invalid.message
+         reference = first_reference
+     else:
+         references = result.unresolved_voice_references
+@@ -278,7 +283,7 @@ def _voice_resolution_error(
+             f"{'s' if len(references) != 1 else ''} for provider {result.provider!r}\n"
+             + "\n".join(f"  {use.reference} ({use.count} uses)" for use in references)
+             + (
+-                f"\n\nAvailable voices for active model {active_model!r}: "
++                f"\n\nAvailable concrete voices for active model {active_model!r}: "
+                 if active_model
+                 else "\n\nConfigured voices: "
+             )
+diff --git a/readio/synthesis.py b/readio/synthesis.py
+index 41fc731..c7536c5 100644
+--- a/readio/synthesis.py
++++ b/readio/synthesis.py
+@@ -36,10 +36,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
+     lexicons = profile.lexicons if profile is not None else None
+     allow_experimental = profile.allow_experimental if profile is not None else False
+ 
+-    if model is None:
+-        model = None
+-    if getattr(args, "model", None) is not None:
+-        model = args.model
++    explicit_model = getattr(args, "model", None)
++    if explicit_model is not None:
++        model = explicit_model
+     if getattr(args, "model_source", None) is not None:
+         source = args.model_source
+     if getattr(args, "quality", None) is not None:
+@@ -52,9 +51,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
+         lexicons = None
+     allow_experimental = allow_experimental or bool(getattr(args, "allow_experimental", False))
+ 
+-    # Explicit model selection is the one rendering path that needs discovery;
+-    # persisted settings already contain source/quality/model reconstruction data.
+-    if getattr(args, "model", None) is not None:
++    # Explicit model selection is resolved and validated before rendering.
++    needs_discovery = explicit_model is not None
++    if needs_discovery:
+         from .config import LanguageSettings
+         from .models import get_model_info, validate_language_settings
+ 
+@@ -63,7 +62,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
+             offline=bool(getattr(args, "offline", False)),
+             refresh=bool(getattr(args, "refresh", False)),
+         )
+-        source = getattr(args, "model_source", None) or discovered.source
++        source = source or discovered.source
+         if voice is None:
+             voice = discovered.default_voice
+         if quality is None and discovered.qualities:
+diff --git a/skill/readio/SKILL.md b/skill/readio/SKILL.md
+index 3442a83..5a13314 100644
+--- a/skill/readio/SKILL.md
++++ b/skill/readio/SKILL.md
+@@ -19,22 +19,23 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
+ 
+ ## Model discovery and defaults
+ 
+-PyKokoro is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
++PyKokoro 0.9.x is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
+ 
+ ```bash
+-readio models list --language de --json
+-readio models show de-thorsten --json
++readio models list --language de --offline --json
++readio models show de-thorsten --offline --json
++readio voices list --model de-thorsten --json
+ ```
+ 
+ Persist user policy with the validated defaults workflow:
+ 
+ ```bash
+-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
++readio defaults set de --model de-thorsten --lexicon crane --offline --json
+ readio defaults show de --json
+-readio render --lang de --file article.md --json
++readio defaults show de-at --json
+ ```
+ 
+-Use `--offline` for cache-only discovery and `--refresh` to explicitly refresh the registry. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
++Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `--offline --refresh` is invalid. Offline registry metadata and offline model synthesis are separate: synthesis also requires cached model and voice assets. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
+ 
+ ## Main production steps
+ 
+diff --git a/skill/readio/references/cli.md b/skill/readio/references/cli.md
+index 6479021..b63a627 100644
+--- a/skill/readio/references/cli.md
++++ b/skill/readio/references/cli.md
+@@ -19,28 +19,29 @@ Agents should use `--json`. It is accepted before or after the command, and lite
+ 
+ ## Model discovery
+ 
+-Use PyKokoro metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
++Use PyKokoro 0.9.x metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
+ 
+ ```bash
+-readio models list --language de --json
++readio models list --language de --offline --json
+ readio models list --status ready --offline
+-readio models show de-thorsten --json
++readio models show de-thorsten --offline --json
++readio voices list --model de-thorsten --json
+ ```
+ 
+-JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
++`--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
+ 
+ ## Language defaults
+ 
+ `defaults` persists validated user choices independently of the runtime catalog:
+ 
+ ```bash
+-readio defaults set de --model de-thorsten --voice thorsten --lexicon crane
++readio defaults set de --model de-thorsten --lexicon crane --offline --json
+ readio defaults show de-at --json
+ readio defaults list --json
+ readio defaults reset de
+ ```
+ 
+-Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
++When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
+ 
+ ## Audio
+ 
+diff --git a/skill/readio/references/troubleshooting.md b/skill/readio/references/troubleshooting.md
+index 81b8b43..135ea12 100644
+--- a/skill/readio/references/troubleshooting.md
++++ b/skill/readio/references/troubleshooting.md
+@@ -8,6 +8,10 @@ readio config validate
+ 
+ ## Model discovery and defaults
+ 
++- **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install the required PyKokoro 0.9.x release and verify `python -c "from pykokoro import discover_models"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
++- **Offline registry failure:** `pykokoro.registry_unavailable` means registry metadata or its cache is unavailable. Use an online `readio models list` once to populate the cache.
++- **Offline runtime asset failure:** registry metadata can be available while synthesis fails because model or voice assets are not cached. Install or cache the selected assets; this is distinct from registry discovery failure.
++
+ - **Model registry unavailable:** run `readio models list --offline --json` to use the cache. Without a valid cache, run the online command once; discovery never downloads model weights.
+ - **Unknown model:** run `readio models list --json`; do not maintain a hardcoded model/voice inventory in an agent workflow.
+ - **Incompatible voice or lexicon:** inspect `readio models show MODEL --json` and select values from the active model capability metadata. A `lexicons` value of `null` means capability enumeration is unknown, not that no lexicons exist.
+diff --git a/tests/test_pykokoro_09_contract.py b/tests/test_pykokoro_09_contract.py
+new file mode 100644
+index 0000000..dd393f5
+--- /dev/null
++++ b/tests/test_pykokoro_09_contract.py
+@@ -0,0 +1,56 @@
++from __future__ import annotations
++
++import re
++
++import pykokoro
++import pytest
++from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig, discover_models
++from pykokoro.tokenizer import TokenizerConfig
++
++from readio.config import ReadioConfig
++from readio.document import InputDocument
++from readio.reader import pipeline_config_for_document
++from readio.synthesis import ResolvedSynthesis
++
++
++def _is_09_or_newer() -> bool:
++    match = re.match(r"(\d+)\.(\d+)", str(pykokoro.__version__))
++    return bool(match and (int(match.group(1)), int(match.group(2))) >= (0, 9))
++
++
++def test_pykokoro_exposes_public_09_contract() -> None:
++    if not _is_09_or_newer():
++        pytest.skip(f"installed PyKokoro is {pykokoro.__version__}, not 0.9.x")
++    assert callable(discover_models)
++    assert GenerationConfig
++    assert PipelineConfig
++    assert SSMDRenderConfig
++    assert TokenizerConfig
++
++
++def test_readio_builds_public_pipeline_config_for_de_thorsten() -> None:
++    synthesis = ResolvedSynthesis(
++        language="de",
++        model="de-thorsten",
++        source="github",
++        quality="fp32",
++        voice="thorsten",
++        lexicons=("crane",),
++        allow_experimental=False,
++        speed=1.0,
++        pause_mode="tts",
++        unit="sentence",
++    )
++    pipeline = pipeline_config_for_document(
++        InputDocument("Hallo Welt.", None, "text"), ReadioConfig(), synthesis=synthesis
++    )
++    assert isinstance(pipeline, PipelineConfig)
++    assert isinstance(pipeline.generation, GenerationConfig)
++    assert pipeline.model_source == "github"
++    assert pipeline.model_variant == "de-thorsten"
++    assert pipeline.model_quality == "fp32"
++    assert pipeline.voice == "thorsten"
++    assert pipeline.generation.lang == "de"
++    assert isinstance(pipeline.tokenizer_config, TokenizerConfig)
++    assert pipeline.tokenizer_config.lexicons == ("crane",)
++    assert isinstance(pipeline.ssmd, SSMDRenderConfig)
+diff --git a/tests/test_pykokoro_09_regressions.py b/tests/test_pykokoro_09_regressions.py
+new file mode 100644
+index 0000000..bdad852
+--- /dev/null
++++ b/tests/test_pykokoro_09_regressions.py
+@@ -0,0 +1,85 @@
++from __future__ import annotations
++
++import json
++import sys
++from dataclasses import replace
++from types import SimpleNamespace
++
++import pytest
++
++from readio import cli
++from readio.config import LanguageSettings
++from readio.models import (
++    ModelDiscoveryError,
++    ModelInfo,
++    _pykokoro_discovery,
++    validate_language_settings,
++)
++
++MODEL = ModelInfo(
++    id="de-thorsten",
++    source="github",
++    languages=("de",),
++    voices=("thorsten",),
++    default_voice="thorsten",
++    qualities=("fp32",),
++    g2p_backend="kokorog2p",
++    lexicons=("gold", "crane"),
++    frontend="kokorog2p-de-thorsten-v1",
++    status="ready",
++    experimental=False,
++    runtime_available=True,
++    redistribution_allowed=True,
++)
++
++
++def test_discovery_api_mismatch_reports_installed_version(monkeypatch) -> None:
++    fake = SimpleNamespace(__version__="0.9.0")
++    monkeypatch.setitem(sys.modules, "pykokoro", fake)
++    with pytest.raises(ModelDiscoveryError, match="required by Readio 0.2.0") as error:
++        _pykokoro_discovery()
++    assert error.value.code == "pykokoro.discovery_api_missing"
++    assert error.value.installed_version == "0.9.0"
++
++
++def test_model_validation_rejects_quality_and_known_lexicon() -> None:
++    with pytest.raises(ModelDiscoveryError) as quality_error:
++        validate_language_settings(
++            "de", LanguageSettings(model=MODEL.id, quality="int8"), MODEL
++        )
++    assert quality_error.value.code == "pykokoro.quality_invalid"
++
++    with pytest.raises(ModelDiscoveryError) as lexicon_error:
++        validate_language_settings(
++            "de", LanguageSettings(model=MODEL.id, lexicons=("silver",)), MODEL
++        )
++    assert lexicon_error.value.code == "pykokoro.lexicon_invalid"
++
++
++def test_unknown_lexicon_inventory_is_not_rejected() -> None:
++    unknown = replace(MODEL, lexicons=None)
++    settings = LanguageSettings(model=MODEL.id, lexicons=("future",))
++    assert validate_language_settings("de", settings, unknown) == settings
++
++
++def test_experimental_model_requires_opt_in() -> None:
++    experimental = replace(MODEL, status="experimental", experimental=True)
++    with pytest.raises(ModelDiscoveryError) as error:
++        validate_language_settings("de", LanguageSettings(model=MODEL.id), experimental)
++    assert error.value.code == "pykokoro.experimental_required"
++    allowed = LanguageSettings(model=MODEL.id, allow_experimental=True)
++    assert validate_language_settings("de", allowed, experimental) == allowed
++
++
++def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> None:
++    monkeypatch.setattr(
++        cli,
++        "get_model_info",
++        lambda *args, **kwargs: (MODEL, SimpleNamespace(registry_source="cache", cache_fallback=False)),
++    )
++    args = cli.build_parser().parse_args(["voices", "list", "--model", MODEL.id, "--json"])
++    assert cli._cmd_voices(args) == 0
++    payload = json.loads(capsys.readouterr().out)
++    assert payload["source"] == "github"
++    assert payload["registry"]["source"] == "cache"
++    assert payload["voices"][0]["id"] == "thorsten"
