@@ -2,14 +2,14 @@ schema_version: 1
 object_type: commit_audit_sheet
 versioning:
   schema_version: 1
-  revision: 3
+  revision: 7
 release_version: v0.2.0
 git_base_ref: v0.1.3
 git_base_sha: 72a80de79ba62a6f236957b019735e991bafc750
 git_head_ref: HEAD
-git_head_sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
-git_range: 72a80de79ba62a6f236957b019735e991bafc750..4ecf165e8df2db38f956ca44012d69d01979c8ef
-commit_count: 1
+git_head_sha: f941a49abbc0187d3b8583a055b45e9099a4bd49
+git_range: 72a80de79ba62a6f236957b019735e991bafc750..f941a49abbc0187d3b8583a055b45e9099a4bd49
+commit_count: 4
 rows:
   - sha: 4ecf165e8df2db38f956ca44012d69d01979c8ef
     source_ref: git:4ecf165e8df2db38f956ca44012d69d01979c8ef
@@ -55,9 +55,141 @@ rows:
       regression tests.
     public_impact: public
     decision: accepted
+    stale: false
     evidence_subject: "feat: prepare 0.2.0"
     target_entry_key: pykokoro-09-contract
     target_entry_id: entry-0001
     notes:
       Reviewed the implementation, dependency changes, documentation, and focused
       PyKokoro contract and regression tests.
+  - sha: 135ca9ef2a9cfd66c26d87a61e68243293076a94
+    source_ref: git:135ca9ef2a9cfd66c26d87a61e68243293076a94
+    short_sha: 135ca9e
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.1.3/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/audit/commit-audit.yaml
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/entries/entry-0001.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/entries/entry-0002.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/entries/entry-0003.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/release.md
+      - .ledger/releaseledger/work/v0.2.0/audit-decisions.yaml
+      - .ledger/releaseledger/work/v0.2.0/audit.yaml
+      - .ledger/releaseledger/work/v0.2.0/entries.yaml
+      - .ledger/releaseledger/work/v0.2.0/evidence/4ecf165.patch
+      - .ledger/releaseledger/work/v0.2.0/evidence/manifest.json
+      - .ledger/releaseledger/work/v0.2.0/range.json
+      - docs/changelog.md
+    stats:
+      files_changed: 0
+      insertions: 1405
+      deletions: 9
+    inspected: true
+    inspected_paths:
+      - docs/changelog.md
+    observed_behavior:
+      Published the existing v0.2.0 release notes to the changelog;
+      this commit changes release documentation and ledger provenance only.
+    public_impact: none
+    decision: internal
+    stale: false
+    evidence_subject: "docs: publish v0.2.0 changelog"
+    target_entry_id: entry-0005
+    notes:
+      Generated changelog and releaseledger bookkeeping; no additional product
+      behavior.
+  - sha: e4f6a43888e70a43a0ce7b8b9446b9825e213884
+    source_ref: git:e4f6a43888e70a43a0ce7b8b9446b9825e213884
+    short_sha: e4f6a43
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.1.3/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/audit/commit-audit.yaml
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/entries/entry-0001.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/entries/entry-0002.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/entries/entry-0003.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.0/release.md
+      - .ledger/releaseledger/work/v0.2.0/audit-decisions.yaml
+      - .ledger/releaseledger/work/v0.2.0/audit.yaml
+      - .ledger/releaseledger/work/v0.2.0/entries.yaml
+      - .ledger/releaseledger/work/v0.2.0/evidence/4ecf165.patch
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/models.py
+      - readio/ssmd.py
+      - tests/test_pykokoro_09_regressions.py
+    stats:
+      files_changed: 0
+      insertions: 277
+      deletions: 265
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/models.py
+      - readio/ssmd.py
+      - tests/test_pykokoro_09_regressions.py
+    observed_behavior:
+      Applied pre-commit formatting and whitespace normalization across
+      source, documentation, and tests without adding intended user-facing behavior.
+    public_impact: internal
+    decision: internal
+    stale: false
+    evidence_subject: "chore: pre-commit"
+    target_entry_id: entry-0006
+    notes: Formatting-only maintenance; excluded from public release notes.
+  - sha: f941a49abbc0187d3b8583a055b45e9099a4bd49
+    source_ref: git:f941a49abbc0187d3b8583a055b45e9099a4bd49
+    short_sha: f941a49
+    changed_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/models.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_model_source_preference.py
+      - tests/test_ssmd_model_roster.py
+      - tests/test_synthesis.py
+    stats:
+      files_changed: 0
+      insertions: 598
+      deletions: 109
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/models.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_model_source_preference.py
+      - tests/test_ssmd_model_roster.py
+      - tests/test_synthesis.py
+    observed_behavior:
+      Added deterministic model-source selection for discovery and
+      runtime construction, resolved model metadata and model-scoped voice rosters throughout
+      synthesis and SSMD, and expanded PyKokoro diagnostics with focused regression
+      coverage and user documentation.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: prepare 0.2.0"
+    target_entry_key: model-source-and-voice-resolution
+    target_entry_id: entry-0004
+    notes:
+      Reviewed implementation, public and agent documentation, and focused model-source,
+      synthesis, SSMD, and regression tests.
