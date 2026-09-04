@@ -59,7 +59,7 @@ def pipeline_config_for_document(
         TokenizerConfig(lexicons=resolved.lexicons) if resolved.lexicons is not None else None
     )
     ssmd = (
-        build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings, synthesis)
+        build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings, resolved)
         if document.format == "ssmd"
         else SSMDRenderConfig()
     )
@@ -85,17 +85,18 @@ def _build_pipeline(
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
 
     if isinstance(cfg, ReadioConfig):
+        resolved = synthesis or resolve_synthesis(cfg)
         if document.format == "ssmd" and cfg.ssmd.validate_before_render:
             preflight_ssmd(
                 document.text,
                 cfg,
                 source_path=document.source_path,
                 additional_bindings=ssmd_voice_bindings,
-                synthesis=synthesis,
+                synthesis=resolved,
             )
         return KokoroPipeline(
             pipeline_config_for_document(
-                document, cfg, ssmd_voice_bindings=ssmd_voice_bindings, synthesis=synthesis
+                document, cfg, ssmd_voice_bindings=ssmd_voice_bindings, synthesis=resolved
             )
         )
 

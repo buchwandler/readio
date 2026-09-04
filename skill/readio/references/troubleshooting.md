@@ -9,6 +9,20 @@ readio config validate
 ## Model discovery and defaults
 
 - **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install the required PyKokoro 0.9.x release and verify `python -c "from pykokoro import discover_models"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
+
+### PyKokoro model discovery is unavailable
+
+For `cannot import name 'discover_models' from 'pykokoro'`, first distinguish a stale checkout/API mismatch from a registry outage:
+
+```bash
+python -c "import pykokoro; print(pykokoro.__file__); print(pykokoro.__version__)"
+python -c "from pykokoro import discover_models; print(discover_models)"
+python -m pip show pykokoro
+readio doctor --json
+```
+
+`readio doctor --json` reports the imported module path, distribution metadata version, module version, and each public API symbol. Do not work around this by importing private registry modules.
+
 - **Offline registry failure:** `pykokoro.registry_unavailable` means registry metadata or its cache is unavailable. Use an online `readio models list` once to populate the cache.
 - **Offline runtime asset failure:** registry metadata can be available while synthesis fails because model or voice assets are not cached. Install or cache the selected assets; this is distinct from registry discovery failure.
 

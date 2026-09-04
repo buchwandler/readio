@@ -89,12 +89,15 @@ Runtime discovery and per-language defaults are separate from legacy provider ro
 readio models list --language de --offline
 readio models show de-thorsten --offline
 readio voices list --model de-thorsten --json
+readio models list --preference huggingface --json
+readio models show de-thorsten --preference github --json
 readio defaults set de --model de-thorsten --lexicon crane --offline
 readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
 
 `models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `defaults` stores validated user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons. Repeated named lexicons retain their order for layered lookup.
+`--model-source github|huggingface` drives both discovery and runtime selection. Voices are model-scoped. The legacy global `reader.voice` applies only to unchanged default-reader use; a language override such as `--lang de` leaves voice selection to the active PyKokoro model unless explicitly set. SSMD preflight uses that same resolved model roster.
 
 ## Render progress
 
@@ -203,6 +206,7 @@ readio doctor
 ```
 
 The local doctor is human-readable by default and supports `readio doctor --json`. It reports configuration, directories, dependencies, format availability, and the upstream executable/version probe without authentication or token access. Use `readio spotify doctor` for the explicit external integration check.
+If PyKokoro reports `cannot import name 'discover_models' from 'pykokoro'`, run `readio doctor --json` first. It reports the exact imported module path, distribution metadata version, module version, and root discovery symbol status, which distinguishes stale/mismatched package contents from an unavailable cached registry.
 
 Run the test suite and lint checks from a development checkout:
 

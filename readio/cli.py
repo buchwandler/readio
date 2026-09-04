@@ -38,7 +38,7 @@ from .formats import (
     resolve_audio_format,
 )
 from .ingest import list_ingest, new_ingest
-from .models import PYKOKORO_REQUIRED, ModelDiscoveryError, discover_model_info, get_model_info
+from .models import ModelDiscoveryError, discover_model_info, get_model_info
 from .paths import resolve_render_output
 from .progress import TerminalProgress
 from .reader import SelectionError, render_live, render_text, speak_live, speak_text
@@ -99,7 +99,11 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--voice", help="PyKokoro voice, e.g. af_sarah")
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
     parser.add_argument("--model", help="PyKokoro model ID")
-    parser.add_argument("--model-source", help="advanced model source override")
+    parser.add_argument(
+        "--model-source",
+        choices=("github", "huggingface"),
+        help="distribution source for model discovery and runtime",
+    )
     parser.add_argument("--quality", help="model quality/quantization")
     lexicon_group = parser.add_mutually_exclusive_group()
     lexicon_group.add_argument("--lexicon", dest="lexicons", action="append", metavar="NAME")
@@ -214,13 +218,9 @@ def _progress_source_label(args: argparse.Namespace) -> str:
 
 
 def _resolved_config(args: argparse.Namespace) -> ReadioConfig:
+    # Keep synthesis CLI values raw so resolve_synthesis can preserve their provenance.
     return with_overrides(
         load_config(),
-        voice=getattr(args, "voice", None),
-        lang=getattr(args, "lang", None),
-        speed=getattr(args, "speed", None),
-        pause_mode=getattr(args, "pause_mode", None),
-        unit=getattr(args, "unit", None),
         queue_size=getattr(args, "queue_size", None),
         device=getattr(args, "device", None),
     )
@@ -250,9 +250,18 @@ def _validate_live(args: argparse.Namespace) -> None:
         raise ValueError("--live requires piped stdin")
 
 
-def _prompt_for_missing_voices(result: object, cfg: ReadioConfig) -> dict[str, str]:
+def _prompt_for_missing_voices(
+    result: object,
+    cfg: ReadioConfig,
+    synthesis: object | None = None,
+) -> dict[str, str]:
     provider = result.provider
-    available = tuple(cfg.voices[provider].ids)
+    resolved_model = getattr(synthesis, "resolved_model", None)
+    available = (
+        tuple(resolved_model.voices)
+        if resolved_model is not None
+        else tuple(cfg.voices[provider].ids)
+    )
     print(
         f"SSMD uses {len(result.unresolved_voice_references)} unconfigured voice references "
         f"for provider {provider!r}:"
@@ -303,12 +312,15 @@ def _prepared_input(
                 "--resolve-voices requires an interactive terminal; "
                 "provide --voice-bind ROLE=VOICE_ID instead"
             )
-        bindings.update(_prompt_for_missing_voices(result, cfg))
+        bindings.update(
+            _prompt_for_missing_voices(result, cfg, getattr(args, "_resolved_synthesis", None))
+        )
     preflight_ssmd(
         document.text,
         cfg,
         source_path=document.source_path,
         additional_bindings=bindings,
+        synthesis=getattr(args, "_resolved_synthesis", None),
     )
     return document, bindings
 
@@ -457,11 +469,13 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
         return 0
     document = document_from_file(args.file)
     bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
+    args._resolved_synthesis = resolve_synthesis(cfg, args)
     analysis = analyze_ssmd(
         document.text,
         cfg,
         source_path=document.source_path,
         additional_bindings=bindings,
+        synthesis=args._resolved_synthesis,
     )
     if analysis.unresolved_voice_references and args.resolve_voices:
         if args.json or not sys.stdin.isatty():
@@ -469,12 +483,13 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
                 "--resolve-voices requires an interactive terminal; "
                 "provide --voice-bind ROLE=VOICE_ID instead"
             )
-        bindings.update(_prompt_for_missing_voices(analysis, cfg))
+        bindings.update(_prompt_for_missing_voices(analysis, cfg, args._resolved_synthesis))
     consumer = preflight_ssmd(
         document.text,
         cfg,
         source_path=document.source_path,
         additional_bindings=bindings,
+        synthesis=args._resolved_synthesis,
     )
     result: dict[str, object] = {
         "ok": consumer.ok,
@@ -606,7 +621,12 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
     allow_experimental = existing.allow_experimental or args.allow_experimental
     model = None
     if model_id is not None:
-        model, _ = get_model_info(model_id, offline=args.offline, refresh=args.refresh)
+        model, _ = get_model_info(
+            model_id,
+            offline=args.offline,
+            refresh=args.refresh,
+            preference=source or "auto",
+        )
         source = source or model.source
         voice = voice or model.default_voice
         if quality is None and model.qualities:
@@ -651,10 +671,13 @@ def _lexicons_label(lexicons: tuple[str, ...] | None) -> str:
 
 
 def _model_registry_payload(result: object, *, offline: bool) -> dict[str, object]:
+    actual_offline = bool(getattr(result, "offline", offline))
     return {
         "source": result.registry_source,
-        "cache_fallback": result.cache_fallback,
-        "offline": offline,
+        "registry_source": result.registry_source,
+        "cache_fallback": bool(result.cache_fallback),
+        "offline": actual_offline,
+        "refreshed": bool(getattr(result, "refreshed", False)),
     }
 
 
@@ -665,6 +688,7 @@ def _cmd_models(args: argparse.Namespace) -> int:
             status=args.status,
             offline=args.offline,
             refresh=args.refresh,
+            preference=args.preference,
         )
         payload = {
             "ok": True,
@@ -694,7 +718,12 @@ def _cmd_models(args: argparse.Namespace) -> int:
             )
         return 0
 
-    model, discovery = get_model_info(args.model_id, offline=args.offline, refresh=args.refresh)
+    model, discovery = get_model_info(
+        args.model_id,
+        offline=args.offline,
+        refresh=args.refresh,
+        preference=args.preference,
+    )
     payload = {
         "ok": True,
         "registry": _model_registry_payload(discovery, offline=args.offline),
@@ -706,6 +735,10 @@ def _cmd_models(args: argparse.Namespace) -> int:
     print(f"Model:          {model.id}")
     print(f"ID:              {model.id}")
     print(f"Source:          {model.source}")
+    print(f"Distribution:    {model.distribution_id or '-'}")
+    print(f"Provider:        {model.provider or '-'}")
+    print(f"Sample rate:     {f'{model.sample_rate} Hz' if model.sample_rate is not None else '-'}")
+    print(f"Max tokens:      {model.max_tokens if model.max_tokens is not None else '-'}")
     print(f"Languages:       {', '.join(model.languages) or '-'}")
     print(f"Frontend:        {model.frontend or 'unknown'}")
     print(f"Status:          {model.status}")
@@ -736,12 +769,18 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     ):
         if getattr(args, "model", None):
             model, discovery = get_model_info(
-                args.model, offline=args.offline, refresh=args.refresh
+                args.model,
+                offline=args.offline,
+                refresh=args.refresh,
+                preference=args.preference,
             )
             models = (model,)
         else:
             models, discovery = discover_model_info(
-                language=args.language, offline=args.offline, refresh=args.refresh
+                language=args.language,
+                offline=args.offline,
+                refresh=args.refresh,
+                preference=args.preference,
             )
         configured_roles = settings.roles if settings is not None else {}
         voices = [
@@ -982,26 +1021,45 @@ def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
         "ok": False,
         "registry_source": None,
         "cache_fallback": False,
+        "offline": True,
+        "refreshed": False,
         "count": 0,
         "registry_cache": {"available": False},
         "language_defaults": {},
     }
     try:
-        models, result = discover_model_info(offline=True)
-        by_id = {model.id: model for model in models}
-        from .models import validate_language_settings
-
+        # Doctor is local-only. Validate each configured profile against the distribution
+        # it names instead of one auto-selected representation.
+        preferences = {
+            settings.source if settings.source in {"github", "huggingface"} else "auto"
+            for settings in cfg.languages.values()
+            if settings.model is not None
+        } or {"auto"}
+        discoveries: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+        for preference in sorted(preferences):
+            models, result = discover_model_info(offline=True, preference=preference)
+            discoveries[preference] = (
+                {model.id: model for model in models},
+                {
+                    "source": result.registry_source,
+                    "cache_fallback": bool(result.cache_fallback),
+                },
+            )
+        default_models, provenance = discoveries["auto"]
         diagnostics.update(
             ok=True,
-            registry_source=result.registry_source,
-            cache_fallback=result.cache_fallback,
-            count=len(models),
+            registry_source=provenance["source"],
+            cache_fallback=provenance["cache_fallback"],
+            count=len(default_models),
             registry_cache={
                 "available": True,
-                "source": result.registry_source,
-                "cache_fallback": result.cache_fallback,
+                "source": provenance["source"],
+                "cache_fallback": provenance["cache_fallback"],
+                "offline": True,
             },
         )
+        from .models import validate_language_settings
+
         defaults: dict[str, object] = {}
         for language, settings in cfg.languages.items():
             item: dict[str, object] = {
@@ -1009,9 +1067,16 @@ def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
                 "valid": True,
             }
             if settings.model is not None:
+                preference = (
+                    settings.source if settings.source in {"github", "huggingface"} else "auto"
+                )
+                by_id = discoveries[preference][0]
                 model = by_id.get(settings.model)
                 if model is None:
-                    item.update(valid=False, error=f"unknown cached model '{settings.model}'")
+                    item.update(
+                        valid=False,
+                        error=f"unknown cached model '{settings.model}' for {preference}",
+                    )
                 else:
                     try:
                         validate_language_settings(language, settings, model)
@@ -1024,6 +1089,9 @@ def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
             error=str(exc),
             error_code=exc.code,
             installed_version=exc.installed_version,
+            distribution_version=exc.distribution_version,
+            module_version=exc.module_version,
+            module_path=exc.module_path,
         )
         diagnostics["language_defaults"] = {
             language: {**(_language_settings_payload(settings) or {}), "valid": None}
@@ -1042,26 +1110,13 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
     cfg = load_config()
     provider = cfg.ssmd.voice_provider
     settings = cfg.voices.get(provider)
-    try:
-        import pykokoro
+    from .models import pykokoro_diagnostics
 
-        pykokoro_version = str(getattr(pykokoro, "__version__", "unknown"))
-        discovery_api = callable(getattr(pykokoro, "discover_models", None))
-        pykokoro_check: dict[str, object] = {
-            "version": pykokoro_version,
-            "required": PYKOKORO_REQUIRED,
-            "discovery_api": discovery_api,
-        }
-        if not discovery_api:
-            pykokoro_check["error_code"] = "pykokoro.discovery_api_missing"
-    except Exception as exc:  # pragma: no cover - environment dependent  # noqa: BLE001
-        pykokoro_check = {
-            "version": None,
-            "required": PYKOKORO_REQUIRED,
-            "discovery_api": False,
-            "error_code": "pykokoro.import_failed",
-            "error": str(exc),
-        }
+    pykokoro_check = pykokoro_diagnostics()
+    pykokoro_check["version"] = pykokoro_check.get("module_version")
+    pykokoro_check["discovery_api"] = (
+        pykokoro_check.get("symbols", {}).get("discover_models") == "ok"
+    )
     try:
         import ssmd
 
@@ -1202,6 +1257,9 @@ def build_parser() -> argparse.ArgumentParser:
     models_list.add_argument("--language")
     models_list.add_argument("--status")
     models_list.add_argument("--offline", action="store_true")
+    models_list.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
     models_list.add_argument("--refresh", action="store_true")
     models_list.add_argument("--json", action="store_true")
     models_list.set_defaults(func=_cmd_models)
@@ -1209,6 +1267,9 @@ def build_parser() -> argparse.ArgumentParser:
     models_show.add_argument("model_id")
     models_show.add_argument("--offline", action="store_true")
     models_show.add_argument("--json", action="store_true")
+    models_show.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
     models_show.add_argument("--refresh", action="store_true")
     models_show.set_defaults(func=_cmd_models)
 
@@ -1224,7 +1285,7 @@ def build_parser() -> argparse.ArgumentParser:
     defaults_set = defaults_sub.add_parser("set", help="validate and save a language default")
     defaults_set.add_argument("language")
     defaults_set.add_argument("--model")
-    defaults_set.add_argument("--model-source")
+    defaults_set.add_argument("--model-source", choices=("github", "huggingface"))
     defaults_set.add_argument("--quality")
     defaults_set.add_argument("--voice")
     lexicon_group = defaults_set.add_mutually_exclusive_group()
@@ -1248,6 +1309,9 @@ def build_parser() -> argparse.ArgumentParser:
     voices_list.add_argument("--language")
     voices_list.add_argument("--offline", action="store_true")
     voices_list.add_argument("--refresh", action="store_true")
+    voices_list.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
     voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")
@@ -1362,6 +1426,16 @@ def _error_payload(exc: Exception) -> dict[str, object]:
         payload["source"] = str(exc.source_path)
     if isinstance(exc, ModelDiscoveryError) and exc.installed_version is not None:
         payload["installed_version"] = exc.installed_version
+    if isinstance(exc, ModelDiscoveryError):
+        for name in (
+            "distribution_version",
+            "module_version",
+            "module_path",
+            "missing_dependency",
+        ):
+            value = getattr(exc, name, None)
+            if value is not None:
+                payload[name] = value
     for name in ("provider", "reference"):
         value = getattr(exc, name, None)
         if value is not None:

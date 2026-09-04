@@ -89,11 +89,11 @@ def _available_voice_context(
     synthesis: ResolvedSynthesis | None,
 ) -> tuple[str | None, tuple[str, ...]]:
     provider = cfg.ssmd.voice_provider
-    if synthesis is not None and synthesis.model is not None:
-        from .models import get_model_info
-
-        model, _ = get_model_info(synthesis.model)
-        return synthesis.model, model.voices
+    if synthesis is not None and synthesis.resolved_model is not None:
+        model = synthesis.resolved_model
+        return model.id, model.voices
+    if synthesis is not None and synthesis.model is not None and synthesis.model_voices is not None:
+        return synthesis.model, synthesis.model_voices
     return None, tuple(cfg.voices[provider].ids)
 
 
@@ -102,10 +102,8 @@ def _validated_runtime_bindings(
     additional_bindings: Mapping[str, str] | None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> dict[str, str]:
-    if additional_bindings is None:
-        return {}
-    _, available = _available_voice_context(cfg, synthesis)
-    bindings = dict(additional_bindings)
+    active_model, available = _available_voice_context(cfg, synthesis)
+    bindings = dict(additional_bindings or {})
     for reference, target in bindings.items():
         if not isinstance(reference, str) or not reference:
             raise ValueError("voice binding roles must be non-empty strings")
@@ -113,8 +111,9 @@ def _validated_runtime_bindings(
             raise ValueError("voice binding targets must be non-empty strings")
         if target not in available:
             choices = ", ".join(available)
+            model_label = f" for active model {active_model!r}" if active_model else ""
             raise ValueError(
-                f"voice {target!r} is not available for active model; available voices: {choices}"
+                f"voice {target!r} is not available{model_label}; available voices: {choices}"
             )
     return bindings
 
@@ -127,9 +126,14 @@ def default_role_bindings(
 ) -> dict[str, dict[str, str]]:
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
+    _, available = _available_voice_context(cfg, synthesis)
     configured = cfg.voices[provider].roles
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
-    defaults = {role: target for role, target in configured.items() if role not in document}
+    defaults = {
+        role: target
+        for role, target in configured.items()
+        if role not in document and target in available
+    }
     defaults.update({role: target for role, target in runtime.items() if role not in document})
     return {provider: defaults} if defaults else {}
 

@@ -64,6 +64,8 @@ PyKokoro 0.9.x is the runtime contract and owns the model, language, voice, qual
 readio models list --language de --offline
 readio models show de-thorsten --offline
 readio voices list --model de-thorsten --json
+readio models list --preference huggingface --json
+readio voices list --model de-thorsten --preference github --json
 ```
 
 Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
@@ -80,6 +82,7 @@ readio render --lang de --file notes.md
 When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` clears an inherited explicit selection. Repeat `--lexicon` to preserve ordered layered lookup.
 
 Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
+`--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
 
 ## Templates
 

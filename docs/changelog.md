@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hardened source-aware model resolution, model-scoped voice fallback, SSMD roster reuse, and PyKokoro public API diagnostics.
+
 ## [v0.2.0] - 2026-09-02
 
 ### Added

@@ -38,9 +38,9 @@ def test_resolution_applies_language_profile_and_cli_precedence() -> None:
         },
     )
 
-    resolved = resolve_synthesis(cfg, _args(lang="de", voice="custom", lexicons=["crane"]))
+    resolved = resolve_synthesis(cfg, _args(lang="de", voice="thorsten", lexicons=["crane"]))
     assert resolved.model == "de-thorsten"
-    assert resolved.voice == "custom"
+    assert resolved.voice == "thorsten"
     assert resolved.lexicons == ("crane",)
 
 

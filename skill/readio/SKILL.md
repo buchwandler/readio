@@ -25,6 +25,7 @@ PyKokoro 0.9.x is the source of truth for runtime model capabilities. Agents sho
 readio models list --language de --offline --json
 readio models show de-thorsten --offline --json
 readio voices list --model de-thorsten --json
+readio models list --preference huggingface --json
 ```
 
 Persist user policy with the validated defaults workflow:
@@ -36,6 +37,7 @@ readio defaults show de-at --json
 ```
 
 Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `--offline --refresh` is invalid. Offline registry metadata and offline model synthesis are separate: synthesis also requires cached model and voice assets. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
+`--preference auto|github|huggingface|upstream` makes discovery views deterministic. `--model-source github|huggingface` controls the distribution used for discovery, validation, and runtime. Voices are model-scoped: the global reader voice is only a legacy fallback when no language/model selection changes the domain, and SSMD uses the resolved model roster. Use `readio doctor --json` for PyKokoro path/version/public-API mismatches.
 
 ## Main production steps
 

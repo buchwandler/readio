@@ -26,9 +26,12 @@ readio models list --language de --offline --json
 readio models list --status ready --offline
 readio models show de-thorsten --offline --json
 readio voices list --model de-thorsten --json
+readio models list --preference huggingface --json
+readio voices list --model de-thorsten --preference github --json
 ```
 
 `--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
+Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. Synthesis/default `--model-source github|huggingface` selects the same distribution for metadata validation and `PipelineConfig`. Voices are model-scoped; SSMD checks the active model roster, not the legacy configured list.
 
 ## Language defaults
 
@@ -57,3 +60,4 @@ readio config validate
 ```
 
 The local doctor is offline/local. `readio --json doctor` is equivalent to `readio doctor --json`.
+`doctor --json` reports PyKokoro's imported module path, distribution/module versions, and public discovery symbol status. Use it to diagnose stale editable checkouts or mismatched environments before treating a registry error as a network/cache problem.
