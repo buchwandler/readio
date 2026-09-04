@@ -249,8 +249,8 @@ def pykokoro_diagnostics() -> dict[str, Any]:
                 "missing_dependency": getattr(exc, "name", None),
             }
         except (
-            Exception
-        ) as exc:  # pragma: no cover - defensive lazy import boundary  # noqa: BLE001
+            Exception  # noqa: BLE001
+        ) as exc:  # pragma: no cover - defensive lazy import boundary
             result["symbols"][name] = {"status": "import_failed", "error": str(exc)}
         else:
             result["symbols"][name] = (
