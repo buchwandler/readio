@@ -54,3 +54,10 @@ def test_readio_builds_public_pipeline_config_for_de_thorsten() -> None:
     assert isinstance(pipeline.tokenizer_config, TokenizerConfig)
     assert pipeline.tokenizer_config.lexicons == ("crane",)
     assert isinstance(pipeline.ssmd, SSMDRenderConfig)
+
+
+def test_pykokoro_exposes_resolve_pipeline_config() -> None:
+    """Verify the public resolve_pipeline_config API from 01 is available."""
+    from pykokoro import resolve_pipeline_config
+
+    assert callable(resolve_pipeline_config)

@@ -75,6 +75,65 @@ def pipeline_config_for_document(
     )
 
 
+def pipeline_config_from_plan(
+    plan: ReadioPlan,
+    document: InputDocument,
+) -> Any:
+    """Build a PipelineConfig from a resolved ReadioPlan.
+
+    All values come from the plan — no automatic selection is re-run.
+    """
+    from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
+    from pykokoro.tokenizer import TokenizerConfig
+
+    from .plan import ReadioPlan
+
+    synthesis = plan.synthesis
+    if synthesis is None:
+        raise ValueError("plan has no synthesis; cannot build pipeline config")
+
+    generation = GenerationConfig(
+        lang=synthesis.language,
+        speed=synthesis.speed,
+        pause_mode=synthesis.pause_mode,
+    )
+
+    tokenizer_config = (
+        TokenizerConfig(lexicons=synthesis.lexicons) if synthesis.lexicons is not None else None
+    )
+
+    # Build SSMD render config from plan bindings
+    if document.format == "ssmd" and plan.ssmd.enabled:
+        from pykokoro import SSMDRenderConfig as _SSMDRC
+
+        provider = plan.ssmd.provider or "kokoro"
+        bindings_map: dict[str, dict[str, str]] = {}
+        if plan.ssmd.bindings:
+            provider_bindings: dict[str, str] = {}
+            for binding in plan.ssmd.bindings:
+                provider_bindings[binding.reference] = binding.voice
+            bindings_map[provider] = provider_bindings
+        ssmd = _SSMDRC(
+            provider=provider,
+            voice_bindings=bindings_map,
+            missing_voice="error",
+        )
+    else:
+        ssmd = SSMDRenderConfig()
+
+    model = synthesis.model
+    return PipelineConfig(
+        voice=model.voice,
+        model_source=model.source,
+        model_variant=model.id,
+        model_quality=model.quality,
+        allow_experimental_frontend=synthesis.allow_experimental,
+        generation=generation,
+        tokenizer_config=tokenizer_config,
+        ssmd=ssmd,
+    )
+
+
 def _build_pipeline(
     document: InputDocument,
     cfg: ReadioConfig | ReaderSettings,

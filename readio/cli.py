@@ -52,6 +52,14 @@ from .spotify import (
 from .ssmd import analyze_ssmd, preflight_ssmd
 from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
 from .synthesis import resolve_synthesis
+from .plan import (
+    InputRequest,
+    OutputRequest,
+    PlanRequest,
+    SynthesisRequest,
+    format_plan_human,
+    resolve_plan,
+)
 from .templates import (
     add_template,
     list_templates,
@@ -453,7 +461,83 @@ def _render_audio(
     return summary
 
 
+def _build_plan_request(
+    args: argparse.Namespace,
+    cfg: ReadioConfig,
+    *,
+    operation: str = "render",
+) -> PlanRequest:
+    """Build a PlanRequest from CLI args."""
+    _normalize_positional_input(args)
+    document = _read_input(args, cfg)
+    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
+
+    # For SSMD, resolve voices before planning (non-interactive)
+    if document.format == "ssmd" and not getattr(args, "resolve_voices", False):
+        pass  # Plan will handle unresolved voices as diagnostics
+
+    synthesis = SynthesisRequest(
+        language=getattr(args, "lang", None),
+        model=getattr(args, "model", None),
+        model_source=getattr(args, "model_source", None),
+        quality=getattr(args, "quality", None),
+        voice=getattr(args, "voice", None),
+        lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) else None,
+        clear_lexicons=bool(getattr(args, "no_lexicons", False)),
+        allow_experimental=bool(getattr(args, "allow_experimental", False)),
+        speed=getattr(args, "speed", None),
+        pause_mode=getattr(args, "pause_mode", None),
+        unit=getattr(args, "unit", None),
+        offline=bool(getattr(args, "offline", False)),
+        refresh=bool(getattr(args, "refresh", False)),
+    )
+
+    output = OutputRequest(
+        mode="file" if operation == "render" else "playback",
+        requested_format=getattr(args, "format", None),
+        requested_path=getattr(args, "output", None),
+        force=bool(getattr(args, "force", False)),
+    )
+
+    return PlanRequest(
+        operation=operation,  # type: ignore[arg-type]
+        input=InputRequest(
+            document=document,
+            requested_format=getattr(args, "input_format", "auto"),
+            selector=getattr(args, "select", "all"),
+        ),
+        synthesis=synthesis,
+        output=output,
+        voice_bindings=bindings,
+    )
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """Resolve and display the synthesis plan without loading TTS."""
+    cfg = _resolved_config(args)
+    request = _build_plan_request(args, cfg, operation="render")
+    plan = resolve_plan(cfg, request)
+
+    if getattr(args, "json", False):
+        print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
+    else:
+        print(format_plan_human(plan))
+
+    return 0 if plan.ok else 1
+
+
 def _cmd_render(args: argparse.Namespace) -> int:
+    # --dry-run: resolve plan and display without loading TTS
+    if getattr(args, "dry_run", False):
+        cfg = _resolved_config(args)
+        request = _build_plan_request(args, cfg, operation="render")
+        plan = resolve_plan(cfg, request)
+        if getattr(args, "json", False):
+            print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
+        else:
+            print(format_plan_human(plan))
+        return 0 if plan.ok else 1
+
     _normalize_positional_input(args)
     if args.live:
         _validate_live(args)
@@ -1311,8 +1395,29 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_options(render, playback=False)
     _add_progress_option(render)
     render.add_argument("--json", action="store_true", help="emit one JSON result object")
+    render.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="resolve and display the plan without loading TTS or creating output",
+    )
     render.set_defaults(func=_cmd_render)
 
+    plan_cmd = sub.add_parser(
+        "plan",
+        help="resolve and display the synthesis plan without loading TTS",
+    )
+    _add_input_options(plan_cmd)
+    _add_synthesis_options(plan_cmd)
+    _add_audio_output_options(plan_cmd)
+    plan_cmd.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="proposed output audio path (for format inference only)",
+    )
+    _add_voice_resolution_options(plan_cmd)
+    plan_cmd.add_argument("--json", action="store_true", help="emit one JSON plan object")
+    plan_cmd.set_defaults(func=_cmd_plan)
     from .spotify_cli import add_spotify_parser
 
     add_spotify_parser(sub)

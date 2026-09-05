@@ -31,6 +31,168 @@ class Diagnostic:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedVoiceReference:
+    """A single voice reference resolved against available bindings."""
+
+    reference: str
+    voice: str | None
+    origin: str | None
+    locator: str | None = None
+    diagnostic: Diagnostic | None = None
+
+    @property
+    def resolved(self) -> bool:
+        return self.voice is not None
+
+
+def resolve_voice_references(
+    text: str,
+    cfg: ReadioConfig,
+    *,
+    available_voices: tuple[str, ...] | None = None,
+    additional_bindings: Mapping[str, str] | None = None,
+) -> tuple[ResolvedVoiceReference, ...]:
+    """Resolve every SSMD voice reference with origin/locator tracking.
+
+    This is the centralized resolution primitive reused by preflight,
+    plan, and render config creation.
+
+    Precedence:
+        document-local binding > invocation binding > configured role > direct voice
+    """
+    provider = cfg.ssmd.voice_provider
+    settings = cfg.voices[provider]
+
+    # Parse SSMD to get references
+    try:
+        ssmd_api.parse_ssmd(text, strict_parse=True)
+        references = ssmd_api.extract_voice_references(text)
+    except Exception:
+        return ()
+
+    # Gather binding sources
+    document = document_voice_bindings(text).get(provider, {})
+    runtime = dict(additional_bindings or {})
+    configured_roles = settings.roles
+
+    if available_voices is None:
+        available_voices = tuple(settings.ids)
+
+    results: list[ResolvedVoiceReference] = []
+
+    for use in references:
+        ref = use.reference
+        line = use.lines[0] if use.lines else None
+
+        # Document-local binding
+        if ref in document:
+            target = document[ref]
+            diag = None
+            if target not in available_voices:
+                diag = Diagnostic(
+                    code="ssmd.voice_unavailable",
+                    severity="error",
+                    message=f"Document binding {ref!r} -> {target!r} is not available "
+                    f"for the active model",
+                    line=line,
+                )
+            results.append(
+                ResolvedVoiceReference(
+                    reference=ref,
+                    voice=target,
+                    origin="document",
+                    locator="ssmd.front_matter",
+                    diagnostic=diag,
+                )
+            )
+            continue
+
+        # Invocation binding
+        if ref in runtime:
+            target = runtime[ref]
+            diag = None
+            if target not in available_voices:
+                diag = Diagnostic(
+                    code="ssmd.voice_unavailable",
+                    severity="error",
+                    message=f"Invocation binding {ref!r} -> {target!r} is not available "
+                    f"for the active model",
+                    line=line,
+                )
+            results.append(
+                ResolvedVoiceReference(
+                    reference=ref,
+                    voice=target,
+                    origin="cli",
+                    locator="request.voice_bindings",
+                    diagnostic=diag,
+                )
+            )
+            continue
+
+        # Configured role
+        if ref in configured_roles:
+            target = configured_roles[ref]
+            if target in available_voices:
+                results.append(
+                    ResolvedVoiceReference(
+                        reference=ref,
+                        voice=target,
+                        origin="config.voice_role",
+                        locator=f"voices.{provider}.roles.{ref}",
+                    )
+                )
+            else:
+                # Role exists but voice not available for this model
+                results.append(
+                    ResolvedVoiceReference(
+                        reference=ref,
+                        voice=None,
+                        origin="config.voice_role",
+                        locator=f"voices.{provider}.roles.{ref}",
+                        diagnostic=Diagnostic(
+                            code="ssmd.unresolved_voice",
+                            severity="error",
+                            message=f"Role {ref!r} is configured but voice {target!r} "
+                            f"is not available for the active model",
+                            line=line,
+                        ),
+                    )
+                )
+            continue
+
+        # Direct voice reference
+        if ref in available_voices:
+            results.append(
+                ResolvedVoiceReference(
+                    reference=ref,
+                    voice=ref,
+                    origin="direct",
+                )
+            )
+            continue
+
+        # Unresolved
+        results.append(
+            ResolvedVoiceReference(
+                reference=ref,
+                voice=None,
+                origin=None,
+                diagnostic=Diagnostic(
+                    code="ssmd.unresolved_voice",
+                    severity="error",
+                    message=f"Cannot resolve SSMD voice reference {ref!r}. "
+                    f"Provide --voice-bind {ref}=<voice-id> or configure "
+                    f"voices.{provider}.roles.{ref}",
+                    line=line,
+                ),
+            )
+        )
+
+    return tuple(results)
+
+
+@dataclass(frozen=True, slots=True)
 class SSMDPreflightResult:
     provider: str
     document_bindings: Mapping[str, str]

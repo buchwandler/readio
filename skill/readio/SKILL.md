@@ -42,7 +42,19 @@ Use `--offline` for cache-only metadata and `--refresh` to update registry metad
 ## Main production steps
 
 ```text
-choose input -> validate/preflight -> resolve voice/format -> render -> inspect artifact -> optionally publish
+choose input -> plan -> review plan -> render -> inspect artifact -> optionally publish
+```
+
+Always run `readio plan` (or `readio render --dry-run`) before rendering to see exactly
+what synthesis values will be used. The plan shows model, voice, language, lexicons,
+SSMD bindings, output format, and provenance — all without loading the TTS model.
+
+```bash
+# Recommended: plan first
+readio plan --file input.ssmd --format mp3 --json
+
+# Then render if plan looks correct
+readio render --file input.ssmd --format mp3
 ```
 
 Keep caller-requested output files. Readio owns and removes only generated temporary Spotify media; direct-upload inputs and caller-provided timeline files remain untouched.

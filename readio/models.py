@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import LanguageSettings, normalize_language_key
 
-PYKOKORO_REQUIRED = ">=0.9.0,<0.10"
+PYKOKORO_REQUIRED = ">=0.9.1,<0.10"
 _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
 
