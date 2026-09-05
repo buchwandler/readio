@@ -1,0 +1,50 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.2.1
+git_base_ref: v0.2.0
+git_base_sha: b19733656477b73d888aae8d63a6cc5ee085aa3a
+git_head_ref: HEAD
+git_head_sha: 4fe1bcb7220173f9fae51ec0ad942649fdf6250b
+git_range: b19733656477b73d888aae8d63a6cc5ee085aa3a..4fe1bcb7220173f9fae51ec0ad942649fdf6250b
+commit_count: 1
+rows:
+- sha: 4fe1bcb7220173f9fae51ec0ad942649fdf6250b
+  source_ref: git:4fe1bcb7220173f9fae51ec0ad942649fdf6250b
+  short_sha: 4fe1bcb
+  changed_paths:
+  - README.md
+  - docs/index.md
+  - readio/cli.py
+  - readio/spotify_cli.py
+  - skill/readio/references/cli.md
+  - skill/readio/references/troubleshooting.md
+  - tests/test_cli.py
+  - tests/test_spotify_cli.py
+  stats:
+    files_changed: 0
+    insertions: 304
+    deletions: 6
+  inspected: true
+  inspected_paths:
+  - README.md
+  - docs/index.md
+  - readio/cli.py
+  - readio/spotify_cli.py
+  - skill/readio/references/cli.md
+  - skill/readio/references/troubleshooting.md
+  - tests/test_cli.py
+  - tests/test_spotify_cli.py
+  observed_behavior: The CLI resolves one existing positional document path for speak,
+    render, and Spotify publish, infers Markdown, SSMD, or text input formats, rejects
+    missing path-like tokens and non-regular files, and preserves literal filename
+    handling with --input-format text; focused tests cover these behaviors.
+  public_impact: public
+  decision: accepted
+  stale: false
+  evidence_subject: 'feat: automatic file detection'
+  target_entry_id: entry-0001
+  notes: User-facing input handling change documented in the README, CLI guide, and
+    troubleshooting reference.
