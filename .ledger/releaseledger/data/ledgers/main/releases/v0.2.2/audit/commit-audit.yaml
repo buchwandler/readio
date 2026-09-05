@@ -2,14 +2,14 @@ schema_version: 1
 object_type: commit_audit_sheet
 versioning:
   schema_version: 1
-  revision: 2
+  revision: 3
 release_version: v0.2.2
 git_base_ref: v0.2.1
 git_base_sha: 52c6084a8dfc3fbf46ac5fca8ff670cb1e97bf35
 git_head_ref: HEAD
-git_head_sha: 33b44019d3d4899a551a6e621e8a78189bf52b60
-git_range: 52c6084a8dfc3fbf46ac5fca8ff670cb1e97bf35..33b44019d3d4899a551a6e621e8a78189bf52b60
-commit_count: 4
+git_head_sha: 0302f797298f78a7f56bf85fdccd2fa977110870
+git_range: 52c6084a8dfc3fbf46ac5fca8ff670cb1e97bf35..0302f797298f78a7f56bf85fdccd2fa977110870
+commit_count: 7
 rows:
   - sha: 5827dda1b6efda39c08b3cc38da8c6ebd867e24d
     source_ref: git:5827dda1b6efda39c08b3cc38da8c6ebd867e24d
@@ -155,3 +155,59 @@ rows:
     target_entry_key: entry-0003
     target_entry_id: entry-0003
     notes: ""
+  - sha: 9ec43c0c70d5badaf282547142af78fe9e986ca4
+    source_ref: git:9ec43c0c70d5badaf282547142af78fe9e986ca4
+    short_sha: 9ec43c0
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.2/audit/commit-audit.yaml
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.2/entries/entry-0001.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.2/entries/entry-0002.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.2/entries/entry-0003.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.2/entries/entry-0004.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.2/release.md
+      - CHANGELOG.md
+    stats:
+      files_changed: 0
+      insertions: 315
+      deletions: 0
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "doc: changelog"
+  - sha: 6656cdd980d30a65d403961909d5e911e3e81dbc
+    source_ref: git:6656cdd980d30a65d403961909d5e911e3e81dbc
+    short_sha: 6656cdd
+    changed_paths:
+      - tests/test_plan_no_tts_load.py
+    stats:
+      files_changed: 0
+      insertions: 2
+      deletions: 0
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "fix: pytest"
+  - sha: 0302f797298f78a7f56bf85fdccd2fa977110870
+    source_ref: git:0302f797298f78a7f56bf85fdccd2fa977110870
+    short_sha: 0302f79
+    changed_paths:
+      - readio/jsonutil.py
+      - tests/test_plan_no_tts_load.py
+    stats:
+      files_changed: 0
+      insertions: 3
+      deletions: 2
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "chore: pytest and pre-commit fix"
