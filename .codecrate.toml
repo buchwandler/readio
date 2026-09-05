@@ -9,6 +9,7 @@ include = [
   "**/*.toml",
   "**/*.rst",
   "**/*.md",
+  "**/*.ssmd",
   "**/*.json",
   "**/*.jsonl",
   "**/*.ipynb",
