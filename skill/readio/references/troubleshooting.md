@@ -53,6 +53,17 @@ readio doctor --json
 - **Default validation failure:** `readio defaults set LANG ...` validates the complete model/language/quality/voice/lexicon combination before saving. Use `--allow-experimental` only when intentionally opting into an experimental frontend.
 - **Locale fallback surprise:** `defaults show de-at --json` reports whether the exact `de-at` profile or base `de` profile matched. `--no-lexicons` explicitly clears inherited lexicons.
 
+## Render manifest failures
+
+A successful bounded render with `--manifest` writes `<audio>.readio.json` beside the committed audio. Compare the manifest's embedded `readio.plan.v1` and environment before comparing audio bytes when two renders differ:
+
+```bash
+readio render --file episode.ssmd -o episode.mp3 --manifest --json
+cat episode.mp3.readio.json
+```
+
+`--manifest` is not supported with `--live`, `speak`, `plan`, dry runs, or publishing. A sidecar failure does not delete valid audio. The command returns `render.manifest_error`; JSON errors include both `audio_path` and `manifest_path`.
+
 - **Missing `save-to-spotify`:** install/configure the external CLI and ensure it is on `PATH`; Readio does not install or authenticate it.
 - **Authentication failure:** configure the upstream integration directly with `save-to-spotify setup`. Readio never inspects its token files.
 - **Missing FFmpeg:** M4A rendering requires `ffmpeg` on `PATH`; choose WAV/MP3/OGG or install/configure FFmpeg.

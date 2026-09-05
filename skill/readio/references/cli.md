@@ -17,7 +17,7 @@ A missing path-like positional token is rejected instead of being synthesized as
 
 Agents should use `--json`. It is accepted before or after the command, and literal text after `--` is preserved. Successful commands emit one object with `ok: true`; JSON errors emit one object containing `ok: false`, a stable `code`, and human-readable `error`. Progress is disabled automatically in JSON mode. Explicit `--progress` writes only to stderr.
 
-`render --json` reports `path`, `format`, `sample_rate`, `sample_count`, `channels`, `duration_ms`, and `markers`. Human render output remains the final path for shell compatibility.
+`render --json` reports `path`, `format`, `sample_rate`, `sample_count`, `channels`, `duration_ms`, `markers`, and always includes `manifest`. The value is `null` unless `--manifest` was requested; with the flag it contains the `readio.render-manifest.v1` schema and sidecar path. Human render output remains the final path for shell compatibility.
 
 ## Synthesis planning
 
@@ -39,6 +39,19 @@ readio plan --file input.ssmd -o episode.mp3 --force --json
 - `environment`: Readio/PyKokoro/SSMD versions and `ffmpeg_available`.
 
 Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio voices bind` roles.
+
+## Durable render manifests
+
+Use `--manifest` on bounded `render` when the audio needs reusable execution evidence:
+
+```bash
+readio plan --file input.ssmd --format mp3 --json
+readio render --file input.ssmd --format mp3 --manifest --json
+```
+
+The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-manifest.v1`. It embeds the exact executed `readio.plan.v1`, a canonical plan SHA-256, final encoded audio SHA-256 and byte count, runtime audio facts, document metadata, and final marker offsets. The sidecar is written only after audio commit and is replaced on a successful `--force` render.
+
+`--manifest` is rejected with `--live` and does not apply to `speak`, `plan`, dry runs, or publishing. If sidecar writing fails, the committed audio remains and JSON errors use code `render.manifest_error` with `audio_path` and `manifest_path`.
 
 ## Model discovery
 

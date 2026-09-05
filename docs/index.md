@@ -119,6 +119,19 @@ Keep the layers separate:
 
 Planning is deterministic: `--resolve-voices` is rejected during `plan`/`--dry-run` in favor of `--voice-bind ROLE=VOICE_ID` or persisted roles, and `plan` supports `--force` to mirror render output requests.
 
+## Durable render manifests
+
+Use `--manifest` when a bounded render produces an artifact that needs durable, machine-readable evidence:
+
+```bash
+readio plan --file notes.md --format mp3 --json
+readio render --file notes.md --format mp3 --manifest
+```
+
+The successful render writes `<audio>.readio.json` beside the audio. Its `readio.render-manifest.v1` payload embeds the exact executed `readio.plan.v1`, a canonical plan digest, the final encoded-file hash and byte count, `RenderSummary` audio facts, document metadata, and assembled marker offsets. Planning describes intended execution; the manifest describes the completed artifact.
+
+The option is explicit and applies only to bounded `render`. It is rejected with `--live` and does not create manifests for `speak`, `plan`, dry runs, or publishing. Human output remains the audio path. JSON output remains one object and adds `manifest` with the sidecar path, or `null` without the option.
+
 ## Render progress
 
 `render` uses a dependency-free progress reporter on stderr. In default `auto` mode it is enabled only for an interactive stderr; `--progress` forces it and `--no-progress` disables it. `--json` keeps stdout to exactly one result object, disables automatic progress, and still permits explicit stderr progress:

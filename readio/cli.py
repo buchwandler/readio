@@ -28,7 +28,7 @@ from .config import (
     with_overrides,
 )
 from .document import InputDocument, document_from_file, document_from_stdin, document_from_text
-from .errors import ReadioError, RenderError
+from .errors import ManifestError, ReadioError, RenderError
 from .formats import (
     SUPPORTED_AUDIO_FORMATS,
     AudioFormat,
@@ -38,6 +38,13 @@ from .formats import (
     resolve_audio_format,
 )
 from .ingest import list_ingest, new_ingest
+from .jsonutil import json_value as _json_value
+from .manifest import (
+    MANIFEST_SCHEMA,
+    build_render_manifest,
+    manifest_path_for,
+    write_render_manifest,
+)
 from .models import ModelDiscoveryError, discover_model_info, get_model_info
 from .paths import resolve_render_output
 from .plan import (
@@ -599,6 +606,8 @@ def _emit_render_result(
     output: Path,
     audio_format: AudioFormat,
     summary: RenderSummary,
+    *,
+    manifest_path: Path | None = None,
 ) -> None:
     if args.json:
         print(
@@ -612,6 +621,14 @@ def _emit_render_result(
                     "channels": summary.channels,
                     "duration_ms": round(summary.sample_count * 1000 / summary.sample_rate),
                     "markers": _json_value(summary.markers),
+                    "manifest": (
+                        {
+                            "schema": MANIFEST_SCHEMA,
+                            "path": str(manifest_path),
+                        }
+                        if manifest_path is not None
+                        else None
+                    ),
                 },
                 ensure_ascii=False,
             )
@@ -622,6 +639,11 @@ def _emit_render_result(
 
 def _cmd_render(args: argparse.Namespace) -> int:
     """Render to an audio file by resolving and executing one ReadioPlan."""
+    if args.live and getattr(args, "manifest", False):
+        raise ValueError(
+            "--manifest is not available with --live because live rendering "
+            "does not execute a bounded ReadioPlan"
+        )
     cfg = _resolved_config(args)
 
     if args.live:
@@ -663,20 +685,26 @@ def _cmd_render(args: argparse.Namespace) -> int:
                 **progress_kwargs,
             )
         progress.complete(summary)
-    _emit_render_result(args, output, audio_format, summary)
+    manifest_path: Path | None = None
+    if getattr(args, "manifest", False):
+        manifest_path = manifest_path_for(output)
+        try:
+            manifest = build_render_manifest(plan=plan, summary=summary, output=output)
+            write_render_manifest(manifest_path, manifest)
+        except (OSError, TypeError, ValueError) as exc:
+            raise ManifestError(
+                f"rendered audio to {output} but could not write manifest {manifest_path}: {exc}",
+                audio_path=output,
+                manifest_path=manifest_path,
+            ) from exc
+    _emit_render_result(
+        args,
+        output,
+        audio_format,
+        summary,
+        manifest_path=manifest_path,
+    )
     return 0
-
-
-def _json_value(value: object) -> object:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_value(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _json_value({key: getattr(value, key) for key in value.__dataclass_fields__})
-    return value
 
 
 def _cmd_ssmd(args: argparse.Namespace) -> int:
@@ -1476,6 +1504,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="resolve and display the plan without loading TTS or creating output",
     )
+    render.add_argument(
+        "--manifest",
+        action="store_true",
+        help="write <audio>.readio.json with the executed plan and actual render metadata",
+    )
     render.set_defaults(func=_cmd_render)
 
     plan_cmd = sub.add_parser(
@@ -1688,6 +1721,10 @@ def _error_payload(exc: Exception) -> dict[str, object]:
             value = getattr(exc, name, None)
             if value is not None:
                 payload[name] = value
+    for name in ("audio_path", "manifest_path"):
+        value = getattr(exc, name, None)
+        if value is not None:
+            payload[name] = str(value)
     for name in ("provider", "reference"):
         value = getattr(exc, name, None)
         if value is not None:

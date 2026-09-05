@@ -42,7 +42,7 @@ Use `--offline` for cache-only metadata and `--refresh` to update registry metad
 ## Main production steps
 
 ```text
-choose input -> plan -> review plan -> render -> inspect artifact -> optionally publish
+choose input -> plan -> review plan -> render -> optionally write manifest -> inspect artifact -> optionally publish
 ```
 
 Always run `readio plan` (or `readio render --dry-run`) before rendering to see exactly
@@ -56,6 +56,15 @@ readio plan --file input.ssmd --format mp3 --json
 # Then render if plan looks correct
 readio render --file input.ssmd --format mp3
 ```
+
+For an artifact that may be reused, published, compared, or handed to another agent, request durable evidence explicitly:
+
+```bash
+readio plan --file input.ssmd --format mp3 --json
+readio render --file input.ssmd --format mp3 --manifest --json
+```
+
+The bounded render writes `<audio>.readio.json` beside the audio. The `readio.render-manifest.v1` sidecar contains the exact executed `readio.plan.v1`, a canonical plan digest, final encoded-file hash and byte count, audio summary, metadata, and assembled markers. Retain the audio path and manifest path as separate artifacts. `--manifest` is not available for live rendering, `speak`, planning, dry runs, or publishing.
 
 Keep caller-requested output files. Readio owns and removes only generated temporary Spotify media; direct-upload inputs and caller-provided timeline files remain untouched.
 

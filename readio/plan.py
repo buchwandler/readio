@@ -23,7 +23,7 @@ from .formats import (
     resolve_audio_format,
 )
 from .markdown import markdown_to_speech
-from .models import get_model_info, language_matches
+from .models import ModelDiscoveryError, get_model_info, language_matches
 
 if TYPE_CHECKING:
     from .synthesis import ResolvedSynthesis
@@ -454,10 +454,10 @@ def _sha256_text(text: str) -> str:
 
 def _package_version(distribution: str) -> str:
     try:
-        from importlib.metadata import version
+        from importlib.metadata import PackageNotFoundError, version
 
         return version(distribution)
-    except Exception:
+    except PackageNotFoundError:
         return "unknown"
 
 
@@ -503,7 +503,7 @@ def _plan_input(
             effective_doc = InputDocument(
                 text=projected_text, source_path=doc.source_path, format="text"
             )
-        except Exception as exc:
+        except (ValueError, KeyError, TypeError) as exc:
             diagnostics.append(
                 PlanDiagnostic(
                     code="input_markdown_parse_error",
@@ -945,7 +945,7 @@ def _concretize_backend_defaults(
             decisions=tuple(decisions),
         )
 
-    except Exception as exc:
+    except (ImportError, AttributeError, ValueError, TypeError) as exc:
         diagnostics.append(
             PlanDiagnostic(
                 code="backend_resolution_failed",
@@ -992,7 +992,7 @@ def _validate_and_build_model_plan(
             refresh=refresh,
             preference=candidate.source or "auto",
         )
-    except Exception as exc:
+    except ModelDiscoveryError as exc:
         diagnostics.append(
             PlanDiagnostic(
                 code=DIAG_MODEL_NOT_FOUND,

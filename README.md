@@ -199,6 +199,20 @@ Planning, discovery, defaults, and render results are distinct layers:
 
 Plans are deterministic and non-interactive: `--resolve-voices` is rejected by `plan` and `--dry-run`; use repeatable `--voice-bind ROLE=VOICE_ID` options or persisted role configuration instead. `plan` accepts `--force` so it can represent every render output request, and an invalid plan (incompatible model/language, unavailable runtime, unresolved SSMD cast, unavailable encoder, non-concrete synthesis) fails before model loading.
 
+## Durable render manifests
+
+For bounded renders that will be reused, published, compared, or handed to another agent, request an opt-in post-render manifest:
+
+```bash
+readio plan --file episode.ssmd --format mp3 --json
+readio render --file episode.ssmd --format mp3 --manifest
+readio render --file episode.ssmd --format mp3 --manifest --json
+```
+
+A successful render writes the audio and a colocated `<audio>.readio.json` sidecar. The sidecar uses schema `readio.render-manifest.v1` and records the exact executed `readio.plan.v1`, its canonical SHA-256, the final encoded audio hash and byte count, render summary facts, document metadata, and final marker offsets. The plan is pre-execution intent; the manifest is post-execution evidence.
+
+Human stdout remains only the audio path. JSON render output remains one object and adds `manifest` with the sidecar schema and path, or `null` when the flag is absent. `--manifest` is available only for bounded rendering, not `--live`, `speak`, planning, dry runs, or publishing. If sidecar writing fails, Readio preserves the committed audio and returns `render.manifest_error`.
+
 ## Multi-format audio output
 
 The output path is optional and WAV remains the default:

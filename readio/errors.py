@@ -43,3 +43,18 @@ class VoiceResolutionError(SSMDInputError):
 
 class RenderError(ReadioError):
     code = "render.error"
+
+
+class ManifestError(RenderError):
+    code = "render.manifest_error"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        audio_path: Path,
+        manifest_path: Path,
+    ) -> None:
+        super().__init__(message)
+        self.audio_path = audio_path
+        self.manifest_path = manifest_path
