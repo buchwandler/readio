@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -45,6 +44,8 @@ class TestPlanCommand:
             [
                 "plan",
                 "Hello world",
+                "--lang",
+                "de",
                 "--model",
                 "de-thorsten",
                 "--model-source",
@@ -104,6 +105,8 @@ class TestRenderDryRun:
             [
                 "render",
                 "Hello world",
+                "--lang",
+                "de",
                 "--model",
                 "de-thorsten",
                 "--model-source",
@@ -131,6 +134,8 @@ class TestPlanDryRunEquivalence:
             [
                 "plan",
                 "Hello world",
+                "--lang",
+                "de",
                 "--model",
                 "de-thorsten",
                 "--model-source",
@@ -147,6 +152,8 @@ class TestPlanDryRunEquivalence:
             [
                 "render",
                 "Hello world",
+                "--lang",
+                "de",
                 "--model",
                 "de-thorsten",
                 "--model-source",
@@ -166,3 +173,60 @@ class TestPlanDryRunEquivalence:
         # Synthesis should match
         assert plan_data["synthesis"]["model"]["id"] == render_data["synthesis"]["model"]["id"]
         assert plan_data["synthesis"]["language"] == render_data["synthesis"]["language"]
+
+
+class TestResolveVoicesRejection:
+    """Planning must stay deterministic: --resolve-voices is rejected."""
+
+    def test_plan_rejects_resolve_voices(self, tmp_path) -> None:
+        source = tmp_path / "cast.ssmd"
+        source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+        parser = build_parser()
+        args = parser.parse_args(["plan", str(source), "--resolve-voices"])
+        with pytest.raises(ValueError, match="not available during plan/dry-run"):
+            args.func(args)
+
+    def test_render_dry_run_rejects_resolve_voices(self, tmp_path) -> None:
+        source = tmp_path / "cast.ssmd"
+        source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+        parser = build_parser()
+        args = parser.parse_args(["render", str(source), "--dry-run", "--resolve-voices"])
+        with pytest.raises(ValueError, match="not available during plan/dry-run"):
+            args.func(args)
+
+    def test_rejection_mentions_deterministic_remediation(self, tmp_path) -> None:
+        source = tmp_path / "cast.ssmd"
+        source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+        parser = build_parser()
+        args = parser.parse_args(["plan", str(source), "--resolve-voices"])
+        with pytest.raises(ValueError, match="--voice-bind ROLE=VOICE_ID"):
+            args.func(args)
+
+
+class TestPlanForceFlag:
+    def test_plan_parser_accepts_force(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["plan", "Hello world", "--force"])
+        assert args.force is True
+
+    def test_plan_force_flows_into_output_request(self, tmp_path, capsys) -> None:
+        existing = tmp_path / "episode.wav"
+        existing.write_bytes(b"x")
+        parser = build_parser()
+        args = parser.parse_args(["plan", "Hello world", "-o", str(existing), "--force", "--json"])
+        code = args.func(args)
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["output"]["force"] is True
+        assert all(d["code"] != "output_exists" for d in data["diagnostics"])
+
+    def test_plan_without_force_reports_existing_output(self, tmp_path, capsys) -> None:
+        existing = tmp_path / "episode.wav"
+        existing.write_bytes(b"x")
+        parser = build_parser()
+        args = parser.parse_args(["plan", "Hello world", "-o", str(existing), "--json"])
+        code = args.func(args)
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["output"]["force"] is False
+        assert any(d["code"] == "output_exists" for d in data["diagnostics"])

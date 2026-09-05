@@ -138,6 +138,67 @@ readio ingest list
 
 Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`. Explicit names are relative to the ingest directory and path traversal is rejected.
 
+## Planning before rendering
+
+Every non-live render resolves one explicit synthesis plan before any TTS work. `readio plan` and `readio render --dry-run` display that plan without loading a model, and a normal `render` executes exactly the plan it resolved — the plan is the execution contract, not a prediction:
+
+```bash
+readio plan --file episode.ssmd --format mp3 --json
+readio render --file episode.ssmd --dry-run          # same plan, human output
+readio render --file episode.ssmd                    # resolves the same plan, then executes it
+```
+
+Planning, discovery, defaults, and render results are distinct layers:
+
+- **`readio models` / `readio voices` (discovery)** list what the installed PyKokoro runtime _could_ provide — model IDs, languages, voices, qualities, lexicons, status.
+- **`readio defaults` (defaults)** persist validated per-language policy that resolution _prefers_.
+- **`readio plan` (planning)** resolves one concrete request against config, defaults, CLI options, and PyKokoro's automatic selection: a concrete model, source, quality, voice, SSMD cast, and output allocation, with provenance for every effective value. No TTS model is loaded.
+- **`readio render` (render result)** executes the plan; the plan JSON's synthesis, SSMD bindings, and output path are the values actually used. A render that fails planning exits 1 with the plan and its diagnostics instead of loading TTS.
+
+`readio.plan.v1` JSON exposes `schema`, `ok`, `input`, `synthesis` (with `model` capability metadata), `ssmd` bindings, `output` (format, encoder backend, path, path origin, `force`), `environment` (including `ffmpeg_available`), `decisions` (winning source per field), and `diagnostics`:
+
+```json
+{
+  "schema": "readio.plan.v1",
+  "ok": true,
+  "operation": "render",
+  "synthesis": {
+    "engine": "pykokoro",
+    "language": "de",
+    "model": {
+      "id": "de-thorsten",
+      "source": "github",
+      "quality": "fp32",
+      "voice": "thorsten",
+      "status": "ready",
+      "runtime_available": true,
+      "languages": ["de"],
+      "experimental": false
+    }
+  },
+  "ssmd": { "enabled": false, "bindings": [], "unresolved": [] },
+  "output": {
+    "mode": "file",
+    "format": "mp3",
+    "encoder_backend": "soundfile",
+    "path": ".../episode.mp3",
+    "path_origin": "explicit",
+    "force": false
+  },
+  "decisions": [
+    {
+      "field": "synthesis.model",
+      "value": "de-thorsten",
+      "origin": "cli",
+      "locator": "request.model"
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+Plans are deterministic and non-interactive: `--resolve-voices` is rejected by `plan` and `--dry-run`; use repeatable `--voice-bind ROLE=VOICE_ID` options or persisted role configuration instead. `plan` accepts `--force` so it can represent every render output request, and an invalid plan (incompatible model/language, unavailable runtime, unresolved SSMD cast, unavailable encoder, non-concrete synthesis) fails before model loading.
+
 ## Multi-format audio output
 
 The output path is optional and WAV remains the default:

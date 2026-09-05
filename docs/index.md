@@ -101,6 +101,24 @@ readio render --lang de --file notes.md
 `models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `defaults` stores validated user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons. Repeated named lexicons retain their order for layered lookup.
 `--model-source github|huggingface` drives both discovery and runtime selection. Voices are model-scoped. The legacy global `reader.voice` applies only to unchanged default-reader use; a language override such as `--lang de` leaves voice selection to the active PyKokoro model unless explicitly set. SSMD preflight uses that same resolved model roster.
 
+## Synthesis planning
+
+Non-live rendering is plan-first: `readio render` resolves one `readio.plan.v1` synthesis plan and then executes exactly that plan. `readio plan` and `readio render --dry-run` display the same plan without loading TTS, so they show precisely what a subsequent render would do:
+
+```bash
+readio plan --file notes.md --lang de --format mp3 --json
+readio render --file notes.md --dry-run
+```
+
+Keep the layers separate:
+
+- **Discovery** (`readio models`, `readio voices`) enumerates what the installed PyKokoro runtime provides.
+- **Defaults** (`readio defaults`) persist validated per-language preferences.
+- **Planning** (`readio plan`, `render --dry-run`) resolves one concrete request — model, source, quality, voice, lexicons, SSMD cast with per-reference bindings, output format/backend/path — and records a decision (winning source) for every effective value. Generated output paths are allocated once by the plan and reused by the render.
+- **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
+
+Planning is deterministic: `--resolve-voices` is rejected during `plan`/`--dry-run` in favor of `--voice-bind ROLE=VOICE_ID` or persisted roles, and `plan` supports `--force` to mirror render output requests.
+
 ## Render progress
 
 `render` uses a dependency-free progress reporter on stderr. In default `auto` mode it is enabled only for an interactive stderr; `--progress` forces it and `--no-progress` disables it. `--json` keeps stdout to exactly one result object, disables automatic progress, and still permits explicit stderr progress:

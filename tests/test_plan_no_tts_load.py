@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from readio.config import ReadioConfig
 from readio.document import InputDocument
@@ -13,11 +10,10 @@ from readio.plan import (
     InputRequest,
     OutputRequest,
     PlanRequest,
-    ReadioPlan,
     SynthesisRequest,
     resolve_plan,
 )
-from readio.reader import pipeline_config_for_document, pipeline_config_from_plan
+from readio.reader import pipeline_config_from_plan
 
 
 def _default_config() -> ReadioConfig:

@@ -55,20 +55,22 @@ def resolve_voice_references(
     """Resolve every SSMD voice reference with origin/locator tracking.
 
     This is the centralized resolution primitive reused by preflight,
-    plan, and render config creation.
+    plan, and render config creation.  Raises :class:`SSMDInputError`
+    when the document cannot be parsed.
 
     Precedence:
         document-local binding > invocation binding > configured role > direct voice
     """
     provider = cfg.ssmd.voice_provider
+
     settings = cfg.voices[provider]
 
     # Parse SSMD to get references
     try:
         ssmd_api.parse_ssmd(text, strict_parse=True)
         references = ssmd_api.extract_voice_references(text)
-    except Exception:
-        return ()
+    except Exception as exc:
+        raise SSMDInputError(f"SSMD consumer parse failed: {exc}") from exc
 
     # Gather binding sources
     document = document_voice_bindings(text).get(provider, {})
@@ -286,17 +288,31 @@ def default_role_bindings(
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> dict[str, dict[str, str]]:
+    """Effective non-document bindings, derived from resolve_voice_references.
+
+    For every reference the document actually uses, the shared primitive is
+    authoritative.  Configured roles and invocation bindings the document does
+    not reference stay in the map as harmless defaults.
+    """
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
     _, available = _available_voice_context(cfg, synthesis)
-    configured = cfg.voices[provider].roles
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
+    resolved = resolve_voice_references(
+        text, cfg, available_voices=available, additional_bindings=runtime
+    )
     defaults = {
-        role: target
-        for role, target in configured.items()
-        if role not in document and target in available
+        item.reference: item.voice
+        for item in resolved
+        if item.voice is not None and item.origin in ("config.voice_role", "cli")
     }
-    defaults.update({role: target for role, target in runtime.items() if role not in document})
+    referenced = {item.reference for item in resolved}
+    for role, target in cfg.voices[provider].roles.items():
+        if role not in referenced and role not in document and target in available:
+            defaults[role] = target
+    for role, target in runtime.items():
+        if role not in referenced and role not in document:
+            defaults[role] = target
     return {provider: defaults} if defaults else {}
 
 
@@ -313,24 +329,6 @@ def build_ssmd_render_config(
         voice_bindings=default_role_bindings(text, cfg, additional_bindings, synthesis),
         missing_voice="error",
     )
-
-
-def _resolved_target(
-    reference: str,
-    document: Mapping[str, str],
-    runtime: Mapping[str, str],
-    cfg: ReadioConfig,
-) -> str | None:
-    settings = cfg.voices[cfg.ssmd.voice_provider]
-    if reference in document:
-        return document[reference]
-    if reference in runtime:
-        return runtime[reference]
-    if reference in settings.roles:
-        return settings.roles[reference]
-    if reference in settings.ids:
-        return reference
-    return None
 
 
 def analyze_ssmd(
@@ -353,36 +351,35 @@ def analyze_ssmd(
 
     document = document_voice_bindings(text).get(provider, {})
     defaults = default_role_bindings(text, cfg, synthesis=synthesis).get(provider, {})
-    unresolved: list[Any] = []
     diagnostics: list[Diagnostic] = []
     active_model, available = _available_voice_context(cfg, synthesis)
 
-    for use in references:
-        if use.reference in document:
-            target = document[use.reference]
-            if target not in available:
-                diagnostics.append(
-                    Diagnostic(
-                        code="ssmd.document_binding_invalid",
-                        severity="error",
-                        message=(
-                            f"document binding {use.reference!r} -> {target!r} is incompatible "
-                            f"with active model {active_model!r}"
-                            if active_model
-                            else f"document binding {use.reference!r} -> {target!r} is not a "
-                            f"configured voice for provider {provider!r}"
-                        ),
-                        line=use.lines[0] if use.lines else None,
-                    )
+    # The binding decision comes from the shared primitive; this view only
+    # translates its results into the historical preflight payload.
+    resolved = resolve_voice_references(
+        text, cfg, available_voices=available, additional_bindings=runtime
+    )
+    for item in resolved:
+        if (
+            item.origin == "document"
+            and item.diagnostic is not None
+            and item.diagnostic.severity == "error"
+        ):
+            diagnostics.append(
+                Diagnostic(
+                    code="ssmd.document_binding_invalid",
+                    severity="error",
+                    message=(
+                        f"document binding {item.reference!r} -> {item.voice!r} is incompatible "
+                        f"with active model {active_model!r}"
+                        if active_model
+                        else f"document binding {item.reference!r} -> {item.voice!r} is not a "
+                        f"configured voice for provider {provider!r}"
+                    ),
+                    line=item.diagnostic.line,
                 )
-            continue
-        target = (
-            use.reference
-            if use.reference in available
-            else _resolved_target(use.reference, document, runtime, cfg)
-        )
-        if target is None or target not in available:
-            unresolved.append(use)
+            )
+    unresolved = [use for use, item in zip(references, resolved) if item.voice is None]
 
     if not defaults and document:
         diagnostics.append(

@@ -36,6 +36,17 @@ readio doctor --json
 - **Offline registry failure:** `pykokoro.registry_unavailable` means registry metadata or its cache is unavailable. Use an online `readio models list` once to populate the cache.
 - **Offline runtime asset failure:** registry metadata can be available while synthesis fails because model or voice assets are not cached. Install or cache the selected assets; this is distinct from registry discovery failure.
 
+## Plan diagnostics
+
+`readio plan` / `readio render --dry-run` report problems before any TTS model is loaded; a normal render that fails planning prints the same plan and exits 1:
+
+- **`backend_resolution_failed`**: PyKokoro could not concretize an automatic model selection. Check `readio doctor --json`, then select explicitly with `--model`/`--model-source`.
+- **`model_language_incompatible`**: the selected model does not declare the requested language (for example a German-only model with `--lang en-us`). Pick a model from `readio models list --language LANG --json` or set `--lang` to a language the model declares.
+- **`model_runtime_unavailable`**: the model exists in the registry but is not runnable in the installed runtime. Choose a model with `runtime_available: true` and a `ready` status.
+- **`synthesis_incomplete`**: the plan could not become concrete (missing model/source/quality/voice). Provide `--model` explicitly and retry.
+- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio voices bind ROLE VOICE_ID`; inspect valid IDs with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
+- **`encoder_unavailable` / `output_format_conflict`**: the requested audio format needs an unavailable backend (M4A requires `ffmpeg` on `PATH`) or `--format` disagrees with the output suffix. Choose WAV/MP3/OGG, install FFmpeg, or align format and suffix.
+
 - **Model registry unavailable:** run `readio models list --offline --json` to use the cache. Without a valid cache, run the online command once; discovery never downloads model weights.
 - **Unknown model:** run `readio models list --json`; do not maintain a hardcoded model/voice inventory in an agent workflow.
 - **Incompatible voice or lexicon:** inspect `readio models show MODEL --json` and select values from the active model capability metadata. A `lexicons` value of `null` means capability enumeration is unknown, not that no lexicons exist.

@@ -8,10 +8,10 @@ that produces a ``ReadioPlan`` before any TTS loading occurs.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
-from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Literal
 
 from . import __version__
 from .config import ReadioConfig, language_profile, normalize_language_key
@@ -19,12 +19,14 @@ from .document import InputDocument, InputFormat, InputFormatRequest, resolve_in
 from .formats import (
     AudioFormat,
     audio_format_available,
-    audio_format_from_suffix,
+    format_suffix,
     resolve_audio_format,
 )
 from .markdown import markdown_to_speech
-from .models import get_model_info
+from .models import get_model_info, language_matches
 
+if TYPE_CHECKING:
+    from .synthesis import ResolvedSynthesis
 
 # ---------------------------------------------------------------------------
 # Origin vocabulary (stable machine-readable strings)
@@ -78,6 +80,8 @@ class PlanDiagnostic:
 # Diagnostic code constants
 DIAG_MODEL_NOT_FOUND = "model_not_found"
 DIAG_MODEL_LANGUAGE_INCOMPATIBLE = "model_language_incompatible"
+DIAG_MODEL_RUNTIME_UNAVAILABLE = "model_runtime_unavailable"
+DIAG_SYNTHESIS_INCOMPLETE = "synthesis_incomplete"
 DIAG_QUALITY_UNAVAILABLE = "quality_unavailable"
 DIAG_VOICE_UNAVAILABLE = "voice_unavailable"
 DIAG_LEXICON_UNAVAILABLE = "lexicon_unavailable"
@@ -169,6 +173,7 @@ class InputRequest:
     document: InputDocument
     requested_format: InputFormatRequest = "auto"
     selector: str = "all"
+    source_kind: Literal["literal", "stdin", "file"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +239,10 @@ class ModelPlan:
     source: str
     quality: str
     voice: str
+    status: str
+    runtime_available: bool
+    languages: tuple[str, ...]
+    experimental: bool
     distribution_id: str | None = None
     provider: str | None = None
     frontend: str | None = None
@@ -250,6 +259,10 @@ class ModelPlan:
             "source": self.source,
             "quality": self.quality,
             "voice": self.voice,
+            "status": self.status,
+            "runtime_available": self.runtime_available,
+            "languages": list(self.languages),
+            "experimental": self.experimental,
             "distribution_id": self.distribution_id,
             "provider": self.provider,
             "frontend": self.frontend,
@@ -472,7 +485,10 @@ def _plan_input(
         request.requested_format, source_path=doc.source_path
     )
 
-    source_kind = "file" if doc.source_path else "stdin" if doc.text else "text"
+    if request.source_kind is not None:
+        source_kind: str = request.source_kind
+    else:
+        source_kind = "file" if doc.source_path else "stdin" if doc.text else "text"
     source_sha256 = _sha256_text(doc.text)
 
     projected_sha256: str | None = None
@@ -633,6 +649,22 @@ def _resolve_synthesis_candidate(
                     locator=f"languages.{profile_key}.lexicons",
                 )
             )
+
+    # allow_experimental is additive (profile OR CLI); record the profile
+    # contribution whenever it is the winning source.
+    if profile is not None and profile.allow_experimental and not request.allow_experimental:
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.allow_experimental",
+                value=True,
+                origin=(
+                    ORIGIN_CONFIG_LANGUAGE_EXACT
+                    if profile_match == "exact"
+                    else ORIGIN_CONFIG_LANGUAGE_BASE
+                ),
+                locator=f"languages.{profile_key}.allow_experimental",
+            )
+        )
 
     # CLI/request overrides (highest precedence)
     if request.model is not None:
@@ -943,6 +975,14 @@ def _validate_and_build_model_plan(
     decisions = list(candidate.decisions)
 
     if candidate.model is None:
+        diagnostics.append(
+            PlanDiagnostic(
+                code=DIAG_SYNTHESIS_INCOMPLETE,
+                severity="error",
+                message="synthesis plan is not concrete: no model was resolved",
+                field="synthesis.model",
+            )
+        )
         return None, diagnostics, decisions
 
     try:
@@ -963,8 +1003,47 @@ def _validate_and_build_model_plan(
         )
         return None, diagnostics, decisions
 
-    # Fill source from discovery when absent
+    # Language compatibility: reuse the model-layer matching semantics.
+    if not language_matches(candidate.language, discovered.languages):
+        declared = ", ".join(discovered.languages) or "none"
+        diagnostics.append(
+            PlanDiagnostic(
+                code=DIAG_MODEL_LANGUAGE_INCOMPATIBLE,
+                severity="error",
+                message=(
+                    f"Model {candidate.model!r} does not declare language "
+                    f"{candidate.language!r}. Declared languages: {declared}"
+                ),
+                field="synthesis.model",
+            )
+        )
+
+    # Runtime availability: a discovered-but-unavailable model must not plan ok.
+    if not discovered.runtime_available:
+        diagnostics.append(
+            PlanDiagnostic(
+                code=DIAG_MODEL_RUNTIME_UNAVAILABLE,
+                severity="error",
+                message=(
+                    f"Model {candidate.model!r} is not available in the installed runtime "
+                    f"(status: {discovered.status})."
+                ),
+                field="synthesis.model",
+            )
+        )
+
+    # Fill source from discovery when absent, recording the decision.
     effective_source = candidate.source or discovered.source
+    if candidate.source is None and discovered.source:
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.source",
+                value=discovered.source,
+                origin=ORIGIN_MODEL_DEFAULT,
+                locator=f"model.{discovered.id}.source",
+                reason="discovered distribution source filled an unspecified request source",
+            )
+        )
 
     # Select default voice when voice is absent
     effective_voice = candidate.voice
@@ -991,6 +1070,23 @@ def _validate_and_build_model_plan(
                 locator=f"model.{candidate.model}.qualities",
             )
         )
+
+    # A valid render/speak synthesis plan is concrete: no silent empty values.
+    for field_name, value in (
+        ("model", candidate.model),
+        ("source", effective_source),
+        ("quality", effective_quality),
+        ("voice", effective_voice),
+    ):
+        if not value:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code=DIAG_SYNTHESIS_INCOMPLETE,
+                    severity="error",
+                    message=f"synthesis plan is not concrete: {field_name} is empty",
+                    field=f"synthesis.{field_name}",
+                )
+            )
 
     # Validate voice is available for this model
     if effective_voice and effective_voice not in discovered.voices:
@@ -1055,9 +1151,13 @@ def _validate_and_build_model_plan(
 
     model_plan = ModelPlan(
         id=discovered.id,
-        source=effective_source,
+        source=effective_source or "",
         quality=effective_quality or "",
         voice=effective_voice or "",
+        status=discovered.status,
+        runtime_available=discovered.runtime_available,
+        languages=discovered.languages,
+        experimental=discovered.experimental,
         distribution_id=discovered.distribution_id,
         provider=discovered.provider,
         frontend=discovered.frontend,
@@ -1077,15 +1177,27 @@ def _validate_and_build_model_plan(
 # ---------------------------------------------------------------------------
 
 
+_SSMD_DIAGNOSTIC_CODE_MAP = {
+    "ssmd.voice_unavailable": DIAG_SSMD_VOICE_UNAVAILABLE,
+    "ssmd.unresolved_voice": DIAG_SSMD_UNRESOLVED_VOICE,
+}
+
+
 def _plan_ssmd(
     input_doc: InputDocument,
     cfg: ReadioConfig,
     *,
     model_plan: ModelPlan | None,
     voice_bindings: Mapping[str, str],
-    effective_voice: str | None,
 ) -> tuple[SSMDPlan, list[PlanDiagnostic], list[ResolutionDecision]]:
-    """Resolve SSMD voice references against the active model roster."""
+    """Resolve the SSMD cast through the shared ``resolve_voice_references``.
+
+    Binding provenance policy (systematic): every executable binding is
+    recorded both in ``SSMDPlan.bindings`` and as a ``ssmd.bindings.<ref>``
+    decision, so the winning source of each binding is recoverable from the
+    plan's ``decisions`` list alone.  Bindings that fail roster validation are
+    reported as diagnostics and never marked executable.
+    """
     diagnostics: list[PlanDiagnostic] = []
     decisions: list[ResolutionDecision] = []
 
@@ -1096,21 +1208,19 @@ def _plan_ssmd(
             decisions,
         )
 
-    from .ssmd import analyze_ssmd
+    from .ssmd import SSMDInputError, resolve_voice_references
 
-    # Use the model's voice roster if available
-    available_voices: tuple[str, ...] | None = None
-    if model_plan is not None:
-        available_voices = model_plan.available_voices
+    provider = cfg.ssmd.voice_provider
+    available_voices = model_plan.available_voices if model_plan is not None else None
 
     try:
-        result = analyze_ssmd(
+        resolved = resolve_voice_references(
             input_doc.text,
             cfg,
-            source_path=input_doc.source_path,
+            available_voices=available_voices,
             additional_bindings=dict(voice_bindings) if voice_bindings else None,
         )
-    except Exception as exc:
+    except SSMDInputError as exc:
         diagnostics.append(
             PlanDiagnostic(
                 code="ssmd_parse_error",
@@ -1120,146 +1230,57 @@ def _plan_ssmd(
             )
         )
         return (
-            SSMDPlan(enabled=True, provider=cfg.ssmd.voice_provider, bindings=(), unresolved=()),
+            SSMDPlan(enabled=True, provider=provider, bindings=(), unresolved=()),
             diagnostics,
             decisions,
         )
 
-    provider = cfg.ssmd.voice_provider
     bindings: list[VoiceBindingPlan] = []
     unresolved_refs: list[str] = []
 
-    # Build the effective binding map: document > invocation > configured role > direct
-    document_bindings = result.document_bindings
-    runtime_bindings = result.runtime_bindings
-    settings = cfg.voices[provider]
-    configured_roles = settings.roles
-
-    for use in result.voice_references:
-        ref = use.reference
-
-        # Document-local binding
-        if ref in document_bindings:
-            target = document_bindings[ref]
-            if available_voices is not None and target not in available_voices:
-                diagnostics.append(
-                    PlanDiagnostic(
-                        code=DIAG_SSMD_VOICE_UNAVAILABLE,
-                        severity="error",
-                        message=(
-                            f"Document binding {ref!r} -> {target!r} is incompatible "
-                            f"with active model"
-                        ),
-                        source_path=input_doc.source_path,
-                        line=use.lines[0] if use.lines else None,
-                    )
+    for item in resolved:
+        has_error = item.diagnostic is not None and item.diagnostic.severity == "error"
+        if has_error:
+            code = _SSMD_DIAGNOSTIC_CODE_MAP.get(item.diagnostic.code, item.diagnostic.code)
+            diagnostics.append(
+                PlanDiagnostic(
+                    code=code,
+                    severity="error",
+                    message=item.diagnostic.message,
+                    field=f"ssmd.bindings.{item.reference}",
+                    source_path=input_doc.source_path,
+                    line=item.diagnostic.line,
                 )
-            else:
-                bindings.append(
-                    VoiceBindingPlan(
-                        reference=ref,
-                        voice=target,
-                        origin=ORIGIN_DOCUMENT,
-                        locator="ssmd.front_matter",
-                    )
-                )
-            continue
-
-        # Invocation binding
-        if ref in runtime_bindings:
-            target = runtime_bindings[ref]
-            if available_voices is not None and target not in available_voices:
-                diagnostics.append(
-                    PlanDiagnostic(
-                        code=DIAG_SSMD_VOICE_UNAVAILABLE,
-                        severity="error",
-                        message=(
-                            f"Invocation binding {ref!r} -> {target!r} is incompatible "
-                            f"with active model"
-                        ),
-                        source_path=input_doc.source_path,
-                    )
-                )
-            else:
-                bindings.append(
-                    VoiceBindingPlan(
-                        reference=ref,
-                        voice=target,
-                        origin=ORIGIN_CLI,
-                        locator="request.voice_bindings",
-                    )
-                )
-                decisions.append(
-                    ResolutionDecision(
-                        field=f"ssmd.bindings.{ref}",
-                        value=target,
-                        origin=ORIGIN_CLI,
-                        locator="request.voice_bindings",
-                    )
-                )
-            continue
-
-        # Configured role
-        if ref in configured_roles:
-            target = configured_roles[ref]
-            if available_voices is not None and target not in available_voices:
-                # Role exists but voice not available for this model
-                unresolved_refs.append(ref)
+            )
+        if item.voice is None:
+            unresolved_refs.append(item.reference)
+            if not has_error:
                 diagnostics.append(
                     PlanDiagnostic(
                         code=DIAG_SSMD_UNRESOLVED_VOICE,
                         severity="error",
-                        message=(
-                            f"Role {ref!r} is configured but voice {target!r} "
-                            f"is not available for active model"
-                        ),
+                        message=f"Cannot resolve SSMD voice reference {item.reference!r}.",
                         source_path=input_doc.source_path,
                     )
                 )
-            else:
-                bindings.append(
-                    VoiceBindingPlan(
-                        reference=ref,
-                        voice=target,
-                        origin=ORIGIN_CONFIG_VOICE_ROLE,
-                        locator=f"voices.{provider}.roles.{ref}",
-                    )
-                )
-                decisions.append(
-                    ResolutionDecision(
-                        field=f"ssmd.bindings.{ref}",
-                        value=target,
-                        origin=ORIGIN_CONFIG_VOICE_ROLE,
-                        locator=f"voices.{provider}.roles.{ref}",
-                    )
-                )
             continue
-
-        # Direct voice reference (ref is itself a concrete voice ID)
-        all_available = available_voices or tuple(settings.ids)
-        if ref in all_available:
-            bindings.append(
-                VoiceBindingPlan(
-                    reference=ref,
-                    voice=ref,
-                    origin=ORIGIN_DIRECT,
-                )
+        if has_error:
+            # A binding target outside the active roster is not executable.
+            continue
+        bindings.append(
+            VoiceBindingPlan(
+                reference=item.reference,
+                voice=item.voice,
+                origin=item.origin,
+                locator=item.locator,
             )
-            continue
-
-        # Unresolved
-        unresolved_refs.append(ref)
-        diagnostics.append(
-            PlanDiagnostic(
-                code=DIAG_SSMD_UNRESOLVED_VOICE,
-                severity="error",
-                message=(
-                    f"Cannot resolve SSMD voice reference {ref!r}. "
-                    f"Provide --voice-bind {ref}=<voice-id> or configure "
-                    f"voices.{provider}.roles.{ref}"
-                ),
-                source_path=input_doc.source_path,
-                line=use.lines[0] if use.lines else None,
+        )
+        decisions.append(
+            ResolutionDecision(
+                field=f"ssmd.bindings.{item.reference}",
+                value=item.voice,
+                origin=item.origin,
+                locator=item.locator,
             )
         )
 
@@ -1349,6 +1370,8 @@ def _plan_output(
     # Resolve output path
     if request.requested_path is not None:
         path = request.requested_path.expanduser()
+        if not path.suffix:
+            path = path.with_name(path.name + format_suffix(audio_format))
         path_origin: Literal["explicit", "generated", "none"] = "explicit"
         decisions.append(
             ResolutionDecision(
@@ -1468,13 +1491,11 @@ def resolve_plan(
             )
 
     # Stage 5 — SSMD cast planning
-    effective_voice = model_plan.voice if model_plan else candidate.voice
     ssmd_plan, ssmd_diags, ssmd_decisions = _plan_ssmd(
         effective_doc,
         cfg,
         model_plan=model_plan,
         voice_bindings=request.voice_bindings,
-        effective_voice=effective_voice,
     )
     all_diagnostics.extend(ssmd_diags)
     all_decisions.extend(ssmd_decisions)
@@ -1489,11 +1510,13 @@ def resolve_plan(
     all_decisions.extend(output_decisions)
 
     # Environment
+    from .formats import ffmpeg_executable
+
     environment = EnvironmentPlan(
         readio_version=__version__,
         pykokoro_version=_package_version("pykokoro"),
         ssmd_version=_package_version("ssmd"),
-        ffmpeg_available=None,  # resolved lazily if needed
+        ffmpeg_available=ffmpeg_executable() is not None,
     )
 
     # Determine overall ok status
@@ -1646,51 +1669,47 @@ def format_plan_human(plan: ReadioPlan) -> str:
 
 
 __all__ = [
-    # Request types
-    "SynthesisRequest",
-    "InputRequest",
-    "OutputRequest",
-    "PlanRequest",
-    # Plan types
-    "InputPlan",
-    "ModelPlan",
-    "SynthesisPlan",
-    "SSMDPlan",
-    "OutputPlan",
-    "EnvironmentPlan",
-    "ReadioPlan",
-    # Supporting types
-    "ResolutionDecision",
-    "LanguageProfilePlan",
-    "PlanDiagnostic",
-    "VoiceBindingPlan",
-    # Functions
-    "resolve_plan",
-    "resolved_synthesis_from_plan",
-    "format_plan_human",
-    # Origin constants
-    "ORIGIN_CLI",
-    "ORIGIN_CONFIG_READER",
-    "ORIGIN_CONFIG_LANGUAGE_EXACT",
-    "ORIGIN_CONFIG_LANGUAGE_BASE",
-    "ORIGIN_CONFIG_VOICE_ROLE",
-    "ORIGIN_DOCUMENT",
-    "ORIGIN_DIRECT",
-    "ORIGIN_PYKOKORO_AUTO",
-    "ORIGIN_MODEL_DEFAULT",
-    "ORIGIN_READIO_DEFAULT",
-    "ORIGIN_INFERRED",
-    "ORIGIN_GENERATED",
-    # Diagnostic codes
-    "DIAG_MODEL_NOT_FOUND",
-    "DIAG_MODEL_LANGUAGE_INCOMPATIBLE",
-    "DIAG_QUALITY_UNAVAILABLE",
-    "DIAG_VOICE_UNAVAILABLE",
-    "DIAG_LEXICON_UNAVAILABLE",
+    "DIAG_ENCODER_UNAVAILABLE",
     "DIAG_EXPERIMENTAL_FRONTEND_DISALLOWED",
+    "DIAG_LEXICON_UNAVAILABLE",
+    "DIAG_MODEL_LANGUAGE_INCOMPATIBLE",
+    "DIAG_MODEL_NOT_FOUND",
+    "DIAG_MODEL_RUNTIME_UNAVAILABLE",
+    "DIAG_OUTPUT_EXISTS",
+    "DIAG_OUTPUT_FORMAT_CONFLICT",
+    "DIAG_QUALITY_UNAVAILABLE",
     "DIAG_SSMD_UNRESOLVED_VOICE",
     "DIAG_SSMD_VOICE_UNAVAILABLE",
-    "DIAG_OUTPUT_FORMAT_CONFLICT",
-    "DIAG_ENCODER_UNAVAILABLE",
-    "DIAG_OUTPUT_EXISTS",
+    "DIAG_SYNTHESIS_INCOMPLETE",
+    "DIAG_VOICE_UNAVAILABLE",
+    "ORIGIN_CLI",
+    "ORIGIN_CONFIG_LANGUAGE_BASE",
+    "ORIGIN_CONFIG_LANGUAGE_EXACT",
+    "ORIGIN_CONFIG_READER",
+    "ORIGIN_CONFIG_VOICE_ROLE",
+    "ORIGIN_DIRECT",
+    "ORIGIN_DOCUMENT",
+    "ORIGIN_GENERATED",
+    "ORIGIN_INFERRED",
+    "ORIGIN_MODEL_DEFAULT",
+    "ORIGIN_PYKOKORO_AUTO",
+    "ORIGIN_READIO_DEFAULT",
+    "EnvironmentPlan",
+    "InputPlan",
+    "InputRequest",
+    "LanguageProfilePlan",
+    "ModelPlan",
+    "OutputPlan",
+    "OutputRequest",
+    "PlanDiagnostic",
+    "PlanRequest",
+    "ReadioPlan",
+    "ResolutionDecision",
+    "SSMDPlan",
+    "SynthesisPlan",
+    "SynthesisRequest",
+    "VoiceBindingPlan",
+    "format_plan_human",
+    "resolve_plan",
+    "resolved_synthesis_from_plan",
 ]

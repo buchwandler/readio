@@ -19,6 +19,27 @@ Agents should use `--json`. It is accepted before or after the command, and lite
 
 `render --json` reports `path`, `format`, `sample_rate`, `sample_count`, `channels`, `duration_ms`, and `markers`. Human render output remains the final path for shell compatibility.
 
+## Synthesis planning
+
+`readio plan` and `readio render --dry-run` resolve the exact plan a render would execute, without loading TTS. Normal `readio render` resolves the same plan first and executes it — the plan is the execution contract:
+
+```bash
+readio plan --file input.ssmd --format mp3 --json
+readio render --file input.ssmd --dry-run --json
+readio plan --file input.ssmd -o episode.mp3 --force --json
+```
+
+`--json` emits one `readio.plan.v1` object:
+
+- `ok`: false means rendering would fail now; `diagnostics` carries stable codes such as `model_not_found`, `model_language_incompatible`, `model_runtime_unavailable`, `voice_unavailable`, `quality_unavailable`, `lexicon_unavailable`, `experimental_frontend_disallowed`, `synthesis_incomplete`, `ssmd_unresolved_voice`, `ssmd_voice_unavailable`, `backend_resolution_failed`, `output_format_conflict`, `encoder_unavailable`, and `output_exists` (warning).
+- `synthesis.model`: the concrete model with `status`, `runtime_available`, `languages`, `experimental`, voice/quality rosters.
+- `ssmd.bindings`: every executable reference -> voice mapping with `origin` (`document`, `cli`, `config.voice_role`, `direct`); `ssmd.unresolved` lists unrenderable references.
+- `output`: resolved `format`, `encoder_backend`, `path` (generated paths allocated once, `path_origin: "generated"`), and `force`.
+- `decisions`: the winning source (`origin` + `locator`) for every effective value, including each `ssmd.bindings.<ref>` entry.
+- `environment`: Readio/PyKokoro/SSMD versions and `ffmpeg_available`.
+
+Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio voices bind` roles.
+
 ## Model discovery
 
 Use PyKokoro 0.9.x metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:

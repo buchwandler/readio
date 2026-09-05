@@ -4,19 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from readio.config import ReadioConfig, with_overrides
 from readio.document import InputDocument
 from readio.plan import (
-    DIAG_MODEL_NOT_FOUND,
     DIAG_OUTPUT_FORMAT_CONFLICT,
     DIAG_SSMD_UNRESOLVED_VOICE,
-    DIAG_VOICE_UNAVAILABLE,
     InputRequest,
     OutputRequest,
     PlanRequest,
-    ReadioPlan,
     SynthesisRequest,
     resolve_plan,
 )

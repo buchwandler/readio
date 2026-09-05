@@ -40,8 +40,23 @@ from .formats import (
 from .ingest import list_ingest, new_ingest
 from .models import ModelDiscoveryError, discover_model_info, get_model_info
 from .paths import resolve_render_output
+from .plan import (
+    InputRequest,
+    OutputRequest,
+    PlanRequest,
+    SynthesisRequest,
+    format_plan_human,
+    resolve_plan,
+)
 from .progress import TerminalProgress
-from .reader import SelectionError, render_live, render_text, speak_live, speak_text
+from .reader import (
+    SelectionError,
+    render_from_plan,
+    render_live,
+    render_text,
+    speak_live,
+    speak_text,
+)
 from .spotify import (
     SpotifyError,
     SpotifyUnavailableError,
@@ -52,14 +67,6 @@ from .spotify import (
 from .ssmd import analyze_ssmd, preflight_ssmd
 from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
 from .synthesis import resolve_synthesis
-from .plan import (
-    InputRequest,
-    OutputRequest,
-    PlanRequest,
-    SynthesisRequest,
-    format_plan_human,
-    resolve_plan,
-)
 from .templates import (
     add_template,
     list_templates,
@@ -466,15 +473,37 @@ def _build_plan_request(
     cfg: ReadioConfig,
     *,
     operation: str = "render",
+    allow_interactive: bool = False,
 ) -> PlanRequest:
-    """Build a PlanRequest from CLI args."""
+    """Build a PlanRequest from CLI args.
+
+    ``allow_interactive`` permits ``--resolve-voices`` prompting before the
+    request is constructed (normal render only).  ``readio plan`` and
+    ``render --dry-run`` stay deterministic and reject the flag.
+    """
     _normalize_positional_input(args)
     document = _read_input(args, cfg)
     bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
 
-    # For SSMD, resolve voices before planning (non-interactive)
-    if document.format == "ssmd" and not getattr(args, "resolve_voices", False):
-        pass  # Plan will handle unresolved voices as diagnostics
+    if getattr(args, "resolve_voices", False):
+        if not allow_interactive:
+            raise ValueError(
+                "--resolve-voices is not available during plan/dry-run; "
+                "use --voice-bind ROLE=VOICE_ID or persistent role configuration"
+            )
+        if getattr(args, "json", False) or not sys.stdin.isatty():
+            raise ValueError(
+                "--resolve-voices requires an interactive terminal; "
+                "provide --voice-bind ROLE=VOICE_ID instead"
+            )
+        result = analyze_ssmd(
+            document.text,
+            cfg,
+            source_path=document.source_path,
+            additional_bindings=bindings or None,
+        )
+        if result.unresolved_voice_references:
+            bindings.update(_prompt_for_missing_voices(result, cfg))
 
     synthesis = SynthesisRequest(
         language=getattr(args, "lang", None),
@@ -505,6 +534,13 @@ def _build_plan_request(
             document=document,
             requested_format=getattr(args, "input_format", "auto"),
             selector=getattr(args, "select", "all"),
+            source_kind=(
+                "file"
+                if getattr(args, "file", None) is not None
+                else "literal"
+                if getattr(args, "text", None)
+                else "stdin"
+            ),
         ),
         synthesis=synthesis,
         output=output,
@@ -526,22 +562,9 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     return 0 if plan.ok else 1
 
 
-def _cmd_render(args: argparse.Namespace) -> int:
-    # --dry-run: resolve plan and display without loading TTS
-    if getattr(args, "dry_run", False):
-        cfg = _resolved_config(args)
-        request = _build_plan_request(args, cfg, operation="render")
-        plan = resolve_plan(cfg, request)
-        if getattr(args, "json", False):
-            print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
-        else:
-            print(format_plan_human(plan))
-        return 0 if plan.ok else 1
-
-    _normalize_positional_input(args)
-    if args.live:
-        _validate_live(args)
-    cfg = _resolved_config(args)
+def _render_cli_live(args: argparse.Namespace, cfg: ReadioConfig) -> int:
+    """Live streaming keeps the incremental stdin path."""
+    _validate_live(args)
     args._resolved_synthesis = resolve_synthesis(cfg, args)
     audio_format = resolve_audio_format(requested=args.format, output=args.output)
     output = resolve_render_output(
@@ -555,11 +578,8 @@ def _cmd_render(args: argparse.Namespace) -> int:
     progress = _build_progress(args)
     with progress:
         progress.phase("Preparing", _progress_source_label(args))
-        prepared = None if args.live else _prepared_input(args, cfg)
         output.parent.mkdir(parents=True, exist_ok=True)
         args._prepared_cfg = cfg
-        if prepared:
-            args._prepared_document, args._prepared_bindings = prepared
         progress.phase("Loading TTS")
         progress_kwargs = _progress_kwargs(progress)
         with atomic_audio_path(output, force=args.force) as temporary:
@@ -570,6 +590,16 @@ def _cmd_render(args: argparse.Namespace) -> int:
                 **progress_kwargs,
             )
         progress.complete(summary)
+    _emit_render_result(args, output, audio_format, summary)
+    return 0
+
+
+def _emit_render_result(
+    args: argparse.Namespace,
+    output: Path,
+    audio_format: AudioFormat,
+    summary: RenderSummary,
+) -> None:
     if args.json:
         print(
             json.dumps(
@@ -588,6 +618,52 @@ def _cmd_render(args: argparse.Namespace) -> int:
         )
     else:
         print(output)
+
+
+def _cmd_render(args: argparse.Namespace) -> int:
+    """Render to an audio file by resolving and executing one ReadioPlan."""
+    cfg = _resolved_config(args)
+
+    if args.live:
+        return _render_cli_live(args, cfg)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    request = _build_plan_request(args, cfg, operation="render", allow_interactive=not dry_run)
+    plan = resolve_plan(cfg, request)
+
+    if dry_run or not plan.ok:
+        # A rejected plan is the structured render failure; no TTS is loaded.
+        if getattr(args, "json", False):
+            print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
+        else:
+            print(format_plan_human(plan))
+        return 0 if plan.ok else 1
+
+    document = request.input.document
+    output = plan.output.path
+    audio_format = plan.output.format
+    if output is None or audio_format is None:
+        raise RenderError("plan did not resolve a concrete output path or format")
+    ensure_audio_format_available(audio_format)
+    progress = _build_progress(args)
+    with progress:
+        progress.phase("Planning", _progress_source_label(args))
+        progress.phase("Loading TTS")
+        progress_kwargs = _progress_kwargs(progress)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with (
+            atomic_audio_path(output, force=plan.output.force) as temporary,
+            create_audio_sink(temporary, audio_format) as sink,
+        ):
+            summary = render_from_plan(
+                plan,
+                document,
+                sink,
+                selector=request.input.selector,
+                **progress_kwargs,
+            )
+        progress.complete(summary)
+    _emit_render_result(args, output, audio_format, summary)
     return 0
 
 
@@ -1416,6 +1492,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="proposed output audio path (for format inference only)",
     )
     _add_voice_resolution_options(plan_cmd)
+    plan_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="represent overwrite intent for the proposed output path",
+    )
     plan_cmd.add_argument("--json", action="store_true", help="emit one JSON plan object")
     plan_cmd.set_defaults(func=_cmd_plan)
     from .spotify_cli import add_spotify_parser

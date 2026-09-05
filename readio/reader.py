@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .audio import (
     AudioSink,
@@ -15,11 +15,14 @@ from .audio import (
 )
 from .config import ReaderSettings, ReadioConfig
 from .document import InputDocument, document_from_text
-from .errors import InputError
+from .errors import InputError, RenderError
 from .markdown import markdown_to_speech
 from .ssmd import build_ssmd_render_config, preflight_ssmd
 from .synthesis import ResolvedSynthesis, resolve_synthesis
 from .text import iter_live_paragraphs
+
+if TYPE_CHECKING:
+    from .plan import ReadioPlan
 
 
 class SelectionError(ValueError):
@@ -86,8 +89,6 @@ def pipeline_config_from_plan(
     from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
     from pykokoro.tokenizer import TokenizerConfig
 
-    from .plan import ReadioPlan
-
     synthesis = plan.synthesis
     if synthesis is None:
         raise ValueError("plan has no synthesis; cannot build pipeline config")
@@ -132,6 +133,49 @@ def pipeline_config_from_plan(
         tokenizer_config=tokenizer_config,
         ssmd=ssmd,
     )
+
+
+def render_from_plan(
+    plan: ReadioPlan,
+    document: InputDocument,
+    sink: AudioSink,
+    *,
+    selector: str = "all",
+    on_progress: RenderProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
+) -> RenderSummary:
+    """Execute a resolved ReadioPlan exactly.
+
+    The pipeline configuration is derived from the plan via
+    ``pipeline_config_from_plan``; no synthesis selection is re-run here.
+    """
+    from pykokoro import KokoroPipeline
+
+    document = prepare_input_document(document)
+    if not document.text.strip():
+        raise ValueError("no text to read")
+    if plan.synthesis is None:
+        raise ValueError("plan has no synthesis; cannot render")
+    config = pipeline_config_from_plan(plan, document)
+    with KokoroPipeline(config) as pipeline:
+        unit = plan.synthesis.unit
+        prepare_unit = "paragraph" if selector != "all" else unit
+        with pipeline.prepare_units(document.text, unit=prepare_unit) as prepared:
+            indices = _selected_indices(prepared, selector)
+            if on_progress is None:
+                summary = render_prepared(prepared, sink, indices=indices)
+            else:
+                summary = render_prepared(
+                    prepared,
+                    sink,
+                    indices=indices,
+                    on_progress=on_progress,
+                )
+    if on_phase is not None and plan.output.format:
+        on_phase(f"Finalizing {plan.output.format.upper()}")
+    if summary.sample_count <= 0:
+        raise RenderError("render produced no audio")
+    return summary
 
 
 def _build_pipeline(
