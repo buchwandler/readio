@@ -66,10 +66,12 @@ Headings, lists, links, images, code blocks, block quotes, tables, task lists, H
 
 The `speak`, `render`, and `spotify` commands accept the same input forms:
 
-- Positional text, joined with spaces.
-- `--file PATH` for UTF-8 text or SSMD.
+- Positional text, joined with spaces; exactly one existing regular file token is loaded as a file.
+- `--file PATH` for the unambiguous scripting form and UTF-8 text, Markdown, or SSMD.
 - Standard input when no positional text or file is provided.
 - `--live` for incremental standard-input playback or rendering. Blank lines close live paragraphs.
+
+A missing path-like positional token is an error rather than literal speech. Use `--input-format text` when an existing filename must be spoken literally; explicit Markdown and SSMD formats still support positional file detection.
 
 For non-live input, `--select` can be `all`, `last-paragraph`, or `paragraph:N`. The default synthesis unit is controlled by `reader.unit` and can be overridden with `--unit sentence` or `--unit paragraph`.
 

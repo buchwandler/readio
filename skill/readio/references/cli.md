@@ -9,7 +9,9 @@ readio render --input-format markdown
 readio ingest new --name summary.txt
 ```
 
-Input can be literal text, a UTF-8 file, or stdin. `--live` consumes plain piped text incrementally and cannot be combined with Markdown/SSMD parsing, `--file`, or selection.
+Input can be literal text, a UTF-8 file, or stdin. For convenience, `speak`, `render`, and `spotify publish` treat one existing positional token as a file path, including paths with spaces when quoted. For scripts, prefer the explicit `--file PATH` form.
+
+A missing path-like positional token is rejected instead of being synthesized as literal speech. Use `--input-format text` to speak an existing filename literally; explicit `markdown` and `ssmd` formats still enable file loading. Positional input plus `--file` is always an error. `--live` consumes plain piped text incrementally and cannot be combined with Markdown/SSMD parsing, `--file`, or selection.
 
 ## Machine mode
 

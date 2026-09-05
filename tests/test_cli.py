@@ -10,6 +10,190 @@ from readio.config import PathSettings, ReadioConfig
 from readio.document import InputDocument
 
 
+def test_single_existing_positional_ssmd_is_normalized_to_file(tmp_path: Path):
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    args = build_parser().parse_args(["render", str(source), "-o", str(tmp_path / "out.mp3")])
+
+    cli._normalize_positional_input(args)
+
+    assert args.file == source
+    assert args.text == []
+    document = cli._read_input(args, ReadioConfig())
+    assert document.source_path == source
+    assert document.format == "ssmd"
+    assert "Hello." in document.text
+
+
+def test_existing_positional_markdown_uses_markdown_format(tmp_path: Path):
+    source = tmp_path / "notes.md"
+    source.write_text("# Heading", encoding="utf-8")
+    args = build_parser().parse_args(["speak", str(source)])
+
+    cli._normalize_positional_input(args)
+
+    document = cli._read_input(args, ReadioConfig())
+    assert document.source_path == source
+    assert document.format == "markdown"
+
+
+def test_existing_positional_txt_is_loaded_as_file(tmp_path: Path):
+    source = tmp_path / "notes.txt"
+    source.write_text("hello", encoding="utf-8")
+    args = build_parser().parse_args(["speak", str(source)])
+
+    cli._normalize_positional_input(args)
+
+    document = cli._read_input(args, ReadioConfig())
+    assert document.text == "hello"
+    assert document.format == "text"
+    assert document.source_path == source
+
+
+def test_explicit_text_format_keeps_existing_filename_literal(tmp_path: Path):
+    source = tmp_path / "README.md"
+    source.write_text("# Not spoken", encoding="utf-8")
+    args = build_parser().parse_args(["speak", "--input-format", "text", str(source)])
+
+    cli._normalize_positional_input(args)
+
+    assert args.file is None
+    assert args.text == [str(source)]
+    assert cli._read_input(args, ReadioConfig()).text == str(source)
+
+
+def test_missing_positional_ssmd_path_fails_instead_of_being_spoken(tmp_path: Path):
+    source = tmp_path / "missing.ssmd"
+    args = build_parser().parse_args(["render", str(source)])
+
+    with pytest.raises(ValueError, match="looks like a file path"):
+        cli._normalize_positional_input(args)
+
+
+def test_missing_pathlike_token_with_separator_fails(tmp_path: Path):
+    source = tmp_path / "missing" / "episode"
+    args = build_parser().parse_args(["speak", str(source)])
+
+    with pytest.raises(ValueError, match="looks like a file path"):
+        cli._normalize_positional_input(args)
+
+
+def test_existing_positional_directory_is_rejected(tmp_path: Path):
+    args = build_parser().parse_args(["speak", str(tmp_path)])
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        cli._normalize_positional_input(args)
+
+
+def test_file_and_positional_input_are_rejected():
+    args = build_parser().parse_args(["render", "literal", "--file", "episode.ssmd"])
+
+    with pytest.raises(ValueError, match="either positional"):
+        cli._normalize_positional_input(args)
+    with pytest.raises(ValueError, match="either positional"):
+        cli._read_input(args, ReadioConfig())
+
+
+def test_multiple_positional_tokens_remain_literal_text():
+    args = build_parser().parse_args(["speak", "release", "notes"])
+
+    cli._normalize_positional_input(args)
+
+    assert args.file is None
+    assert args.text == ["release", "notes"]
+
+
+def test_single_positional_path_with_spaces_and_symlink_is_loaded(tmp_path: Path):
+    source = tmp_path / "weekly review.ssmd"
+    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    link = tmp_path / "linked review.ssmd"
+    link.symlink_to(source)
+    args = build_parser().parse_args(["speak", str(link)])
+
+    cli._normalize_positional_input(args)
+
+    assert args.file == link
+    assert cli._read_input(args, ReadioConfig()).source_path == link
+
+
+def test_positional_ssmd_reaches_preflight(monkeypatch, tmp_path: Path):
+    source = tmp_path / "episode.ssmd"
+    body = '<div voice="host">File body.</div>'
+    source.write_text(body, encoding="utf-8")
+    args = build_parser().parse_args(["speak", str(source)])
+    calls = []
+
+    def analyze(text, cfg, *, source_path, additional_bindings, synthesis):
+        calls.append(("analyze", text, source_path))
+        return type("Analysis", (), {"unresolved_voice_references": ()})()
+
+    def preflight(text, cfg, *, source_path, additional_bindings, synthesis):
+        calls.append(("preflight", text, source_path))
+
+    monkeypatch.setattr(cli, "analyze_ssmd", analyze)
+    monkeypatch.setattr(cli, "preflight_ssmd", preflight)
+    cli._normalize_positional_input(args)
+    document, _ = cli._prepared_input(args, ReadioConfig())
+
+    assert document.format == "ssmd"
+    assert document.source_path == source
+    assert document.text == body
+    assert [call[0] for call in calls] == ["analyze", "preflight"]
+    assert all(call[1:] == (body, source) for call in calls)
+
+
+def test_render_resolves_output_with_normalized_positional_path(monkeypatch, tmp_path: Path):
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    cfg = ReadioConfig(
+        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
+    )
+    captured = []
+    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    monkeypatch.setattr(cli, "resolve_synthesis", lambda cfg, args: None)
+    monkeypatch.setattr(
+        cli,
+        "_prepared_input",
+        lambda args, cfg: (InputDocument("body", source, "ssmd"), {}),
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_render_output",
+        lambda cfg, *, explicit, input_path, audio_format: (
+            captured.append(input_path) or tmp_path / "episode.wav"
+        ),
+    )
+
+    def render(args, path, *, audio_format, **kwargs):
+        path.write_bytes(b"wav")
+        return RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
+
+    monkeypatch.setattr(cli, "_render_audio", render)
+    args = build_parser().parse_args(["render", str(source), "--no-progress"])
+
+    assert cli._cmd_render(args) == 0
+    assert captured == [source]
+
+
+def test_missing_positional_path_fails_before_synthesis(monkeypatch, tmp_path: Path):
+    args = build_parser().parse_args(["render", str(tmp_path / "missing.ssmd")])
+    monkeypatch.setattr(cli, "resolve_synthesis", lambda *args: pytest.fail("synthesis resolved"))
+
+    with pytest.raises(ValueError, match="looks like a file path"):
+        cli._cmd_render(args)
+
+
+def test_input_help_describes_positional_files_and_literal_escape(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["speak", "--help"])
+
+    help_text = capsys.readouterr().out
+    assert "one existing file path" in help_text
+    assert "unambiguous scripting form" in help_text
+    assert "explicit text disables" in help_text
+    assert "positional file detection" in help_text
+
+
 def test_render_parser_has_shared_input_and_output_options():
     args = build_parser().parse_args(
         ["render", "literal", "--file", "episode.ssmd", "--select", "paragraph:2", "-o", "out.wav"]

@@ -6,6 +6,16 @@ readio ssmd check FILE --json
 readio config validate
 ```
 
+
+### Readio speaks the filename instead of the file
+
+Older versions require `--file`:
+
+```bash
+readio render --file episode.ssmd -o episode.mp3
+```
+
+Upgrade to a version with positional file detection, or keep using the explicit form for scripts. A current Readio invocation such as `readio render episode.ssmd -o episode.mp3` loads the SSMD body; use `--input-format text` only when the filename itself should be spoken.
 ## Model discovery and defaults
 
 - **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install the required PyKokoro 0.9.x release and verify `python -c "from pykokoro import discover_models"`. Run `readio doctor --json`. Do not import private PyKokoro modules.

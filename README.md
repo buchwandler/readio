@@ -28,6 +28,16 @@ readio speak --file notes.md --select paragraph:3
 producer-command | readio speak --live
 ```
 
+A single existing positional token is also treated as a file path by `speak`, `render`, and `spotify publish`, including `.ssmd` and Markdown files:
+
+```bash
+readio speak README.md
+readio render episode.ssmd -o episode.mp3
+readio spotify publish episode.ssmd --title "Episode"
+```
+
+For scripts, prefer the explicit `--file PATH` form. A missing path-like token fails instead of being spoken as a filename. Use `--input-format text` to force an existing filename to remain literal text.
+
 Readio parses `.md`, `.markdown`, `.mdown`, and `.mkd` as Markdown before synthesis. Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Ordinary Markdown is isolated from SSMD controls; use `.ssmd` when explicit voices, rate, volume, pitch, breaks, or markers are required.
 
 Markdown can also be supplied explicitly through stdin or literal input:

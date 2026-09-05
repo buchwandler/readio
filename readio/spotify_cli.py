@@ -167,6 +167,7 @@ def _print_result(result: dict[str, object], *, json_mode: bool) -> None:
 
 
 def cmd_spotify_publish(args: argparse.Namespace) -> int:
+    _cli._normalize_positional_input(args)
     if args.live:
         _cli._validate_live(args)
     cfg = _cli._resolved_config(args)

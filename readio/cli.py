@@ -66,13 +66,24 @@ from .wave import atomic_audio_path, create_audio_sink
 
 
 def _add_input_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("text", nargs="*", help="literal text; omit to read stdin")
-    parser.add_argument("--file", type=Path, help="read UTF-8 text from a file")
+    parser.add_argument(
+        "text",
+        nargs="*",
+        help="literal text, or one existing file path; omit to read stdin",
+    )
+    parser.add_argument(
+        "--file",
+        type=Path,
+        help="unambiguous scripting form; read UTF-8 text from a file",
+    )
     parser.add_argument(
         "--input-format",
         choices=("auto", "text", "markdown", "ssmd"),
         default="auto",
-        help="input interpretation; auto uses the file suffix and otherwise defaults to text",
+        help=(
+            "input interpretation; auto infers from a resolved file suffix and otherwise "
+            "uses text; explicit text disables positional file detection"
+        ),
     )
     parser.add_argument(
         "--select",
@@ -226,7 +237,60 @@ def _resolved_config(args: argparse.Namespace) -> ReadioConfig:
     )
 
 
+_KNOWN_DOCUMENT_SUFFIXES = frozenset({".txt", ".ssmd", ".md", ".markdown", ".mdown", ".mkd"})
+
+
+def _looks_like_path_token(raw: str) -> bool:
+    candidate = Path(raw)
+    return (
+        candidate.suffix.lower() in _KNOWN_DOCUMENT_SUFFIXES
+        or "/" in raw
+        or "\\" in raw
+        or raw.startswith((".", "~"))
+    )
+
+
+def _normalize_positional_input(args: argparse.Namespace) -> None:
+    """Convert one unambiguous positional path into ``args.file`` in place."""
+    positional = tuple(getattr(args, "text", ()) or ())
+    explicit_file = getattr(args, "file", None)
+
+    if explicit_file is not None and positional:
+        raise ValueError("provide either positional text/path or --file, not both")
+
+    if explicit_file is not None or not positional:
+        return
+
+    if len(positional) != 1:
+        return
+
+    if getattr(args, "input_format", "auto") == "text":
+        return
+
+    raw = positional[0]
+    candidate = Path(raw).expanduser()
+    try:
+        exists = candidate.exists()
+    except OSError as exc:
+        raise ValueError(f"cannot inspect positional input path {raw!r}: {exc}") from exc
+
+    if exists:
+        if not candidate.is_file():
+            raise ValueError(f"positional input path is not a regular file: {candidate}")
+        args.file = candidate
+        args.text = []
+        return
+
+    if _looks_like_path_token(raw):
+        raise ValueError(
+            f"positional input {raw!r} looks like a file path, but it does not exist; "
+            "correct the path or use --input-format text to speak it literally"
+        )
+
+
 def _read_input(args: argparse.Namespace, cfg: ReadioConfig) -> InputDocument:
+    if getattr(args, "file", None) is not None and getattr(args, "text", None):
+        raise ValueError("provide either positional text/path or --file, not both")
     if args.file is not None:
         return document_from_file(args.file, input_format=args.input_format)
     input_format = args.input_format if args.input_format != "auto" else "text"
@@ -326,6 +390,7 @@ def _prepared_input(
 
 
 def _cmd_speak(args: argparse.Namespace) -> int:
+    _normalize_positional_input(args)
     cfg = _resolved_config(args)
     args._resolved_synthesis = resolve_synthesis(cfg, args)
     if args.live:
@@ -389,6 +454,7 @@ def _render_audio(
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
+    _normalize_positional_input(args)
     if args.live:
         _validate_live(args)
     cfg = _resolved_config(args)
