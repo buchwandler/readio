@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from unittest.mock import patch
 
 from readio.config import ReadioConfig
@@ -52,6 +53,7 @@ class TestNoTTSLoad:
 
     def test_resolve_plan_does_not_create_onnx_session(self) -> None:
         """resolve_plan should not trigger ONNX session creation."""
+        pytest.importorskip("onnxruntime")
         with patch(
             "onnxruntime.InferenceSession",
             side_effect=AssertionError("should not be called"),
