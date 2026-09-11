@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import importlib.metadata
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from .config import LanguageSettings, normalize_language_key
 
+logger = logging.getLogger(__name__)
 PYKOKORO_REQUIRED = ">=0.9.2,<0.10"
 _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
@@ -283,6 +285,14 @@ def discover_model_info(
     refresh: bool = False,
     preference: str = "auto",
 ) -> tuple[tuple[ModelInfo, ...], Any]:
+    logger.info(
+        "models.discovery.start language=%s status=%s offline=%s refresh=%s preference=%s",
+        language or "all",
+        status or "all",
+        offline,
+        refresh,
+        preference,
+    )
     if offline and refresh:
         raise ModelDiscoveryError(
             "--offline and --refresh cannot be combined", code="pykokoro.invalid_options"
@@ -311,6 +321,7 @@ def discover_model_info(
         models = tuple(item for item in models if language_matches(requested, item.languages))
     if status is not None:
         models = tuple(item for item in models if item.status == status)
+    logger.info("models.discovery.finish count=%d", len(models))
     return models, result
 
 
@@ -331,6 +342,7 @@ def get_model_info(
     refresh: bool = False,
     preference: str = "auto",
 ) -> tuple[ModelInfo, Any]:
+    logger.debug("model.resolve.start model=%s", model_id)
     models, result = discover_model_info(offline=offline, refresh=refresh, preference=preference)
     for model in models:
         if model.id == model_id:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,7 @@ import soundfile as sf
 
 from .errors import RenderError
 
+logger = logging.getLogger(__name__)
 AudioFormat = Literal["wav", "mp3", "m4a", "ogg"]
 SUPPORTED_AUDIO_FORMATS = ("wav", "mp3", "m4a", "ogg")
 _SUPPORTED_SUFFIXES = ", ".join(f".{name}" for name in SUPPORTED_AUDIO_FORMATS)
@@ -129,6 +131,7 @@ def audio_format_available(audio_format: AudioFormat) -> bool:
 
 def ensure_audio_format_available(audio_format: AudioFormat) -> None:
     spec = AUDIO_FORMATS[audio_format]
+    logger.debug("output.format.check format=%s backend=%s", audio_format, spec.backend)
     if spec.backend == "ffmpeg":
         if ffmpeg_executable() is None:
             raise RenderError("M4A output requires FFmpeg; install ffmpeg and ensure it is on PATH")

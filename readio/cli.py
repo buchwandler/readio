@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import shutil
 import sys
+import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import __version__
@@ -42,6 +44,7 @@ from .formats import (
 )
 from .ingest import list_ingest, new_ingest
 from .jsonutil import json_value as _json_value
+from .logging_config import MAX_VERBOSITY, configure_logging
 from .manifest import (
     MANIFEST_SCHEMA,
     build_render_manifest,
@@ -89,6 +92,7 @@ from .templates import (
 )
 from .wave import atomic_audio_path, create_audio_sink
 
+logger = logging.getLogger(__name__)
 
 def _add_input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -222,11 +226,22 @@ def _add_progress_option(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _extract_global_json(argv: Sequence[str] | None) -> tuple[list[str] | None, bool]:
+@dataclass(frozen=True, slots=True)
+class GlobalCliOptions:
+    json: bool = False
+    verbosity: int = 0
+
+
+
+def _extract_global_options(
+    argv: Sequence[str] | None,
+) -> tuple[list[str] | None, GlobalCliOptions]:
     if argv is None:
-        return None, False
+        return None, GlobalCliOptions()
+
     extracted: list[str] = []
-    enabled = False
+    json_enabled = False
+    verbosity = 0
     literal = False
     for value in argv:
         if literal:
@@ -235,11 +250,17 @@ def _extract_global_json(argv: Sequence[str] | None) -> tuple[list[str] | None, 
             literal = True
             extracted.append(value)
         elif value == "--json":
-            enabled = True
+            json_enabled = True
+        elif value in ("-v", "--verbose"):
+            verbosity += 1
+        elif value.startswith("-") and len(value) > 2 and set(value[1:]) == {"v"}:
+            verbosity += len(value) - 1
         else:
             extracted.append(value)
-    return extracted, enabled
-
+    return extracted, GlobalCliOptions(
+        json=json_enabled,
+        verbosity=min(verbosity, MAX_VERBOSITY),
+    )
 
 def progress_enabled(args: argparse.Namespace, stream: object = sys.stderr) -> bool:
     explicit = getattr(args, "progress", None)
@@ -252,7 +273,7 @@ def progress_enabled(args: argparse.Namespace, stream: object = sys.stderr) -> b
 
 def _build_progress(args: argparse.Namespace) -> TerminalProgress:
     stream = sys.stderr
-    tty = bool(stream.isatty())
+    tty = bool(stream.isatty()) and getattr(args, "verbose", 0) == 0
     return TerminalProgress(
         stream=stream,
         enabled=progress_enabled(args, stream),
@@ -1522,6 +1543,13 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="readio", description="Stream text to PyKokoro TTS")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="show internal diagnostics; repeat (-vv) for debug-level detail",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     speak = sub.add_parser("speak", help="read text aloud")
@@ -1805,17 +1833,32 @@ def _error_payload(exc: Exception) -> dict[str, object]:
             payload[name] = _json_value(value)
     return payload
 
+def _log_command_error(args: argparse.Namespace, exc: Exception) -> None:
+    if getattr(args, "verbose", 0) >= MAX_VERBOSITY:
+        logger.debug(
+            "command.error command=%s error=%s",
+            getattr(args, "command", "unknown"),
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+
+
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    normalized_argv, global_json = _extract_global_json(raw_argv)
+    normalized_argv, global_options = _extract_global_options(raw_argv)
     args = parser.parse_args(normalized_argv)
-    if global_json:
+    if global_options.json:
         args.json = True
+    args.verbose = min(max(getattr(args, "verbose", 0), global_options.verbosity), MAX_VERBOSITY)
+    configure_logging(args.verbose)
+    started = time.perf_counter()
+    logger.info("command.start command=%s", args.command)
     try:
         code = args.func(args)
     except ReadioError as exc:
+        _log_command_error(args, exc)
         if getattr(args, "json", False):
             print(json.dumps(_error_payload(exc), ensure_ascii=False))
             raise SystemExit(2)
@@ -1829,10 +1872,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         OSError,
         ImportError,
     ) as exc:
+        _log_command_error(args, exc)
         if getattr(args, "json", False):
             print(json.dumps(_error_payload(exc), ensure_ascii=False))
             raise SystemExit(2)
         parser.exit(2, f"readio: {exc}\n")
+    else:
+        logger.info(
+            "command.finish command=%s elapsed_ms=%.3f code=%s",
+            args.command,
+            (time.perf_counter() - started) * 1000.0,
+            code,
+        )
     raise SystemExit(code)
 
 

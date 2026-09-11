@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -21,6 +22,7 @@ from .spotify import (
     upload_episode,
 )
 
+logger = logging.getLogger(__name__)
 
 def _add_json(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="emit one JSON result object")
@@ -168,6 +170,7 @@ def _print_result(result: dict[str, object], *, json_mode: bool) -> None:
 
 def cmd_spotify_publish(args: argparse.Namespace) -> int:
     _cli._normalize_positional_input(args)
+    logger.info("spotify.publish.start")
     if args.live:
         _cli._validate_live(args)
     cfg = _cli._resolved_config(args)
@@ -234,6 +237,7 @@ def cmd_spotify_publish(args: argparse.Namespace) -> int:
 
 
 def cmd_spotify_upload(args: argparse.Namespace) -> int:
+    logger.info("spotify.upload.start audio=%s", args.audio)
     if not args.audio.exists():
         raise ValueError(f"audio file does not exist: {args.audio}")
     audio_format = audio_format_from_suffix(args.audio)
@@ -253,6 +257,7 @@ def cmd_spotify_upload(args: argparse.Namespace) -> int:
 
 def cmd_spotify_shows(args: argparse.Namespace) -> int:
     shows = list_shows(api_timeout=args.api_timeout)
+    logger.info("spotify.shows.start")
     result = {
         "ok": True,
         "shows": [
@@ -271,6 +276,7 @@ def cmd_spotify_shows(args: argparse.Namespace) -> int:
 
 def cmd_spotify_status(args: argparse.Namespace) -> int:
     wait, duration = _wait_arguments(args)
+    logger.info("spotify.status.start episode=%s", args.episode)
     status = episode_status(
         args.episode,
         wait=wait,
@@ -287,6 +293,7 @@ def cmd_spotify_status(args: argparse.Namespace) -> int:
 
 def cmd_spotify_doctor(args: argparse.Namespace) -> int:
     payload = doctor(api_timeout=args.api_timeout)
+    logger.info("spotify.doctor.start")
     result = {"ok": True, **payload}
     if args.json:
         print(json.dumps(result, ensure_ascii=False))

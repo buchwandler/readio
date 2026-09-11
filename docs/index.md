@@ -152,6 +152,17 @@ readio render --file notes.md -o notes.mp3 --json --progress
 
 Bounded renders show phases, completed/total units, percentage, elapsed time, approximate ETA, generated audio duration, and finalization. Live rendering shows elapsed time, cumulative units, and audio duration but no invented percentage or ETA.
 
+
+## Verbose diagnostics
+
+Use `-v` for timestamped INFO lifecycle records and `-vv` for DEBUG details from Readio and PyKokoro:
+
+```bash
+readio -v speak "Hello"
+readio -vv render episode.ssmd -o episode.mp3
+```
+
+The option is global and may appear before or after a command. Logs are written only to stderr. Human results and JSON remain on stdout, so `readio -v doctor --json` still emits valid JSON. `--progress` and `--no-progress` remain independent; verbose mode makes progress line-oriented on a TTY. Review paths, model names, and voice identifiers before sharing diagnostics. Complete document text, raw audio, Spotify credentials, and authorization responses are not logged.
 Playback-only options are `--queue-size` and `--device`. Audio rendering is streamed to an atomic output file through a bounded audio path rather than accumulated as one in-memory waveform.
 
 ## Configuration

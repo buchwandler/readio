@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import TracebackType
@@ -9,6 +10,7 @@ import numpy as np
 
 from .config import ReaderSettings
 
+logger = logging.getLogger(__name__)
 
 class AudioSink(Protocol):
     """Synchronous destination for one rendered waveform chunk."""
@@ -60,6 +62,12 @@ class PlaybackSink:
         if channels <= 0:
             raise ValueError("rendered audio must be a one- or two-dimensional array")
         if self._player is None:
+            logger.info(
+                "playback.start sample_rate=%d channels=%d device=%s",
+                sample_rate,
+                channels,
+                self._cfg.device or "default",
+            )
             from pykokoro.playback import SoundDevicePlayer
 
             self._sample_rate = sample_rate
@@ -77,6 +85,7 @@ class PlaybackSink:
 
     def finish(self) -> None:
         if self._player is not None:
+            logger.info("playback.drain")
             self._player.drain()
 
     def close(self) -> None:
@@ -115,6 +124,7 @@ def render_prepared(
         len(indices) if indices is not None else (len(units) if units is not None else None)
     )
     completed_units = 0
+    logger.info("render.start units=%s", total_units if total_units is not None else "live")
 
     def emit_progress() -> None:
         if on_progress is not None:
@@ -162,6 +172,12 @@ def render_prepared(
         finally:
             result.release_audio()
 
+    logger.info(
+        "render.finish units=%d samples=%d sample_rate=%d",
+        completed_units,
+        sample_count,
+        sample_rate,
+    )
     return RenderSummary(
         sample_rate=sample_rate,
         sample_count=sample_count,

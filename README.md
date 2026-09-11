@@ -258,6 +258,18 @@ readio --json spotify status spotify:episode:abc --wait
 ```
 
 Progress includes the current phase, completed units, elapsed time, approximate ETA for bounded renders, generated audio duration, and finalization. Live renders show cumulative units without a percentage or ETA. `--json` keeps stdout to one result object; automatic progress is disabled in JSON mode, while explicit `--progress` remains stderr-only.
+
+## Verbose diagnostics
+
+Use the global repeatable verbosity option for live operational diagnostics:
+
+```bash
+readio -v speak "Hello"
+readio -vv render episode.ssmd -o episode.mp3
+readio speak "literal --verbose" --
+```
+
+`-v` shows timestamped lifecycle records at INFO level. `-vv` enables DEBUG-level Readio and PyKokoro details; additional repetitions are clamped to DEBUG. Verbose records always go to stderr, so ordinary output and `--json` results remain on stdout and stay machine-parseable. `--progress` is a separate user-facing progress control. When verbose mode and progress are combined, progress uses line-oriented stderr records instead of in-place terminal rewriting. Logs can contain paths and model or voice identifiers, so review them before sharing and never treat verbose mode as permission to expose document text, audio, or credentials.
 When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the encoder. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
 
 M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 and OGG use the installed SoundFile/libsndfile codecs.

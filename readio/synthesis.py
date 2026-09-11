@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from argparse import Namespace
 from dataclasses import dataclass
 
 from .config import LanguageSettings, ReadioConfig, language_profile, normalize_language_key
 from .models import ModelInfo, get_model_info, validate_language_settings
 
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class DiscoveryPolicy:
@@ -105,6 +107,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     args = args or Namespace()
     language, profile, cli_language = _raw_synthesis_selection(cfg, args)
 
+    logger.info("synthesis.resolve language=%s model=%s", language, getattr(args, "model", None) or "profile/default")
     model = profile.model if profile is not None else None
     source = profile.source if profile is not None else None
     quality = profile.quality if profile is not None else None
@@ -189,6 +192,14 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     if voice is None and model is None and not cli_language and profile is None:
         voice = cfg.reader.voice
 
+    logger.info(
+        "synthesis.resolved language=%s model=%s source=%s quality=%s voice=%s",
+        language,
+        model,
+        source or "default",
+        quality or "default",
+        voice or "default",
+    )
     return ResolvedSynthesis(
         language=language,
         model=model,

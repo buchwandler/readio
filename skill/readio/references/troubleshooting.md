@@ -6,6 +6,18 @@ readio ssmd check FILE --json
 readio config validate
 ```
 
+## Verbose diagnostics
+
+When a command needs runtime-level investigation, repeat the global verbosity flag:
+
+```bash
+readio -v speak "test"
+readio -vv doctor
+readio -vv render input.ssmd -o out.wav
+```
+
+Use `-v` for timestamped INFO lifecycle events and `-vv` for DEBUG details from Readio and PyKokoro. Logs are written to stderr, while normal output and JSON stay on stdout. `--progress` is independent; verbose mode changes TTY progress to line-oriented output so it does not overwrite log records. Logs may contain paths, model IDs, and voice IDs. Review them before sharing. Complete document text, raw audio, Spotify credentials, and authorization responses are not logged.
+
 ### Readio speaks the filename instead of the file
 
 Older versions require `--file`:

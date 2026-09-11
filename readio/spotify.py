@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
+logger = logging.getLogger(__name__)
 class SpotifyError(RuntimeError):
     """Base error for the external save-to-spotify integration."""
 
@@ -75,6 +76,7 @@ def run_save_to_spotify(
     passes command arguments, captures the response, and translates protocol
     failures into stable local error types.
     """
+    logger.info("spotify.command.start action=%s", args[0] if args else "unknown")
 
     command = [executable(), "--json"]
     if api_timeout is not None:
@@ -96,6 +98,7 @@ def run_save_to_spotify(
     if payload.get("ok") is False:
         detail = payload.get("error") or "save-to-spotify reported an error"
         raise SpotifyCommandError(str(detail))
+    logger.info("spotify.command.finish action=%s", args[0] if args else "unknown")
     return payload
 
 

@@ -8,6 +8,7 @@ that produces a ``ReadioPlan`` before any TTS loading occurs.
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,7 @@ from .formats import (
 from .markdown import markdown_to_speech
 from .models import ModelDiscoveryError, get_model_info, language_matches
 
+logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from .synthesis import ResolvedSynthesis
 
@@ -1579,6 +1581,7 @@ def resolve_plan(
     go through this function.
     """
     all_diagnostics: list[PlanDiagnostic] = []
+    logger.info("plan.resolve.start operation=%s", request.operation)
     all_decisions: list[ResolutionDecision] = []
 
     # Stage 1 — Input planning
@@ -1682,6 +1685,12 @@ def resolve_plan(
     has_errors = any(d.severity == "error" for d in all_diagnostics)
     has_unresolved_ssmd = len(ssmd_plan.unresolved) > 0
     ok = not has_errors and not has_unresolved_ssmd
+    logger.info(
+        "plan.resolve.finish ok=%s diagnostics=%d output=%s",
+        ok,
+        len(all_diagnostics),
+        output_plan.format or "none",
+    )
 
     return ReadioPlan(
         schema="readio.plan.v1",

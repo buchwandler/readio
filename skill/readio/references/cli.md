@@ -19,6 +19,18 @@ Agents should use `--json`. It is accepted before or after the command, and lite
 
 `render --json` reports `path`, `format`, `sample_rate`, `sample_count`, `channels`, `duration_ms`, `markers`, and always includes `manifest`. The value is `null` unless `--manifest` was requested; with the flag it contains the `readio.render-manifest.v1` schema and sidecar path. Human render output remains the final path for shell compatibility.
 
+## Verbose diagnostics
+
+Use the global repeatable flags when collecting runtime diagnostics:
+
+```bash
+readio -v speak "test"
+readio -vv doctor
+readio -vv render input.ssmd -o out.wav
+```
+
+`-v` enables timestamped INFO lifecycle records. `-vv` adds DEBUG details, including records from the `pykokoro` namespace when the installed dependency emits them. Logs go to stderr; stdout remains reserved for normal results and JSON. `--progress` is separate and remains independently controllable. Diagnostic output may include file paths and model or voice IDs, but Readio does not log complete input text, raw audio, Spotify tokens, or authorization responses. Review logs before sharing them.
+
 ## Synthesis planning
 
 `readio plan` and `readio render --dry-run` resolve the exact plan a render would execute, without loading TTS. Normal `readio render` resolves the same plan first and executes it — the plan is the execution contract:

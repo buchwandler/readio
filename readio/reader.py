@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
 from functools import partial
@@ -24,6 +25,8 @@ from .text import iter_live_paragraphs
 if TYPE_CHECKING:
     from .plan import ReadioPlan
 
+
+logger = logging.getLogger(__name__)
 
 class SelectionError(ValueError):
     pass
@@ -177,6 +180,12 @@ def render_from_plan(
     The pipeline configuration is derived from the plan via
     ``pipeline_config_from_plan``; no synthesis selection is re-run here.
     """
+    logger.info(
+        "render.start format=%s selector=%s source=%s",
+        document.format,
+        selector,
+        document.source_path or "stdin",
+    )
     from pykokoro import KokoroPipeline
 
     document = prepare_input_document(document)
@@ -213,6 +222,11 @@ def _build_pipeline(
     ssmd_voice_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> AbstractContextManager[Any]:
+    logger.info(
+        "tts.load.start model=%s voice=%s",
+        getattr(synthesis, "model", None) or getattr(cfg, "reader", cfg).voice,
+        getattr(synthesis, "voice", None) or getattr(cfg, "reader", cfg).voice,
+    )
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
 
     if isinstance(cfg, ReadioConfig):
@@ -276,6 +290,12 @@ def render_text(
     document = prepare_input_document(document)
     if not document.text.strip():
         raise ValueError("no text to read")
+    logger.info(
+        "input.ready format=%s characters=%d source=%s",
+        document.format,
+        len(document.text),
+        document.source_path or "stdin",
+    )
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     effective_unit = unit or (synthesis.unit if synthesis is not None else reader_cfg.unit)
     prepare_unit = "paragraph" if selector != "all" else effective_unit
@@ -313,6 +333,7 @@ def render_live(
 ) -> RenderSummary:
     reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     effective_unit = unit or (synthesis.unit if synthesis is not None else reader_cfg.unit)
+    logger.info("render.live.start unit=%s", effective_unit)
     saw_text = False
     sample_rate = 0
     sample_count = 0
@@ -403,6 +424,7 @@ def speak_text(
     ssmd_voice_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> None:
+    logger.info("playback.start mode=text selector=%s", selector)
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
         render_text(
@@ -424,6 +446,7 @@ def speak_live(
     unit: str | None = None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> None:
+    logger.info("playback.start mode=live unit=%s", unit or "default")
     playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
     with PlaybackSink(playback_cfg) as sink:
         render_live(lines, cfg, sink, unit=unit, synthesis=synthesis)
