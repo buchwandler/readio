@@ -18,8 +18,7 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
 6. **Agents:** Prefer complete files, explicit output paths, `--json`, and non-interactive voice bindings. Never rely on `--resolve-voices` outside an interactive human TTY.
 
 ## Model discovery and defaults
-
-PyKokoro 0.9.x is the source of truth for runtime model capabilities. Agents should inspect JSON discovery rather than embedding model or voice inventories:
+PyKokoro >=0.9.2,<0.10 is the source of truth for runtime model capabilities and tokenizer controls. Agents should inspect JSON discovery rather than embedding model or voice inventories:
 
 ```bash
 readio models list --language de --offline --json
@@ -36,7 +35,7 @@ readio defaults show de --json
 readio defaults show de-at --json
 ```
 
-Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `--offline --refresh` is invalid. Offline registry metadata and offline model synthesis are separate: synthesis also requires cached model and voice assets. `lexicons: null` means unknown capability; do not treat it as an empty list. Exact locale defaults override base-language defaults, and `--no-lexicons` clears inherited lexicons. Direct synthesis options override persisted defaults.
+Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `lexicons: null` means automatic/unknown capability depending on the payload; in synthesis plans, `null` means PyKokoro language defaults and `[]` means explicit provider-only pronunciation. Exact locale defaults override base-language defaults. Use `--no-lexicons` for `()`, `--auto-lexicons` for `None`, and repeat `--lexicon` to preserve ordered layers.
 `--preference auto|github|huggingface|upstream` makes discovery views deterministic. `--model-source github|huggingface` controls the distribution used for discovery, validation, and runtime. Voices are model-scoped: the global reader voice is only a legacy fallback when no language/model selection changes the domain, and SSMD uses the resolved model roster. Use `readio doctor --json` for PyKokoro path/version/public-API mismatches.
 
 ## Main production steps
@@ -49,6 +48,8 @@ Always run `readio plan` (or `readio render --dry-run`) before rendering to see 
 what synthesis values will be used. The plan shows model, voice, language, lexicons,
 SSMD bindings, output format, and provenance — all without loading the TTS model.
 
+
+The 0.9.2 tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
 ```bash
 # Recommended: plan first
 readio plan --file input.ssmd --format mp3 --json

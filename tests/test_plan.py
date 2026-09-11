@@ -162,8 +162,8 @@ class TestLexicons:
             _text_request(synthesis=SynthesisRequest(clear_lexicons=True)),
         )
         assert plan.synthesis is not None
-        assert plan.synthesis.lexicons is None
-
+        assert plan.synthesis.lexicons == ()
+        assert plan.synthesis.to_dict()["lexicons"] == []
 
 # ---------------------------------------------------------------------------
 # Reader controls precedence

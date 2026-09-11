@@ -64,6 +64,33 @@ def test_plan_digest_is_canonical_and_sensitive() -> None:
     assert plan_sha256(first) == plan_sha256(reordered)
     assert plan_sha256(first) != plan_sha256(_plan(marker="other"))
 
+def test_plan_manifest_preserves_explicit_tokenizer_policy_values() -> None:
+    automatic = SimpleNamespace(
+        to_dict=lambda: {
+            "synthesis": {
+                "lexicons": None,
+                "g2p_fallback": None,
+                "lexicon_data_policy": None,
+                "language_detection": None,
+                "detect_languages": None,
+            }
+        }
+    )
+    provider_only = SimpleNamespace(
+        to_dict=lambda: {
+            "synthesis": {
+                "lexicons": [],
+                "g2p_fallback": "espeak",
+                "lexicon_data_policy": "installed-only",
+                "language_detection": "auto",
+                "detect_languages": ["de", "en"],
+            }
+        }
+    )
+    assert json.loads(canonical_plan_json(automatic))["synthesis"]["lexicons"] is None
+    assert json.loads(canonical_plan_json(provider_only))["synthesis"]["lexicons"] == []
+    assert plan_sha256(automatic) != plan_sha256(provider_only)
+
 
 def test_file_sha256_hashes_known_bytes(tmp_path: Path) -> None:
     output = tmp_path / "episode.wav"

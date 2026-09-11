@@ -18,7 +18,7 @@ Upgrade to a version with positional file detection, or keep using the explicit 
 
 ## Model discovery and defaults
 
-- **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install the required PyKokoro 0.9.x release and verify `python -c "from pykokoro import discover_models"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
+- **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install PyKokoro >=0.9.2,<0.10 and verify `python -c "from pykokoro import discover_models; from pykokoro.tokenizer import TokenizerConfig"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
 
 ### PyKokoro model discovery is unavailable
 
@@ -44,14 +44,17 @@ readio doctor --json
 - **`model_language_incompatible`**: the selected model does not declare the requested language (for example a German-only model with `--lang en-us`). Pick a model from `readio models list --language LANG --json` or set `--lang` to a language the model declares.
 - **`model_runtime_unavailable`**: the model exists in the registry but is not runnable in the installed runtime. Choose a model with `runtime_available: true` and a `ready` status.
 - **`synthesis_incomplete`**: the plan could not become concrete (missing model/source/quality/voice). Provide `--model` explicitly and retry.
+
+- **Unexpected pronunciation routing:** inspect the plan's `language_detection` and `detect_languages` fields. SSMD `language_detection` hints and CLI detection options route pronunciation fragments while retaining the selected acoustic model language.
 - **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio voices bind ROLE VOICE_ID`; inspect valid IDs with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
 - **`encoder_unavailable` / `output_format_conflict`**: the requested audio format needs an unavailable backend (M4A requires `ffmpeg` on `PATH`) or `--format` disagrees with the output suffix. Choose WAV/MP3/OGG, install FFmpeg, or align format and suffix.
 
 - **Model registry unavailable:** run `readio models list --offline --json` to use the cache. Without a valid cache, run the online command once; discovery never downloads model weights.
 - **Unknown model:** run `readio models list --json`; do not maintain a hardcoded model/voice inventory in an agent workflow.
-- **Incompatible voice or lexicon:** inspect `readio models show MODEL --json` and select values from the active model capability metadata. A `lexicons` value of `null` means capability enumeration is unknown, not that no lexicons exist.
+- **Incompatible voice or lexicon:** inspect `readio models show MODEL --json` and select values from the active model capability metadata. Use the named selector `crane`, not the language-qualified asset ID `de-de:crane`; `de-crane` is an acoustic model. A `lexicons` value of `null` means capability enumeration is unknown, not that no lexicons exist.
 - **Default validation failure:** `readio defaults set LANG ...` validates the complete model/language/quality/voice/lexicon combination before saving. Use `--allow-experimental` only when intentionally opting into an experimental frontend.
-- **Locale fallback surprise:** `defaults show de-at --json` reports whether the exact `de-at` profile or base `de` profile matched. `--no-lexicons` explicitly clears inherited lexicons.
+- **Default validation failure:** `readio defaults set LANG ...` validates the complete model/language/quality/voice/lexicon combination before saving. Use `--no-lexicons` for explicit provider-only pronunciation and `--auto-lexicons` to remove an inherited lexicon override. `--allow-experimental` is only for intentionally opting into an experimental frontend.
+- **Tokenizer policy failure:** `--g2p-fallback` must be `none`, `espeak`, or `goruut`; `--lexicon-data-policy` must be `auto` or `installed-only`. The latter controls lexicon acquisition and is distinct from model-registry `--offline`.
 
 ## Render manifest failures
 

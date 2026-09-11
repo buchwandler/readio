@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from . import __version__
 from .config import ReadioConfig, language_profile, normalize_language_key
 from .document import InputDocument, InputFormat, InputFormatRequest, resolve_input_format
+from .errors import SSMDInputError
 from .formats import (
     AudioFormat,
     audio_format_available,
@@ -158,6 +159,11 @@ class SynthesisRequest:
     voice: str | None = None
     lexicons: tuple[str, ...] | None = None
     clear_lexicons: bool = False
+    auto_lexicons: bool = False
+    g2p_fallback: str | None = None
+    lexicon_data_policy: str | None = None
+    language_detection: str | None = None
+    detect_languages: tuple[str, ...] | None = None
     allow_experimental: bool = False
     speed: float | None = None
     pause_mode: str | None = None
@@ -286,6 +292,10 @@ class SynthesisPlan:
     language_profile: LanguageProfilePlan
     model: ModelPlan
     lexicons: tuple[str, ...] | None
+    g2p_fallback: str | None
+    lexicon_data_policy: str | None
+    language_detection: str | None
+    detect_languages: tuple[str, ...] | None
     allow_experimental: bool
     speed: float
     pause_mode: str
@@ -298,6 +308,12 @@ class SynthesisPlan:
             "language_profile": self.language_profile.to_dict(),
             "model": self.model.to_dict(),
             "lexicons": list(self.lexicons) if self.lexicons is not None else None,
+            "g2p_fallback": self.g2p_fallback,
+            "lexicon_data_policy": self.lexicon_data_policy,
+            "language_detection": self.language_detection,
+            "detect_languages": (
+                list(self.detect_languages) if self.detect_languages is not None else None
+            ),
             "allow_experimental": self.allow_experimental,
             "speed": self.speed,
             "pause_mode": self.pause_mode,
@@ -436,6 +452,10 @@ class SynthesisCandidate:
     quality: str | None
     voice: str | None
     lexicons: tuple[str, ...] | None
+    g2p_fallback: str | None
+    lexicon_data_policy: str | None
+    language_detection: str | None
+    detect_languages: tuple[str, ...] | None
     allow_experimental: bool
     speed: float
     pause_mode: str
@@ -535,6 +555,7 @@ def _plan_input(
 def _resolve_synthesis_candidate(
     cfg: ReadioConfig,
     request: SynthesisRequest,
+    document_language_detection: tuple[str, tuple[str, ...]] | None = None,
 ) -> SynthesisCandidate:
     """Apply Readio precedence rules and record provenance."""
     decisions: list[ResolutionDecision] = []
@@ -576,7 +597,42 @@ def _resolve_synthesis_candidate(
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
     allow_experimental = profile.allow_experimental if profile is not None else False
+    g2p_fallback = profile.g2p_fallback if profile is not None else None
+    lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
 
+    language_detection = request.language_detection
+    detect_languages = request.detect_languages
+    detection_origin = ORIGIN_CLI if language_detection is not None or detect_languages is not None else None
+    detection_locator = "request.language_detection" if language_detection is not None else "request.detect_languages"
+    if language_detection is None and detect_languages is None and document_language_detection is not None:
+        language_detection, detect_languages = document_language_detection
+        detection_origin = ORIGIN_DOCUMENT
+        detection_locator = "ssmd.language_detection"
+    if language_detection is None and detect_languages is None:
+        language_detection = cfg.reader.language_detection
+        detect_languages = cfg.reader.detect_languages
+        if language_detection is not None or detect_languages is not None:
+            detection_origin = ORIGIN_CONFIG_READER
+            detection_locator = "reader.language_detection"
+    if language_detection is None and detect_languages is not None:
+        language_detection = "auto"
+    if detection_origin is not None:
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.language_detection",
+                value=language_detection,
+                origin=detection_origin,
+                locator=detection_locator,
+            )
+        )
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.detect_languages",
+                value=list(detect_languages) if detect_languages is not None else None,
+                origin=detection_origin,
+                locator=detection_locator,
+            )
+        )
     # Record profile provenance
     if profile is not None:
         if model is not None:
@@ -649,6 +705,24 @@ def _resolve_synthesis_candidate(
                     locator=f"languages.{profile_key}.lexicons",
                 )
             )
+        if profile.g2p_fallback is not None:
+            decisions.append(
+                ResolutionDecision(
+                    field="synthesis.g2p_fallback",
+                    value=profile.g2p_fallback,
+                    origin=ORIGIN_CONFIG_LANGUAGE_EXACT if profile_match == "exact" else ORIGIN_CONFIG_LANGUAGE_BASE,
+                    locator=f"languages.{profile_key}.g2p_fallback",
+                )
+            )
+        if profile.lexicon_data_policy is not None:
+            decisions.append(
+                ResolutionDecision(
+                    field="synthesis.lexicon_data_policy",
+                    value=profile.lexicon_data_policy,
+                    origin=ORIGIN_CONFIG_LANGUAGE_EXACT if profile_match == "exact" else ORIGIN_CONFIG_LANGUAGE_BASE,
+                    locator=f"languages.{profile_key}.lexicon_data_policy",
+                )
+            )
 
     # allow_experimental is additive (profile OR CLI); record the profile
     # contribution whenever it is the winning source.
@@ -707,6 +781,26 @@ def _resolve_synthesis_candidate(
                 locator="request.voice",
             )
         )
+    if request.g2p_fallback is not None:
+        g2p_fallback = request.g2p_fallback
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.g2p_fallback",
+                value=g2p_fallback,
+                origin=ORIGIN_CLI,
+                locator="request.g2p_fallback",
+            )
+        )
+    if request.lexicon_data_policy is not None:
+        lexicon_data_policy = request.lexicon_data_policy
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.lexicon_data_policy",
+                value=lexicon_data_policy,
+                origin=ORIGIN_CLI,
+                locator="request.lexicon_data_policy",
+            )
+        )
     if request.lexicons is not None:
         lexicons = request.lexicons
         decisions.append(
@@ -718,13 +812,25 @@ def _resolve_synthesis_candidate(
             )
         )
     elif request.clear_lexicons:
+        lexicons = ()
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.lexicons",
+                value=[],
+                origin=ORIGIN_CLI,
+                locator="request.clear_lexicons",
+                reason="explicitly disable static lexicon layers",
+            )
+        )
+    elif request.auto_lexicons:
         lexicons = None
         decisions.append(
             ResolutionDecision(
                 field="synthesis.lexicons",
                 value=None,
                 origin=ORIGIN_CLI,
-                locator="request.clear_lexicons",
+                locator="request.auto_lexicons",
+                reason="use PyKokoro/KokoroG2P language defaults",
             )
         )
 
@@ -824,6 +930,10 @@ def _resolve_synthesis_candidate(
         quality=quality,
         voice=voice,
         lexicons=lexicons,
+        g2p_fallback=g2p_fallback,
+        lexicon_data_policy=lexicon_data_policy,
+        language_detection=language_detection,
+        detect_languages=detect_languages,
         allow_experimental=allow_experimental,
         speed=speed,
         pause_mode=pause_mode,
@@ -856,8 +966,14 @@ def _concretize_backend_defaults(
 
     # Automatic path: call PyKokoro's public resolver.
     try:
-        from pykokoro import GenerationConfig, PipelineConfig, resolve_pipeline_config
-        from pykokoro.tokenizer import TokenizerConfig
+        from pykokoro import (
+            GenerationConfig,
+            LanguageDetectionConfig,
+            PipelineConfig,
+            resolve_pipeline_config,
+        )
+
+        from .reader import tokenizer_config_for_synthesis
 
         requested_backend = PipelineConfig(
             voice=candidate.voice,
@@ -870,10 +986,14 @@ def _concretize_backend_defaults(
                 speed=candidate.speed,
                 pause_mode=candidate.pause_mode,
             ),
-            tokenizer_config=(
-                TokenizerConfig(lexicons=candidate.lexicons)
-                if candidate.lexicons is not None
-                else None
+            tokenizer_config=tokenizer_config_for_synthesis(candidate),
+            language_detection=(
+                None
+                if candidate.language_detection is None
+                else LanguageDetectionConfig(
+                    mode=candidate.language_detection,
+                    languages=tuple(candidate.detect_languages or ()),
+                )
             ),
         )
 
@@ -938,6 +1058,10 @@ def _concretize_backend_defaults(
             quality=new_quality,
             voice=new_voice,
             lexicons=candidate.lexicons,
+            g2p_fallback=candidate.g2p_fallback,
+            lexicon_data_policy=candidate.lexicon_data_policy,
+            language_detection=candidate.language_detection,
+            detect_languages=candidate.detect_languages,
             allow_experimental=candidate.allow_experimental,
             speed=candidate.speed,
             pause_mode=candidate.pause_mode,
@@ -1450,8 +1574,26 @@ def resolve_plan(
     # Check for fatal input errors
     has_fatal_input = any(d.severity == "error" for d in input_diags)
 
+    document_language_detection: tuple[str, tuple[str, ...]] | None = None
+    if effective_doc.format == "ssmd":
+        from .ssmd import language_detection_hint
+        try:
+            document_language_detection = language_detection_hint(effective_doc.text)
+        except SSMDInputError as exc:
+            all_diagnostics.append(
+                PlanDiagnostic(
+                    code="ssmd.language_detection_invalid",
+                    severity="error",
+                    message=str(exc),
+                    field="synthesis.language_detection",
+                    source_path=effective_doc.source_path,
+                )
+            )
+
     # Stage 2 — Readio synthesis policy
-    candidate = _resolve_synthesis_candidate(cfg, request.synthesis)
+    candidate = _resolve_synthesis_candidate(
+        cfg, request.synthesis, document_language_detection
+    )
     all_decisions.extend(candidate.decisions)
 
     # Stage 3 — Backend concretization
@@ -1484,6 +1626,10 @@ def resolve_plan(
                 language_profile=language_profile_plan,
                 model=model_plan,
                 lexicons=candidate.lexicons,
+                g2p_fallback=candidate.g2p_fallback,
+                lexicon_data_policy=candidate.lexicon_data_policy,
+                language_detection=candidate.language_detection,
+                detect_languages=candidate.detect_languages,
                 allow_experimental=candidate.allow_experimental,
                 speed=candidate.speed,
                 pause_mode=candidate.pause_mode,
@@ -1571,6 +1717,10 @@ def resolved_synthesis_from_plan(
         quality=sp.model.quality if sp.model else None,
         voice=sp.model.voice if sp.model else None,
         lexicons=sp.lexicons,
+        g2p_fallback=sp.g2p_fallback,
+        lexicon_data_policy=sp.lexicon_data_policy,
+        language_detection=sp.language_detection,
+        detect_languages=sp.detect_languages,
         allow_experimental=sp.allow_experimental,
         speed=sp.speed,
         pause_mode=sp.pause_mode,
@@ -1614,7 +1764,11 @@ def format_plan_human(plan: ReadioPlan) -> str:
             lines.append(f"  Frontend:    {sp.model.frontend}")
         if sp.model.g2p_backend:
             lines.append(f"  G2P:         {sp.model.g2p_backend}")
-        if sp.lexicons:
+        if sp.lexicons is None:
+            lines.append("  Lexicons:    automatic language defaults")
+        elif not sp.lexicons:
+            lines.append("  Lexicons:    none (provider-only)")
+        else:
             lines.append(f"  Lexicons:    {', '.join(sp.lexicons)}")
         lines.append(f"  Speed:       {sp.speed}")
         lines.append(f"  Unit:        {sp.unit}")

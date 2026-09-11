@@ -11,6 +11,9 @@ from pathlib import Path
 from . import __version__
 from .audio import RenderProgressCallback, RenderSummary
 from .config import (
+    G2P_FALLBACKS,
+    LANGUAGE_DETECTION_MODES,
+    LEXICON_DATA_POLICIES,
     LanguageSettings,
     ReadioConfig,
     bind_voice_role,
@@ -139,10 +142,22 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--quality", help="model quality/quantization")
     lexicon_group = parser.add_mutually_exclusive_group()
-    lexicon_group.add_argument("--lexicon", dest="lexicons", action="append", metavar="NAME")
     lexicon_group.add_argument(
-        "--no-lexicons", action="store_true", help="clear configured named lexicons"
+        "--lexicon", dest="lexicons", action="append", metavar="NAME",
+        help="named PyKokoro/KokoroG2P lexicon, e.g. crane; repeat for layered lookup",
     )
+    lexicon_group.add_argument(
+        "--no-lexicons", action="store_true",
+        help="explicitly disable static lexicon layers (provider-only)",
+    )
+    lexicon_group.add_argument(
+        "--auto-lexicons", action="store_true",
+        help="use PyKokoro/KokoroG2P automatic language-default lexicons",
+    )
+    parser.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
+    parser.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
+    parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
+    parser.add_argument("--detect-language", dest="detect_languages", action="append", metavar="LANG")
     parser.add_argument(
         "--allow-experimental", action="store_true", help="allow experimental frontends"
     )
@@ -518,8 +533,17 @@ def _build_plan_request(
         model_source=getattr(args, "model_source", None),
         quality=getattr(args, "quality", None),
         voice=getattr(args, "voice", None),
-        lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) else None,
+        lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) is not None else None,
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),
+        auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
+        g2p_fallback=getattr(args, "g2p_fallback", None),
+        lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
+        language_detection=getattr(args, "language_detection", None),
+        detect_languages=(
+            tuple(args.detect_languages)
+            if getattr(args, "detect_languages", None) is not None
+            else None
+        ),
         allow_experimental=bool(getattr(args, "allow_experimental", False)),
         speed=getattr(args, "speed", None),
         pause_mode=getattr(args, "pause_mode", None),
@@ -788,6 +812,8 @@ def _language_settings_payload(settings: LanguageSettings | None) -> dict[str, o
         "quality": settings.quality,
         "voice": settings.voice,
         "lexicons": list(settings.lexicons) if settings.lexicons is not None else None,
+        "g2p_fallback": settings.g2p_fallback,
+        "lexicon_data_policy": settings.lexicon_data_policy,
         "allow_experimental": settings.allow_experimental,
     }
 
@@ -869,9 +895,17 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
     if args.lexicons is not None:
         lexicons = tuple(args.lexicons)
     elif args.no_lexicons:
+        lexicons = ()
+    elif args.auto_lexicons:
         lexicons = None
     else:
         lexicons = existing.lexicons
+    g2p_fallback = args.g2p_fallback if args.g2p_fallback is not None else existing.g2p_fallback
+    lexicon_data_policy = (
+        args.lexicon_data_policy
+        if args.lexicon_data_policy is not None
+        else existing.lexicon_data_policy
+    )
     allow_experimental = existing.allow_experimental or args.allow_experimental
     model = None
     if model_id is not None:
@@ -891,6 +925,8 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
         quality=quality,
         voice=voice,
         lexicons=lexicons,
+        g2p_fallback=g2p_fallback,
+        lexicon_data_policy=lexicon_data_policy,
         allow_experimental=allow_experimental,
     )
     if model is not None:
@@ -1574,8 +1610,20 @@ def build_parser() -> argparse.ArgumentParser:
     defaults_set.add_argument("--quality")
     defaults_set.add_argument("--voice")
     lexicon_group = defaults_set.add_mutually_exclusive_group()
-    lexicon_group.add_argument("--lexicon", dest="lexicons", action="append")
-    lexicon_group.add_argument("--no-lexicons", action="store_true")
+    lexicon_group.add_argument(
+        "--lexicon", dest="lexicons", action="append", metavar="NAME",
+        help="named PyKokoro/KokoroG2P lexicon, e.g. crane; repeat for layered lookup",
+    )
+    lexicon_group.add_argument(
+        "--no-lexicons", action="store_true",
+        help="explicitly disable static lexicon layers (provider-only)",
+    )
+    lexicon_group.add_argument(
+        "--auto-lexicons", action="store_true",
+        help="remove the persisted lexicon override and use language defaults",
+    )
+    defaults_set.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
+    defaults_set.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
     defaults_set.add_argument("--allow-experimental", action="store_true")
     defaults_set.add_argument("--offline", action="store_true")
     defaults_set.add_argument("--refresh", action="store_true")

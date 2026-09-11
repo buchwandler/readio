@@ -55,7 +55,7 @@ The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-man
 
 ## Model discovery
 
-Use PyKokoro 0.9.x metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
+Use PyKokoro >=0.9.2,<0.10 metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
 
 ```bash
 readio models list --language de --offline --json
@@ -80,8 +80,10 @@ readio defaults list --json
 readio defaults reset de
 ```
 
-When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`; explicit options override persisted defaults. Prefer discovery JSON over embedded model or voice lists in agent workflows.
+When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `--lexicon NAME` accepts named PyKokoro selectors such as `crane`; `--no-lexicons` selects no static layers, while `--auto-lexicons` restores language defaults. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
 
+
+`--g2p-fallback` accepts `none`, `espeak`, or `goruut`; `--lexicon-data-policy` accepts `auto` or `installed-only`. `--language-detection auto` plus repeatable `--detect-language LANG` controls pronunciation routing. Plans preserve `lexicons: null` versus `lexicons: []`. Do not pass `de-de:crane` as the selector: it is the language-qualified Lexphon asset ID resolved downstream; `de-crane` is an acoustic model.
 ## Audio
 
 Supported formats are WAV, MP3, M4A, and OGG. Infer the format from an output suffix where possible; explicit format and suffix must agree. M4A requires FFmpeg. Use `--force` to replace an existing output.

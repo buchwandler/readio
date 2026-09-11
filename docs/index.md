@@ -80,12 +80,19 @@ Synthesis options are available on all three commands:
 ```text
 --voice VOICE       PyKokoro voice ID
 --lang LANGUAGE     language code, such as en-us
+--lexicon NAME     named PyKokoro lexicon; repeat for ordered layers
+--no-lexicons      explicit provider-only pronunciation
+--auto-lexicons    restore automatic language-default lexicons
+--g2p-fallback MODE none, espeak, or goruut
+--lexicon-data-policy POLICY auto or installed-only
+--language-detection MODE off or auto
+--detect-language LANG repeatable pronunciation-routing language
 --speed NUMBER      speech speed multiplier
 --pause-mode MODE   tts, manual, or auto
 --unit UNIT         sentence or paragraph
 ```
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio 0.2.0 requires the PyKokoro 0.9.x public discovery contract:
+Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio 0.2.0 requires the PyKokoro >=0.9.2,<0.10 public discovery and tokenizer contract:
 
 ```bash
 readio models list --language de --offline
@@ -98,7 +105,7 @@ readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
 
-`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `defaults` stores validated user policy in schema 2. Exact locale profiles override base-language profiles, and `--no-lexicons` explicitly clears inherited lexicons. Repeated named lexicons retain their order for layered lookup.
+`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `--lexicon crane` selects a named lexicon; `de-de:crane` is the downstream Lexphon asset ID, while `de-crane` is an acoustic model ID.
 `--model-source github|huggingface` drives both discovery and runtime selection. Voices are model-scoped. The legacy global `reader.voice` applies only to unchanged default-reader use; a language override such as `--lang de` leaves voice selection to the active PyKokoro model unless explicitly set. SSMD preflight uses that same resolved model roster.
 
 ## Synthesis planning
@@ -116,6 +123,8 @@ Keep the layers separate:
 - **Defaults** (`readio defaults`) persist validated per-language preferences.
 - **Planning** (`readio plan`, `render --dry-run`) resolves one concrete request — model, source, quality, voice, lexicons, SSMD cast with per-reference bindings, output format/backend/path — and records a decision (winning source) for every effective value. Generated output paths are allocated once by the plan and reused by the render.
 - **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
+
+Plans preserve the tokenizer tri-state: `lexicons: null` means PyKokoro language defaults, `lexicons: []` means no static lexicon layers, and a non-empty list means ordered named layers. Fallback and lexicon data policy are also carried unchanged into `TokenizerConfig`; SSMD `language_detection` hints are resolved into the plan before execution.
 
 Planning is deterministic: `--resolve-voices` is rejected during `plan`/`--dry-run` in favor of `--voice-bind ROLE=VOICE_ID` or persisted roles, and `plan` supports `--force` to mirror render output requests.
 
@@ -162,8 +171,8 @@ readio config validate
 - `[ssmd]`: the selected `voice_provider` and SSMD validation behavior.
 - `[paths]`: user template, ingest, and audio output directories.
 - `[voices.<provider>]`: concrete voice IDs and logical role mappings.
-
-- `[languages.<locale>]`: validated model, source, quality, voice, ordered lexicons, and experimental opt-in defaults.
+- `[languages.<locale>]`: validated model, source, quality, voice, ordered lexicons, `g2p_fallback`, and `lexicon_data_policy` defaults.
+- `[reader]`: optional `language_detection` mode and ordered `detect_languages` routing hints.
   Set values with dotted keys. Aliases `voice`, `lang`, and `speed` target the corresponding reader settings:
 
 ```bash

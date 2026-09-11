@@ -31,6 +31,10 @@ DEFAULT_KOKORO_ROLES = {
     "guest": "af_bella",
 }
 
+G2P_FALLBACKS = ("none", "espeak", "goruut")
+LEXICON_DATA_POLICIES = ("auto", "installed-only")
+LANGUAGE_DETECTION_MODES = ("off", "auto")
+
 
 @dataclass(frozen=True, slots=True)
 class ReaderSettings:
@@ -42,6 +46,8 @@ class ReaderSettings:
     queue_size: int = 2
     device: str | None = None
 
+    language_detection: str | None = None
+    detect_languages: tuple[str, ...] | None = None
 
 ReaderConfig = ReaderSettings
 
@@ -53,6 +59,8 @@ class LanguageSettings:
     quality: str | None = None
     voice: str | None = None
     lexicons: tuple[str, ...] | None = None
+    g2p_fallback: str | None = None
+    lexicon_data_policy: str | None = None
     allow_experimental: bool = False
 
 
@@ -153,6 +161,19 @@ def _coerce_reader_value(key: str, value: Any) -> Any:
         return value
     if key == "device":
         return None if value in {None, "", "none", "null"} else str(value)
+    if key == "language_detection":
+        return _optional_choice(value, "reader.language_detection", LANGUAGE_DETECTION_MODES)
+    if key == "detect_languages":
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()]
+        if not isinstance(value, (list, tuple)):
+            raise TypeError("reader.detect_languages must be a list")
+        languages = tuple(normalize_language_key(item) for item in value)
+        if len(languages) != len(set(languages)):
+            raise ValueError("reader.detect_languages must not contain duplicates")
+        return languages
     return str(value)
 
 
@@ -201,6 +222,13 @@ def _optional_string(value: Any, field_name: str) -> str | None:
         raise ValueError(f"languages profile {field_name} must be a non-empty string")
     return value.strip()
 
+def _optional_choice(value: Any, field_name: str, choices: tuple[str, ...]) -> str | None:
+    value = _optional_string(value, field_name)
+    if value is not None and value not in choices:
+        allowed = ", ".join(choices)
+        raise ValueError(f"languages profile {field_name} must be one of: {allowed}")
+    return value
+
 
 def _language(value: Any, language: str) -> LanguageSettings:
     if not isinstance(value, dict):
@@ -214,6 +242,10 @@ def _language(value: Any, language: str) -> LanguageSettings:
             raise ValueError(f"languages.{language}.lexicons must contain non-empty strings")
         if len(lexicons) != len(set(lexicons)):
             raise ValueError(f"languages.{language}.lexicons must not contain duplicates")
+    g2p_fallback = _optional_choice(value.get("g2p_fallback"), "g2p_fallback", G2P_FALLBACKS)
+    lexicon_data_policy = _optional_choice(
+        value.get("lexicon_data_policy"), "lexicon_data_policy", LEXICON_DATA_POLICIES
+    )
     allow_experimental = value.get("allow_experimental", False)
     if not isinstance(allow_experimental, bool):
         raise TypeError(f"languages.{language}.allow_experimental must be a boolean")
@@ -223,6 +255,8 @@ def _language(value: Any, language: str) -> LanguageSettings:
         quality=_optional_string(value.get("quality"), "quality"),
         voice=_optional_string(value.get("voice"), "voice"),
         lexicons=lexicons,
+        g2p_fallback=g2p_fallback,
+        lexicon_data_policy=lexicon_data_policy,
         allow_experimental=allow_experimental,
     )
 
@@ -246,6 +280,8 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
     _coerce_reader_value("queue_size", cfg.reader.queue_size)
     _coerce_reader_value("unit", cfg.reader.unit)
     _coerce_reader_value("pause_mode", cfg.reader.pause_mode)
+    _coerce_reader_value("language_detection", cfg.reader.language_detection)
+    _coerce_reader_value("detect_languages", cfg.reader.detect_languages)
     if not cfg.ssmd.voice_provider:
         raise ValueError("ssmd.voice_provider must be a non-empty string")
     for field_name in _PATH_KEYS:
@@ -265,6 +301,8 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
                 "quality": settings.quality,
                 "voice": settings.voice,
                 "lexicons": list(settings.lexicons) if settings.lexicons is not None else None,
+                "g2p_fallback": settings.g2p_fallback,
+                "lexicon_data_policy": settings.lexicon_data_policy,
                 "allow_experimental": settings.allow_experimental,
             },
             language,
@@ -432,6 +470,8 @@ def _serializable_data(cfg: ReadioConfig, *, schema: int = 2) -> dict[str, Any]:
                     "quality": settings.quality,
                     "voice": settings.voice,
                     "lexicons": settings.lexicons,
+                    "g2p_fallback": settings.g2p_fallback,
+                    "lexicon_data_policy": settings.lexicon_data_policy,
                     "allow_experimental": settings.allow_experimental,
                 }.items()
                 if value is not None
@@ -477,6 +517,10 @@ def set_config_value(
             value = _coerce_bool(value, f"languages.{language}.{field_name}")
         elif field_name in {"model", "source", "quality", "voice"}:
             value = _optional_string(value, field_name)
+        elif field_name == "g2p_fallback":
+            value = _optional_choice(value, field_name, G2P_FALLBACKS)
+        elif field_name == "lexicon_data_policy":
+            value = _optional_choice(value, field_name, LEXICON_DATA_POLICIES)
         _set_nested(data, ["languages", language, field_name], value)
         return _config_from_data(data)
     elif key != "schema":

@@ -17,7 +17,7 @@ from .config import ReaderSettings, ReadioConfig
 from .document import InputDocument, document_from_text
 from .errors import InputError, RenderError
 from .markdown import markdown_to_speech
-from .ssmd import build_ssmd_render_config, preflight_ssmd
+from .ssmd import build_ssmd_render_config, language_detection_hint, preflight_ssmd
 from .synthesis import ResolvedSynthesis, resolve_synthesis
 from .text import iter_live_paragraphs
 
@@ -42,6 +42,36 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
     return InputDocument(text=text, source_path=document.source_path, format="text")
 
 
+def tokenizer_config_for_synthesis(synthesis: object) -> Any:
+    """Build the explicit PyKokoro tokenizer override, if one is needed."""
+    from pykokoro.tokenizer import TokenizerConfig
+    values = {
+        "lexicons": getattr(synthesis, "lexicons", None),
+        "fallback": getattr(synthesis, "g2p_fallback", None),
+        "lexicon_data_policy": getattr(synthesis, "lexicon_data_policy", None),
+    }
+    if not any(value is not None for value in values.values()):
+        return None
+    return TokenizerConfig(**{key: value for key, value in values.items() if value is not None})
+
+
+def language_detection_config_for_synthesis(
+    synthesis: object,
+    document: InputDocument | None = None,
+) -> Any:
+    """Build PyKokoro language-detection configuration from resolved intent."""
+    mode = getattr(synthesis, "language_detection", None)
+    languages = getattr(synthesis, "detect_languages", None)
+    if mode is None and document is not None and document.format == "ssmd":
+        hint = language_detection_hint(document.text)
+        if hint is not None:
+            mode, languages = hint
+    if mode is None:
+        return None
+    from pykokoro import LanguageDetectionConfig
+    return LanguageDetectionConfig(mode=mode, languages=tuple(languages or ()))
+
+
 def pipeline_config_for_document(
     document: InputDocument,
     cfg: ReadioConfig,
@@ -50,7 +80,6 @@ def pipeline_config_for_document(
     synthesis: ResolvedSynthesis | None = None,
 ) -> Any:
     from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
-    from pykokoro.tokenizer import TokenizerConfig
 
     resolved = synthesis or resolve_synthesis(cfg)
     generation = GenerationConfig(
@@ -58,9 +87,8 @@ def pipeline_config_for_document(
         speed=resolved.speed,
         pause_mode=resolved.pause_mode,
     )
-    tokenizer_config = (
-        TokenizerConfig(lexicons=resolved.lexicons) if resolved.lexicons is not None else None
-    )
+    tokenizer_config = tokenizer_config_for_synthesis(resolved)
+    language_detection = language_detection_config_for_synthesis(resolved, document)
     ssmd = (
         build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings, resolved)
         if document.format == "ssmd"
@@ -73,6 +101,7 @@ def pipeline_config_for_document(
         model_quality=resolved.quality,
         allow_experimental_frontend=resolved.allow_experimental,
         generation=generation,
+        language_detection=language_detection,
         tokenizer_config=tokenizer_config,
         ssmd=ssmd,
     )
@@ -87,21 +116,17 @@ def pipeline_config_from_plan(
     All values come from the plan — no automatic selection is re-run.
     """
     from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
-    from pykokoro.tokenizer import TokenizerConfig
 
     synthesis = plan.synthesis
     if synthesis is None:
         raise ValueError("plan has no synthesis; cannot build pipeline config")
-
     generation = GenerationConfig(
         lang=synthesis.language,
         speed=synthesis.speed,
         pause_mode=synthesis.pause_mode,
     )
-
-    tokenizer_config = (
-        TokenizerConfig(lexicons=synthesis.lexicons) if synthesis.lexicons is not None else None
-    )
+    tokenizer_config = tokenizer_config_for_synthesis(synthesis)
+    language_detection = language_detection_config_for_synthesis(synthesis)
 
     # Build SSMD render config from plan bindings
     if document.format == "ssmd" and plan.ssmd.enabled:
@@ -130,6 +155,7 @@ def pipeline_config_from_plan(
         model_quality=model.quality,
         allow_experimental_frontend=synthesis.allow_experimental,
         generation=generation,
+        language_detection=language_detection,
         tokenizer_config=tokenizer_config,
         ssmd=ssmd,
     )

@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import LanguageSettings, normalize_language_key
 
-PYKOKORO_REQUIRED = ">=0.9.1,<0.10"
+PYKOKORO_REQUIRED = ">=0.9.2,<0.10"
 _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
 
@@ -124,10 +124,7 @@ def _version_supported(version: str) -> bool:
         return False
     major, minor = int(match.group(1)), int(match.group(2))
     patch = int(match.group(3) or 0)
-    is_09 = (major, minor) == (0, 9)
-    is_api_bearing_dev = (major, minor, patch) == (0, 8, 9) and "dev" in version
-    return is_09 or is_api_bearing_dev
-
+    return (major, minor, patch) >= (0, 9, 2) and (major, minor) == (0, 9)
 
 def _package_metadata() -> str | None:
     try:
@@ -400,9 +397,20 @@ def validate_language_settings(
         missing = tuple(item for item in settings.lexicons if item not in model.lexicons)
         if missing:
             available = ", ".join(model.lexicons) or "none"
+            qualified = missing[0]
+            named = qualified.rsplit(":", 1)[-1] if ":" in qualified else None
+            if named and named in model.lexicons:
+                message = (
+                    f"Use the named lexicon {named!r}. {qualified!r} is the underlying "
+                    "language-qualified Lexphon asset ID."
+                )
+            else:
+                message = (
+                    f"Lexicon '{qualified}' is not available for model '{model.id}' / "
+                    f"language '{normalized}'. Available lexicons: {available}"
+                )
             raise ModelDiscoveryError(
-                f"Lexicon '{missing[0]}' is not available for model '{model.id}' / language '{normalized}'. "
-                f"Available lexicons: {available}",
+                message,
                 code="pykokoro.lexicon_invalid",
             )
     return settings

@@ -211,6 +211,37 @@ class SSMDPreflightResult:
             diagnostic.severity == "error" for diagnostic in self.diagnostics
         )
 
+def language_detection_hint(text: str) -> tuple[str, tuple[str, ...]] | None:
+    """Return the SSMD language-detection hint, if one is present."""
+    try:
+        header = ssmd_api.parse_front_matter(text).data
+    except Exception as exc:
+        raise SSMDInputError(f"invalid SSMD front matter: {exc}") from exc
+    raw = header.get("language_detection")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        mode = raw.strip().lower()
+        languages: Any = ()
+    elif isinstance(raw, Mapping):
+        mode = str(raw.get("mode", "off")).strip().lower()
+        languages = raw.get("languages", ())
+    else:
+        raise SSMDInputError("SSMD front matter language_detection must be a string or mapping")
+    if mode not in {"off", "auto"}:
+        raise SSMDInputError("SSMD language_detection.mode must be 'off' or 'auto'")
+    if isinstance(languages, str):
+        languages = [languages]
+    if not isinstance(languages, (list, tuple)) or any(not isinstance(item, str) for item in languages):
+        raise SSMDInputError("SSMD language_detection.languages must be a list of strings")
+    normalized = tuple(item.strip().lower().replace("_", "-") for item in languages)
+    if any(not item for item in normalized):
+        raise SSMDInputError("SSMD language_detection.languages must be non-empty")
+    if len(normalized) != len(set(normalized)):
+        raise SSMDInputError("SSMD language_detection.languages must not contain duplicates")
+    return mode, normalized
+
+
 
 def document_voice_bindings(text: str) -> dict[str, dict[str, str]]:
     """Read and normalize document-local voice bindings through SSMD's API."""

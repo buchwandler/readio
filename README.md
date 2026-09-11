@@ -68,7 +68,7 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 
 ### Model discovery and language defaults
 
-PyKokoro 0.9.x is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
+PyKokoro >=0.9.2,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
 
 ```bash
 readio models list --language de --offline
@@ -89,10 +89,29 @@ readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
 
-When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` clears an inherited explicit selection. Repeat `--lexicon` to preserve ordered layered lookup.
+When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to PyKokoro language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
 
-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, and `--allow-experimental`) override persisted defaults. Use `--json` for automation; JSON preserves unknown lexicon capability as `null` rather than an empty list.
+Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, and repeatable `--detect-language`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
 `--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
+
+Named lexicons use PyKokoro selectors, not backend asset IDs:
+
+```text
+crane          = named selection token
+de-de:crane    = language-qualified Lexphon asset resolved downstream
+de-crane       = separate acoustic model ID
+```
+
+For reproducible German synthesis:
+
+```bash
+readio models show de-thorsten
+readio defaults set de --model de-thorsten --lexicon crane --g2p-fallback espeak --lexicon-data-policy auto
+readio plan --file article.md --lang de --json
+readio render --file article.md --lang de --model de-thorsten --no-lexicons --g2p-fallback espeak --format mp3
+```
+
+The plan also records optional PyKokoro language detection. SSMD documents may use `language_detection: {mode: auto, languages: [de, en]}`; this routes pronunciation fragments while retaining the selected acoustic language.
 
 ## Templates
 

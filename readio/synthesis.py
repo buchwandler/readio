@@ -63,6 +63,10 @@ class ResolvedSynthesis:
     speed: float
     pause_mode: str
     unit: str
+    g2p_fallback: str | None = None
+    lexicon_data_policy: str | None = None
+    language_detection: str | None = None
+    detect_languages: tuple[str, ...] | None = None
     resolved_model: ResolvedModel | None = None
     # Compatibility view for callers that only need the active concrete roster.
     model_voices: tuple[str, ...] | None = None
@@ -107,6 +111,8 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
     allow_experimental = profile.allow_experimental if profile is not None else False
+    g2p_fallback = profile.g2p_fallback if profile is not None else None
+    lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
 
     explicit_model = getattr(args, "model", None)
     if explicit_model is not None:
@@ -120,8 +126,23 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     if getattr(args, "lexicons", None) is not None:
         lexicons = tuple(args.lexicons)
     elif getattr(args, "no_lexicons", False):
+        lexicons = ()
+    elif getattr(args, "auto_lexicons", False):
         lexicons = None
-    allow_experimental = allow_experimental or bool(getattr(args, "allow_experimental", False))
+    if getattr(args, "g2p_fallback", None) is not None:
+        g2p_fallback = args.g2p_fallback
+    if getattr(args, "lexicon_data_policy", None) is not None:
+        lexicon_data_policy = args.lexicon_data_policy
+    language_detection = getattr(args, "language_detection", None)
+    detect_languages = (
+        tuple(args.detect_languages)
+        if getattr(args, "detect_languages", None) is not None
+        else cfg.reader.detect_languages
+    )
+    if language_detection is None:
+        language_detection = cfg.reader.language_detection
+    if language_detection is None and detect_languages is not None:
+        language_detection = "auto"
 
     resolved_model: ResolvedModel | None = None
     discovery_source: str | None = None
@@ -152,6 +173,8 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
                 quality=quality,
                 voice=voice,
                 lexicons=lexicons,
+                g2p_fallback=g2p_fallback,
+                lexicon_data_policy=lexicon_data_policy,
                 allow_experimental=allow_experimental,
             ),
             discovered,
@@ -173,6 +196,10 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         quality=quality,
         voice=voice,
         lexicons=lexicons,
+        g2p_fallback=g2p_fallback,
+        lexicon_data_policy=lexicon_data_policy,
+        language_detection=language_detection,
+        detect_languages=detect_languages,
         allow_experimental=allow_experimental,
         speed=float(
             getattr(args, "speed", None)

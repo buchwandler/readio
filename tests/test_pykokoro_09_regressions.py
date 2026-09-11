@@ -33,14 +33,13 @@ MODEL = ModelInfo(
 )
 
 
-def test_discovery_api_mismatch_reports_installed_version(monkeypatch) -> None:
-    fake = SimpleNamespace(__version__="0.9.0")
+def test_discovery_rejects_pykokoro_091_with_required_version(monkeypatch) -> None:
+    fake = SimpleNamespace(__version__="0.9.1")
     monkeypatch.setitem(sys.modules, "pykokoro", fake)
-    with pytest.raises(ModelDiscoveryError, match="required by Readio 0.2.0") as error:
+    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.2,<0.10") as error:
         _pykokoro_discovery()
-    assert error.value.code == "pykokoro.discovery_api_missing"
-    assert error.value.installed_version == "0.9.0"
-
+    assert error.value.code == "pykokoro.version_unsupported"
+    assert error.value.installed_version == "0.9.1"
 
 def test_model_validation_rejects_quality_and_known_lexicon() -> None:
     with pytest.raises(ModelDiscoveryError) as quality_error:
