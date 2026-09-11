@@ -16,7 +16,14 @@ from readio.config import (
 
 def test_config_round_trip(tmp_path: Path):
     path = tmp_path / "config.toml"
-    cfg = ReaderConfig(voice="bf_emma", lang="en-gb", speed=1.25, unit="paragraph", device="USB")
+    cfg = ReaderConfig(
+        voice="bf_emma",
+        lang="en-gb",
+        speed=1.25,
+        unit="paragraph",
+        device="USB",
+        spacy="off",
+    )
     path.write_text(dumps_config(cfg), encoding="utf-8")
     assert load_config(path) == cfg
 

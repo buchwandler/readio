@@ -11,6 +11,7 @@ from .models import ModelInfo, get_model_info, validate_language_settings
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass(frozen=True, slots=True)
 class DiscoveryPolicy:
     offline: bool = False
@@ -66,6 +67,7 @@ class ResolvedSynthesis:
     pause_mode: str
     unit: str
     g2p_fallback: str | None = None
+    spacy: str = "auto"
     lexicon_data_policy: str | None = None
     language_detection: str | None = None
     detect_languages: tuple[str, ...] | None = None
@@ -107,7 +109,11 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     args = args or Namespace()
     language, profile, cli_language = _raw_synthesis_selection(cfg, args)
 
-    logger.info("synthesis.resolve language=%s model=%s", language, getattr(args, "model", None) or "profile/default")
+    logger.info(
+        "synthesis.resolve language=%s model=%s",
+        language,
+        getattr(args, "model", None) or "profile/default",
+    )
     model = profile.model if profile is not None else None
     source = profile.source if profile is not None else None
     quality = profile.quality if profile is not None else None
@@ -117,6 +123,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
 
+    spacy = getattr(args, "spacy", None) or cfg.reader.spacy
     explicit_model = getattr(args, "model", None)
     if explicit_model is not None:
         model = explicit_model
@@ -209,6 +216,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         lexicons=lexicons,
         g2p_fallback=g2p_fallback,
         lexicon_data_policy=lexicon_data_policy,
+        spacy=spacy,
         language_detection=language_detection,
         detect_languages=detect_languages,
         allow_experimental=allow_experimental,

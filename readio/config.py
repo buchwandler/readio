@@ -35,6 +35,8 @@ G2P_FALLBACKS = ("none", "espeak", "goruut")
 LEXICON_DATA_POLICIES = ("auto", "installed-only")
 LANGUAGE_DETECTION_MODES = ("off", "auto")
 
+SPACY_POLICIES = ("auto", "off", "required")
+
 
 @dataclass(frozen=True, slots=True)
 class ReaderSettings:
@@ -48,6 +50,8 @@ class ReaderSettings:
 
     language_detection: str | None = None
     detect_languages: tuple[str, ...] | None = None
+
+    spacy: str = "auto"
 
 
 ReaderConfig = ReaderSettings
@@ -162,6 +166,12 @@ def _coerce_reader_value(key: str, value: Any) -> Any:
         return value
     if key == "device":
         return None if value in {None, "", "none", "null"} else str(value)
+    if key == "spacy":
+        value = str(value)
+        if value not in SPACY_POLICIES:
+            allowed = ", ".join(SPACY_POLICIES)
+            raise ValueError(f"reader.spacy must be one of: {allowed}")
+        return value
     if key == "language_detection":
         return _optional_choice(value, "reader.language_detection", LANGUAGE_DETECTION_MODES)
     if key == "detect_languages":
@@ -282,6 +292,7 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
     _coerce_reader_value("queue_size", cfg.reader.queue_size)
     _coerce_reader_value("unit", cfg.reader.unit)
     _coerce_reader_value("pause_mode", cfg.reader.pause_mode)
+    _coerce_reader_value("spacy", cfg.reader.spacy)
     _coerce_reader_value("language_detection", cfg.reader.language_detection)
     _coerce_reader_value("detect_languages", cfg.reader.detect_languages)
     if not cfg.ssmd.voice_provider:

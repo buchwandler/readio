@@ -14,7 +14,9 @@ class IsoLocalFormatter(logging.Formatter):
     """Format records with local timezone-aware ISO-8601 timestamps."""
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
-        return datetime.fromtimestamp(record.created).astimezone().isoformat(timespec="milliseconds")
+        return (
+            datetime.fromtimestamp(record.created).astimezone().isoformat(timespec="milliseconds")
+        )
 
 
 def logging_level_for_verbosity(verbosity: int) -> int:

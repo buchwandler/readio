@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 class SelectionError(ValueError):
     pass
 
@@ -49,10 +50,13 @@ def tokenizer_config_for_synthesis(synthesis: object) -> Any:
     """Build the explicit PyKokoro tokenizer override, if one is needed."""
     from pykokoro.tokenizer import TokenizerConfig
 
+    spacy_policy = getattr(synthesis, "spacy", None)
+    use_spacy = {"off": False, "required": True}.get(spacy_policy)
     values = {
         "lexicons": getattr(synthesis, "lexicons", None),
         "fallback": getattr(synthesis, "g2p_fallback", None),
         "lexicon_data_policy": getattr(synthesis, "lexicon_data_policy", None),
+        "use_spacy": use_spacy,
     }
     if not any(value is not None for value in values.values()):
         return None
@@ -224,7 +228,7 @@ def _build_pipeline(
 ) -> AbstractContextManager[Any]:
     logger.info(
         "tts.load.start model=%s voice=%s",
-        getattr(synthesis, "model", None) or getattr(cfg, "reader", cfg).voice,
+        getattr(synthesis, "model", None) or "default",
         getattr(synthesis, "voice", None) or getattr(cfg, "reader", cfg).voice,
     )
     from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig

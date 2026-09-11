@@ -24,6 +24,7 @@ from .spotify import (
 
 logger = logging.getLogger(__name__)
 
+
 def _add_json(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="emit one JSON result object")
 

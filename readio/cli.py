@@ -16,6 +16,7 @@ from .config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
     LEXICON_DATA_POLICIES,
+    SPACY_POLICIES,
     LanguageSettings,
     ReadioConfig,
     bind_voice_role,
@@ -94,6 +95,7 @@ from .wave import atomic_audio_path, create_audio_sink
 
 logger = logging.getLogger(__name__)
 
+
 def _add_input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "text",
@@ -165,6 +167,9 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
     parser.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
+    parser.add_argument(
+        "--spacy", choices=SPACY_POLICIES, help="spaCy policy: auto, off, or required"
+    )
     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
     parser.add_argument(
         "--detect-language", dest="detect_languages", action="append", metavar="LANG"
@@ -232,7 +237,6 @@ class GlobalCliOptions:
     verbosity: int = 0
 
 
-
 def _extract_global_options(
     argv: Sequence[str] | None,
 ) -> tuple[list[str] | None, GlobalCliOptions]:
@@ -261,6 +265,7 @@ def _extract_global_options(
         json=json_enabled,
         verbosity=min(verbosity, MAX_VERBOSITY),
     )
+
 
 def progress_enabled(args: argparse.Namespace, stream: object = sys.stderr) -> bool:
     explicit = getattr(args, "progress", None)
@@ -565,6 +570,7 @@ def _build_plan_request(
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),
         auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
         g2p_fallback=getattr(args, "g2p_fallback", None),
+        spacy=getattr(args, "spacy", None),
         lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
         language_detection=getattr(args, "language_detection", None),
         detect_languages=(
@@ -1833,6 +1839,7 @@ def _error_payload(exc: Exception) -> dict[str, object]:
             payload[name] = _json_value(value)
     return payload
 
+
 def _log_command_error(args: argparse.Namespace, exc: Exception) -> None:
     if getattr(args, "verbose", 0) >= MAX_VERBOSITY:
         logger.debug(
@@ -1841,7 +1848,6 @@ def _log_command_error(args: argparse.Namespace, exc: Exception) -> None:
             exc,
             exc_info=(type(exc), exc, exc.__traceback__),
         )
-
 
 
 def main(argv: Sequence[str] | None = None) -> None:

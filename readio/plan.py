@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from . import __version__
-from .config import ReadioConfig, language_profile, normalize_language_key
+from .config import SPACY_POLICIES, ReadioConfig, language_profile, normalize_language_key
 from .document import InputDocument, InputFormat, InputFormatRequest, resolve_input_format
 from .errors import SSMDInputError
 from .formats import (
@@ -162,6 +162,7 @@ class SynthesisRequest:
     lexicons: tuple[str, ...] | None = None
     clear_lexicons: bool = False
     auto_lexicons: bool = False
+    spacy: str | None = None
     g2p_fallback: str | None = None
     lexicon_data_policy: str | None = None
     language_detection: str | None = None
@@ -295,6 +296,7 @@ class SynthesisPlan:
     model: ModelPlan
     lexicons: tuple[str, ...] | None
     g2p_fallback: str | None
+    spacy: str
     lexicon_data_policy: str | None
     language_detection: str | None
     detect_languages: tuple[str, ...] | None
@@ -311,6 +313,7 @@ class SynthesisPlan:
             "model": self.model.to_dict(),
             "lexicons": list(self.lexicons) if self.lexicons is not None else None,
             "g2p_fallback": self.g2p_fallback,
+            "spacy": self.spacy,
             "lexicon_data_policy": self.lexicon_data_policy,
             "language_detection": self.language_detection,
             "detect_languages": (
@@ -455,6 +458,7 @@ class SynthesisCandidate:
     voice: str | None
     lexicons: tuple[str, ...] | None
     g2p_fallback: str | None
+    spacy: str
     lexicon_data_policy: str | None
     language_detection: str | None
     detect_languages: tuple[str, ...] | None
@@ -601,6 +605,19 @@ def _resolve_synthesis_candidate(
     allow_experimental = profile.allow_experimental if profile is not None else False
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
+
+    spacy = request.spacy if request.spacy is not None else cfg.reader.spacy
+    if spacy not in SPACY_POLICIES:
+        raise ValueError(f"reader.spacy must be one of: {', '.join(SPACY_POLICIES)}")
+    if request.spacy is not None or spacy != "auto":
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.spacy",
+                value=spacy,
+                origin=ORIGIN_CLI if request.spacy is not None else ORIGIN_CONFIG_READER,
+                locator="request.spacy" if request.spacy is not None else "reader.spacy",
+            )
+        )
 
     language_detection = request.language_detection
     detect_languages = request.detect_languages
@@ -947,6 +964,7 @@ def _resolve_synthesis_candidate(
         voice=voice,
         lexicons=lexicons,
         g2p_fallback=g2p_fallback,
+        spacy=spacy,
         lexicon_data_policy=lexicon_data_policy,
         language_detection=language_detection,
         detect_languages=detect_languages,
@@ -1075,6 +1093,7 @@ def _concretize_backend_defaults(
             voice=new_voice,
             lexicons=candidate.lexicons,
             g2p_fallback=candidate.g2p_fallback,
+            spacy=candidate.spacy,
             lexicon_data_policy=candidate.lexicon_data_policy,
             language_detection=candidate.language_detection,
             detect_languages=candidate.detect_languages,
@@ -1643,6 +1662,7 @@ def resolve_plan(
                 model=model_plan,
                 lexicons=candidate.lexicons,
                 g2p_fallback=candidate.g2p_fallback,
+                spacy=candidate.spacy,
                 lexicon_data_policy=candidate.lexicon_data_policy,
                 language_detection=candidate.language_detection,
                 detect_languages=candidate.detect_languages,
@@ -1726,6 +1746,7 @@ def resolved_synthesis_from_plan(
             voice=None,
             lexicons=None,
             allow_experimental=False,
+            spacy="auto",
             speed=1.0,
             pause_mode="tts",
             unit="sentence",
@@ -1740,6 +1761,7 @@ def resolved_synthesis_from_plan(
         voice=sp.model.voice if sp.model else None,
         lexicons=sp.lexicons,
         g2p_fallback=sp.g2p_fallback,
+        spacy=sp.spacy,
         lexicon_data_policy=sp.lexicon_data_policy,
         language_detection=sp.language_detection,
         detect_languages=sp.detect_languages,

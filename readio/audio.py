@@ -12,6 +12,7 @@ from .config import ReaderSettings
 
 logger = logging.getLogger(__name__)
 
+
 class AudioSink(Protocol):
     """Synchronous destination for one rendered waveform chunk."""
 

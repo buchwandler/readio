@@ -83,6 +83,8 @@ def test_parser_exposes_092_controls_and_keeps_lexicon_modes_exclusive() -> None
             "installed-only",
             "--language-detection",
             "auto",
+            "--spacy",
+            "off",
             "--detect-language",
             "de",
             "--detect-language",
@@ -93,6 +95,7 @@ def test_parser_exposes_092_controls_and_keeps_lexicon_modes_exclusive() -> None
     assert args.g2p_fallback == "goruut"
     assert args.lexicon_data_policy == "installed-only"
     assert args.detect_languages == ["de", "en"]
+    assert args.spacy == "off"
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["render", "text", "--no-lexicons", "--auto-lexicons"])
 

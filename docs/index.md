@@ -152,7 +152,6 @@ readio render --file notes.md -o notes.mp3 --json --progress
 
 Bounded renders show phases, completed/total units, percentage, elapsed time, approximate ETA, generated audio duration, and finalization. Live rendering shows elapsed time, cumulative units, and audio duration but no invented percentage or ETA.
 
-
 ## Verbose diagnostics
 
 Use `-v` for timestamped INFO lifecycle records and `-vv` for DEBUG details from Readio and PyKokoro:

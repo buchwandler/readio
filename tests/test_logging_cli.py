@@ -73,9 +73,7 @@ def test_global_options_are_extracted_and_literal_options_are_preserved():
     assert options.verbosity == 2
     assert options.json is True
 
-    normalized, options = cli._extract_global_options(
-        ["speak", "--", "--verbose", "-vv", "--json"]
-    )
+    normalized, options = cli._extract_global_options(["speak", "--", "--verbose", "-vv", "--json"])
     assert normalized == ["speak", "--", "--verbose", "-vv", "--json"]
     assert options.verbosity == 0
     assert options.json is False
