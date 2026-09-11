@@ -69,6 +69,7 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 ### Model discovery and language defaults
 
 PyKokoro >=0.9.2,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
+Readio v0.2.3 is tested against PyKokoro 0.9.4.
 
 ```bash
 readio models list --language de --offline
@@ -263,7 +264,7 @@ M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 
 
 ## SSMD consumption and authoring checks
 
-For `.ssmd` inputs, Readio parses the document through SSMD 0.8.6 and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+For `.ssmd` inputs, Readio parses the document through the supported SSMD 0.8.x API and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
 
 Inspect a document before rendering:
 

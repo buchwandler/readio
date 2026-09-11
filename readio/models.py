@@ -126,6 +126,7 @@ def _version_supported(version: str) -> bool:
     patch = int(match.group(3) or 0)
     return (major, minor, patch) >= (0, 9, 2) and (major, minor) == (0, 9)
 
+
 def _package_metadata() -> str | None:
     try:
         return importlib.metadata.version("pykokoro")

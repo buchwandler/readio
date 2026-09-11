@@ -602,9 +602,19 @@ def _resolve_synthesis_candidate(
 
     language_detection = request.language_detection
     detect_languages = request.detect_languages
-    detection_origin = ORIGIN_CLI if language_detection is not None or detect_languages is not None else None
-    detection_locator = "request.language_detection" if language_detection is not None else "request.detect_languages"
-    if language_detection is None and detect_languages is None and document_language_detection is not None:
+    detection_origin = (
+        ORIGIN_CLI if language_detection is not None or detect_languages is not None else None
+    )
+    detection_locator = (
+        "request.language_detection"
+        if language_detection is not None
+        else "request.detect_languages"
+    )
+    if (
+        language_detection is None
+        and detect_languages is None
+        and document_language_detection is not None
+    ):
         language_detection, detect_languages = document_language_detection
         detection_origin = ORIGIN_DOCUMENT
         detection_locator = "ssmd.language_detection"
@@ -710,7 +720,9 @@ def _resolve_synthesis_candidate(
                 ResolutionDecision(
                     field="synthesis.g2p_fallback",
                     value=profile.g2p_fallback,
-                    origin=ORIGIN_CONFIG_LANGUAGE_EXACT if profile_match == "exact" else ORIGIN_CONFIG_LANGUAGE_BASE,
+                    origin=ORIGIN_CONFIG_LANGUAGE_EXACT
+                    if profile_match == "exact"
+                    else ORIGIN_CONFIG_LANGUAGE_BASE,
                     locator=f"languages.{profile_key}.g2p_fallback",
                 )
             )
@@ -719,7 +731,9 @@ def _resolve_synthesis_candidate(
                 ResolutionDecision(
                     field="synthesis.lexicon_data_policy",
                     value=profile.lexicon_data_policy,
-                    origin=ORIGIN_CONFIG_LANGUAGE_EXACT if profile_match == "exact" else ORIGIN_CONFIG_LANGUAGE_BASE,
+                    origin=ORIGIN_CONFIG_LANGUAGE_EXACT
+                    if profile_match == "exact"
+                    else ORIGIN_CONFIG_LANGUAGE_BASE,
                     locator=f"languages.{profile_key}.lexicon_data_policy",
                 )
             )
@@ -1577,6 +1591,7 @@ def resolve_plan(
     document_language_detection: tuple[str, tuple[str, ...]] | None = None
     if effective_doc.format == "ssmd":
         from .ssmd import language_detection_hint
+
         try:
             document_language_detection = language_detection_hint(effective_doc.text)
         except SSMDInputError as exc:
@@ -1591,9 +1606,7 @@ def resolve_plan(
             )
 
     # Stage 2 — Readio synthesis policy
-    candidate = _resolve_synthesis_candidate(
-        cfg, request.synthesis, document_language_detection
-    )
+    candidate = _resolve_synthesis_candidate(cfg, request.synthesis, document_language_detection)
     all_decisions.extend(candidate.decisions)
 
     # Stage 3 — Backend concretization

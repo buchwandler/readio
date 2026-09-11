@@ -92,7 +92,7 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio 0.2.0 requires the PyKokoro >=0.9.2,<0.10 public discovery and tokenizer contract:
+Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.2,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.4:
 
 ```bash
 readio models list --language de --offline

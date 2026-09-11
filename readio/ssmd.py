@@ -211,6 +211,7 @@ class SSMDPreflightResult:
             diagnostic.severity == "error" for diagnostic in self.diagnostics
         )
 
+
 def language_detection_hint(text: str) -> tuple[str, tuple[str, ...]] | None:
     """Return the SSMD language-detection hint, if one is present."""
     try:
@@ -232,7 +233,9 @@ def language_detection_hint(text: str) -> tuple[str, tuple[str, ...]] | None:
         raise SSMDInputError("SSMD language_detection.mode must be 'off' or 'auto'")
     if isinstance(languages, str):
         languages = [languages]
-    if not isinstance(languages, (list, tuple)) or any(not isinstance(item, str) for item in languages):
+    if not isinstance(languages, (list, tuple)) or any(
+        not isinstance(item, str) for item in languages
+    ):
         raise SSMDInputError("SSMD language_detection.languages must be a list of strings")
     normalized = tuple(item.strip().lower().replace("_", "-") for item in languages)
     if any(not item for item in normalized):
@@ -240,7 +243,6 @@ def language_detection_hint(text: str) -> tuple[str, tuple[str, ...]] | None:
     if len(normalized) != len(set(normalized)):
         raise SSMDInputError("SSMD language_detection.languages must not contain duplicates")
     return mode, normalized
-
 
 
 def document_voice_bindings(text: str) -> dict[str, dict[str, str]]:

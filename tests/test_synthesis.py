@@ -54,6 +54,7 @@ def test_resolution_no_lexicons_clears_inherited_values_and_locale_falls_back() 
     assert resolved.model == "de-thorsten"
     assert resolved.lexicons == ()
 
+
 def test_resolution_without_model_preserves_automatic_selection() -> None:
     cfg = ReadioConfig(reader=ReaderSettings(voice="af_sarah", lang="en-us"))
     resolved = resolve_synthesis(cfg)

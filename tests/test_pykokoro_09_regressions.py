@@ -41,6 +41,7 @@ def test_discovery_rejects_pykokoro_091_with_required_version(monkeypatch) -> No
     assert error.value.code == "pykokoro.version_unsupported"
     assert error.value.installed_version == "0.9.1"
 
+
 def test_model_validation_rejects_quality_and_known_lexicon() -> None:
     with pytest.raises(ModelDiscoveryError) as quality_error:
         validate_language_settings("de", LanguageSettings(model=MODEL.id, quality="int8"), MODEL)

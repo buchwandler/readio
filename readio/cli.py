@@ -143,21 +143,28 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--quality", help="model quality/quantization")
     lexicon_group = parser.add_mutually_exclusive_group()
     lexicon_group.add_argument(
-        "--lexicon", dest="lexicons", action="append", metavar="NAME",
+        "--lexicon",
+        dest="lexicons",
+        action="append",
+        metavar="NAME",
         help="named PyKokoro/KokoroG2P lexicon, e.g. crane; repeat for layered lookup",
     )
     lexicon_group.add_argument(
-        "--no-lexicons", action="store_true",
+        "--no-lexicons",
+        action="store_true",
         help="explicitly disable static lexicon layers (provider-only)",
     )
     lexicon_group.add_argument(
-        "--auto-lexicons", action="store_true",
+        "--auto-lexicons",
+        action="store_true",
         help="use PyKokoro/KokoroG2P automatic language-default lexicons",
     )
     parser.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
     parser.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
-    parser.add_argument("--detect-language", dest="detect_languages", action="append", metavar="LANG")
+    parser.add_argument(
+        "--detect-language", dest="detect_languages", action="append", metavar="LANG"
+    )
     parser.add_argument(
         "--allow-experimental", action="store_true", help="allow experimental frontends"
     )
@@ -1611,15 +1618,20 @@ def build_parser() -> argparse.ArgumentParser:
     defaults_set.add_argument("--voice")
     lexicon_group = defaults_set.add_mutually_exclusive_group()
     lexicon_group.add_argument(
-        "--lexicon", dest="lexicons", action="append", metavar="NAME",
+        "--lexicon",
+        dest="lexicons",
+        action="append",
+        metavar="NAME",
         help="named PyKokoro/KokoroG2P lexicon, e.g. crane; repeat for layered lookup",
     )
     lexicon_group.add_argument(
-        "--no-lexicons", action="store_true",
+        "--no-lexicons",
+        action="store_true",
         help="explicitly disable static lexicon layers (provider-only)",
     )
     lexicon_group.add_argument(
-        "--auto-lexicons", action="store_true",
+        "--auto-lexicons",
+        action="store_true",
         help="remove the persisted lexicon override and use language defaults",
     )
     defaults_set.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)

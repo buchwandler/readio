@@ -16,8 +16,7 @@ jobs:
           cache: pip
       - name: Install Readio runtime dependencies
         run: |
-          python -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
-          python -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+          python -m pip install "pykokoro[playback]==0.9.4"
       - name: Install project and coverage tools
         run: |
           python -m pip install --upgrade pip

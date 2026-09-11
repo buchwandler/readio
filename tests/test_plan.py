@@ -165,6 +165,7 @@ class TestLexicons:
         assert plan.synthesis.lexicons == ()
         assert plan.synthesis.to_dict()["lexicons"] == []
 
+
 # ---------------------------------------------------------------------------
 # Reader controls precedence
 # ---------------------------------------------------------------------------

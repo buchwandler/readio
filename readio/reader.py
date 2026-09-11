@@ -45,6 +45,7 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
 def tokenizer_config_for_synthesis(synthesis: object) -> Any:
     """Build the explicit PyKokoro tokenizer override, if one is needed."""
     from pykokoro.tokenizer import TokenizerConfig
+
     values = {
         "lexicons": getattr(synthesis, "lexicons", None),
         "fallback": getattr(synthesis, "g2p_fallback", None),
@@ -69,6 +70,7 @@ def language_detection_config_for_synthesis(
     if mode is None:
         return None
     from pykokoro import LanguageDetectionConfig
+
     return LanguageDetectionConfig(mode=mode, languages=tuple(languages or ()))
 
 

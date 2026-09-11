@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 
 import pykokoro
-import pytest
 from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig, discover_models
 from pykokoro.tokenizer import TokenizerConfig
 
@@ -13,21 +12,25 @@ from readio.reader import pipeline_config_for_document
 from readio.synthesis import ResolvedSynthesis
 
 
-def _is_092_or_newer() -> bool:
-    match = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?", str(pykokoro.__version__))
+def _is_supported_pykokoro_version() -> bool:
+    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", str(pykokoro.__version__))
     if not match:
         return False
-    return (int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)) >= (0, 9, 2)
+    value = tuple(int(match.group(index) or 0) for index in (1, 2, 3))
+    return (0, 9, 2) <= value < (0, 10, 0)
 
 
-def test_pykokoro_exposes_public_092_contract() -> None:
-    if not _is_092_or_newer():
-        pytest.skip(f"installed PyKokoro is {pykokoro.__version__}, not 0.9.2+")
+def test_pykokoro_exposes_supported_public_contract() -> None:
+    assert _is_supported_pykokoro_version(), (
+        f"installed PyKokoro {pykokoro.__version__} is outside "
+        "Readio's supported >=0.9.2,<0.10 range"
+    )
     assert callable(discover_models)
     assert GenerationConfig
     assert PipelineConfig
     assert SSMDRenderConfig
     assert TokenizerConfig
+
 
 def test_readio_builds_public_pipeline_config_for_de_thorsten() -> None:
     synthesis = ResolvedSynthesis(

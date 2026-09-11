@@ -18,6 +18,7 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
 6. **Agents:** Prefer complete files, explicit output paths, `--json`, and non-interactive voice bindings. Never rely on `--resolve-voices` outside an interactive human TTY.
 
 ## Model discovery and defaults
+
 PyKokoro >=0.9.2,<0.10 is the source of truth for runtime model capabilities and tokenizer controls. Agents should inspect JSON discovery rather than embedding model or voice inventories:
 
 ```bash
@@ -48,8 +49,8 @@ Always run `readio plan` (or `readio render --dry-run`) before rendering to see 
 what synthesis values will be used. The plan shows model, voice, language, lexicons,
 SSMD bindings, output format, and provenance — all without loading the TTS model.
 
+The PyKokoro 0.9.2+ tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
 
-The 0.9.2 tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
 ```bash
 # Recommended: plan first
 readio plan --file input.ssmd --format mp3 --json

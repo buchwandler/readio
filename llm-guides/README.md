@@ -56,8 +56,8 @@ When file creation is unavailable, the guide instructs the LLM to return the com
 The guides target the conservative authoring subset used by:
 
 - Readio 0.2.x
-- SSMD >=0.8.6,<0.9
-- PyKokoro 0.9.x
+- SSMD >=0.8.7,<0.9
+- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
 
 This is a compatibility target, not a claim that the authoring environment ran validation. A generated file should be checked on the destination system before rendering.
 

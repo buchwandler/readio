@@ -49,6 +49,7 @@ class ReaderSettings:
     language_detection: str | None = None
     detect_languages: tuple[str, ...] | None = None
 
+
 ReaderConfig = ReaderSettings
 
 
@@ -221,6 +222,7 @@ def _optional_string(value: Any, field_name: str) -> str | None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"languages profile {field_name} must be a non-empty string")
     return value.strip()
+
 
 def _optional_choice(value: Any, field_name: str, choices: tuple[str, ...]) -> str | None:
     value = _optional_string(value, field_name)

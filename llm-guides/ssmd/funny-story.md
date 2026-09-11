@@ -42,8 +42,8 @@ If downloadable file or artifact creation is unavailable:
 Generate conservative SSMD for this compatibility target:
 
 - Readio 0.2.x
-- SSMD >=0.8.6,<0.9
-- PyKokoro 0.9.x
+- SSMD >=0.8.7,<0.9
+- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
 
 These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
 

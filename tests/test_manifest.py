@@ -64,6 +64,7 @@ def test_plan_digest_is_canonical_and_sensitive() -> None:
     assert plan_sha256(first) == plan_sha256(reordered)
     assert plan_sha256(first) != plan_sha256(_plan(marker="other"))
 
+
 def test_plan_manifest_preserves_explicit_tokenizer_policy_values() -> None:
     automatic = SimpleNamespace(
         to_dict=lambda: {

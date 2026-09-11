@@ -25,8 +25,7 @@ jobs:
           cache: pip
       - name: Install Readio runtime dependencies
         run: |
-          python -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
-          python -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+          python -m pip install "pykokoro[playback]==0.9.4"
       - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
@@ -34,6 +33,27 @@ jobs:
       - name: Run test suite
         run: python -m pytest -q
 
+
+  minimum-compatibility:
+    name: Minimum PyKokoro compatibility (Ubuntu, Python 3.10)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PortAudio
+        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install minimum PyKokoro runtime
+        run: python -m pip install "pykokoro[playback]==0.9.2"
+      - name: Install project and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Run minimum-version test suite
+        run: python -m pytest -q
   quality:
     name: Static quality checks
     runs-on: ubuntu-latest
@@ -48,8 +68,7 @@ jobs:
           cache: pip
       - name: Install Readio runtime dependencies
         run: |
-          python -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
-          python -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+          python -m pip install "pykokoro[playback]==0.9.4"
       - name: Install development tools
         run: python -m pip install -e ".[dev]"
       - name: Ruff lint
@@ -81,9 +100,9 @@ jobs:
         shell: bash
         run: |
           python -m venv "${RUNNER_TEMP}/readio-wheel-smoke"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "ssmd @ git+https://github.com/buchwandler/ssmd.git@631aa5a03ba2b2fcb364272843f88a8738d36484"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "pykokoro[playback] @ git+https://github.com/buchwandler/pykokoro.git@07fdd07f4cccff7ab58bbe1f5c801bebe8b41a85"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "pykokoro[playback]==0.9.4"
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install dist/*.whl
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" - <<'PY'
           import importlib.metadata

@@ -29,7 +29,9 @@ MODEL = ModelInfo(
     runtime_available=True,
     redistribution_allowed=True,
 )
-DISCOVERY = SimpleNamespace(registry_source="fixture", cache_fallback=False, offline=True, refreshed=False)
+DISCOVERY = SimpleNamespace(
+    registry_source="fixture", cache_fallback=False, offline=True, refreshed=False
+)
 
 
 def _args(**values: object) -> Namespace:
@@ -117,7 +119,9 @@ def test_config_round_trips_empty_lexicons_and_new_policies(tmp_path) -> None:
 
 
 def test_synthesis_forwards_explicit_tokenizer_and_detection_controls(monkeypatch) -> None:
-    monkeypatch.setattr("readio.synthesis.get_model_info", lambda *args, **kwargs: (MODEL, DISCOVERY))
+    monkeypatch.setattr(
+        "readio.synthesis.get_model_info", lambda *args, **kwargs: (MODEL, DISCOVERY)
+    )
     resolved = resolve_synthesis(
         ReadioConfig(),
         _args(
@@ -189,9 +193,7 @@ def test_ssmd_language_detection_is_planned_and_forwarded(monkeypatch) -> None:
 
 
 def test_language_detection_hint_and_lexphon_asset_guidance() -> None:
-    assert language_detection_hint(
-        "---\nlanguage_detection: auto\n---\ntext"
-    ) == ("auto", ())
+    assert language_detection_hint("---\nlanguage_detection: auto\n---\ntext") == ("auto", ())
     with pytest.raises(ModelDiscoveryError, match="underlying language-qualified Lexphon asset ID"):
         validate_language_settings(
             "de", LanguageSettings(model=MODEL.id, lexicons=("de-de:crane",)), MODEL
@@ -217,7 +219,9 @@ def test_pipeline_live_path_uses_same_explicit_tokenizer_policy() -> None:
         pause_mode="tts",
         unit="sentence",
     )
-    pipeline = pipeline_config_for_document(InputDocument("Hallo.", None, "text"), ReadioConfig(), synthesis=synthesis)
+    pipeline = pipeline_config_for_document(
+        InputDocument("Hallo.", None, "text"), ReadioConfig(), synthesis=synthesis
+    )
     assert pipeline.tokenizer_config.lexicons == ()
     assert pipeline.tokenizer_config.fallback == "espeak"
     assert pipeline.tokenizer_config.lexicon_data_policy == "auto"
