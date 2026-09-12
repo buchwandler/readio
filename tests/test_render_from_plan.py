@@ -123,6 +123,10 @@ def test_normal_render_uses_plan_pipeline_config(
             "af_bella",
             "--speed",
             "1.3",
+            "--spacy",
+            "lg",
+            "--short-sentence",
+            "wrap",
             "-o",
             str(output),
             "--no-progress",
@@ -132,7 +136,14 @@ def test_normal_render_uses_plan_pipeline_config(
     used = fake_tts.instances[0].config
     # Independently resolve the plan for the same request and compare.
     expected = resolve_plan(
-        _workspace_cfg(tmp_path), _plan_request_for("Hello world", "af_bella", 1.3)
+        _workspace_cfg(tmp_path),
+        _plan_request_for(
+            "Hello world",
+            "af_bella",
+            1.3,
+            spacy="lg",
+            short_sentence="wrap",
+        ),
     )
     assert expected.ok
     assert used.model_variant == expected.synthesis.model.id
@@ -144,15 +155,35 @@ def test_normal_render_uses_plan_pipeline_config(
     assert used.generation.pause_mode == expected.synthesis.pause_mode
     assert used.allow_experimental_frontend == expected.synthesis.allow_experimental
 
+    assert expected.synthesis.spacy == "lg"
+    assert expected.synthesis.short_sentence == "wrap"
+    assert used.tokenizer_config is not None
+    assert used.tokenizer_config.use_spacy is True
+    assert used.tokenizer_config.spacy_model_size == "lg"
+    assert used.short_sentence_config is not None
+    assert used.short_sentence_config.resolve_mode == "wrap"
 
-def _plan_request_for(text: str, voice: str, speed: float) -> PlanRequest:
+
+def _plan_request_for(
+    text: str,
+    voice: str,
+    speed: float,
+    *,
+    spacy: str | None = None,
+    short_sentence: str | None = None,
+) -> PlanRequest:
     from readio.document import InputDocument
     from readio.plan import InputRequest, OutputRequest, SynthesisRequest
 
     return PlanRequest(
         operation="render",
         input=InputRequest(document=InputDocument(text=text, source_path=None, format="text")),
-        synthesis=SynthesisRequest(voice=voice, speed=speed),
+        synthesis=SynthesisRequest(
+            voice=voice,
+            speed=speed,
+            spacy=spacy,
+            short_sentence=short_sentence,
+        ),
         output=OutputRequest(),
     )
 

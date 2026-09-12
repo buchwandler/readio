@@ -359,6 +359,22 @@ class TestHumanOutput:
         assert "Why" in text
 
 
+def test_synthesis_policies_are_planned_and_serialized() -> None:
+    plan = resolve_plan(
+        _default_config(),
+        _text_request(
+            synthesis=SynthesisRequest(spacy="lg", short_sentence="wrap"),
+        ),
+    )
+    assert plan.synthesis is not None
+    assert plan.synthesis.spacy == "lg"
+    assert plan.synthesis.short_sentence == "wrap"
+    assert plan.to_dict()["synthesis"]["short_sentence"] == "wrap"
+    fields = {decision.field for decision in plan.decisions}
+    assert "synthesis.spacy" in fields
+    assert "synthesis.short_sentence" in fields
+
+
 # ---------------------------------------------------------------------------
 # Compatibility view
 # ---------------------------------------------------------------------------

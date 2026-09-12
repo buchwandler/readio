@@ -68,6 +68,14 @@ readio doctor --json
 - **Default validation failure:** `readio defaults set LANG ...` validates the complete model/language/quality/voice/lexicon combination before saving. Use `--no-lexicons` for explicit provider-only pronunciation and `--auto-lexicons` to remove an inherited lexicon override. `--allow-experimental` is only for intentionally opting into an experimental frontend.
 - **Tokenizer policy failure:** `--g2p-fallback` must be `none`, `espeak`, or `goruut`; `--lexicon-data-policy` must be `auto` or `installed-only`. The latter controls lexicon acquisition and is distinct from model-registry `--offline`.
 
+### Explicit spaCy model unavailable
+
+If runtime reports an unavailable model such as `de_core_news_lg`, use `--spacy auto` to select an installed compatible tier, install the requested spaCy model, choose another explicit tier, or use `--spacy off`.
+
+### Slow short-sentence synthesis
+
+If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, use `--short-sentence wrap` for lower latency or `--short-sentence off` to bypass the workaround. `phrase` and `randomized-phrase` intentionally retain carrier-phrase extraction and may require additional inference calls.
+
 ## Render manifest failures
 
 A successful bounded render with `--manifest` writes `<audio>.readio.json` beside the committed audio. Compare the manifest's embedded `readio.plan.v1` and environment before comparing audio bytes when two renders differ:

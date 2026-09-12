@@ -35,7 +35,15 @@ G2P_FALLBACKS = ("none", "espeak", "goruut")
 LEXICON_DATA_POLICIES = ("auto", "installed-only")
 LANGUAGE_DETECTION_MODES = ("off", "auto")
 
-SPACY_POLICIES = ("auto", "off", "required")
+SPACY_POLICIES = ("auto", "off", "sm", "md", "lg", "trf")
+SPACY_LEGACY_ALIASES = {"required": "sm"}
+SHORT_SENTENCE_POLICIES = (
+    "auto",
+    "off",
+    "wrap",
+    "phrase",
+    "randomized-phrase",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +60,7 @@ class ReaderSettings:
     detect_languages: tuple[str, ...] | None = None
 
     spacy: str = "auto"
+    short_sentence: str = "auto"
 
 
 ReaderConfig = ReaderSettings
@@ -141,6 +150,23 @@ def normalize_language_key(language: str) -> str:
     return normalized
 
 
+def normalize_spacy_policy(value: object) -> str:
+    normalized = str(value).strip().lower()
+    normalized = SPACY_LEGACY_ALIASES.get(normalized, normalized)
+    if normalized not in SPACY_POLICIES:
+        allowed = ", ".join(SPACY_POLICIES)
+        raise ValueError(f"reader.spacy must be one of: {allowed}")
+    return normalized
+
+
+def normalize_short_sentence_policy(value: object) -> str:
+    normalized = str(value).strip().lower()
+    if normalized not in SHORT_SENTENCE_POLICIES:
+        allowed = ", ".join(SHORT_SENTENCE_POLICIES)
+        raise ValueError(f"reader.short_sentence must be one of: {allowed}")
+    return normalized
+
+
 def _coerce_reader_value(key: str, value: Any) -> Any:
     if key not in _READER_KEYS:
         raise KeyError(f"unknown reader config key {key!r}")
@@ -167,11 +193,9 @@ def _coerce_reader_value(key: str, value: Any) -> Any:
     if key == "device":
         return None if value in {None, "", "none", "null"} else str(value)
     if key == "spacy":
-        value = str(value)
-        if value not in SPACY_POLICIES:
-            allowed = ", ".join(SPACY_POLICIES)
-            raise ValueError(f"reader.spacy must be one of: {allowed}")
-        return value
+        return normalize_spacy_policy(value)
+    if key == "short_sentence":
+        return normalize_short_sentence_policy(value)
     if key == "language_detection":
         return _optional_choice(value, "reader.language_detection", LANGUAGE_DETECTION_MODES)
     if key == "detect_languages":
@@ -293,6 +317,7 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
     _coerce_reader_value("unit", cfg.reader.unit)
     _coerce_reader_value("pause_mode", cfg.reader.pause_mode)
     _coerce_reader_value("spacy", cfg.reader.spacy)
+    _coerce_reader_value("short_sentence", cfg.reader.short_sentence)
     _coerce_reader_value("language_detection", cfg.reader.language_detection)
     _coerce_reader_value("detect_languages", cfg.reader.detect_languages)
     if not cfg.ssmd.voice_provider:

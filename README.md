@@ -92,8 +92,16 @@ readio render --lang de --file notes.md
 
 When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to PyKokoro language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
 
-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, and repeatable `--detect-language`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
+Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, repeatable `--detect-language`, `--spacy`, and `--short-sentence`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
 `--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
+
+Choose spaCy and short-sentence behavior explicitly when needed:
+
+```bash
+readio speak "hi" --spacy sm --short-sentence wrap
+```
+
+`--spacy auto` selects the largest installed compatible model and falls back when unavailable. `--spacy sm|md|lg|trf` requires that exact tier, while `--spacy off` disables spaCy. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency workaround, and `off` disables the workaround. The `phrase` modes can trigger additional inference calls.
 
 Named lexicons use PyKokoro selectors, not backend asset IDs:
 

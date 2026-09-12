@@ -16,6 +16,7 @@ from .config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
     LEXICON_DATA_POLICIES,
+    SHORT_SENTENCE_POLICIES,
     SPACY_POLICIES,
     LanguageSettings,
     ReadioConfig,
@@ -168,7 +169,22 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
     parser.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
     parser.add_argument(
-        "--spacy", choices=SPACY_POLICIES, help="spaCy policy: auto, off, or required"
+        "--spacy",
+        choices=SPACY_POLICIES,
+        help=(
+            "spaCy model policy: auto selects the largest installed compatible model "
+            "and falls back when unavailable; off disables spaCy; sm/md/lg/trf "
+            "require that exact model tier"
+        ),
+    )
+    parser.add_argument(
+        "--short-sentence",
+        choices=SHORT_SENTENCE_POLICIES,
+        help=(
+            "short-sentence synthesis strategy: auto uses the PyKokoro default; "
+            "off disables handling; wrap uses lightweight phoneme context; "
+            "phrase/randomized-phrase use carrier-phrase extraction"
+        ),
     )
     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
     parser.add_argument(
@@ -571,6 +587,7 @@ def _build_plan_request(
         auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
         g2p_fallback=getattr(args, "g2p_fallback", None),
         spacy=getattr(args, "spacy", None),
+        short_sentence=getattr(args, "short_sentence", None),
         lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
         language_detection=getattr(args, "language_detection", None),
         detect_languages=(

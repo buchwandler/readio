@@ -94,6 +94,17 @@ readio defaults reset de
 
 When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `--lexicon NAME` accepts named PyKokoro selectors such as `crane`; `--no-lexicons` selects no static layers, while `--auto-lexicons` restores language defaults. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
 
+### SpaCy and short-sentence controls
+
+The shared synthesis options are available on `speak`, `render`, and `spotify publish`:
+
+```text
+--spacy auto|off|sm|md|lg|trf
+--short-sentence auto|off|wrap|phrase|randomized-phrase
+```
+
+Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and phrase modes can perform carrier-phrase inference and retries. Persist these as `[reader] spacy` and `[reader] short_sentence`.
+
 `--g2p-fallback` accepts `none`, `espeak`, or `goruut`; `--lexicon-data-policy` accepts `auto` or `installed-only`. `--language-detection auto` plus repeatable `--detect-language LANG` controls pronunciation routing. Plans preserve `lexicons: null` versus `lexicons: []`. Do not pass `de-de:crane` as the selector: it is the language-qualified Lexphon asset ID resolved downstream; `de-crane` is an acoustic model.
 
 ## Audio

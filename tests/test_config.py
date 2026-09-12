@@ -69,3 +69,35 @@ def test_dotted_config_set_role_and_invalid_target():
     assert cfg.voices["kokoro"].roles["analyst"] == "am_adam"
     with pytest.raises(ValueError, match="not present"):
         validate_config(set_config_value(ReadioConfig(), "voices.kokoro.roles.analyst", "missing"))
+
+
+def test_reader_policy_defaults() -> None:
+    cfg = ReaderConfig()
+    assert cfg.spacy == "auto"
+    assert cfg.short_sentence == "auto"
+
+
+def test_reader_policies_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "policies.toml"
+    for spacy in ("auto", "off", "sm", "md", "lg", "trf"):
+        for short_sentence in ("auto", "off", "wrap", "phrase", "randomized-phrase"):
+            cfg = ReaderConfig(spacy=spacy, short_sentence=short_sentence)
+            path.write_text(dumps_config(cfg), encoding="utf-8")
+            assert load_config(path).reader == cfg
+
+
+def test_legacy_required_spacy_migrates_to_sm(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.toml"
+    path.write_text('[reader]\nspacy = "required"\n', encoding="utf-8")
+    cfg = load_config(path)
+    assert cfg.reader.spacy == "sm"
+    dumped = dumps_config(cfg)
+    assert 'spacy = "sm"' in dumped
+    assert "required" not in dumped
+
+
+def test_invalid_reader_policies_rejected() -> None:
+    with pytest.raises(ValueError):
+        set_config_value(ReaderConfig(), "spacy", "xl")
+    with pytest.raises(ValueError):
+        set_config_value(ReaderConfig(), "short_sentence", "fast")

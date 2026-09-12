@@ -88,6 +88,8 @@ Synthesis options are available on all three commands:
 --language-detection MODE off or auto
 --detect-language LANG repeatable pronunciation-routing language
 --speed NUMBER      speech speed multiplier
+--spacy MODE              auto, off, sm, md, lg, or trf
+--short-sentence MODE     auto, off, wrap, phrase, or randomized-phrase
 --pause-mode MODE   tts, manual, or auto
 --unit UNIT         sentence or paragraph
 ```
@@ -125,6 +127,7 @@ Keep the layers separate:
 - **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
 
 Plans preserve the tokenizer tri-state: `lexicons: null` means PyKokoro language defaults, `lexicons: []` means no static lexicon layers, and a non-empty list means ordered named layers. Fallback and lexicon data policy are also carried unchanged into `TokenizerConfig`; SSMD `language_detection` hints are resolved into the plan before execution.
+Plans also preserve `synthesis.spacy` (`auto`, `off`, `sm`, `md`, `lg`, or `trf`) and `synthesis.short_sentence` (`auto`, `off`, `wrap`, `phrase`, or `randomized-phrase`). `auto` leaves backend selection to PyKokoro; explicit spaCy tiers require that exact compatible model, and short-sentence `wrap` avoids carrier-phrase retries when lower latency is preferred.
 
 Planning is deterministic: `--resolve-voices` is rejected during `plan`/`--dry-run` in favor of `--voice-bind ROLE=VOICE_ID` or persisted roles, and `plan` supports `--force` to mirror render output requests.
 
@@ -177,7 +180,7 @@ readio config validate
 
 `READIO_CONFIG` overrides the default configuration file path. Configuration is TOML with schema 2; schema-0/1 files remain readable and are upgraded when saved. The main sections are:
 
-- `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, and `device`.
+- `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, `device`, `spacy`, and `short_sentence`.
 - `[ssmd]`: the selected `voice_provider` and SSMD validation behavior.
 - `[paths]`: user template, ingest, and audio output directories.
 - `[voices.<provider>]`: concrete voice IDs and logical role mappings.

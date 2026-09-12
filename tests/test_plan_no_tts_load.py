@@ -62,6 +62,14 @@ class TestNoTTSLoad:
             plan = resolve_plan(_default_config(), _text_request())
             assert plan.schema == "readio.plan.v1"
 
+    def test_explicit_policies_do_not_load_tts(self) -> None:
+        request = _text_request(synthesis=SynthesisRequest(spacy="lg", short_sentence="wrap"))
+        with patch("pykokoro.KokoroPipeline", side_effect=AssertionError("should not be called")):
+            plan = resolve_plan(_default_config(), request)
+        assert plan.synthesis is not None
+        assert plan.synthesis.spacy == "lg"
+        assert plan.synthesis.short_sentence == "wrap"
+
 
 # ---------------------------------------------------------------------------
 # Plan/render equivalence

@@ -46,21 +46,46 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
     return InputDocument(text=text, source_path=document.source_path, format="text")
 
 
+def _spacy_settings(policy: str | None) -> tuple[bool | None, str | None]:
+    if policy in {None, "auto"}:
+        return None, None
+    if policy == "off":
+        return False, None
+    if policy == "required":
+        policy = "sm"
+    if policy in {"sm", "md", "lg", "trf"}:
+        return True, policy
+    raise ValueError(f"unsupported spaCy policy: {policy!r}")
+
+
 def tokenizer_config_for_synthesis(synthesis: object) -> Any:
     """Build the explicit PyKokoro tokenizer override, if one is needed."""
     from pykokoro.tokenizer import TokenizerConfig
 
-    spacy_policy = getattr(synthesis, "spacy", None)
-    use_spacy = {"off": False, "required": True}.get(spacy_policy)
+    use_spacy, spacy_model_size = _spacy_settings(getattr(synthesis, "spacy", None))
     values = {
         "lexicons": getattr(synthesis, "lexicons", None),
         "fallback": getattr(synthesis, "g2p_fallback", None),
         "lexicon_data_policy": getattr(synthesis, "lexicon_data_policy", None),
         "use_spacy": use_spacy,
+        "spacy_model_size": spacy_model_size,
     }
     if not any(value is not None for value in values.values()):
         return None
     return TokenizerConfig(**{key: value for key, value in values.items() if value is not None})
+
+
+def short_sentence_config_for_synthesis(synthesis: object) -> Any:
+    policy = getattr(synthesis, "short_sentence", None)
+    if policy in {None, "auto"}:
+        return None
+    from pykokoro.short_sentence_handler import ShortSentenceConfig
+
+    if policy == "off":
+        return ShortSentenceConfig(enabled=False)
+    if policy in {"wrap", "phrase", "randomized-phrase"}:
+        return ShortSentenceConfig(enabled=True, resolve_mode=policy)
+    raise ValueError(f"unsupported short-sentence policy: {policy!r}")
 
 
 def language_detection_config_for_synthesis(
@@ -112,6 +137,7 @@ def pipeline_config_for_document(
         generation=generation,
         language_detection=language_detection,
         tokenizer_config=tokenizer_config,
+        short_sentence_config=short_sentence_config_for_synthesis(resolved),
         ssmd=ssmd,
     )
 
@@ -167,6 +193,7 @@ def pipeline_config_from_plan(
         language_detection=language_detection,
         tokenizer_config=tokenizer_config,
         ssmd=ssmd,
+        short_sentence_config=short_sentence_config_for_synthesis(synthesis),
     )
 
 
@@ -254,7 +281,16 @@ def _build_pipeline(
         speed=cfg.speed,
         pause_mode=cfg.pause_mode,
     )
-    return KokoroPipeline(PipelineConfig(voice=cfg.voice, generation=generation))
+    tokenizer_config = tokenizer_config_for_synthesis(cfg)
+    short_sentence_config = short_sentence_config_for_synthesis(cfg)
+    return KokoroPipeline(
+        PipelineConfig(
+            voice=cfg.voice,
+            generation=generation,
+            tokenizer_config=tokenizer_config,
+            short_sentence_config=short_sentence_config,
+        )
+    )
 
 
 def _selected_indices(prepared: Any, selector: str) -> tuple[int, ...] | None:

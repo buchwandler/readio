@@ -6,7 +6,14 @@ import logging
 from argparse import Namespace
 from dataclasses import dataclass
 
-from .config import LanguageSettings, ReadioConfig, language_profile, normalize_language_key
+from .config import (
+    LanguageSettings,
+    ReadioConfig,
+    language_profile,
+    normalize_language_key,
+    normalize_short_sentence_policy,
+    normalize_spacy_policy,
+)
 from .models import ModelInfo, get_model_info, validate_language_settings
 
 logger = logging.getLogger(__name__)
@@ -68,6 +75,7 @@ class ResolvedSynthesis:
     unit: str
     g2p_fallback: str | None = None
     spacy: str = "auto"
+    short_sentence: str = "auto"
     lexicon_data_policy: str | None = None
     language_detection: str | None = None
     detect_languages: tuple[str, ...] | None = None
@@ -123,7 +131,10 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
 
-    spacy = getattr(args, "spacy", None) or cfg.reader.spacy
+    spacy = normalize_spacy_policy(getattr(args, "spacy", None) or cfg.reader.spacy)
+    short_sentence = normalize_short_sentence_policy(
+        getattr(args, "short_sentence", None) or cfg.reader.short_sentence
+    )
     explicit_model = getattr(args, "model", None)
     if explicit_model is not None:
         model = explicit_model
@@ -217,6 +228,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         g2p_fallback=g2p_fallback,
         lexicon_data_policy=lexicon_data_policy,
         spacy=spacy,
+        short_sentence=short_sentence,
         language_detection=language_detection,
         detect_languages=detect_languages,
         allow_experimental=allow_experimental,
