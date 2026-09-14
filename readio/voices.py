@@ -87,10 +87,10 @@ class VoiceSelectorResolution:
     catalog_entry: VoiceCatalogEntry | None
     engine: str | None = None
 
-
     @property
     def backend(self) -> str | None:
         return self.catalog_entry.engine if self.catalog_entry is not None else None
+
 
 def normalize_locale(value: str) -> str:
     return normalize_language_key(value)
@@ -175,7 +175,7 @@ def discover_voice_catalog(
     refresh: bool = False,
     preference: str = "auto",
     engine: str | None = None,
- ) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
+) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
     models, result = discover_model_info(
         offline=offline, refresh=refresh, preference=preference, backend=engine
     )
@@ -206,7 +206,7 @@ def filter_voice_catalog(
     gender: str | None = None,
     model: str | None = None,
     engine: str | None = None,
- ) -> tuple[VoiceCatalogEntry, ...]:
+) -> tuple[VoiceCatalogEntry, ...]:
     return tuple(
         entry
         for entry in entries
@@ -234,8 +234,7 @@ def get_voice_selector(
     if len(matches) > 1:
         alternatives = ", ".join(entry.qualified_id for entry in matches)
         raise ModelDiscoveryError(
-            f"Voice selector {selector!r} is ambiguous across backends. "
-            f"Use one of: {alternatives}",
+            f"Voice selector {selector!r} is ambiguous across backends. Use one of: {alternatives}",
             code="readio.voice_selector_ambiguous",
         )
     if engine is not None:
@@ -255,6 +254,7 @@ def get_voice_selector(
         code="readio.voice_selector_not_found",
     )
 
+
 def is_selector_shape(value: str) -> bool:
     return _SELECTOR_RE.fullmatch(value.strip().lower()) is not None
 
@@ -273,7 +273,7 @@ def resolve_voice_selector(
     refresh: bool = False,
     preference: str = "auto",
     engine: str | None = None,
- ) -> VoiceSelectorResolution | None:
+) -> VoiceSelectorResolution | None:
     if voice is None:
         return None
     if not is_selector_shape(voice):

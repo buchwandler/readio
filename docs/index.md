@@ -95,6 +95,7 @@ Synthesis options are available on all three commands:
 ```
 
 Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.5,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.5:
+
 ```bash
 readio models list --language de --offline
 readio models show de-thorsten --offline
@@ -105,6 +106,7 @@ readio defaults set de --model de-thorsten --lexicon crane --offline
 readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
+
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 
@@ -278,7 +280,7 @@ The main execution path is `readio/cli.py`. Input normalization is in `readio/do
 
 SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and remain authoritative. Inspect configured voices and persisted role mappings with:
 
-```bash
+````bash
 readio voices list --lang de --json
 readio voices show de-1 --json
 readio roles list --provider kokoro
@@ -290,6 +292,6 @@ Use `readio roles bind ROLE VOICE_ID` for an explicit persistent mapping. For au
 readio render --file episode.ssmd \
   --voice-bind moderator=af_sarah \
   --voice-bind architect=am_michael
-```
+````
 
 `--resolve-voices` is an explicit interactive convenience. It prompts once per unique missing role only on a usable TTY and never persists choices. JSON and non-TTY execution never prompts. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` is the explicit source-materialization workflow; ordinary `speak`, `render`, and `spotify` commands do not mutate SSMD.

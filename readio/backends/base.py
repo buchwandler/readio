@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from ..plan import PlanDiagnostic, ReadioPlan, SynthesisCandidate
     from ..synthesis import ResolvedSynthesis
 
+
 @dataclass(frozen=True, slots=True)
 class DiscoveryInfo:
     """Common provenance returned by backend discovery operations."""
@@ -74,9 +75,7 @@ class SynthesisBackend(Protocol):
         self, candidate: SynthesisCandidate
     ) -> tuple[SynthesisCandidate, tuple[PlanDiagnostic, ...]]: ...
 
-    def validate_selection(
-        self, selection: BackendResolution
-    ) -> tuple[PlanDiagnostic, ...]: ...
+    def validate_selection(self, selection: BackendResolution) -> tuple[PlanDiagnostic, ...]: ...
 
     def tokenizer_config_for_synthesis(self, synthesis: object) -> Any: ...
     def short_sentence_config_for_synthesis(self, synthesis: object) -> Any: ...
@@ -108,9 +107,7 @@ class SynthesisBackend(Protocol):
         synthesis: ResolvedSynthesis | None = None,
     ) -> Any: ...
     def open_legacy_session(self, document: InputDocument, settings: object) -> Any: ...
-    def create_playback_player(
-        self, sample_rate: int, settings: object, channels: int
-    ) -> Any: ...
+    def create_playback_player(self, sample_rate: int, settings: object, channels: int) -> Any: ...
 
     def open_session(
         self, plan: ReadioPlan, document: InputDocument

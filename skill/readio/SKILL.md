@@ -26,6 +26,7 @@ readio voices list --lang de --offline --json
 readio voices show de-1 --offline --json
 readio models show de-thorsten --offline --json
 ```
+
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 
@@ -41,6 +42,7 @@ Use `--offline` for cache-only metadata and `--refresh` to update registry metad
 `--preference auto|github|huggingface|upstream` makes discovery views deterministic. `--model-source github|huggingface` controls the distribution used for discovery, validation, and runtime. Voices are model-scoped: the global reader voice is only a legacy fallback when no language/model selection changes the domain, and SSMD uses the resolved model roster. Use `readio doctor --json` for PyKokoro path/version/public-API mismatches.
 
 Readio uses an explicit synthesis backend registry. PyKokoro is the implemented backend. Use `--engine BACKEND` to select a registered backend, and keep lexicon selectors such as `crane` separate from downstream asset IDs such as `de-de:crane`.
+
 ## Main production steps
 
 ```text

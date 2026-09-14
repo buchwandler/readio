@@ -320,7 +320,7 @@ def default_role_bindings(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
- ) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """Effective non-document bindings derived from voice-reference resolution."""
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
@@ -349,7 +349,7 @@ def build_ssmd_render_config(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
- ) -> Any:
+) -> Any:
     """Build SSMD configuration through the selected synthesis backend."""
     from .backends import get_backend
 
@@ -360,6 +360,7 @@ def build_ssmd_render_config(
         dict(additional_bindings or {}),
         synthesis,
     )
+
 
 def analyze_ssmd(
     text: str,

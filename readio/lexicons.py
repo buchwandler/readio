@@ -62,7 +62,12 @@ def _language_matches(requested: str, entry: LexiconCatalogEntry) -> bool:
 
 
 def _entry_key(entry: LexiconCatalogEntry) -> tuple[object, ...]:
-    return (entry.engine, normalize_language_key(entry.locale), entry.selector, entry.asset_id or "")
+    return (
+        entry.engine,
+        normalize_language_key(entry.locale),
+        entry.selector,
+        entry.asset_id or "",
+    )
 
 
 def discover_lexicon_catalog(

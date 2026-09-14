@@ -45,14 +45,14 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
     return InputDocument(text=text, source_path=document.source_path, format="text")
 
 
-
-
 def tokenizer_config_for_synthesis(synthesis: object) -> Any:
     """Build a backend-specific tokenizer override through the registry."""
     from .backends import get_backend
 
     backend = get_backend(getattr(synthesis, "engine", "pykokoro"))
     return backend.tokenizer_config_for_synthesis(synthesis)
+
+
 def short_sentence_config_for_synthesis(synthesis: object) -> Any:
     """Build a backend-specific short-sentence configuration."""
     from .backends import get_backend
@@ -61,16 +61,16 @@ def short_sentence_config_for_synthesis(synthesis: object) -> Any:
     return backend.short_sentence_config_for_synthesis(synthesis)
 
 
-
 def language_detection_config_for_synthesis(
     synthesis: object,
     document: InputDocument | None = None,
- ) -> Any:
+) -> Any:
     """Build a backend-specific language-detection configuration."""
     from .backends import get_backend
 
     backend = get_backend(getattr(synthesis, "engine", "pykokoro"))
     return backend.language_detection_config_for_synthesis(synthesis, document)
+
 
 def pipeline_config_for_document(
     document: InputDocument,
@@ -78,7 +78,7 @@ def pipeline_config_for_document(
     *,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
- ) -> Any:
+) -> Any:
     """Build a backend configuration through the selected adapter."""
     from .backends import get_backend
     from .synthesis import resolve_synthesis
@@ -96,7 +96,7 @@ def pipeline_config_for_document(
 def pipeline_config_from_plan(
     plan: ReadioPlan,
     document: InputDocument,
- ) -> Any:
+) -> Any:
     """Build a concrete backend configuration from a resolved plan."""
     from .backends import get_backend
 
@@ -105,7 +105,6 @@ def pipeline_config_from_plan(
         raise ValueError("plan has no synthesis; cannot build pipeline config")
     backend = get_backend(synthesis.engine)
     return backend.pipeline_config_from_plan(plan, document)
-
 
 
 def render_from_plan(
@@ -163,13 +162,11 @@ def _build_pipeline(
     *,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
- ) -> AbstractContextManager[Any]:
+) -> AbstractContextManager[Any]:
     """Open the selected backend for a compatibility or planned request."""
     from .backends import get_backend
 
-    backend = get_backend(
-        getattr(synthesis, "engine", None) or getattr(cfg, "engine", "pykokoro")
-    )
+    backend = get_backend(getattr(synthesis, "engine", None) or getattr(cfg, "engine", "pykokoro"))
     if isinstance(cfg, ReadioConfig):
         resolved = synthesis or resolve_synthesis(cfg)
         return backend.open_resolved_session(
@@ -179,7 +176,6 @@ def _build_pipeline(
             synthesis=resolved,
         )
     return backend.open_legacy_session(document, cfg)
-
 
 
 def _selected_indices(prepared: Any, selector: str) -> tuple[int, ...] | None:
@@ -352,7 +348,7 @@ def speak_text(
     unit: str | None = None,
     ssmd_voice_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
- ) -> None:
+) -> None:
     """Resolve and execute non-live playback through one explicit plan."""
     logger.info("playback.start mode=text selector=%s", selector)
     if not isinstance(cfg, ReadioConfig):
@@ -410,6 +406,7 @@ def speak_text(
     with PlaybackSink(cfg.reader) as sink:
         render_from_plan(plan, document, sink, selector=selector)
         sink.finish()
+
 
 def speak_live(
     lines: Iterable[str],

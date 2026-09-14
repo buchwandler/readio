@@ -591,7 +591,9 @@ def _resolve_synthesis_candidate(
         refresh=request.refresh,
         preference=request.model_source or "auto",
     )
-    requested_selector = request.voice if selector_resolution and selector_resolution.selector else None
+    requested_selector = (
+        request.voice if selector_resolution and selector_resolution.selector else None
+    )
     if selector_resolution is not None and selector_resolution.selector is not None:
         request = replace(
             request,
@@ -1052,14 +1054,13 @@ def _concretize_backend_defaults(
     candidate: SynthesisCandidate,
     *,
     cfg: ReadioConfig,
- ) -> tuple[SynthesisCandidate, list[PlanDiagnostic]]:
+) -> tuple[SynthesisCandidate, list[PlanDiagnostic]]:
     """Dispatch automatic selection to the selected backend adapter."""
     from .backends import get_backend
 
     backend = get_backend(candidate.engine or cfg.reader.engine)
     updated, diagnostics = backend.resolve_defaults(candidate)
     return updated, list(diagnostics)
-
 
 
 # ---------------------------------------------------------------------------
@@ -1319,9 +1320,8 @@ def _plan_ssmd(
     provider = cfg.ssmd.voice_provider
     available_voices = model_plan.available_voices if model_plan is not None else None
     from .backends import get_backend
-    backend = get_backend(
-        model_plan.backend if model_plan is not None else cfg.reader.engine
-    )
+
+    backend = get_backend(model_plan.backend if model_plan is not None else cfg.reader.engine)
     if provider != backend.ssmd_provider:
         diagnostics.append(
             PlanDiagnostic(

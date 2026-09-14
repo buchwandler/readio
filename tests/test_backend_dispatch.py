@@ -72,6 +72,5 @@ def test_ssmd_provider_must_match_selected_backend() -> None:
 
     assert not plan.ok
     assert any(
-        diagnostic.code == "ssmd.provider_backend_mismatch"
-        for diagnostic in plan.diagnostics
+        diagnostic.code == "ssmd.provider_backend_mismatch" for diagnostic in plan.diagnostics
     )

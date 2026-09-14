@@ -148,7 +148,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     quality = profile.quality if profile is not None else None
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
-    engine = profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
+    engine = (
+        profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
+    )
     allow_experimental = profile.allow_experimental if profile is not None else False
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
@@ -163,6 +165,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     if getattr(args, "engine", None) is not None:
         engine = args.engine
     from .backends import get_backend
+
     get_backend(engine)
     if getattr(args, "model_source", None) is not None:
         source = args.model_source

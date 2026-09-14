@@ -66,9 +66,10 @@ The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-man
 `--manifest` is rejected with `--live` and does not apply to `speak`, `plan`, dry runs, or publishing. If sidecar writing fails, the committed audio remains and JSON errors use code `render.manifest_error` with `audio_path` and `manifest_path`.
 
 ## Model discovery
+
 Use PyKokoro >=0.9.5,<0.10 metadata to inspect runnable voices first, then inspect backend models when needed. Discovery is metadata-only and does not download weights or voices:
 
-```bash
+````bash
 readio voices list --lang de --offline --json
 readio voices show de-1 --offline --json
 readio models show de-thorsten --offline --json
@@ -89,7 +90,7 @@ readio defaults set de --model de-thorsten --lexicon crane --offline --json
 readio defaults show de-at --json
 readio defaults list --json
 readio defaults reset de
-```
+````
 
 When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `--lexicon NAME` accepts named PyKokoro selectors such as `crane`; `--no-lexicons` selects no static layers, while `--auto-lexicons` restores language defaults. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
 

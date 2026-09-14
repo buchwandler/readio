@@ -71,7 +71,6 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 PyKokoro >=0.9.5,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
 Readio v0.2.3 is tested against PyKokoro 0.9.5.
 
-
 Readio selects synthesis through an explicit backend registry. PyKokoro is the implemented backend; backend identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
 
 ```bash
@@ -81,6 +80,7 @@ readio voices list --model de-thorsten --json
 readio models list --preference huggingface --json
 readio voices list --model de-thorsten --preference github --json
 ```
+
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 

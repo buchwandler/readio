@@ -88,3 +88,11 @@ def test_lexicons_list_parser_supports_filters() -> None:
     assert args.engine == "pykokoro"
     assert args.offline is True
     assert args.refresh is True
+
+
+def test_lexicons_list_without_language_handles_missing_assets(capsys) -> None:
+    args = cli.build_parser().parse_args(["lexicons", "list", "--offline", "--json"])
+
+    assert cli._cmd_lexicons(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["lexicons"]

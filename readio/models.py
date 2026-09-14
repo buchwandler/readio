@@ -54,11 +54,11 @@ def _voice_metadata(capabilities: Any) -> tuple[VoiceMetadata, ...]:
     languages = tuple(getattr(capabilities, "languages", ()))
     fallback = languages[0] if languages else "unknown"
     fallback_entry = VoiceMetadata(
-    id="",
-    gender="unknown",
-    language=fallback,
-    locale=fallback,
-    language_label=fallback,
+        id="",
+        gender="unknown",
+        language=fallback,
+        locale=fallback,
+        language_label=fallback,
     )
     indexed: dict[str, VoiceMetadata] = {}
     for detail in tuple(getattr(capabilities, "voice_details", ()) or ()):
@@ -72,13 +72,21 @@ def _voice_metadata(capabilities: Any) -> tuple[VoiceMetadata, ...]:
             locale=str(getattr(detail, "locale", fallback)),
             language_label=str(getattr(detail, "language_label", fallback)),
         )
-    return tuple(indexed.get(voice, VoiceMetadata(
-        id=voice,
-        gender=fallback_entry.gender,
-        language=fallback_entry.language,
-        locale=fallback_entry.locale,
-        language_label=fallback_entry.language_label,
-    )) for voice in capabilities.voices)
+    return tuple(
+        indexed.get(
+            voice,
+            VoiceMetadata(
+                id=voice,
+                gender=fallback_entry.gender,
+                language=fallback_entry.language,
+                locale=fallback_entry.locale,
+                language_label=fallback_entry.language_label,
+            ),
+        )
+        for voice in capabilities.voices
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ModelInfo:
     id: str
@@ -403,7 +411,7 @@ def discover_model_info(
     refresh: bool = False,
     preference: str = "auto",
     backend: str | None = None,
-    ) -> tuple[tuple[ModelInfo, ...], Any]:
+) -> tuple[tuple[ModelInfo, ...], Any]:
     """Discover models through the selected synthesis backend."""
     from .backends import get_backend
     from .backends.registry import default_backend

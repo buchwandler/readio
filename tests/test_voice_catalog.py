@@ -86,7 +86,10 @@ def test_filtering_does_not_renumber_and_language_is_regional() -> None:
         )
     ).voices
     assert [entry.selector for entry in filter_voice_catalog(entries, gender="male")] == ["de-2"]
-    assert {entry.locale for entry in filter_voice_catalog(entries, language="en")} == {"en-US", "en-GB"}
+    assert {entry.locale for entry in filter_voice_catalog(entries, language="en")} == {
+        "en-US",
+        "en-GB",
+    }
     assert {entry.locale for entry in filter_voice_catalog(entries, language="en-us")} == {"en-US"}
 
 
@@ -112,9 +115,7 @@ def test_selector_resolution_expands_canonical_identity(monkeypatch) -> None:
         "readio.voices.discover_voice_catalog",
         lambda **_: ((entry,), SimpleNamespace()),
     )
-    resolved = resolve_voice_selector(
-        "de-1", language=None, model=None, source=None
-    )
+    resolved = resolve_voice_selector("de-1", language=None, model=None, source=None)
     assert resolved is not None
     assert (resolved.language, resolved.model, resolved.source, resolved.voice) == (
         "de",

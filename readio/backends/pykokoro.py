@@ -284,6 +284,7 @@ class PyKokoroBackend:
             short_sentence_config=self.short_sentence_config_for_synthesis(resolved),
             ssmd=ssmd,
         )
+
     def build_ssmd_render_config(
         self,
         text: str,
@@ -297,12 +298,9 @@ class PyKokoroBackend:
 
         return SSMDRenderConfig(
             provider=cfg.ssmd.voice_provider,
-            voice_bindings=default_role_bindings(
-                text, cfg, additional_bindings, synthesis
-            ),
+            voice_bindings=default_role_bindings(text, cfg, additional_bindings, synthesis),
             missing_voice="error",
         )
-
 
     def pipeline_config_from_plan(self, plan: ReadioPlan, document: InputDocument) -> Any:
         from pykokoro import GenerationConfig, PipelineConfig, SSMDRenderConfig
@@ -380,9 +378,8 @@ class PyKokoroBackend:
                 synthesis=resolved,
             )
         )
-    def create_playback_player(
-        self, sample_rate: int, settings: object, channels: int
-    ) -> Any:
+
+    def create_playback_player(self, sample_rate: int, settings: object, channels: int) -> Any:
         from pykokoro.playback import SoundDevicePlayer
 
         return SoundDevicePlayer(
@@ -407,7 +404,6 @@ class PyKokoroBackend:
                 short_sentence_config=self.short_sentence_config_for_synthesis(settings),
             )
         )
-
 
 
 __all__ = ["PyKokoroBackend"]

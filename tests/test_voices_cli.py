@@ -43,7 +43,10 @@ def patch_catalog(monkeypatch) -> None:
     monkeypatch.setattr(
         cli,
         "discover_voice_catalog",
-        lambda **_: ((catalog_entry(),), SimpleNamespace(registry_source="cache", cache_fallback=False)),
+        lambda **_: (
+            (catalog_entry(),),
+            SimpleNamespace(registry_source="cache", cache_fallback=False),
+        ),
     )
 
 
@@ -51,7 +54,10 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
     patch_catalog(monkeypatch)
 
-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "list", "--lang", "de", "--json"])) == 0
+    assert (
+        cli._cmd_voices(cli.build_parser().parse_args(["voices", "list", "--lang", "de", "--json"]))
+        == 0
+    )
     listed = json.loads(capsys.readouterr().out)
     assert listed["filters"]["language"] == "de"
     assert listed["voices"][0]["selector"] == "de-1"
@@ -71,7 +77,10 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
         cli, "save_config", lambda updated: saved.append(updated) or Path("config.toml")
     )
 
-    assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"])) == 0
+    assert (
+        cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"]))
+        == 0
+    )
     assert saved[-1].voices["kokoro"].roles["moderator"] == "new_voice"
     assert "new_voice" in saved[-1].voices["kokoro"].ids
 

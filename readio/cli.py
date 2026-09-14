@@ -214,6 +214,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
     parser.add_argument("--unit", choices=("sentence", "paragraph"))
 
+
 def _add_voice_resolution_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--voice-bind",
@@ -501,9 +502,7 @@ def _cmd_speak(args: argparse.Namespace) -> int:
         return 0
 
     cfg = _resolved_config(args)
-    request = _build_plan_request(
-        args, cfg, operation="speak", allow_interactive=True
-    )
+    request = _build_plan_request(args, cfg, operation="speak", allow_interactive=True)
     plan = resolve_plan(cfg, request)
     if not plan.ok:
         raise RenderError("speak plan is not executable")
@@ -1170,7 +1169,7 @@ def _lexicon_entry_human(entry: LexiconCatalogEntry) -> None:
     print(f"Display name:   {entry.display_name or '-'}")
     print(f"Phoneme format: {entry.phoneme_encoding or '-'}")
     print(f"Default:        {'yes' if entry.default else 'no'}")
-    installed = '-' if entry.installed is None else 'yes' if entry.installed else 'no'
+    installed = "-" if entry.installed is None else "yes" if entry.installed else "no"
     print(f"Installed:      {installed}")
     print(f"Model support:  {entry.model_support}")
     print(f"Models:         {', '.join(entry.models) or '-'}")
@@ -1191,7 +1190,9 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
         preference=args.preference,
     )
     if args.lexicons_command == "list":
-        lexicons = filter_lexicon_catalog(entries, language=language, model=args.model, engine=args.engine)
+        lexicons = filter_lexicon_catalog(
+            entries, language=language, model=args.model, engine=args.engine
+        )
         payload = {
             "ok": True,
             "filters": {"language": language, "model": args.model, "engine": args.engine},
@@ -1217,17 +1218,19 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
         return 0
 
     matches = find_lexicon_entries(args.selector, entries)
-    matches = filter_lexicon_catalog(matches, language=language, model=args.model, engine=args.engine)
+    matches = filter_lexicon_catalog(
+        matches, language=language, model=args.model, engine=args.engine
+    )
     if not matches:
         raise ValueError(
             f"Lexicon {args.selector!r} is not available. "
             f"Run `readio lexicons list --lang {language or 'en'}` to inspect selectors."
         )
     if len(matches) > 1:
-        alternatives = ", ".join(
-            f"{item.selector}/{item.locale}/{item.engine}" for item in matches
+        alternatives = ", ".join(f"{item.selector}/{item.locale}/{item.engine}" for item in matches)
+        raise ValueError(
+            f"Lexicon {args.selector!r} is ambiguous; use --lang or --engine: {alternatives}"
         )
-        raise ValueError(f"Lexicon {args.selector!r} is ambiguous; use --lang or --engine: {alternatives}")
     entry = matches[0]
     payload = {
         "ok": True,
@@ -1322,7 +1325,10 @@ def _cmd_roles(args: argparse.Namespace) -> int:
     if settings is None:
         raise ValueError(f"voice provider {provider!r} is not configured")
     if getattr(args, "legacy_roles", False):
-        print("Warning: `readio voices roles|bind|unbind` is deprecated; use `readio roles`.", file=sys.stderr)
+        print(
+            "Warning: `readio voices roles|bind|unbind` is deprecated; use `readio roles`.",
+            file=sys.stderr,
+        )
     if args.roles_command == "list":
         result = {"ok": True, "provider": provider, "roles": dict(settings.roles)}
         if args.json:
@@ -1344,7 +1350,13 @@ def _cmd_roles(args: argparse.Namespace) -> int:
             voice_id = selector_resolution.voice
         updated = bind_voice_role(cfg, args.role, voice_id, provider)
         path = save_config(updated)
-        result = {"ok": True, "provider": provider, "role": args.role, "voice": voice_id, "path": path}
+        result = {
+            "ok": True,
+            "provider": provider,
+            "role": args.role,
+            "voice": voice_id,
+            "path": path,
+        }
         if args.json:
             print(json.dumps(_json_value(result), ensure_ascii=False))
         else:
@@ -1795,7 +1807,6 @@ def build_parser() -> argparse.ArgumentParser:
     models_show.add_argument("--refresh", action="store_true")
     models_show.set_defaults(func=_cmd_models)
 
-
     lexicons = sub.add_parser("lexicons", help="discover named synthesis lexicons")
     lexicons_sub = lexicons.add_subparsers(dest="lexicons_command", required=True)
     lexicons_list = lexicons_sub.add_parser("list", help="list named lexicon selectors")
@@ -1871,11 +1882,14 @@ def build_parser() -> argparse.ArgumentParser:
     voices_sub = voices.add_subparsers(dest="voices_command", required=True)
     voices_list = voices_sub.add_parser("list", help="list runnable registry voices")
     voices_list.add_argument(
-        "--lang", "--language", dest="lang",
+        "--lang",
+        "--language",
+        dest="lang",
         help="filter by language/locale; base codes include regional voices",
     )
     voices_list.add_argument(
-        "--gender", choices=("female", "male", "neutral", "unknown"),
+        "--gender",
+        choices=("female", "male", "neutral", "unknown"),
         help="filter by registry gender metadata",
     )
     voices_list.add_argument("--model", help="filter by discovered model")
@@ -1931,7 +1945,6 @@ def build_parser() -> argparse.ArgumentParser:
     legacy_unbind.add_argument("--provider")
     legacy_unbind.add_argument("--json", action="store_true")
     legacy_unbind.set_defaults(func=_cmd_roles, roles_command="unbind", legacy_roles=True)
-
 
     ssmd = sub.add_parser("ssmd", help="inspect SSMD documents")
     ssmd_sub = ssmd.add_subparsers(dest="ssmd_command", required=True)

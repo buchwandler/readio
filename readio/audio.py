@@ -74,9 +74,7 @@ class PlaybackSink:
             self._sample_rate = sample_rate
             self._channels = channels
             backend = get_backend(self._cfg.engine)
-            self._player = backend.create_playback_player(
-                sample_rate, self._cfg, channels
-            )
+            self._player = backend.create_playback_player(sample_rate, self._cfg, channels)
             self._player.start()
         elif sample_rate != self._sample_rate or channels != self._channels:
             raise ValueError("all rendered chunks must use the same sample rate and channel count")
