@@ -17,13 +17,13 @@ def _is_supported_pykokoro_version() -> bool:
     if not match:
         return False
     value = tuple(int(match.group(index) or 0) for index in (1, 2, 3))
-    return (0, 9, 2) <= value < (0, 10, 0)
+    return (0, 9, 5) <= value < (0, 10, 0)
 
 
 def test_pykokoro_exposes_supported_public_contract() -> None:
     assert _is_supported_pykokoro_version(), (
         f"installed PyKokoro {pykokoro.__version__} is outside "
-        "Readio's supported >=0.9.2,<0.10 range"
+        "Readio's supported >=0.9.5,<0.10 range"
     )
     assert callable(discover_models)
     assert GenerationConfig

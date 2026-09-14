@@ -26,8 +26,6 @@ from .config import (
     language_profile,
     load_config,
     normalize_language_key,
-    provider_role_map,
-    provider_voices,
     save_config,
     set_config_value,
     unbind_voice_role,
@@ -92,6 +90,13 @@ from .templates import (
     show_template,
     template_path,
 )
+from .voices import (
+    VoiceCatalogEntry,
+    discover_voice_catalog,
+    filter_voice_catalog,
+    find_voice_entries,
+    resolve_voice_selector,
+)
 from .wave import atomic_audio_path, create_audio_sink
 
 logger = logging.getLogger(__name__)
@@ -139,7 +144,10 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--voice", help="PyKokoro voice, e.g. af_sarah")
+    parser.add_argument(
+        "--voice",
+        help="voice selector or canonical PyKokoro voice ID, e.g. de-1 or af_sarah",
+    )
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
     parser.add_argument("--model", help="PyKokoro model ID")
     parser.add_argument(
@@ -943,6 +951,20 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
     source = args.model_source if args.model_source is not None else existing.source
     quality = args.quality if args.quality is not None else existing.quality
     voice = args.voice if args.voice is not None else existing.voice
+    selector_resolution = resolve_voice_selector(
+        voice,
+        language=language,
+        model=model_id,
+        source=source,
+        offline=args.offline,
+        refresh=args.refresh,
+        preference=source or "auto",
+    )
+    if selector_resolution is not None and selector_resolution.selector is not None:
+        language = selector_resolution.language or language
+        model_id = selector_resolution.model
+        source = selector_resolution.source
+        voice = selector_resolution.voice
     if args.lexicons is not None:
         lexicons = tuple(args.lexicons)
     elif args.no_lexicons:
@@ -1101,112 +1123,119 @@ def _cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
+    print(f"Selector:       {entry.selector}")
+    print(f"Voice:          {entry.id}")
+    print(f"Gender:         {entry.gender}")
+    print(f"Locale:         {entry.locale}")
+    print(f"Language:       {entry.language_label}")
+    print(f"Model:          {entry.model}")
+    print(f"Source:         {entry.source}")
+    print(f"Default voice:  {'yes' if entry.default else 'no'}")
+    print(f"Status:         {entry.status}")
+    print(f"Experimental:   {'yes' if entry.experimental else 'no'}")
+    print()
+    print("Equivalent selection:")
+    print(
+        f"  --lang {entry.locale} --model {entry.model} "
+        f"--model-source {entry.source} --voice {entry.id}"
+    )
+
+
 def _cmd_voices(args: argparse.Namespace) -> int:
+    if hasattr(args, "roles_command"):
+        return _cmd_roles(args)
+    entries, discovery = discover_voice_catalog(
+        offline=args.offline, refresh=args.refresh, preference=args.preference
+    )
+    if args.voices_command == "list":
+        language = getattr(args, "lang", None) or getattr(args, "language", None)
+        voices = filter_voice_catalog(
+            entries, language=language, gender=args.gender, model=args.model
+        )
+        payload = {
+            "ok": True,
+            "registry": _model_registry_payload(discovery, offline=args.offline),
+            "filters": {"language": language, "gender": args.gender, "model": args.model},
+            "voices": [entry.to_dict() for entry in voices],
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        if getattr(discovery, "cache_fallback", False):
+            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
+        print(f"Voices: {len(voices)}")
+        print()
+        print("SELECTOR  VOICE             GENDER   LOCALE    LANGUAGE                 MODEL          STATUS")
+        print("--------  ----------------  -------  --------  -----------------------  -------------  ------------")
+        for entry in voices:
+            print(
+                f"{entry.selector:<9} {entry.id:<17} {entry.gender:<8} "
+                f"{entry.locale:<9} {entry.language_label:<24} {entry.model:<14} {entry.status}"
+            )
+        return 0
+
+    entry_matches = find_voice_entries(args.selector, entries)
+    if not entry_matches:
+        raise ModelDiscoveryError(
+            f"Unknown voice {args.selector!r}. Run `readio voices list` to inspect available voices.",
+            code="readio.voice_selector_not_found",
+        )
+    if len(entry_matches) > 1:
+        selectors = ", ".join(entry.selector for entry in entry_matches)
+        raise ModelDiscoveryError(
+            f"Voice {args.selector!r} exists in multiple catalog entries; use one of: {selectors}",
+            code="readio.voice_selector_ambiguous",
+        )
+    entry = entry_matches[0]
+    payload = {
+        "ok": True,
+        "registry": _model_registry_payload(discovery, offline=args.offline),
+        "voice": entry.to_dict(),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        _voice_entry_human(entry)
+    return 0
+
+
+def _cmd_roles(args: argparse.Namespace) -> int:
     cfg = load_config()
     provider = args.provider or cfg.ssmd.voice_provider
     settings = cfg.voices.get(provider)
-    if args.voices_command == "list" and (
-        getattr(args, "model", None) or getattr(args, "language", None)
-    ):
-        if getattr(args, "model", None):
-            model, discovery = get_model_info(
-                args.model,
-                offline=args.offline,
-                refresh=args.refresh,
-                preference=args.preference,
-            )
-            models = (model,)
-        else:
-            models, discovery = discover_model_info(
-                language=args.language,
-                offline=args.offline,
-                refresh=args.refresh,
-                preference=args.preference,
-            )
-        configured_roles = settings.roles if settings is not None else {}
-        voices = [
-            {
-                "id": voice,
-                "default": voice == model.default_voice,
-                "model": model.id,
-                "source": model.source,
-                "roles": [role for role, target in configured_roles.items() if target == voice],
-            }
-            for model in models
-            for voice in model.voices
-        ]
-        result = {
-            "ok": True,
-            "provider": provider,
-            "model": args.model if getattr(args, "model", None) else None,
-            "source": models[0].source if len(models) == 1 else None,
-            "language": getattr(args, "language", None),
-            "registry": _model_registry_payload(discovery, offline=args.offline),
-            "voices": voices,
-        }
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False))
-        else:
-            if args.model:
-                print(f"Model: {args.model}")
-            else:
-                print(f"Language: {args.language}")
-            print("VOICE       MODEL          DEFAULT  ROLES")
-            for item in voices:
-                roles = ", ".join(item["roles"]) or "-"
-                print(
-                    f"{item['id']:<11} {item['model']:<14} "
-                    f"{'yes' if item['default'] else 'no':<8} {roles}"
-                )
-        return 0
     if settings is None:
         raise ValueError(f"voice provider {provider!r} is not configured")
-
-    if args.voices_command == "list":
-        reverse = provider_role_map(cfg, provider)
-        voices = [
-            {"id": voice, "roles": list(reverse.get(voice, ()))}
-            for voice in provider_voices(cfg, provider)
-        ]
-        result = {"ok": True, "provider": provider, "voices": voices}
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False))
-        else:
-            print(f"Provider: {provider}")
-            print("Configured/legacy voice IDs; use `readio models list` for runtime catalogs.")
-            print()
-            print("VOICE ID     ROLES")
-            for item in voices:
-                roles = ", ".join(item["roles"]) or "-"
-                print(f"{item['id']:<12} {roles}")
-        return 0
-
-    if args.voices_command == "roles":
+    if getattr(args, "legacy_roles", False):
+        print("Warning: `readio voices roles|bind|unbind` is deprecated; use `readio roles`.", file=sys.stderr)
+    if args.roles_command == "list":
         result = {"ok": True, "provider": provider, "roles": dict(settings.roles)}
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
         else:
+            print(f"Provider: {provider}")
+            print()
+            print("ROLE        VOICE")
+            print("----------  ------------")
             for role, voice in sorted(settings.roles.items()):
-                print(f"{role} -> {voice}")
+                print(f"{role:<11} {voice}")
         return 0
-
-    if args.voices_command == "bind":
-        updated = bind_voice_role(cfg, args.role, args.voice_id, provider)
+    if args.roles_command == "bind":
+        voice_id = args.voice_id
+        selector_resolution = resolve_voice_selector(
+            voice_id, language=None, model=None, source=None
+        )
+        if selector_resolution is not None and selector_resolution.selector is not None:
+            voice_id = selector_resolution.voice
+        updated = bind_voice_role(cfg, args.role, voice_id, provider)
         path = save_config(updated)
-        result = {
-            "ok": True,
-            "provider": provider,
-            "role": args.role,
-            "voice": args.voice_id,
-            "path": path,
-        }
+        result = {"ok": True, "provider": provider, "role": args.role, "voice": voice_id, "path": path}
         if args.json:
             print(json.dumps(_json_value(result), ensure_ascii=False))
         else:
-            print(f"{args.role} -> {args.voice_id} ({provider})")
+            print(f"{args.role} -> {voice_id} ({provider})")
         return 0
-
-    if args.voices_command == "unbind":
+    if args.roles_command == "unbind":
         updated = unbind_voice_role(cfg, args.role, provider)
         path = save_config(updated)
         result = {"ok": True, "provider": provider, "role": args.role, "path": path}
@@ -1215,7 +1244,6 @@ def _cmd_voices(args: argparse.Namespace) -> int:
         else:
             print(f"removed {args.role} ({provider})")
         return 0
-
     raise AssertionError("unreachable")
 
 
@@ -1697,12 +1725,18 @@ def build_parser() -> argparse.ArgumentParser:
     defaults_reset.add_argument("--json", action="store_true")
     defaults_reset.set_defaults(func=_cmd_defaults)
 
-    voices = sub.add_parser("voices", help="discover and manage SSMD voices")
+    voices = sub.add_parser("voices", help="discover runnable voices and short selectors")
     voices_sub = voices.add_subparsers(dest="voices_command", required=True)
-    voices_list = voices_sub.add_parser("list", help="list configured concrete voices")
-    voices_list.add_argument("--provider")
-    voices_list.add_argument("--model", help="list voices for a discovered model")
-    voices_list.add_argument("--language")
+    voices_list = voices_sub.add_parser("list", help="list runnable registry voices")
+    voices_list.add_argument(
+        "--lang", "--language", dest="lang",
+        help="filter by language/locale; base codes include regional voices",
+    )
+    voices_list.add_argument(
+        "--gender", choices=("female", "male", "neutral", "unknown"),
+        help="filter by registry gender metadata",
+    )
+    voices_list.add_argument("--model", help="filter by discovered model")
     voices_list.add_argument("--offline", action="store_true")
     voices_list.add_argument("--refresh", action="store_true")
     voices_list.add_argument(
@@ -1710,21 +1744,50 @@ def build_parser() -> argparse.ArgumentParser:
     )
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
-    voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")
-    voices_roles.add_argument("--provider")
-    voices_roles.add_argument("--json", action="store_true")
-    voices_roles.set_defaults(func=_cmd_voices)
-    voices_bind = voices_sub.add_parser("bind", help="persist a logical role binding")
-    voices_bind.add_argument("role")
-    voices_bind.add_argument("voice_id")
-    voices_bind.add_argument("--provider")
-    voices_bind.add_argument("--json", action="store_true")
-    voices_bind.set_defaults(func=_cmd_voices)
-    voices_unbind = voices_sub.add_parser("unbind", help="remove a logical role binding")
-    voices_unbind.add_argument("role")
-    voices_unbind.add_argument("--provider")
-    voices_unbind.add_argument("--json", action="store_true")
-    voices_unbind.set_defaults(func=_cmd_voices)
+    voices_show = voices_sub.add_parser("show", help="show one voice selector or canonical ID")
+    voices_show.add_argument("selector")
+    voices_show.add_argument("--offline", action="store_true")
+    voices_show.add_argument("--refresh", action="store_true")
+    voices_show.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
+    voices_show.add_argument("--json", action="store_true")
+    voices_show.set_defaults(func=_cmd_voices)
+
+    roles = sub.add_parser("roles", help="manage persistent SSMD role bindings")
+    roles_sub = roles.add_subparsers(dest="roles_command", required=True)
+    roles_list = roles_sub.add_parser("list", help="list configured logical roles")
+    roles_list.add_argument("--provider")
+    roles_list.add_argument("--json", action="store_true")
+    roles_list.set_defaults(func=_cmd_roles)
+    roles_bind = roles_sub.add_parser("bind", help="persist a logical role binding")
+    roles_bind.add_argument("role")
+    roles_bind.add_argument("voice_id")
+    roles_bind.add_argument("--provider")
+    roles_bind.add_argument("--json", action="store_true")
+    roles_bind.set_defaults(func=_cmd_roles)
+    roles_unbind = roles_sub.add_parser("unbind", help="remove a logical role binding")
+    roles_unbind.add_argument("role")
+    roles_unbind.add_argument("--provider")
+    roles_unbind.add_argument("--json", action="store_true")
+    roles_unbind.set_defaults(func=_cmd_roles)
+
+    legacy_roles = voices_sub.add_parser("roles", help="deprecated alias for readio roles list")
+    legacy_roles.add_argument("--provider")
+    legacy_roles.add_argument("--json", action="store_true")
+    legacy_roles.set_defaults(func=_cmd_roles, roles_command="list", legacy_roles=True)
+    legacy_bind = voices_sub.add_parser("bind", help="deprecated alias for readio roles bind")
+    legacy_bind.add_argument("role")
+    legacy_bind.add_argument("voice_id")
+    legacy_bind.add_argument("--provider")
+    legacy_bind.add_argument("--json", action="store_true")
+    legacy_bind.set_defaults(func=_cmd_roles, roles_command="bind", legacy_roles=True)
+    legacy_unbind = voices_sub.add_parser("unbind", help="deprecated alias for readio roles unbind")
+    legacy_unbind.add_argument("role")
+    legacy_unbind.add_argument("--provider")
+    legacy_unbind.add_argument("--json", action="store_true")
+    legacy_unbind.set_defaults(func=_cmd_roles, roles_command="unbind", legacy_roles=True)
+
 
     ssmd = sub.add_parser("ssmd", help="inspect SSMD documents")
     ssmd_sub = ssmd.add_subparsers(dest="ssmd_command", required=True)

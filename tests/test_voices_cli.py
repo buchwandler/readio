@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
-
-import pytest
+from types import SimpleNamespace
 
 from readio import cli
 from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
+from readio.voices import VoiceCatalogEntry
 
 
 def config(tmp_path: Path) -> ReadioConfig:
@@ -19,20 +21,49 @@ def config(tmp_path: Path) -> ReadioConfig:
     )
 
 
-def test_voices_list_and_roles_json(monkeypatch, tmp_path, capsys):
+def catalog_entry() -> VoiceCatalogEntry:
+    return VoiceCatalogEntry(
+        selector="de-1",
+        number=1,
+        id="martin",
+        gender="male",
+        language="de",
+        locale="de",
+        language_label="German",
+        model="de-model",
+        source="github",
+        default=True,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+    )
+
+
+def patch_catalog(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli,
+        "discover_voice_catalog",
+        lambda **_: ((catalog_entry(),), SimpleNamespace(registry_source="cache", cache_fallback=False)),
+    )
+
+
+def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+    patch_catalog(monkeypatch)
 
-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "list", "--json"])) == 0
+    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "list", "--lang", "de", "--json"])) == 0
     listed = json.loads(capsys.readouterr().out)
-    assert listed["provider"] == "kokoro"
-    assert listed["voices"][0] == {"id": "af_sarah", "roles": ["host"]}
+    assert listed["filters"]["language"] == "de"
+    assert listed["voices"][0]["selector"] == "de-1"
+    assert listed["voices"][0]["id"] == "martin"
 
-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
-    roles = json.loads(capsys.readouterr().out)
-    assert roles["roles"] == {"host": "af_sarah"}
+    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "show", "de-1", "--json"])) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["voice"]["selector"] == "de-1"
+    assert shown["voice"]["model"] == "de-model"
 
 
-def test_voices_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
+def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     cfg = config(tmp_path)
     saved = []
     monkeypatch.setattr(cli, "load_config", lambda: cfg)
@@ -40,21 +71,17 @@ def test_voices_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
         cli, "save_config", lambda updated: saved.append(updated) or Path("config.toml")
     )
 
-    assert (
-        cli._cmd_voices(
-            cli.build_parser().parse_args(["voices", "bind", "moderator", "am_michael"])
-        )
-        == 0
-    )
-    assert saved[-1].voices["kokoro"].roles["moderator"] == "am_michael"
+    assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"])) == 0
+    assert saved[-1].voices["kokoro"].roles["moderator"] == "new_voice"
+    assert "new_voice" in saved[-1].voices["kokoro"].ids
 
     bound = saved[-1]
     monkeypatch.setattr(cli, "load_config", lambda: bound)
-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "unbind", "moderator"])) == 0
+    assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "unbind", "moderator"])) == 0
     assert "moderator" not in saved[-1].voices["kokoro"].roles
 
 
-def test_voices_bind_rejects_unknown_target(monkeypatch, tmp_path):
+def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
-    with pytest.raises(ValueError, match="available voices"):
-        cli._cmd_voices(cli.build_parser().parse_args(["voices", "bind", "moderator", "missing"]))
+    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
+    assert "deprecated" in capsys.readouterr().err

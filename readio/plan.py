@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -32,6 +32,7 @@ from .formats import (
 )
 from .markdown import markdown_to_speech
 from .models import ModelDiscoveryError, get_model_info, language_matches
+from .voices import resolve_voice_selector
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -576,6 +577,36 @@ def _resolve_synthesis_candidate(
     """Apply Readio precedence rules and record provenance."""
     decisions: list[ResolutionDecision] = []
 
+    selector_resolution = resolve_voice_selector(
+        request.voice,
+        language=request.language,
+        model=request.model,
+        source=request.model_source,
+        offline=request.offline,
+        refresh=request.refresh,
+        preference=request.model_source or "auto",
+    )
+    requested_selector = request.voice if selector_resolution and selector_resolution.selector else None
+    if selector_resolution is not None and selector_resolution.selector is not None:
+        request = replace(
+            request,
+            language=selector_resolution.language,
+            model=selector_resolution.model,
+            model_source=selector_resolution.source,
+            voice=selector_resolution.voice,
+        )
+        decisions.append(
+            ResolutionDecision(
+                field="synthesis.voice_selector",
+                value=requested_selector,
+                origin=ORIGIN_CLI,
+                locator="request.voice",
+                reason=(
+                    f"voice selector {requested_selector!r} resolved via registry to "
+                    f"model {selector_resolution.model!r} / voice {selector_resolution.voice!r}"
+                ),
+            )
+        )
     # Language
     cli_language = request.language
     raw_language = normalize_language_key(cli_language or cfg.reader.lang)

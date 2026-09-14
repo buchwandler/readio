@@ -640,9 +640,19 @@ def bind_voice_role(
     if not role:
         raise ValueError("voice role must be a non-empty string")
     if voice_id not in settings.ids:
-        available = ", ".join(settings.ids)
-        raise ValueError(
-            f"voice {voice_id!r} is not configured for provider {name!r}; available voices: {available}"
+        settings = VoiceProviderSettings(
+            ids=(*settings.ids, voice_id),
+            roles=settings.roles,
+        )
+        voices = dict(cfg.voices)
+        voices[name] = settings
+        cfg = ReadioConfig(
+            schema=cfg.schema,
+            reader=cfg.reader,
+            ssmd=cfg.ssmd,
+            paths=cfg.paths,
+            voices=voices,
+            languages=cfg.languages,
         )
     return set_config_value(cfg, f"voices.{name}.roles.{role}", voice_id)  # type: ignore[return-value]
 

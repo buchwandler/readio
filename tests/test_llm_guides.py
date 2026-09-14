@@ -96,7 +96,7 @@ def test_compatibility_and_shared_sections_do_not_drift():
         target = section(text, "Target runtime")
         assert "Readio 0.2.x" in target
         assert "SSMD >=0.8.7,<0.9" in target
-        assert "PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)" in target
+        assert "PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)" in target
     for heading in SHARED_SECTIONS:
         assert len({section(text, heading) for text in texts}) == 1, heading
 

@@ -15,6 +15,7 @@ from readio.models import (
     _pykokoro_discovery,
     validate_language_settings,
 )
+from readio.voices import VoiceCatalogEntry
 
 MODEL = ModelInfo(
     id="de-thorsten",
@@ -33,13 +34,13 @@ MODEL = ModelInfo(
 )
 
 
-def test_discovery_rejects_pykokoro_091_with_required_version(monkeypatch) -> None:
-    fake = SimpleNamespace(__version__="0.9.1")
+def test_discovery_rejects_pykokoro_094_with_required_version(monkeypatch) -> None:
+    fake = SimpleNamespace(__version__="0.9.4")
     monkeypatch.setitem(sys.modules, "pykokoro", fake)
-    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.2,<0.10") as error:
+    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.5,<0.10") as error:
         _pykokoro_discovery()
     assert error.value.code == "pykokoro.version_unsupported"
-    assert error.value.installed_version == "0.9.1"
+    assert error.value.installed_version == "0.9.4"
 
 
 def test_model_validation_rejects_quality_and_known_lexicon() -> None:
@@ -70,17 +71,29 @@ def test_experimental_model_requires_opt_in() -> None:
 
 
 def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> None:
+    entry = VoiceCatalogEntry(
+        selector="de-1",
+        number=1,
+        id="thorsten",
+        gender="male",
+        language="de",
+        locale="de",
+        language_label="German",
+        model=MODEL.id,
+        source="github",
+        default=True,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+    )
     monkeypatch.setattr(
         cli,
-        "get_model_info",
-        lambda *args, **kwargs: (
-            MODEL,
-            SimpleNamespace(registry_source="cache", cache_fallback=False),
-        ),
+        "discover_voice_catalog",
+        lambda **kwargs: ((entry,), SimpleNamespace(registry_source="cache", cache_fallback=False)),
     )
     args = cli.build_parser().parse_args(["voices", "list", "--model", MODEL.id, "--json"])
     assert cli._cmd_voices(args) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["source"] == "github"
+    assert payload["voices"][0]["source"] == "github"
     assert payload["registry"]["source"] == "cache"
     assert payload["voices"][0]["id"] == "thorsten"

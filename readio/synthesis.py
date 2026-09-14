@@ -15,6 +15,7 @@ from .config import (
     normalize_spacy_policy,
 )
 from .models import ModelInfo, get_model_info, validate_language_settings
+from .voices import resolve_voice_selector
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,21 @@ def _select_preferred_quality(qualities: tuple[str, ...]) -> str | None:
 def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> ResolvedSynthesis:
     """Resolve and validate all reader, profile, and CLI synthesis settings once."""
     args = args or Namespace()
+    selector_resolution = resolve_voice_selector(
+        getattr(args, "voice", None),
+        language=getattr(args, "lang", None),
+        model=getattr(args, "model", None),
+        source=getattr(args, "model_source", None),
+        offline=bool(getattr(args, "offline", False)),
+        refresh=bool(getattr(args, "refresh", False)),
+        preference=getattr(args, "model_source", None) or "auto",
+    )
+    if selector_resolution is not None and selector_resolution.selector is not None:
+        args = Namespace(**vars(args))
+        args.lang = selector_resolution.language
+        args.model = selector_resolution.model
+        args.model_source = selector_resolution.source
+        args.voice = selector_resolution.voice
     language, profile, cli_language = _raw_synthesis_selection(cfg, args)
 
     logger.info(

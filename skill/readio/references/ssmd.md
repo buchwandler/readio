@@ -8,7 +8,7 @@ readio voices list --json
 readio render --file episode.ssmd --voice-bind moderator=af_sarah
 ```
 
-Document-local bindings are authoritative. Readio supplies only missing configured defaults. Persist reusable mappings with `readio voices bind ROLE VOICE_ID`; inspect them with `readio voices roles`.
+Document-local bindings are authoritative. Readio supplies only missing configured defaults. Persist reusable mappings with `readio roles bind ROLE VOICE_ID`; inspect them with `readio roles list`. Use `readio voices list --lang LANG` and `readio voices show SELECTOR` for runtime catalog selectors. Selectors are not durable SSMD identifiers.
 
 For the exact effective cast a render will use — including document, invocation, configured-role, and direct bindings resolved against the active model roster, each with its origin — inspect the plan JSON:
 

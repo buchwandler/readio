@@ -50,7 +50,7 @@ readio plan --file input.ssmd -o episode.mp3 --force --json
 - `decisions`: the winning source (`origin` + `locator`) for every effective value, including each `ssmd.bindings.<ref>` entry.
 - `environment`: Readio/PyKokoro/SSMD versions and `ffmpeg_available`.
 
-Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio voices bind` roles.
+Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio roles bind` roles.
 
 ## Durable render manifests
 
@@ -66,17 +66,13 @@ The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-man
 `--manifest` is rejected with `--live` and does not apply to `speak`, `plan`, dry runs, or publishing. If sidecar writing fails, the committed audio remains and JSON errors use code `render.manifest_error` with `audio_path` and `manifest_path`.
 
 ## Model discovery
-
-Use PyKokoro >=0.9.2,<0.10 metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
+Use PyKokoro >=0.9.5,<0.10 metadata to inspect runnable voices first, then inspect backend models when needed. Discovery is metadata-only and does not download weights or voices:
 
 ```bash
-readio models list --language de --offline --json
-readio models list --status ready --offline
+readio voices list --lang de --offline --json
+readio voices show de-1 --offline --json
 readio models show de-thorsten --offline --json
-readio voices list --model de-thorsten --json
 readio models list --preference huggingface --json
-readio voices list --model de-thorsten --preference github --json
-```
 
 `--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
 Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. Synthesis/default `--model-source github|huggingface` selects the same distribution for metadata validation and `PipelineConfig`. Voices are model-scoped; SSMD checks the active model roster, not the legacy configured list.

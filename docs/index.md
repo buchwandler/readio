@@ -94,8 +94,7 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.2,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.4:
-
+Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.5,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.5:
 ```bash
 readio models list --language de --offline
 readio models show de-thorsten --offline
@@ -277,12 +276,12 @@ The main execution path is `readio/cli.py`. Input normalization is in `readio/do
 SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and remain authoritative. Inspect configured voices and persisted role mappings with:
 
 ```bash
-readio voices list --provider kokoro --json
-readio voices roles --provider kokoro
-```
+readio voices list --lang de --json
+readio voices show de-1 --json
+readio roles list --provider kokoro
 
-For a selected model, inspect concrete voices with `readio voices list --model MODEL --language LANG --json`. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
-Use `readio voices bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
+For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; selectors are discovery aliases, while bindings remain canonical voice IDs. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
+Use `readio roles bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
 
 ```bash
 readio render --file episode.ssmd \

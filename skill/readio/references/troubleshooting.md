@@ -58,7 +58,7 @@ readio doctor --json
 - **`synthesis_incomplete`**: the plan could not become concrete (missing model/source/quality/voice). Provide `--model` explicitly and retry.
 
 - **Unexpected pronunciation routing:** inspect the plan's `language_detection` and `detect_languages` fields. SSMD `language_detection` hints and CLI detection options route pronunciation fragments while retaining the selected acoustic model language.
-- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio voices bind ROLE VOICE_ID`; inspect valid IDs with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
+- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio roles bind ROLE VOICE_ID`; inspect selectors with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
 - **`encoder_unavailable` / `output_format_conflict`**: the requested audio format needs an unavailable backend (M4A requires `ffmpeg` on `PATH`) or `--format` disagrees with the output suffix. Choose WAV/MP3/OGG, install FFmpeg, or align format and suffix.
 
 - **Model registry unavailable:** run `readio models list --offline --json` to use the cache. Without a valid cache, run the online command once; discovery never downloads model weights.

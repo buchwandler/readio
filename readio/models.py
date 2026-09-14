@@ -11,7 +11,7 @@ from typing import Any
 from .config import LanguageSettings, normalize_language_key
 
 logger = logging.getLogger(__name__)
-PYKOKORO_REQUIRED = ">=0.9.2,<0.10"
+PYKOKORO_REQUIRED = ">=0.9.5,<0.10"
 _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
 
@@ -40,6 +40,46 @@ class ModelDiscoveryError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class VoiceMetadata:
+    """Metadata describing one canonical PyKokoro voice."""
+
+    id: str
+    gender: str
+    language: str
+    locale: str
+    language_label: str
+
+
+def _voice_metadata(capabilities: Any) -> tuple[VoiceMetadata, ...]:
+    languages = tuple(getattr(capabilities, "languages", ()))
+    fallback = languages[0] if languages else "unknown"
+    fallback_entry = VoiceMetadata(
+    id="",
+    gender="unknown",
+    language=fallback,
+    locale=fallback,
+    language_label=fallback,
+    )
+    indexed: dict[str, VoiceMetadata] = {}
+    for detail in tuple(getattr(capabilities, "voice_details", ()) or ()):
+        name = getattr(detail, "name", None)
+        if name not in capabilities.voices or name in indexed:
+            raise ValueError(f"voice_details contains invalid or duplicate voice {name!r}")
+        indexed[name] = VoiceMetadata(
+            id=name,
+            gender=str(getattr(detail, "gender", "unknown")),
+            language=str(getattr(detail, "language", fallback)),
+            locale=str(getattr(detail, "locale", fallback)),
+            language_label=str(getattr(detail, "language_label", fallback)),
+        )
+    return tuple(indexed.get(voice, VoiceMetadata(
+        id=voice,
+        gender=fallback_entry.gender,
+        language=fallback_entry.language,
+        locale=fallback_entry.locale,
+        language_label=fallback_entry.language_label,
+    )) for voice in capabilities.voices)
+@dataclass(frozen=True, slots=True)
 class ModelInfo:
     id: str
     source: str
@@ -58,6 +98,7 @@ class ModelInfo:
     provider: str | None = None
     sample_rate: int | None = None
     max_tokens: int | None = None
+    voice_details: tuple[VoiceMetadata, ...] = ()
 
     @classmethod
     def from_capabilities(cls, capabilities: Any) -> ModelInfo:
@@ -80,6 +121,7 @@ class ModelInfo:
                 provider=getattr(capabilities, "provider", None),
                 sample_rate=getattr(capabilities, "sample_rate", None),
                 max_tokens=getattr(capabilities, "max_tokens", None),
+                voice_details=_voice_metadata(capabilities),
             )
         except (AttributeError, TypeError, ValueError) as exc:
             raise ModelDiscoveryError(
@@ -94,6 +136,16 @@ class ModelInfo:
             "languages": list(self.languages),
             "default_voice": self.default_voice,
             "voices": list(self.voices),
+            "voice_details": [
+                {
+                    "id": detail.id,
+                    "gender": detail.gender,
+                    "language": detail.language,
+                    "locale": detail.locale,
+                    "language_label": detail.language_label,
+                }
+                for detail in self.voice_details
+            ],
             "qualities": list(self.qualities),
             "g2p_backend": self.g2p_backend,
             "lexicons": list(self.lexicons) if self.lexicons is not None else None,
@@ -126,7 +178,7 @@ def _version_supported(version: str) -> bool:
         return False
     major, minor = int(match.group(1)), int(match.group(2))
     patch = int(match.group(3) or 0)
-    return (major, minor, patch) >= (0, 9, 2) and (major, minor) == (0, 9)
+    return (major, minor, patch) >= (0, 9, 5) and (major, minor) == (0, 9)
 
 
 def _package_metadata() -> str | None:
@@ -433,6 +485,7 @@ __all__ = [
     "PYKOKORO_REQUIRED",
     "ModelDiscoveryError",
     "ModelInfo",
+    "VoiceMetadata",
     "discover_model_info",
     "get_model_info",
     "language_matches",
