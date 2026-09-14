@@ -51,7 +51,7 @@ class ReaderSettings:
     voice: str = "af_sarah"
     lang: str = "en-us"
     speed: float = 1.0
-    pause_mode: str = "tts"
+    pause_mode: str = "auto"
     unit: str = "sentence"
     queue_size: int = 2
     device: str | None = None

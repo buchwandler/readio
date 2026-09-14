@@ -90,11 +90,12 @@ Synthesis options are available on all three commands:
 --speed NUMBER      speech speed multiplier
 --spacy MODE              auto, off, sm, md, lg, or trf
 --short-sentence MODE     auto, off, wrap, phrase, or randomized-phrase
---pause-mode MODE   tts, manual, or auto
+--pause-mode MODE   auto (default), tts, or manual
 --unit UNIT         sentence or paragraph
 ```
 
 Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.5,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.5:
+Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
 ```bash
 readio models list --language de --offline
@@ -105,10 +106,9 @@ readio models show de-thorsten --preference github --json
 readio defaults set de --model de-thorsten --lexicon crane --offline
 readio defaults show de-at --json
 readio render --lang de --file notes.md
-```
-
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
+```
 
 `models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `--lexicon crane` selects a named lexicon; `de-de:crane` is the downstream Lexphon asset ID, while `de-crane` is an acoustic model ID.
 `--model-source github|huggingface` drives both discovery and runtime selection. Voices are model-scoped. The legacy global `reader.voice` applies only to unchanged default-reader use; a language override such as `--lang de` leaves voice selection to the active PyKokoro model unless explicitly set. SSMD preflight uses that same resolved model roster.
@@ -180,6 +180,7 @@ readio config init
 readio config path
 readio config show
 readio config validate
+readio config set reader.pause_mode auto
 ```
 
 `READIO_CONFIG` overrides the default configuration file path. Configuration is TOML with schema 2; schema-0/1 files remain readable and are upgraded when saved. The main sections are:

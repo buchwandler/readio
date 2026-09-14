@@ -1,0 +1,1713 @@
+ .github/workflows/codecov.yml              |   2 +-
+ .github/workflows/tests.yml                |   8 +-
+ README.md                                  |   6 +-
+ docs/index.md                              |  13 +-
+ llm-guides/README.md                       |   2 +-
+ llm-guides/ssmd/audio-drama.md             |   2 +-
+ llm-guides/ssmd/debate-pro-con.md          |   2 +-
+ llm-guides/ssmd/document-summary.md        |   2 +-
+ llm-guides/ssmd/dramatic-story.md          |   2 +-
+ llm-guides/ssmd/educational-explainer.md   |   2 +-
+ llm-guides/ssmd/funny-story.md             |   2 +-
+ llm-guides/ssmd/general-narration.md       |   2 +-
+ llm-guides/ssmd/guided-meditation.md       |   2 +-
+ llm-guides/ssmd/kids-story.md              |   2 +-
+ llm-guides/ssmd/language-learning.md       |   2 +-
+ llm-guides/ssmd/news-briefing.md           |   2 +-
+ llm-guides/ssmd/podcast-interview.md       |   2 +-
+ llm-guides/ssmd/podcast-roundtable.md      |   2 +-
+ llm-guides/ssmd/podcast-solo.md            |   2 +-
+ llm-guides/ssmd/quiz-trivia.md             |   2 +-
+ pyproject.toml                             |   2 +-
+ readio/cli.py                              | 283 +++++++++++++++++-----------
+ readio/config.py                           |  16 +-
+ readio/models.py                           |  57 +++++-
+ readio/plan.py                             |  33 +++-
+ readio/ssmd.py                             |   2 +-
+ readio/synthesis.py                        |  16 ++
+ readio/voices.py                           | 286 +++++++++++++++++++++++++++++
+ skill/readio/SKILL.md                      |   9 +-
+ skill/readio/references/cli.md             |  12 +-
+ skill/readio/references/ssmd.md            |   2 +-
+ skill/readio/references/troubleshooting.md |   2 +-
+ tests/test_llm_guides.py                   |   2 +-
+ tests/test_packaging_metadata.py           |   4 +-
+ tests/test_pykokoro_09_contract.py         |   4 +-
+ tests/test_pykokoro_09_regressions.py      |  33 +++-
+ tests/test_voice_catalog.py                | 124 +++++++++++++
+ tests/test_voices_cli.py                   |  69 ++++---
+ 38 files changed, 817 insertions(+), 200 deletions(-)
+
+diff --git a/.github/workflows/codecov.yml b/.github/workflows/codecov.yml
+index 35ea852..becf21f 100644
+--- a/.github/workflows/codecov.yml
++++ b/.github/workflows/codecov.yml
+@@ -16,7 +16,7 @@ jobs:
+           cache: pip
+       - name: Install Readio runtime dependencies
+         run: |
+-          python -m pip install "pykokoro[playback]==0.9.4"
++          python -m pip install "pykokoro[playback]==0.9.5"
+       - name: Install project and coverage tools
+         run: |
+           python -m pip install --upgrade pip
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index c845043..8f318e2 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -25,7 +25,7 @@ jobs:
+           cache: pip
+       - name: Install Readio runtime dependencies
+         run: |
+-          python -m pip install "pykokoro[playback]==0.9.4"
++          python -m pip install "pykokoro[playback]==0.9.5"
+       - name: Install project and test tools
+         run: |
+           python -m pip install --upgrade pip
+@@ -47,7 +47,7 @@ jobs:
+           python-version: "3.10"
+           cache: pip
+       - name: Install minimum PyKokoro runtime
+-        run: python -m pip install "pykokoro[playback]==0.9.4"
++        run: python -m pip install "pykokoro[playback]==0.9.5"
+       - name: Install project and test tools
+         run: |
+           python -m pip install --upgrade pip
+@@ -68,7 +68,7 @@ jobs:
+           cache: pip
+       - name: Install Readio runtime dependencies
+         run: |
+-          python -m pip install "pykokoro[playback]==0.9.4"
++          python -m pip install "pykokoro[playback]==0.9.5"
+       - name: Install development tools
+         run: python -m pip install -e ".[dev]"
+       - name: Ruff lint
+@@ -100,7 +100,7 @@ jobs:
+         shell: bash
+         run: |
+           python -m venv "${RUNNER_TEMP}/readio-wheel-smoke"
+-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "pykokoro[playback]==0.9.4"
++          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "pykokoro[playback]==0.9.5"
+           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install dist/*.whl
+           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip check
+           cd "${RUNNER_TEMP}"
+diff --git a/README.md b/README.md
+index d4a4e6b..eeb1f4d 100644
+--- a/README.md
++++ b/README.md
+@@ -68,8 +68,8 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
+
+ ### Model discovery and language defaults
+
+-PyKokoro >=0.9.2,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
+-Readio v0.2.3 is tested against PyKokoro 0.9.4.
++PyKokoro >=0.9.5,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
++Readio v0.2.3 is tested against PyKokoro 0.9.5.
+
+ ```bash
+ readio models list --language de --offline
+@@ -335,7 +335,7 @@ voice_bindings:
+     architect: am_michael
+ ```
+
+-Discover configured IDs and persisted roles with `readio voices list --json` and `readio voices roles`. Persist a reusable missing-role mapping with `readio voices bind ROLE VOICE_ID`. For deterministic one-run automation, use repeatable options:
++Discover runnable registry voices and selectors with `readio voices list --json` or `readio voices list --lang de`. Inspect one with `readio voices show de-1`. Persist reusable SSMD roles with `readio roles bind ROLE VOICE_ID` and inspect them with `readio roles list`. Selectors are interactive aliases; persisted configuration and SSMD continue to use canonical voice IDs. For deterministic one-run automation, use repeatable options:
+ Runtime voice inventories are model-specific. Use `readio voices list --model MODEL --json` for concrete IDs; a configured portable role such as `host` must be bound to a voice supported by the selected model. Readio reports the active model and valid voices before inference when a binding is incompatible.
+
+ ```bash
+diff --git a/docs/index.md b/docs/index.md
+index 1fc9b3a..2a24014 100644
+--- a/docs/index.md
++++ b/docs/index.md
+@@ -94,8 +94,7 @@ Synthesis options are available on all three commands:
+ --unit UNIT         sentence or paragraph
+ ```
+
+-Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.2,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.4:
+-
++Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.5,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.5:
+ ```bash
+ readio models list --language de --offline
+ readio models show de-thorsten --offline
+@@ -277,12 +276,12 @@ The main execution path is `readio/cli.py`. Input normalization is in `readio/do
+ SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and remain authoritative. Inspect configured voices and persisted role mappings with:
+
+ ```bash
+-readio voices list --provider kokoro --json
+-readio voices roles --provider kokoro
+-```
++readio voices list --lang de --json
++readio voices show de-1 --json
++readio roles list --provider kokoro
+
+-For a selected model, inspect concrete voices with `readio voices list --model MODEL --language LANG --json`. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
+-Use `readio voices bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
++For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; selectors are discovery aliases, while bindings remain canonical voice IDs. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
++Use `readio roles bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
+
+ ```bash
+ readio render --file episode.ssmd \
+diff --git a/llm-guides/README.md b/llm-guides/README.md
+index 36269d4..4610505 100644
+--- a/llm-guides/README.md
++++ b/llm-guides/README.md
+@@ -57,7 +57,7 @@ The guides target the conservative authoring subset used by:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ This is a compatibility target, not a claim that the authoring environment ran validation. A generated file should be checked on the destination system before rendering.
+
+diff --git a/llm-guides/ssmd/audio-drama.md b/llm-guides/ssmd/audio-drama.md
+index ba40c49..8227a8e 100644
+--- a/llm-guides/ssmd/audio-drama.md
++++ b/llm-guides/ssmd/audio-drama.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/debate-pro-con.md b/llm-guides/ssmd/debate-pro-con.md
+index ae12f3b..c9cd0b4 100644
+--- a/llm-guides/ssmd/debate-pro-con.md
++++ b/llm-guides/ssmd/debate-pro-con.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/document-summary.md b/llm-guides/ssmd/document-summary.md
+index b33ab97..0f3758d 100644
+--- a/llm-guides/ssmd/document-summary.md
++++ b/llm-guides/ssmd/document-summary.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/dramatic-story.md b/llm-guides/ssmd/dramatic-story.md
+index f24857a..065f6af 100644
+--- a/llm-guides/ssmd/dramatic-story.md
++++ b/llm-guides/ssmd/dramatic-story.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/educational-explainer.md b/llm-guides/ssmd/educational-explainer.md
+index 92745c2..e694b0b 100644
+--- a/llm-guides/ssmd/educational-explainer.md
++++ b/llm-guides/ssmd/educational-explainer.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/funny-story.md b/llm-guides/ssmd/funny-story.md
+index da1c133..170a653 100644
+--- a/llm-guides/ssmd/funny-story.md
++++ b/llm-guides/ssmd/funny-story.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/general-narration.md b/llm-guides/ssmd/general-narration.md
+index ba59b4f..2751e88 100644
+--- a/llm-guides/ssmd/general-narration.md
++++ b/llm-guides/ssmd/general-narration.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/guided-meditation.md b/llm-guides/ssmd/guided-meditation.md
+index d4609f5..d732bac 100644
+--- a/llm-guides/ssmd/guided-meditation.md
++++ b/llm-guides/ssmd/guided-meditation.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/kids-story.md b/llm-guides/ssmd/kids-story.md
+index 724d715..573fc22 100644
+--- a/llm-guides/ssmd/kids-story.md
++++ b/llm-guides/ssmd/kids-story.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/language-learning.md b/llm-guides/ssmd/language-learning.md
+index 0f0fb9c..9c67516 100644
+--- a/llm-guides/ssmd/language-learning.md
++++ b/llm-guides/ssmd/language-learning.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/news-briefing.md b/llm-guides/ssmd/news-briefing.md
+index 29816b4..118c8ea 100644
+--- a/llm-guides/ssmd/news-briefing.md
++++ b/llm-guides/ssmd/news-briefing.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/podcast-interview.md b/llm-guides/ssmd/podcast-interview.md
+index 86969bb..ae0861a 100644
+--- a/llm-guides/ssmd/podcast-interview.md
++++ b/llm-guides/ssmd/podcast-interview.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/podcast-roundtable.md b/llm-guides/ssmd/podcast-roundtable.md
+index f5c1bdc..2cf59cf 100644
+--- a/llm-guides/ssmd/podcast-roundtable.md
++++ b/llm-guides/ssmd/podcast-roundtable.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/podcast-solo.md b/llm-guides/ssmd/podcast-solo.md
+index e38dc0b..fd6d1e2 100644
+--- a/llm-guides/ssmd/podcast-solo.md
++++ b/llm-guides/ssmd/podcast-solo.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/llm-guides/ssmd/quiz-trivia.md b/llm-guides/ssmd/quiz-trivia.md
+index 1fb540f..8ab70b1 100644
+--- a/llm-guides/ssmd/quiz-trivia.md
++++ b/llm-guides/ssmd/quiz-trivia.md
+@@ -43,7 +43,7 @@ Generate conservative SSMD for this compatibility target:
+
+ - Readio 0.2.x
+ - SSMD >=0.8.7,<0.9
+-- PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)
++- PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
+diff --git a/pyproject.toml b/pyproject.toml
+index 9cd09a3..fd4efc3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,7 @@ readme = "README.md"
+ requires-python = ">=3.10"
+ license = {text = "Apache-2.0"}
+ dependencies = [
+-  "pykokoro[playback]>=0.9.2,<0.10",
++  "pykokoro[playback]>=0.9.5,<0.10",
+   "platformdirs>=4.0",
+   "soundfile>=0.12",
+   "tomli>=2.0; python_version < '3.11'",
+diff --git a/readio/cli.py b/readio/cli.py
+index 97d5f03..bb751e3 100644
+--- a/readio/cli.py
++++ b/readio/cli.py
+@@ -26,8 +26,6 @@ from .config import (
+     language_profile,
+     load_config,
+     normalize_language_key,
+-    provider_role_map,
+-    provider_voices,
+     save_config,
+     set_config_value,
+     unbind_voice_role,
+@@ -92,6 +90,13 @@ from .templates import (
+     show_template,
+     template_path,
+ )
++from .voices import (
++    VoiceCatalogEntry,
++    discover_voice_catalog,
++    filter_voice_catalog,
++    find_voice_entries,
++    resolve_voice_selector,
++)
+ from .wave import atomic_audio_path, create_audio_sink
+
+ logger = logging.getLogger(__name__)
+@@ -139,7 +144,10 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
+
+
+ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
+-    parser.add_argument("--voice", help="PyKokoro voice, e.g. af_sarah")
++    parser.add_argument(
++        "--voice",
++        help="voice selector or canonical PyKokoro voice ID, e.g. de-1 or af_sarah",
++    )
+     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
+     parser.add_argument("--model", help="PyKokoro model ID")
+     parser.add_argument(
+@@ -943,6 +951,20 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
+     source = args.model_source if args.model_source is not None else existing.source
+     quality = args.quality if args.quality is not None else existing.quality
+     voice = args.voice if args.voice is not None else existing.voice
++    selector_resolution = resolve_voice_selector(
++        voice,
++        language=language,
++        model=model_id,
++        source=source,
++        offline=args.offline,
++        refresh=args.refresh,
++        preference=source or "auto",
++    )
++    if selector_resolution is not None and selector_resolution.selector is not None:
++        language = selector_resolution.language or language
++        model_id = selector_resolution.model
++        source = selector_resolution.source
++        voice = selector_resolution.voice
+     if args.lexicons is not None:
+         lexicons = tuple(args.lexicons)
+     elif args.no_lexicons:
+@@ -1101,112 +1123,119 @@ def _cmd_models(args: argparse.Namespace) -> int:
+     return 0
+
+
++def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
++    print(f"Selector:       {entry.selector}")
++    print(f"Voice:          {entry.id}")
++    print(f"Gender:         {entry.gender}")
++    print(f"Locale:         {entry.locale}")
++    print(f"Language:       {entry.language_label}")
++    print(f"Model:          {entry.model}")
++    print(f"Source:         {entry.source}")
++    print(f"Default voice:  {'yes' if entry.default else 'no'}")
++    print(f"Status:         {entry.status}")
++    print(f"Experimental:   {'yes' if entry.experimental else 'no'}")
++    print()
++    print("Equivalent selection:")
++    print(
++        f"  --lang {entry.locale} --model {entry.model} "
++        f"--model-source {entry.source} --voice {entry.id}"
++    )
++
++
+ def _cmd_voices(args: argparse.Namespace) -> int:
+-    cfg = load_config()
+-    provider = args.provider or cfg.ssmd.voice_provider
+-    settings = cfg.voices.get(provider)
+-    if args.voices_command == "list" and (
+-        getattr(args, "model", None) or getattr(args, "language", None)
+-    ):
+-        if getattr(args, "model", None):
+-            model, discovery = get_model_info(
+-                args.model,
+-                offline=args.offline,
+-                refresh=args.refresh,
+-                preference=args.preference,
+-            )
+-            models = (model,)
+-        else:
+-            models, discovery = discover_model_info(
+-                language=args.language,
+-                offline=args.offline,
+-                refresh=args.refresh,
+-                preference=args.preference,
+-            )
+-        configured_roles = settings.roles if settings is not None else {}
+-        voices = [
+-            {
+-                "id": voice,
+-                "default": voice == model.default_voice,
+-                "model": model.id,
+-                "source": model.source,
+-                "roles": [role for role, target in configured_roles.items() if target == voice],
+-            }
+-            for model in models
+-            for voice in model.voices
+-        ]
+-        result = {
++    if hasattr(args, "roles_command"):
++        return _cmd_roles(args)
++    entries, discovery = discover_voice_catalog(
++        offline=args.offline, refresh=args.refresh, preference=args.preference
++    )
++    if args.voices_command == "list":
++        language = getattr(args, "lang", None) or getattr(args, "language", None)
++        voices = filter_voice_catalog(
++            entries, language=language, gender=args.gender, model=args.model
++        )
++        payload = {
+             "ok": True,
+-            "provider": provider,
+-            "model": args.model if getattr(args, "model", None) else None,
+-            "source": models[0].source if len(models) == 1 else None,
+-            "language": getattr(args, "language", None),
+             "registry": _model_registry_payload(discovery, offline=args.offline),
+-            "voices": voices,
++            "filters": {"language": language, "gender": args.gender, "model": args.model},
++            "voices": [entry.to_dict() for entry in voices],
+         }
+         if args.json:
+-            print(json.dumps(result, ensure_ascii=False))
+-        else:
+-            if args.model:
+-                print(f"Model: {args.model}")
+-            else:
+-                print(f"Language: {args.language}")
+-            print("VOICE       MODEL          DEFAULT  ROLES")
+-            for item in voices:
+-                roles = ", ".join(item["roles"]) or "-"
+-                print(
+-                    f"{item['id']:<11} {item['model']:<14} "
+-                    f"{'yes' if item['default'] else 'no':<8} {roles}"
+-                )
++            print(json.dumps(payload, ensure_ascii=False))
++            return 0
++        if getattr(discovery, "cache_fallback", False):
++            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
++        print(f"Voices: {len(voices)}")
++        print()
++        print("SELECTOR  VOICE             GENDER   LOCALE    LANGUAGE                 MODEL          STATUS")
++        print("--------  ----------------  -------  --------  -----------------------  -------------  ------------")
++        for entry in voices:
++            print(
++                f"{entry.selector:<9} {entry.id:<17} {entry.gender:<8} "
++                f"{entry.locale:<9} {entry.language_label:<24} {entry.model:<14} {entry.status}"
++            )
+         return 0
++
++    entry_matches = find_voice_entries(args.selector, entries)
++    if not entry_matches:
++        raise ModelDiscoveryError(
++            f"Unknown voice {args.selector!r}. Run `readio voices list` to inspect available voices.",
++            code="readio.voice_selector_not_found",
++        )
++    if len(entry_matches) > 1:
++        selectors = ", ".join(entry.selector for entry in entry_matches)
++        raise ModelDiscoveryError(
++            f"Voice {args.selector!r} exists in multiple catalog entries; use one of: {selectors}",
++            code="readio.voice_selector_ambiguous",
++        )
++    entry = entry_matches[0]
++    payload = {
++        "ok": True,
++        "registry": _model_registry_payload(discovery, offline=args.offline),
++        "voice": entry.to_dict(),
++    }
++    if args.json:
++        print(json.dumps(payload, ensure_ascii=False))
++    else:
++        _voice_entry_human(entry)
++    return 0
++
++
++def _cmd_roles(args: argparse.Namespace) -> int:
++    cfg = load_config()
++    provider = args.provider or cfg.ssmd.voice_provider
++    settings = cfg.voices.get(provider)
+     if settings is None:
+         raise ValueError(f"voice provider {provider!r} is not configured")
+-
+-    if args.voices_command == "list":
+-        reverse = provider_role_map(cfg, provider)
+-        voices = [
+-            {"id": voice, "roles": list(reverse.get(voice, ()))}
+-            for voice in provider_voices(cfg, provider)
+-        ]
+-        result = {"ok": True, "provider": provider, "voices": voices}
++    if getattr(args, "legacy_roles", False):
++        print("Warning: `readio voices roles|bind|unbind` is deprecated; use `readio roles`.", file=sys.stderr)
++    if args.roles_command == "list":
++        result = {"ok": True, "provider": provider, "roles": dict(settings.roles)}
+         if args.json:
+             print(json.dumps(result, ensure_ascii=False))
+         else:
+             print(f"Provider: {provider}")
+-            print("Configured/legacy voice IDs; use `readio models list` for runtime catalogs.")
+             print()
+-            print("VOICE ID     ROLES")
+-            for item in voices:
+-                roles = ", ".join(item["roles"]) or "-"
+-                print(f"{item['id']:<12} {roles}")
+-        return 0
+-
+-    if args.voices_command == "roles":
+-        result = {"ok": True, "provider": provider, "roles": dict(settings.roles)}
+-        if args.json:
+-            print(json.dumps(result, ensure_ascii=False))
+-        else:
++            print("ROLE        VOICE")
++            print("----------  ------------")
+             for role, voice in sorted(settings.roles.items()):
+-                print(f"{role} -> {voice}")
++                print(f"{role:<11} {voice}")
+         return 0
+-
+-    if args.voices_command == "bind":
+-        updated = bind_voice_role(cfg, args.role, args.voice_id, provider)
++    if args.roles_command == "bind":
++        voice_id = args.voice_id
++        selector_resolution = resolve_voice_selector(
++            voice_id, language=None, model=None, source=None
++        )
++        if selector_resolution is not None and selector_resolution.selector is not None:
++            voice_id = selector_resolution.voice
++        updated = bind_voice_role(cfg, args.role, voice_id, provider)
+         path = save_config(updated)
+-        result = {
+-            "ok": True,
+-            "provider": provider,
+-            "role": args.role,
+-            "voice": args.voice_id,
+-            "path": path,
+-        }
++        result = {"ok": True, "provider": provider, "role": args.role, "voice": voice_id, "path": path}
+         if args.json:
+             print(json.dumps(_json_value(result), ensure_ascii=False))
+         else:
+-            print(f"{args.role} -> {args.voice_id} ({provider})")
++            print(f"{args.role} -> {voice_id} ({provider})")
+         return 0
+-
+-    if args.voices_command == "unbind":
++    if args.roles_command == "unbind":
+         updated = unbind_voice_role(cfg, args.role, provider)
+         path = save_config(updated)
+         result = {"ok": True, "provider": provider, "role": args.role, "path": path}
+@@ -1215,7 +1244,6 @@ def _cmd_voices(args: argparse.Namespace) -> int:
+         else:
+             print(f"removed {args.role} ({provider})")
+         return 0
+-
+     raise AssertionError("unreachable")
+
+
+@@ -1697,12 +1725,18 @@ def build_parser() -> argparse.ArgumentParser:
+     defaults_reset.add_argument("--json", action="store_true")
+     defaults_reset.set_defaults(func=_cmd_defaults)
+
+-    voices = sub.add_parser("voices", help="discover and manage SSMD voices")
++    voices = sub.add_parser("voices", help="discover runnable voices and short selectors")
+     voices_sub = voices.add_subparsers(dest="voices_command", required=True)
+-    voices_list = voices_sub.add_parser("list", help="list configured concrete voices")
+-    voices_list.add_argument("--provider")
+-    voices_list.add_argument("--model", help="list voices for a discovered model")
+-    voices_list.add_argument("--language")
++    voices_list = voices_sub.add_parser("list", help="list runnable registry voices")
++    voices_list.add_argument(
++        "--lang", "--language", dest="lang",
++        help="filter by language/locale; base codes include regional voices",
++    )
++    voices_list.add_argument(
++        "--gender", choices=("female", "male", "neutral", "unknown"),
++        help="filter by registry gender metadata",
++    )
++    voices_list.add_argument("--model", help="filter by discovered model")
+     voices_list.add_argument("--offline", action="store_true")
+     voices_list.add_argument("--refresh", action="store_true")
+     voices_list.add_argument(
+@@ -1710,21 +1744,50 @@ def build_parser() -> argparse.ArgumentParser:
+     )
+     voices_list.add_argument("--json", action="store_true")
+     voices_list.set_defaults(func=_cmd_voices)
+-    voices_roles = voices_sub.add_parser("roles", help="list configured logical roles")
+-    voices_roles.add_argument("--provider")
+-    voices_roles.add_argument("--json", action="store_true")
+-    voices_roles.set_defaults(func=_cmd_voices)
+-    voices_bind = voices_sub.add_parser("bind", help="persist a logical role binding")
+-    voices_bind.add_argument("role")
+-    voices_bind.add_argument("voice_id")
+-    voices_bind.add_argument("--provider")
+-    voices_bind.add_argument("--json", action="store_true")
+-    voices_bind.set_defaults(func=_cmd_voices)
+-    voices_unbind = voices_sub.add_parser("unbind", help="remove a logical role binding")
+-    voices_unbind.add_argument("role")
+-    voices_unbind.add_argument("--provider")
+-    voices_unbind.add_argument("--json", action="store_true")
+-    voices_unbind.set_defaults(func=_cmd_voices)
++    voices_show = voices_sub.add_parser("show", help="show one voice selector or canonical ID")
++    voices_show.add_argument("selector")
++    voices_show.add_argument("--offline", action="store_true")
++    voices_show.add_argument("--refresh", action="store_true")
++    voices_show.add_argument(
++        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
++    )
++    voices_show.add_argument("--json", action="store_true")
++    voices_show.set_defaults(func=_cmd_voices)
++
++    roles = sub.add_parser("roles", help="manage persistent SSMD role bindings")
++    roles_sub = roles.add_subparsers(dest="roles_command", required=True)
++    roles_list = roles_sub.add_parser("list", help="list configured logical roles")
++    roles_list.add_argument("--provider")
++    roles_list.add_argument("--json", action="store_true")
++    roles_list.set_defaults(func=_cmd_roles)
++    roles_bind = roles_sub.add_parser("bind", help="persist a logical role binding")
++    roles_bind.add_argument("role")
++    roles_bind.add_argument("voice_id")
++    roles_bind.add_argument("--provider")
++    roles_bind.add_argument("--json", action="store_true")
++    roles_bind.set_defaults(func=_cmd_roles)
++    roles_unbind = roles_sub.add_parser("unbind", help="remove a logical role binding")
++    roles_unbind.add_argument("role")
++    roles_unbind.add_argument("--provider")
++    roles_unbind.add_argument("--json", action="store_true")
++    roles_unbind.set_defaults(func=_cmd_roles)
++
++    legacy_roles = voices_sub.add_parser("roles", help="deprecated alias for readio roles list")
++    legacy_roles.add_argument("--provider")
++    legacy_roles.add_argument("--json", action="store_true")
++    legacy_roles.set_defaults(func=_cmd_roles, roles_command="list", legacy_roles=True)
++    legacy_bind = voices_sub.add_parser("bind", help="deprecated alias for readio roles bind")
++    legacy_bind.add_argument("role")
++    legacy_bind.add_argument("voice_id")
++    legacy_bind.add_argument("--provider")
++    legacy_bind.add_argument("--json", action="store_true")
++    legacy_bind.set_defaults(func=_cmd_roles, roles_command="bind", legacy_roles=True)
++    legacy_unbind = voices_sub.add_parser("unbind", help="deprecated alias for readio roles unbind")
++    legacy_unbind.add_argument("role")
++    legacy_unbind.add_argument("--provider")
++    legacy_unbind.add_argument("--json", action="store_true")
++    legacy_unbind.set_defaults(func=_cmd_roles, roles_command="unbind", legacy_roles=True)
++
+
+     ssmd = sub.add_parser("ssmd", help="inspect SSMD documents")
+     ssmd_sub = ssmd.add_subparsers(dest="ssmd_command", required=True)
+diff --git a/readio/config.py b/readio/config.py
+index b3e5d43..cb3bee9 100644
+--- a/readio/config.py
++++ b/readio/config.py
+@@ -640,9 +640,19 @@ def bind_voice_role(
+     if not role:
+         raise ValueError("voice role must be a non-empty string")
+     if voice_id not in settings.ids:
+-        available = ", ".join(settings.ids)
+-        raise ValueError(
+-            f"voice {voice_id!r} is not configured for provider {name!r}; available voices: {available}"
++        settings = VoiceProviderSettings(
++            ids=(*settings.ids, voice_id),
++            roles=settings.roles,
++        )
++        voices = dict(cfg.voices)
++        voices[name] = settings
++        cfg = ReadioConfig(
++            schema=cfg.schema,
++            reader=cfg.reader,
++            ssmd=cfg.ssmd,
++            paths=cfg.paths,
++            voices=voices,
++            languages=cfg.languages,
+         )
+     return set_config_value(cfg, f"voices.{name}.roles.{role}", voice_id)  # type: ignore[return-value]
+
+diff --git a/readio/models.py b/readio/models.py
+index e3be78b..e347b1e 100644
+--- a/readio/models.py
++++ b/readio/models.py
+@@ -11,7 +11,7 @@ from typing import Any
+ from .config import LanguageSettings, normalize_language_key
+
+ logger = logging.getLogger(__name__)
+-PYKOKORO_REQUIRED = ">=0.9.2,<0.10"
++PYKOKORO_REQUIRED = ">=0.9.5,<0.10"
+ _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
+ _RUNTIME_SOURCES = {"github", "huggingface"}
+
+@@ -39,6 +39,46 @@ class ModelDiscoveryError(ValueError):
+         self.missing_dependency = missing_dependency
+
+
++@dataclass(frozen=True, slots=True)
++class VoiceMetadata:
++    """Metadata describing one canonical PyKokoro voice."""
++
++    id: str
++    gender: str
++    language: str
++    locale: str
++    language_label: str
++
++
++def _voice_metadata(capabilities: Any) -> tuple[VoiceMetadata, ...]:
++    languages = tuple(getattr(capabilities, "languages", ()))
++    fallback = languages[0] if languages else "unknown"
++    fallback_entry = VoiceMetadata(
++    id="",
++    gender="unknown",
++    language=fallback,
++    locale=fallback,
++    language_label=fallback,
++    )
++    indexed: dict[str, VoiceMetadata] = {}
++    for detail in tuple(getattr(capabilities, "voice_details", ()) or ()):
++        name = getattr(detail, "name", None)
++        if name not in capabilities.voices or name in indexed:
++            raise ValueError(f"voice_details contains invalid or duplicate voice {name!r}")
++        indexed[name] = VoiceMetadata(
++            id=name,
++            gender=str(getattr(detail, "gender", "unknown")),
++            language=str(getattr(detail, "language", fallback)),
++            locale=str(getattr(detail, "locale", fallback)),
++            language_label=str(getattr(detail, "language_label", fallback)),
++        )
++    return tuple(indexed.get(voice, VoiceMetadata(
++        id=voice,
++        gender=fallback_entry.gender,
++        language=fallback_entry.language,
++        locale=fallback_entry.locale,
++        language_label=fallback_entry.language_label,
++    )) for voice in capabilities.voices)
+ @dataclass(frozen=True, slots=True)
+ class ModelInfo:
+     id: str
+@@ -58,6 +98,7 @@ class ModelInfo:
+     provider: str | None = None
+     sample_rate: int | None = None
+     max_tokens: int | None = None
++    voice_details: tuple[VoiceMetadata, ...] = ()
+
+     @classmethod
+     def from_capabilities(cls, capabilities: Any) -> ModelInfo:
+@@ -80,6 +121,7 @@ class ModelInfo:
+                 provider=getattr(capabilities, "provider", None),
+                 sample_rate=getattr(capabilities, "sample_rate", None),
+                 max_tokens=getattr(capabilities, "max_tokens", None),
++                voice_details=_voice_metadata(capabilities),
+             )
+         except (AttributeError, TypeError, ValueError) as exc:
+             raise ModelDiscoveryError(
+@@ -94,6 +136,16 @@ class ModelInfo:
+             "languages": list(self.languages),
+             "default_voice": self.default_voice,
+             "voices": list(self.voices),
++            "voice_details": [
++                {
++                    "id": detail.id,
++                    "gender": detail.gender,
++                    "language": detail.language,
++                    "locale": detail.locale,
++                    "language_label": detail.language_label,
++                }
++                for detail in self.voice_details
++            ],
+             "qualities": list(self.qualities),
+             "g2p_backend": self.g2p_backend,
+             "lexicons": list(self.lexicons) if self.lexicons is not None else None,
+@@ -126,7 +178,7 @@ def _version_supported(version: str) -> bool:
+         return False
+     major, minor = int(match.group(1)), int(match.group(2))
+     patch = int(match.group(3) or 0)
+-    return (major, minor, patch) >= (0, 9, 2) and (major, minor) == (0, 9)
++    return (major, minor, patch) >= (0, 9, 5) and (major, minor) == (0, 9)
+
+
+ def _package_metadata() -> str | None:
+@@ -433,6 +485,7 @@ __all__ = [
+     "PYKOKORO_REQUIRED",
+     "ModelDiscoveryError",
+     "ModelInfo",
++    "VoiceMetadata",
+     "discover_model_info",
+     "get_model_info",
+     "language_matches",
+diff --git a/readio/plan.py b/readio/plan.py
+index 6041bab..e630eb1 100644
+--- a/readio/plan.py
++++ b/readio/plan.py
+@@ -10,7 +10,7 @@ from __future__ import annotations
+ import hashlib
+ import logging
+ from collections.abc import Mapping
+-from dataclasses import dataclass, field
++from dataclasses import dataclass, field, replace
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Any, Literal
+
+@@ -32,6 +32,7 @@ from .formats import (
+ )
+ from .markdown import markdown_to_speech
+ from .models import ModelDiscoveryError, get_model_info, language_matches
++from .voices import resolve_voice_selector
+
+ logger = logging.getLogger(__name__)
+ if TYPE_CHECKING:
+@@ -576,6 +577,36 @@ def _resolve_synthesis_candidate(
+     """Apply Readio precedence rules and record provenance."""
+     decisions: list[ResolutionDecision] = []
+
++    selector_resolution = resolve_voice_selector(
++        request.voice,
++        language=request.language,
++        model=request.model,
++        source=request.model_source,
++        offline=request.offline,
++        refresh=request.refresh,
++        preference=request.model_source or "auto",
++    )
++    requested_selector = request.voice if selector_resolution and selector_resolution.selector else None
++    if selector_resolution is not None and selector_resolution.selector is not None:
++        request = replace(
++            request,
++            language=selector_resolution.language,
++            model=selector_resolution.model,
++            model_source=selector_resolution.source,
++            voice=selector_resolution.voice,
++        )
++        decisions.append(
++            ResolutionDecision(
++                field="synthesis.voice_selector",
++                value=requested_selector,
++                origin=ORIGIN_CLI,
++                locator="request.voice",
++                reason=(
++                    f"voice selector {requested_selector!r} resolved via registry to "
++                    f"model {selector_resolution.model!r} / voice {selector_resolution.voice!r}"
++                ),
++            )
++        )
+     # Language
+     cli_language = request.language
+     raw_language = normalize_language_key(cli_language or cfg.reader.lang)
+diff --git a/readio/ssmd.py b/readio/ssmd.py
+index c317ae7..25ab815 100644
+--- a/readio/ssmd.py
++++ b/readio/ssmd.py
+@@ -488,7 +488,7 @@ def _voice_resolution_error(
+             + f"    {result.provider}:\n"
+             + "".join(f"      {use.reference}: <voice-id>\n" for use in references)
+             + "\nOr save reusable Readio roles with:\n"
+-            + "\n".join(f"  readio voices bind {use.reference} <voice-id>" for use in references)
++            + "\n".join(f"  readio roles bind {use.reference} <voice-id>" for use in references)
+             + "\n\nOr resolve this invocation with:\n"
+             + "  readio render --file FILE \\\n"
+             + "".join(
+diff --git a/readio/synthesis.py b/readio/synthesis.py
+index 1def252..c1999b0 100644
+--- a/readio/synthesis.py
++++ b/readio/synthesis.py
+@@ -15,6 +15,7 @@ from .config import (
+     normalize_spacy_policy,
+ )
+ from .models import ModelInfo, get_model_info, validate_language_settings
++from .voices import resolve_voice_selector
+
+ logger = logging.getLogger(__name__)
+
+@@ -115,6 +116,21 @@ def _select_preferred_quality(qualities: tuple[str, ...]) -> str | None:
+ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> ResolvedSynthesis:
+     """Resolve and validate all reader, profile, and CLI synthesis settings once."""
+     args = args or Namespace()
++    selector_resolution = resolve_voice_selector(
++        getattr(args, "voice", None),
++        language=getattr(args, "lang", None),
++        model=getattr(args, "model", None),
++        source=getattr(args, "model_source", None),
++        offline=bool(getattr(args, "offline", False)),
++        refresh=bool(getattr(args, "refresh", False)),
++        preference=getattr(args, "model_source", None) or "auto",
++    )
++    if selector_resolution is not None and selector_resolution.selector is not None:
++        args = Namespace(**vars(args))
++        args.lang = selector_resolution.language
++        args.model = selector_resolution.model
++        args.model_source = selector_resolution.source
++        args.voice = selector_resolution.voice
+     language, profile, cli_language = _raw_synthesis_selection(cfg, args)
+
+     logger.info(
+diff --git a/readio/voices.py b/readio/voices.py
+new file mode 100644
+index 0000000..33cf505
+--- /dev/null
++++ b/readio/voices.py
+@@ -0,0 +1,286 @@
++"""Metadata-only voice catalog and selector resolution for Readio."""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass
++from typing import Any
++
++from .config import normalize_language_key
++from .models import ModelDiscoveryError, ModelInfo, discover_model_info
++
++RUNNABLE_STATUSES = frozenset({"ready", "experimental"})
++MODEL_PRIORITY = {"v1.0": 0, "v1.1-zh": 1}
++_SELECTOR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-(\d+)$")
++
++
++@dataclass(frozen=True, slots=True)
++class VoiceCatalogEntry:
++    selector: str
++    number: int
++    id: str
++    gender: str
++    language: str
++    locale: str
++    language_label: str
++    model: str
++    source: str
++    default: bool
++    status: str
++    experimental: bool
++    runtime_available: bool
++    distribution_id: str | None = None
++    provider: str | None = None
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "selector": self.selector,
++            "number": self.number,
++            "id": self.id,
++            "gender": self.gender,
++            "language": self.language,
++            "locale": self.locale,
++            "language_label": self.language_label,
++            "model": self.model,
++            "source": self.source,
++            "default": self.default,
++            "status": self.status,
++            "experimental": self.experimental,
++            "runtime_available": self.runtime_available,
++            "distribution_id": self.distribution_id,
++            "provider": self.provider,
++        }
++
++
++@dataclass(frozen=True, slots=True)
++class VoiceCatalog:
++    voices: tuple[VoiceCatalogEntry, ...]
++    registry_source: str | None
++    cache_fallback: bool
++    offline: bool
++    refreshed: bool
++
++
++@dataclass(frozen=True, slots=True)
++class VoiceSelectorResolution:
++    requested: str
++    selector: str | None
++    language: str | None
++    model: str | None
++    source: str | None
++    voice: str
++    catalog_entry: VoiceCatalogEntry | None
++
++
++def normalize_locale(value: str) -> str:
++    return normalize_language_key(value)
++
++
++def _fallback_metadata(model: ModelInfo, voice: str) -> tuple[str, str, str, str]:
++    language = model.languages[0] if model.languages else "unknown"
++    return "unknown", language, language, language
++
++
++def _model_voice_metadata(model: ModelInfo, voice: str) -> tuple[str, str, str, str]:
++    for detail in model.voice_details:
++        if detail.id == voice:
++            return detail.gender, detail.language, detail.locale, detail.language_label
++    return _fallback_metadata(model, voice)
++
++
++def _ordered_models(models: tuple[ModelInfo, ...]) -> tuple[ModelInfo, ...]:
++    return tuple(sorted(models, key=lambda item: (MODEL_PRIORITY.get(item.id, 100), item.id, item.source)))
++
++
++def build_voice_catalog(
++    models: tuple[ModelInfo, ...],
++    *,
++    registry_source: str | None = None,
++    cache_fallback: bool = False,
++    offline: bool = False,
++    refreshed: bool = False,
++) -> VoiceCatalog:
++    counters: dict[str, int] = {}
++    entries: list[VoiceCatalogEntry] = []
++    for model in _ordered_models(models):
++        if model.status not in RUNNABLE_STATUSES or not model.runtime_available:
++            continue
++        for voice in model.voices:
++            gender, language, locale, language_label = _model_voice_metadata(model, voice)
++            locale_key = normalize_locale(locale)
++            counters[locale_key] = counters.get(locale_key, 0) + 1
++            number = counters[locale_key]
++            entries.append(
++                VoiceCatalogEntry(
++                    selector=f"{locale_key}-{number}",
++                    number=number,
++                    id=voice,
++                    gender=gender,
++                    language=language,
++                    locale=locale,
++                    language_label=language_label,
++                    model=model.id,
++                    source=model.source,
++                    default=voice == model.default_voice,
++                    status=model.status,
++                    experimental=model.experimental,
++                    runtime_available=model.runtime_available,
++                    distribution_id=model.distribution_id,
++                    provider=model.provider,
++                )
++            )
++    return VoiceCatalog(
++        voices=tuple(entries),
++        registry_source=registry_source,
++        cache_fallback=cache_fallback,
++        offline=offline,
++        refreshed=refreshed,
++    )
++
++
++def discover_voice_catalog(
++    *,
++    offline: bool = False,
++    refresh: bool = False,
++    preference: str = "auto",
++) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
++    models, result = discover_model_info(offline=offline, refresh=refresh, preference=preference)
++    catalog = build_voice_catalog(
++        models,
++        registry_source=getattr(result, "registry_source", None),
++        cache_fallback=bool(getattr(result, "cache_fallback", False)),
++        offline=bool(getattr(result, "offline", offline)),
++        refreshed=bool(getattr(result, "refreshed", refresh)),
++    )
++    return catalog.voices, result
++
++
++def _language_matches_entry(requested: str, entry: VoiceCatalogEntry) -> bool:
++    requested = normalize_language_key(requested)
++    locale = normalize_locale(entry.locale)
++    language = normalize_locale(entry.language)
++    if "-" in requested:
++        return locale == requested or language == requested
++    base = requested.partition("-")[0]
++    return locale.partition("-")[0] == base or language.partition("-")[0] == base
++
++
++def filter_voice_catalog(
++    entries: tuple[VoiceCatalogEntry, ...],
++    *,
++    language: str | None = None,
++    gender: str | None = None,
++    model: str | None = None,
++) -> tuple[VoiceCatalogEntry, ...]:
++    return tuple(
++        entry
++        for entry in entries
++        if (language is None or _language_matches_entry(language, entry))
++        and (gender is None or entry.gender == gender)
++        and (model is None or entry.model == model)
++    )
++
++
++def get_voice_selector(
++    selector: str,
++    *,
++    offline: bool = False,
++    refresh: bool = False,
++    preference: str = "auto",
++) -> tuple[VoiceCatalogEntry, Any]:
++    entries, result = discover_voice_catalog(
++        offline=offline, refresh=refresh, preference=preference
++    )
++    for entry in entries:
++        if entry.selector == selector:
++            return entry, result
++    raise ModelDiscoveryError(
++        f"Unknown voice selector {selector!r}. Run `readio voices list --lang {selector.rsplit('-', 1)[0]}`.",
++        code="readio.voice_selector_not_found",
++    )
++
++
++def is_selector_shape(value: str) -> bool:
++    return _SELECTOR_RE.fullmatch(value.strip().lower()) is not None
++
++
++def _language_conflicts(requested: str, entry: VoiceCatalogEntry) -> bool:
++    return not _language_matches_entry(requested, entry)
++
++
++def resolve_voice_selector(
++    voice: str | None,
++    *,
++    language: str | None,
++    model: str | None,
++    source: str | None,
++    offline: bool = False,
++    refresh: bool = False,
++    preference: str = "auto",
++) -> VoiceSelectorResolution | None:
++    if voice is None:
++        return None
++    if not is_selector_shape(voice):
++        return VoiceSelectorResolution(
++            requested=voice,
++            selector=None,
++            language=language,
++            model=model,
++            source=source,
++            voice=voice,
++            catalog_entry=None,
++        )
++    entry, _ = get_voice_selector(
++        voice.strip().lower(), offline=offline, refresh=refresh, preference=preference
++    )
++    if language is not None and _language_conflicts(language, entry):
++        raise ModelDiscoveryError(
++            f"Voice selector {voice!r} resolves to locale {entry.locale!r}, but language {language!r} was requested.",
++            code="readio.voice_selector_language_conflict",
++        )
++    if model is not None and model != entry.model:
++        raise ModelDiscoveryError(
++            f"Voice selector {voice!r} belongs to model {entry.model!r}, but model {model!r} was requested.",
++            code="readio.voice_selector_model_conflict",
++        )
++    if source is not None and source != entry.source:
++        raise ModelDiscoveryError(
++            f"Voice selector {voice!r} belongs to source {entry.source!r}, but source {source!r} was requested.",
++            code="readio.voice_selector_source_conflict",
++        )
++    return VoiceSelectorResolution(
++        requested=voice,
++        selector=entry.selector,
++        language=normalize_locale(entry.locale),
++        model=entry.model,
++        source=entry.source,
++        voice=entry.id,
++        catalog_entry=entry,
++    )
++
++
++def find_voice_entries(
++    value: str,
++    entries: tuple[VoiceCatalogEntry, ...],
++) -> tuple[VoiceCatalogEntry, ...]:
++    by_selector = tuple(entry for entry in entries if entry.selector == value)
++    if by_selector:
++        return by_selector
++    return tuple(entry for entry in entries if entry.id == value)
++
++
++__all__ = [
++    "MODEL_PRIORITY",
++    "RUNNABLE_STATUSES",
++    "VoiceCatalog",
++    "VoiceCatalogEntry",
++    "VoiceSelectorResolution",
++    "build_voice_catalog",
++    "discover_voice_catalog",
++    "filter_voice_catalog",
++    "find_voice_entries",
++    "get_voice_selector",
++    "is_selector_shape",
++    "normalize_locale",
++    "resolve_voice_selector",
++]
+diff --git a/skill/readio/SKILL.md b/skill/readio/SKILL.md
+index 37bc953..fc8e4ba 100644
+--- a/skill/readio/SKILL.md
++++ b/skill/readio/SKILL.md
+@@ -19,13 +19,12 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
+
+ ## Model discovery and defaults
+
+-PyKokoro >=0.9.2,<0.10 is the source of truth for runtime model capabilities and tokenizer controls. Agents should inspect JSON discovery rather than embedding model or voice inventories:
++PyKokoro >=0.9.5,<0.10 is the source of truth for runtime model and voice metadata. Agents should inspect JSON discovery rather than embedding model or voice inventories:
+
+ ```bash
+-readio models list --language de --offline --json
++readio voices list --lang de --offline --json
++readio voices show de-1 --offline --json
+ readio models show de-thorsten --offline --json
+-readio voices list --model de-thorsten --json
+-readio models list --preference huggingface --json
+ ```
+
+ Persist user policy with the validated defaults workflow:
+@@ -49,7 +48,7 @@ Always run `readio plan` (or `readio render --dry-run`) before rendering to see
+ what synthesis values will be used. The plan shows model, voice, language, lexicons,
+ SSMD bindings, output format, and provenance — all without loading the TTS model.
+
+-The PyKokoro 0.9.2+ tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
++The PyKokoro 0.9.5+ tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
+
+ ```bash
+ # Recommended: plan first
+diff --git a/skill/readio/references/cli.md b/skill/readio/references/cli.md
+index b6df83f..d53b368 100644
+--- a/skill/readio/references/cli.md
++++ b/skill/readio/references/cli.md
+@@ -50,7 +50,7 @@ readio plan --file input.ssmd -o episode.mp3 --force --json
+ - `decisions`: the winning source (`origin` + `locator`) for every effective value, including each `ssmd.bindings.<ref>` entry.
+ - `environment`: Readio/PyKokoro/SSMD versions and `ffmpeg_available`.
+
+-Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio voices bind` roles.
++Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio roles bind` roles.
+
+ ## Durable render manifests
+
+@@ -66,17 +66,13 @@ The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-man
+ `--manifest` is rejected with `--live` and does not apply to `speak`, `plan`, dry runs, or publishing. If sidecar writing fails, the committed audio remains and JSON errors use code `render.manifest_error` with `audio_path` and `manifest_path`.
+
+ ## Model discovery
+-
+-Use PyKokoro >=0.9.2,<0.10 metadata to inspect all available runtime models; discovery is metadata-only and does not download weights or voices:
++Use PyKokoro >=0.9.5,<0.10 metadata to inspect runnable voices first, then inspect backend models when needed. Discovery is metadata-only and does not download weights or voices:
+
+ ```bash
+-readio models list --language de --offline --json
+-readio models list --status ready --offline
++readio voices list --lang de --offline --json
++readio voices show de-1 --offline --json
+ readio models show de-thorsten --offline --json
+-readio voices list --model de-thorsten --json
+ readio models list --preference huggingface --json
+-readio voices list --model de-thorsten --preference github --json
+-```
+
+ `--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
+ Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. Synthesis/default `--model-source github|huggingface` selects the same distribution for metadata validation and `PipelineConfig`. Voices are model-scoped; SSMD checks the active model roster, not the legacy configured list.
+diff --git a/skill/readio/references/ssmd.md b/skill/readio/references/ssmd.md
+index a2ff864..766dcc0 100644
+--- a/skill/readio/references/ssmd.md
++++ b/skill/readio/references/ssmd.md
+@@ -8,7 +8,7 @@ readio voices list --json
+ readio render --file episode.ssmd --voice-bind moderator=af_sarah
+ ```
+
+-Document-local bindings are authoritative. Readio supplies only missing configured defaults. Persist reusable mappings with `readio voices bind ROLE VOICE_ID`; inspect them with `readio voices roles`.
++Document-local bindings are authoritative. Readio supplies only missing configured defaults. Persist reusable mappings with `readio roles bind ROLE VOICE_ID`; inspect them with `readio roles list`. Use `readio voices list --lang LANG` and `readio voices show SELECTOR` for runtime catalog selectors. Selectors are not durable SSMD identifiers.
+
+ For the exact effective cast a render will use — including document, invocation, configured-role, and direct bindings resolved against the active model roster, each with its origin — inspect the plan JSON:
+
+diff --git a/skill/readio/references/troubleshooting.md b/skill/readio/references/troubleshooting.md
+index 63eb8e1..50675de 100644
+--- a/skill/readio/references/troubleshooting.md
++++ b/skill/readio/references/troubleshooting.md
+@@ -58,7 +58,7 @@ readio doctor --json
+ - **`synthesis_incomplete`**: the plan could not become concrete (missing model/source/quality/voice). Provide `--model` explicitly and retry.
+
+ - **Unexpected pronunciation routing:** inspect the plan's `language_detection` and `detect_languages` fields. SSMD `language_detection` hints and CLI detection options route pronunciation fragments while retaining the selected acoustic model language.
+-- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio voices bind ROLE VOICE_ID`; inspect valid IDs with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
++- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio roles bind ROLE VOICE_ID`; inspect selectors with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
+ - **`encoder_unavailable` / `output_format_conflict`**: the requested audio format needs an unavailable backend (M4A requires `ffmpeg` on `PATH`) or `--format` disagrees with the output suffix. Choose WAV/MP3/OGG, install FFmpeg, or align format and suffix.
+
+ - **Model registry unavailable:** run `readio models list --offline --json` to use the cache. Without a valid cache, run the online command once; discovery never downloads model weights.
+diff --git a/tests/test_llm_guides.py b/tests/test_llm_guides.py
+index 28f6aac..a5ab1dd 100644
+--- a/tests/test_llm_guides.py
++++ b/tests/test_llm_guides.py
+@@ -96,7 +96,7 @@ def test_compatibility_and_shared_sections_do_not_drift():
+         target = section(text, "Target runtime")
+         assert "Readio 0.2.x" in target
+         assert "SSMD >=0.8.7,<0.9" in target
+-        assert "PyKokoro >=0.9.2,<0.10 (Readio v0.2.3 tested with 0.9.4)" in target
++        assert "PyKokoro >=0.9.5,<0.10 (Readio v0.2.3 tested with 0.9.5)" in target
+     for heading in SHARED_SECTIONS:
+         assert len({section(text, heading) for text in texts}) == 1, heading
+
+diff --git a/tests/test_packaging_metadata.py b/tests/test_packaging_metadata.py
+index 269679b..20265a1 100644
+--- a/tests/test_packaging_metadata.py
++++ b/tests/test_packaging_metadata.py
+@@ -18,13 +18,13 @@ def _project_dependencies() -> list[str]:
+ def test_dependency_windows_match_supported_runtime_contract() -> None:
+     dependencies = _project_dependencies()
+
+-    assert "pykokoro[playback]>=0.9.2,<0.10" in dependencies
++    assert "pykokoro[playback]>=0.9.5,<0.10" in dependencies
+     assert "ssmd>=0.8.7,<0.9" in dependencies
+
+
+ def test_release_ci_targets_released_pykokoro_artifact() -> None:
+     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+
+-    assert "pykokoro[playback]==0.9.4" in workflow
++    assert "pykokoro[playback]==0.9.5" in workflow
+     assert "pykokoro.git@" not in workflow
+     assert "ssmd.git@" not in workflow
+diff --git a/tests/test_pykokoro_09_contract.py b/tests/test_pykokoro_09_contract.py
+index b6de398..54206b9 100644
+--- a/tests/test_pykokoro_09_contract.py
++++ b/tests/test_pykokoro_09_contract.py
+@@ -17,13 +17,13 @@ def _is_supported_pykokoro_version() -> bool:
+     if not match:
+         return False
+     value = tuple(int(match.group(index) or 0) for index in (1, 2, 3))
+-    return (0, 9, 2) <= value < (0, 10, 0)
++    return (0, 9, 5) <= value < (0, 10, 0)
+
+
+ def test_pykokoro_exposes_supported_public_contract() -> None:
+     assert _is_supported_pykokoro_version(), (
+         f"installed PyKokoro {pykokoro.__version__} is outside "
+-        "Readio's supported >=0.9.2,<0.10 range"
++        "Readio's supported >=0.9.5,<0.10 range"
+     )
+     assert callable(discover_models)
+     assert GenerationConfig
+diff --git a/tests/test_pykokoro_09_regressions.py b/tests/test_pykokoro_09_regressions.py
+index be81445..f90a6bf 100644
+--- a/tests/test_pykokoro_09_regressions.py
++++ b/tests/test_pykokoro_09_regressions.py
+@@ -15,6 +15,7 @@ from readio.models import (
+     _pykokoro_discovery,
+     validate_language_settings,
+ )
++from readio.voices import VoiceCatalogEntry
+
+ MODEL = ModelInfo(
+     id="de-thorsten",
+@@ -33,13 +34,13 @@ MODEL = ModelInfo(
+ )
+
+
+-def test_discovery_rejects_pykokoro_091_with_required_version(monkeypatch) -> None:
+-    fake = SimpleNamespace(__version__="0.9.1")
++def test_discovery_rejects_pykokoro_094_with_required_version(monkeypatch) -> None:
++    fake = SimpleNamespace(__version__="0.9.4")
+     monkeypatch.setitem(sys.modules, "pykokoro", fake)
+-    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.2,<0.10") as error:
++    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.5,<0.10") as error:
+         _pykokoro_discovery()
+     assert error.value.code == "pykokoro.version_unsupported"
+-    assert error.value.installed_version == "0.9.1"
++    assert error.value.installed_version == "0.9.4"
+
+
+ def test_model_validation_rejects_quality_and_known_lexicon() -> None:
+@@ -70,17 +71,29 @@ def test_experimental_model_requires_opt_in() -> None:
+
+
+ def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> None:
++    entry = VoiceCatalogEntry(
++        selector="de-1",
++        number=1,
++        id="thorsten",
++        gender="male",
++        language="de",
++        locale="de",
++        language_label="German",
++        model=MODEL.id,
++        source="github",
++        default=True,
++        status="ready",
++        experimental=False,
++        runtime_available=True,
++    )
+     monkeypatch.setattr(
+         cli,
+-        "get_model_info",
+-        lambda *args, **kwargs: (
+-            MODEL,
+-            SimpleNamespace(registry_source="cache", cache_fallback=False),
+-        ),
++        "discover_voice_catalog",
++        lambda **kwargs: ((entry,), SimpleNamespace(registry_source="cache", cache_fallback=False)),
+     )
+     args = cli.build_parser().parse_args(["voices", "list", "--model", MODEL.id, "--json"])
+     assert cli._cmd_voices(args) == 0
+     payload = json.loads(capsys.readouterr().out)
+-    assert payload["source"] == "github"
++    assert payload["voices"][0]["source"] == "github"
+     assert payload["registry"]["source"] == "cache"
+     assert payload["voices"][0]["id"] == "thorsten"
+diff --git a/tests/test_voice_catalog.py b/tests/test_voice_catalog.py
+new file mode 100644
+index 0000000..3328cb9
+--- /dev/null
++++ b/tests/test_voice_catalog.py
+@@ -0,0 +1,124 @@
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++from readio.models import ModelInfo, VoiceMetadata
++from readio.voices import build_voice_catalog, filter_voice_catalog, resolve_voice_selector
++
++
++def model(
++    model_id: str,
++    voices: tuple[str, ...],
++    details: tuple[VoiceMetadata, ...],
++    *,
++    source: str = "github",
++    priority_status: str = "ready",
++) -> ModelInfo:
++    return ModelInfo(
++        id=model_id,
++        source=source,
++        languages=("en",),
++        voices=voices,
++        default_voice=voices[0],
++        qualities=("fp32",),
++        g2p_backend="kokorog2p",
++        lexicons=(),
++        frontend="frontend",
++        status=priority_status,
++        experimental=priority_status == "experimental",
++        runtime_available=True,
++        redistribution_allowed=True,
++        voice_details=details,
++    )
++
++
++def test_catalog_orders_models_and_numbers_each_locale() -> None:
++    catalog = build_voice_catalog(
++        (
++            model(
++                "de-model",
++                ("anna", "martin"),
++                (
++                    VoiceMetadata("anna", "female", "de", "de", "German"),
++                    VoiceMetadata("martin", "male", "de", "de", "German"),
++                ),
++            ),
++            model(
++                "v1.0",
++                ("af_a", "af_b", "bf_a"),
++                (
++                    VoiceMetadata("af_a", "female", "en", "en-US", "American English"),
++                    VoiceMetadata("af_b", "female", "en", "en-US", "American English"),
++                    VoiceMetadata("bf_a", "female", "en", "en-GB", "British English"),
++                ),
++            ),
++        )
++    )
++    assert [(entry.selector, entry.id) for entry in catalog.voices] == [
++        ("en-us-1", "af_a"),
++        ("en-us-2", "af_b"),
++        ("en-gb-1", "bf_a"),
++        ("de-1", "anna"),
++        ("de-2", "martin"),
++    ]
++
++
++def test_filtering_does_not_renumber_and_language_is_regional() -> None:
++    entries = build_voice_catalog(
++        (
++            model(
++                "de-model",
++                ("anna", "martin", "petra"),
++                (
++                    VoiceMetadata("anna", "female", "de", "de", "German"),
++                    VoiceMetadata("martin", "male", "de", "de", "German"),
++                    VoiceMetadata("petra", "female", "de", "de", "German"),
++                ),
++            ),
++            model(
++                "en-model",
++                ("us", "gb"),
++                (
++                    VoiceMetadata("us", "female", "en", "en-US", "American English"),
++                    VoiceMetadata("gb", "female", "en", "en-GB", "British English"),
++                ),
++            ),
++        )
++    ).voices
++    assert [entry.selector for entry in filter_voice_catalog(entries, gender="male")] == ["de-2"]
++    assert {entry.locale for entry in filter_voice_catalog(entries, language="en")} == {"en-US", "en-GB"}
++    assert {entry.locale for entry in filter_voice_catalog(entries, language="en-us")} == {"en-US"}
++
++
++def test_missing_voice_metadata_uses_conservative_fallback() -> None:
++    catalog = build_voice_catalog((model("fallback", ("voice",), ()),))
++    entry = catalog.voices[0]
++    assert entry.gender == "unknown"
++    assert entry.language == "en"
++    assert entry.locale == "en"
++
++
++def test_selector_resolution_expands_canonical_identity(monkeypatch) -> None:
++    entry = build_voice_catalog(
++        (
++            model(
++                "de-model",
++                ("martin",),
++                (VoiceMetadata("martin", "male", "de", "de", "German"),),
++            ),
++        )
++    ).voices[0]
++    monkeypatch.setattr(
++        "readio.voices.discover_voice_catalog",
++        lambda **_: ((entry,), SimpleNamespace()),
++    )
++    resolved = resolve_voice_selector(
++        "de-1", language=None, model=None, source=None
++    )
++    assert resolved is not None
++    assert (resolved.language, resolved.model, resolved.source, resolved.voice) == (
++        "de",
++        "de-model",
++        "github",
++        "martin",
++    )
+diff --git a/tests/test_voices_cli.py b/tests/test_voices_cli.py
+index 8518786..c20810a 100644
+--- a/tests/test_voices_cli.py
++++ b/tests/test_voices_cli.py
+@@ -1,10 +1,12 @@
++from __future__ import annotations
++
+ import json
+ from pathlib import Path
+-
+-import pytest
++from types import SimpleNamespace
+
+ from readio import cli
+ from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
++from readio.voices import VoiceCatalogEntry
+
+
+ def config(tmp_path: Path) -> ReadioConfig:
+@@ -19,20 +21,49 @@ def config(tmp_path: Path) -> ReadioConfig:
+     )
+
+
+-def test_voices_list_and_roles_json(monkeypatch, tmp_path, capsys):
++def catalog_entry() -> VoiceCatalogEntry:
++    return VoiceCatalogEntry(
++        selector="de-1",
++        number=1,
++        id="martin",
++        gender="male",
++        language="de",
++        locale="de",
++        language_label="German",
++        model="de-model",
++        source="github",
++        default=True,
++        status="ready",
++        experimental=False,
++        runtime_available=True,
++    )
++
++
++def patch_catalog(monkeypatch) -> None:
++    monkeypatch.setattr(
++        cli,
++        "discover_voice_catalog",
++        lambda **_: ((catalog_entry(),), SimpleNamespace(registry_source="cache", cache_fallback=False)),
++    )
++
++
++def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
+     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
++    patch_catalog(monkeypatch)
+
+-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "list", "--json"])) == 0
++    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "list", "--lang", "de", "--json"])) == 0
+     listed = json.loads(capsys.readouterr().out)
+-    assert listed["provider"] == "kokoro"
+-    assert listed["voices"][0] == {"id": "af_sarah", "roles": ["host"]}
++    assert listed["filters"]["language"] == "de"
++    assert listed["voices"][0]["selector"] == "de-1"
++    assert listed["voices"][0]["id"] == "martin"
+
+-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
+-    roles = json.loads(capsys.readouterr().out)
+-    assert roles["roles"] == {"host": "af_sarah"}
++    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "show", "de-1", "--json"])) == 0
++    shown = json.loads(capsys.readouterr().out)
++    assert shown["voice"]["selector"] == "de-1"
++    assert shown["voice"]["model"] == "de-model"
+
+
+-def test_voices_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
++def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
+     cfg = config(tmp_path)
+     saved = []
+     monkeypatch.setattr(cli, "load_config", lambda: cfg)
+@@ -40,21 +71,17 @@ def test_voices_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
+         cli, "save_config", lambda updated: saved.append(updated) or Path("config.toml")
+     )
+
+-    assert (
+-        cli._cmd_voices(
+-            cli.build_parser().parse_args(["voices", "bind", "moderator", "am_michael"])
+-        )
+-        == 0
+-    )
+-    assert saved[-1].voices["kokoro"].roles["moderator"] == "am_michael"
++    assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"])) == 0
++    assert saved[-1].voices["kokoro"].roles["moderator"] == "new_voice"
++    assert "new_voice" in saved[-1].voices["kokoro"].ids
+
+     bound = saved[-1]
+     monkeypatch.setattr(cli, "load_config", lambda: bound)
+-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "unbind", "moderator"])) == 0
++    assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "unbind", "moderator"])) == 0
+     assert "moderator" not in saved[-1].voices["kokoro"].roles
+
+
+-def test_voices_bind_rejects_unknown_target(monkeypatch, tmp_path):
++def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):
+     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+-    with pytest.raises(ValueError, match="available voices"):
+-        cli._cmd_voices(cli.build_parser().parse_args(["voices", "bind", "moderator", "missing"]))
++    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
++    assert "deprecated" in capsys.readouterr().err

@@ -73,6 +73,7 @@ def test_dotted_config_set_role_and_invalid_target():
 
 def test_reader_policy_defaults() -> None:
     cfg = ReaderConfig()
+    assert cfg.pause_mode == "auto"
     assert cfg.spacy == "auto"
     assert cfg.short_sentence == "auto"
 

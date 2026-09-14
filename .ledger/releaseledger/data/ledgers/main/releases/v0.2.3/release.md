@@ -3,12 +3,12 @@ schema_version: 2
 object_type: release
 versioning:
   schema_version: 1
-  revision: 6
+  revision: 8
 version: v0.2.3
-status: planned
+status: released
 history_state: curated
 title: Readio v0.2.3
-released_at: null
+released_at: "2026-09-11"
 previous_version: v0.2.2
 cancel_reason: null
 superseded_by: null
@@ -16,7 +16,7 @@ changelog_file: null
 boundary_ref: null
 source_refs: []
 source_count: null
-entry_count: 5
+entry_count: 6
 artifact_count: 0
 git_base_ref: null
 git_base_sha: null

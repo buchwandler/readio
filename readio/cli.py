@@ -211,7 +211,15 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         "--allow-experimental", action="store_true", help="allow experimental frontends"
     )
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
-    parser.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
+    parser.add_argument(
+        "--pause-mode",
+        choices=("tts", "manual", "auto"),
+        help=(
+            "pause handling mode; auto is the Readio default, "
+            "tts leaves pause timing to the TTS model, "
+            "manual uses explicit boundary pauses"
+        ),
+    )
     parser.add_argument("--unit", choices=("sentence", "paragraph"))
 
 

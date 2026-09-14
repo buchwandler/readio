@@ -3,13 +3,13 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 2
+  revision: 3
 entry_id: entry-0005
 release_version: v0.2.3
 kind: changed
 summary:
-  Added explicit spaCy model-size and short-sentence synthesis controls, including
-  the required-to-sm reader configuration migration
+  Changed spaCy model-size and short-sentence synthesis controls, including
+  reader configuration migration
 status: accepted
 audience: null
 scopes: []

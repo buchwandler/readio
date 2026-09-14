@@ -194,6 +194,12 @@ def test_input_help_describes_positional_files_and_literal_escape(capsys):
     assert "positional file detection" in help_text
 
 
+@pytest.mark.parametrize("command", ["speak", "render", "plan"])
+def test_pause_mode_cli_is_unset_when_omitted(command):
+    args = build_parser().parse_args([command, "hello"])
+    assert args.pause_mode is None
+
+
 def test_render_parser_has_shared_input_and_output_options():
     args = build_parser().parse_args(
         ["render", "literal", "--file", "episode.ssmd", "--select", "paragraph:2", "-o", "out.wav"]

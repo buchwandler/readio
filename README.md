@@ -59,6 +59,7 @@ readio config show
 readio config validate
 readio config set reader.voice bf_emma
 readio config set voices.kokoro.roles.analyst am_michael
+readio config set reader.pause_mode auto
 readio config set ssmd.voice_provider kokoro
 ```
 
@@ -79,10 +80,9 @@ readio models show de-thorsten --offline
 readio voices list --model de-thorsten --json
 readio models list --preference huggingface --json
 readio voices list --model de-thorsten --preference github --json
-```
-
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
+```
 
 Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 
@@ -97,7 +97,7 @@ readio render --lang de --file notes.md
 
 When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to PyKokoro language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
 
-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, repeatable `--detect-language`, `--spacy`, and `--short-sentence`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
+Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, repeatable `--detect-language`, `--spacy`, `--short-sentence`, and `--pause-mode`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
 `--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
 Use `--engine BACKEND` to select a registered synthesis backend. Lexicon command selectors such as `crane` are backend-neutral names; they are not qualified asset IDs. `readio lexicons show crane --lang de` displays the matching backend asset metadata.
 
@@ -109,6 +109,7 @@ readio speak "hi" --spacy sm --short-sentence wrap
 
 `--spacy auto` selects the largest installed compatible model and falls back when unavailable. `--spacy sm|md|lg|trf` requires that exact tier, while `--spacy off` disables spaCy. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency workaround, and `off` disables the workaround. The `phrase` modes can trigger additional inference calls.
 
+Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave pause timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. A persisted `reader.pause_mode` remains the default for that installation.
 Named lexicons use PyKokoro selectors, not backend asset IDs:
 
 ```text

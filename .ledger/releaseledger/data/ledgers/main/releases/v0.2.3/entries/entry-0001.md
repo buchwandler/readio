@@ -3,13 +3,13 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 1
+  revision: 3
 entry_id: entry-0001
 release_version: v0.2.3
 kind: changed
 summary:
-  Aligned Readio dependency metadata and CI with released PyKokoro 0.9.4 and
-  SSMD 0.8.7+
+  Changed Readio dependency metadata and CI to use PyKokoro 0.9.5 and SSMD
+  0.8.7+
 status: accepted
 audience: null
 scopes: []

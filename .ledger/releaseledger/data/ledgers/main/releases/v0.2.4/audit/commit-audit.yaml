@@ -1,0 +1,212 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.2.4
+git_base_ref: v0.2.3
+git_base_sha: 9b264c5a7b09096c299b90d2f8fe6fb30a2a96d0
+git_head_ref: HEAD
+git_head_sha: 2c5e221eab0f4047a8157dcacb85e5d31c956d3a
+git_range: 9b264c5a7b09096c299b90d2f8fe6fb30a2a96d0..2c5e221eab0f4047a8157dcacb85e5d31c956d3a
+commit_count: 4
+rows:
+  - sha: 4791e709a5f940404c7e40f04333f0996931453d
+    source_ref: git:4791e709a5f940404c7e40f04333f0996931453d
+    short_sha: 4791e70
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.3/entries/entry-0005.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.2.3/release.md
+      - README.md
+      - docs/changelog.md
+      - docs/index.md
+      - readio/cli.py
+      - readio/config.py
+      - readio/plan.py
+      - readio/reader.py
+      - readio/synthesis.py
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_config.py
+      - tests/test_plan.py
+      - tests/test_plan_no_tts_load.py
+      - tests/test_reader_synthesis.py
+      - tests/test_render_from_plan.py
+    stats:
+      files_changed: 0
+      insertions: 369
+      deletions: 26
+    inspected: true
+    inspected_paths:
+      - readio/config.py
+      - readio/plan.py
+      - readio/reader.py
+      - readio/synthesis.py
+      - tests/test_config.py
+      - tests/test_plan.py
+      - tests/test_reader_synthesis.py
+    observed_behavior:
+      Reader synthesis planning now supports explicit spaCy tiers and
+      configurable short-sentence handling, with legacy required values normalized to
+      sm.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: add spacy policy and parameter for short sentences"
+    target_entry_id: entry-0001
+    notes: ""
+  - sha: 18d17658338164cf7a62f805eece4802de217394
+    source_ref: git:18d17658338164cf7a62f805eece4802de217394
+    short_sha: 18d1765
+    changed_paths:
+      - .github/workflows/codecov.yml
+      - .github/workflows/tests.yml
+      - README.md
+      - docs/index.md
+      - llm-guides/README.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/document-summary.md
+      - llm-guides/ssmd/dramatic-story.md
+      - llm-guides/ssmd/educational-explainer.md
+      - llm-guides/ssmd/funny-story.md
+      - llm-guides/ssmd/general-narration.md
+      - llm-guides/ssmd/guided-meditation.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/language-learning.md
+      - llm-guides/ssmd/news-briefing.md
+      - llm-guides/ssmd/podcast-interview.md
+      - llm-guides/ssmd/podcast-roundtable.md
+      - llm-guides/ssmd/podcast-solo.md
+      - llm-guides/ssmd/quiz-trivia.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/config.py
+      - readio/models.py
+      - readio/plan.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - readio/voices.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/ssmd.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_llm_guides.py
+      - tests/test_packaging_metadata.py
+      - tests/test_pykokoro_09_contract.py
+      - tests/test_pykokoro_09_regressions.py
+      - tests/test_voice_catalog.py
+      - tests/test_voices_cli.py
+    stats:
+      files_changed: 0
+      insertions: 817
+      deletions: 200
+    inspected: true
+    inspected_paths:
+      - readio/voices.py
+      - readio/cli.py
+      - readio/models.py
+      - tests/test_voice_catalog.py
+      - tests/test_voices_cli.py
+    observed_behavior:
+      Voice discovery now exposes stable locale-number selectors, metadata
+      filtering, selector inspection, and selector-aware role/default resolution.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: short form for voice selection and new voices command"
+    target_entry_id: entry-0002
+    notes: ""
+  - sha: 5840ad53704ab4efd000346c048638c9b2271eb7
+    source_ref: git:5840ad53704ab4efd000346c048638c9b2271eb7
+    short_sha: 5840ad5
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - readio/audio.py
+      - readio/backends/__init__.py
+      - readio/backends/base.py
+      - readio/backends/pykokoro.py
+      - readio/backends/registry.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/lexicons.py
+      - readio/models.py
+      - readio/plan.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - readio/voices.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - tests/test_backend_config.py
+      - tests/test_backend_dispatch.py
+      - tests/test_backends.py
+      - tests/test_lexicon_catalog.py
+      - tests/test_lexicons_cli.py
+    stats:
+      files_changed: 0
+      insertions: 1508
+      deletions: 366
+    inspected: true
+    inspected_paths:
+      - readio/backends/base.py
+      - readio/backends/pykokoro.py
+      - readio/lexicons.py
+      - readio/cli.py
+      - tests/test_lexicon_catalog.py
+      - tests/test_lexicons_cli.py
+    observed_behavior:
+      Synthesis backend contracts and the PyKokoro adapter now expose
+      backend-neutral lexicon discovery, filtering, inspection, and runtime option plumbing.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: lexicon command to view lexicons"
+    target_entry_id: entry-0003
+    notes: ""
+  - sha: 2c5e221eab0f4047a8157dcacb85e5d31c956d3a
+    source_ref: git:2c5e221eab0f4047a8157dcacb85e5d31c956d3a
+    short_sha: 2c5e221
+    changed_paths:
+      - README.md
+      - docs/index.md
+      - readio/audio.py
+      - readio/backends/base.py
+      - readio/backends/pykokoro.py
+      - readio/cli.py
+      - readio/lexicons.py
+      - readio/models.py
+      - readio/plan.py
+      - readio/reader.py
+      - readio/ssmd.py
+      - readio/synthesis.py
+      - readio/voices.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - tests/test_backend_dispatch.py
+      - tests/test_lexicons_cli.py
+      - tests/test_voice_catalog.py
+      - tests/test_voices_cli.py
+    stats:
+      files_changed: 0
+      insertions: 128
+      deletions: 88
+    inspected: true
+    inspected_paths:
+      - readio/lexicons.py
+      - readio/voices.py
+      - readio/cli.py
+      - tests/test_lexicons_cli.py
+      - tests/test_voice_catalog.py
+      - tests/test_voices_cli.py
+    observed_behavior:
+      Lexicon listing remains usable without a language filter and
+      backend-aware voice and lexicon selection is formatted and validated consistently.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "fix: lexicons list"
+    target_entry_id: entry-0004
+    notes: ""

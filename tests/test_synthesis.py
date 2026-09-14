@@ -24,6 +24,11 @@ def _args(**values: object) -> Namespace:
     return Namespace(**defaults)
 
 
+def test_resolve_synthesis_uses_auto_pause_default() -> None:
+    resolved = resolve_synthesis(ReadioConfig(), _args())
+    assert resolved.pause_mode == "auto"
+
+
 def test_resolution_applies_language_profile_and_cli_precedence() -> None:
     cfg = ReadioConfig(
         reader=ReaderSettings(voice="af_sarah", lang="en-us"),

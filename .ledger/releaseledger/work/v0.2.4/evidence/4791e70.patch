@@ -1,0 +1,828 @@
+ .../data/ledgers/main/events/events.jsonl          |  2 +
+ .../main/releases/v0.2.3/entries/entry-0005.md     | 31 +++++++++
+ .../data/ledgers/main/releases/v0.2.3/release.md   |  4 +-
+ README.md                                          | 10 ++-
+ docs/changelog.md                                  |  3 +-
+ docs/index.md                                      |  5 +-
+ readio/cli.py                                      | 19 +++++-
+ readio/config.py                                   | 37 +++++++++--
+ readio/plan.py                                     | 38 +++++++++--
+ readio/reader.py                                   | 42 +++++++++++-
+ readio/synthesis.py                                | 16 ++++-
+ skill/readio/references/cli.md                     | 11 ++++
+ skill/readio/references/troubleshooting.md         |  8 +++
+ tests/test_config.py                               | 32 ++++++++++
+ tests/test_plan.py                                 | 16 +++++
+ tests/test_plan_no_tts_load.py                     |  8 +++
+ tests/test_reader_synthesis.py                     | 74 ++++++++++++++++++++++
+ tests/test_render_from_plan.py                     | 39 ++++++++++--
+ 18 files changed, 369 insertions(+), 26 deletions(-)
+
+diff --git a/.ledger/releaseledger/data/ledgers/main/events/events.jsonl b/.ledger/releaseledger/data/ledgers/main/events/events.jsonl
+index 9935515..397ffb6 100644
+--- a/.ledger/releaseledger/data/ledgers/main/events/events.jsonl
++++ b/.ledger/releaseledger/data/ledgers/main/events/events.jsonl
+@@ -60,3 +60,5 @@
+ {"data":{"kind":"quality","status":"accepted"},"entry_id":"entry-0002","event":"entry.added","event_id":"event-0060","record_revisions":{"entry:v0.2.3/entry-0002":1,"release:v0.2.3":3},"release_version":"v0.2.3","schema_version":2}
+ {"data":{"kind":"changed","status":"accepted"},"entry_id":"entry-0003","event":"entry.added","event_id":"event-0061","record_revisions":{"entry:v0.2.3/entry-0003":1,"release:v0.2.3":4},"release_version":"v0.2.3","schema_version":2}
+ {"data":{"kind":"docs","status":"accepted"},"entry_id":"entry-0004","event":"entry.added","event_id":"event-0062","record_revisions":{"entry:v0.2.3/entry-0004":1,"release:v0.2.3":5},"release_version":"v0.2.3","schema_version":2}
++{"data":{"kind":"changed","status":"accepted"},"entry_id":"entry-0005","event":"entry.added","event_id":"event-0063","record_revisions":{"entry:v0.2.3/entry-0005":1,"release:v0.2.3":6},"release_version":"v0.2.3","schema_version":2}
++{"data":{"added_source_refs":[],"fields":["summary"],"removed_source_refs":[],"source_refs_mode":"unchanged"},"entry_id":"entry-0005","event":"entry.updated","event_id":"event-0064","record_revisions":{"entry:v0.2.3/entry-0005":2},"release_version":"v0.2.3","schema_version":2}
+diff --git a/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/entries/entry-0005.md b/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/entries/entry-0005.md
+new file mode 100644
+index 0000000..53a4ca0
+--- /dev/null
++++ b/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/entries/entry-0005.md
+@@ -0,0 +1,31 @@
++---
++schema_version: 2
++object_type: release_entry
++versioning:
++  schema_version: 1
++  revision: 2
++entry_id: entry-0005
++release_version: v0.2.3
++kind: changed
++summary:
++  Added explicit spaCy model-size and short-sentence synthesis controls, including
++  the required-to-sm reader configuration migration
++status: accepted
++audience: null
++scopes: []
++source_refs:
++  - tl:task-0021
++paths:
++  - readio/config.py
++  - readio/cli.py
++  - readio/plan.py
++  - readio/reader.py
++  - readio/synthesis.py
++issues: []
++prs: []
++sources: []
++contributors: []
++breaking: false
++internal: false
++order: 5
++---
+diff --git a/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/release.md b/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/release.md
+index 16d970a..be871e6 100644
+--- a/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/release.md
++++ b/.ledger/releaseledger/data/ledgers/main/releases/v0.2.3/release.md
+@@ -3,7 +3,7 @@ schema_version: 2
+ object_type: release
+ versioning:
+   schema_version: 1
+-  revision: 5
++  revision: 6
+ version: v0.2.3
+ status: planned
+ history_state: curated
+@@ -16,7 +16,7 @@ changelog_file: null
+ boundary_ref: null
+ source_refs: []
+ source_count: null
+-entry_count: 4
++entry_count: 5
+ artifact_count: 0
+ git_base_ref: null
+ git_base_sha: null
+diff --git a/README.md b/README.md
+index 20c2bf6..d4a4e6b 100644
+--- a/README.md
++++ b/README.md
+@@ -92,9 +92,17 @@ readio render --lang de --file notes.md
+
+ When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to PyKokoro language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
+
+-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, and repeatable `--detect-language`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
++Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, repeatable `--detect-language`, `--spacy`, and `--short-sentence`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
+ `--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
+
++Choose spaCy and short-sentence behavior explicitly when needed:
++
++```bash
++readio speak "hi" --spacy sm --short-sentence wrap
++```
++
++`--spacy auto` selects the largest installed compatible model and falls back when unavailable. `--spacy sm|md|lg|trf` requires that exact tier, while `--spacy off` disables spaCy. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency workaround, and `off` disables the workaround. The `phrase` modes can trigger additional inference calls.
++
+ Named lexicons use PyKokoro selectors, not backend asset IDs:
+
+ ```text
+diff --git a/docs/changelog.md b/docs/changelog.md
+index 2d5d461..8ba39d2 100644
+--- a/docs/changelog.md
++++ b/docs/changelog.md
+@@ -2,12 +2,13 @@
+
+ > **Generated by releaseledger.** Manual edits may be overwritten. Update releaseledger entries and rebuild this file instead.
+
+-## [v0.2.3] - 2026-09-11
++## [v0.2.3] - Unreleased
+
+ ### Changed
+
+ - Aligned Readio dependency metadata and CI with released PyKokoro 0.9.4 and SSMD 0.8.7+
+ - Hardened package publishing with artifact checks and release-tag version validation
++- Added explicit spaCy model-size and short-sentence synthesis controls, including the required-to-sm reader configuration migration
+
+ ### Documentation
+
+diff --git a/docs/index.md b/docs/index.md
+index 2a976da..1fc9b3a 100644
+--- a/docs/index.md
++++ b/docs/index.md
+@@ -88,6 +88,8 @@ Synthesis options are available on all three commands:
+ --language-detection MODE off or auto
+ --detect-language LANG repeatable pronunciation-routing language
+ --speed NUMBER      speech speed multiplier
++--spacy MODE              auto, off, sm, md, lg, or trf
++--short-sentence MODE     auto, off, wrap, phrase, or randomized-phrase
+ --pause-mode MODE   tts, manual, or auto
+ --unit UNIT         sentence or paragraph
+ ```
+@@ -125,6 +127,7 @@ Keep the layers separate:
+ - **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
+
+ Plans preserve the tokenizer tri-state: `lexicons: null` means PyKokoro language defaults, `lexicons: []` means no static lexicon layers, and a non-empty list means ordered named layers. Fallback and lexicon data policy are also carried unchanged into `TokenizerConfig`; SSMD `language_detection` hints are resolved into the plan before execution.
++Plans also preserve `synthesis.spacy` (`auto`, `off`, `sm`, `md`, `lg`, or `trf`) and `synthesis.short_sentence` (`auto`, `off`, `wrap`, `phrase`, or `randomized-phrase`). `auto` leaves backend selection to PyKokoro; explicit spaCy tiers require that exact compatible model, and short-sentence `wrap` avoids carrier-phrase retries when lower latency is preferred.
+
+ Planning is deterministic: `--resolve-voices` is rejected during `plan`/`--dry-run` in favor of `--voice-bind ROLE=VOICE_ID` or persisted roles, and `plan` supports `--force` to mirror render output requests.
+
+@@ -177,7 +180,7 @@ readio config validate
+
+ `READIO_CONFIG` overrides the default configuration file path. Configuration is TOML with schema 2; schema-0/1 files remain readable and are upgraded when saved. The main sections are:
+
+-- `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, and `device`.
++- `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, `device`, `spacy`, and `short_sentence`.
+ - `[ssmd]`: the selected `voice_provider` and SSMD validation behavior.
+ - `[paths]`: user template, ingest, and audio output directories.
+ - `[voices.<provider>]`: concrete voice IDs and logical role mappings.
+diff --git a/readio/cli.py b/readio/cli.py
+index cc60d13..97d5f03 100644
+--- a/readio/cli.py
++++ b/readio/cli.py
+@@ -16,6 +16,7 @@ from .config import (
+     G2P_FALLBACKS,
+     LANGUAGE_DETECTION_MODES,
+     LEXICON_DATA_POLICIES,
++    SHORT_SENTENCE_POLICIES,
+     SPACY_POLICIES,
+     LanguageSettings,
+     ReadioConfig,
+@@ -168,7 +169,22 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
+     parser.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
+     parser.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
+     parser.add_argument(
+-        "--spacy", choices=SPACY_POLICIES, help="spaCy policy: auto, off, or required"
++        "--spacy",
++        choices=SPACY_POLICIES,
++        help=(
++            "spaCy model policy: auto selects the largest installed compatible model "
++            "and falls back when unavailable; off disables spaCy; sm/md/lg/trf "
++            "require that exact model tier"
++        ),
++    )
++    parser.add_argument(
++        "--short-sentence",
++        choices=SHORT_SENTENCE_POLICIES,
++        help=(
++            "short-sentence synthesis strategy: auto uses the PyKokoro default; "
++            "off disables handling; wrap uses lightweight phoneme context; "
++            "phrase/randomized-phrase use carrier-phrase extraction"
++        ),
+     )
+     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
+     parser.add_argument(
+@@ -571,6 +587,7 @@ def _build_plan_request(
+         auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
+         g2p_fallback=getattr(args, "g2p_fallback", None),
+         spacy=getattr(args, "spacy", None),
++        short_sentence=getattr(args, "short_sentence", None),
+         lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
+         language_detection=getattr(args, "language_detection", None),
+         detect_languages=(
+diff --git a/readio/config.py b/readio/config.py
+index 92f4832..b3e5d43 100644
+--- a/readio/config.py
++++ b/readio/config.py
+@@ -35,7 +35,15 @@ G2P_FALLBACKS = ("none", "espeak", "goruut")
+ LEXICON_DATA_POLICIES = ("auto", "installed-only")
+ LANGUAGE_DETECTION_MODES = ("off", "auto")
+
+-SPACY_POLICIES = ("auto", "off", "required")
++SPACY_POLICIES = ("auto", "off", "sm", "md", "lg", "trf")
++SPACY_LEGACY_ALIASES = {"required": "sm"}
++SHORT_SENTENCE_POLICIES = (
++    "auto",
++    "off",
++    "wrap",
++    "phrase",
++    "randomized-phrase",
++)
+
+
+ @dataclass(frozen=True, slots=True)
+@@ -52,6 +60,7 @@ class ReaderSettings:
+     detect_languages: tuple[str, ...] | None = None
+
+     spacy: str = "auto"
++    short_sentence: str = "auto"
+
+
+ ReaderConfig = ReaderSettings
+@@ -141,6 +150,23 @@ def normalize_language_key(language: str) -> str:
+     return normalized
+
+
++def normalize_spacy_policy(value: object) -> str:
++    normalized = str(value).strip().lower()
++    normalized = SPACY_LEGACY_ALIASES.get(normalized, normalized)
++    if normalized not in SPACY_POLICIES:
++        allowed = ", ".join(SPACY_POLICIES)
++        raise ValueError(f"reader.spacy must be one of: {allowed}")
++    return normalized
++
++
++def normalize_short_sentence_policy(value: object) -> str:
++    normalized = str(value).strip().lower()
++    if normalized not in SHORT_SENTENCE_POLICIES:
++        allowed = ", ".join(SHORT_SENTENCE_POLICIES)
++        raise ValueError(f"reader.short_sentence must be one of: {allowed}")
++    return normalized
++
++
+ def _coerce_reader_value(key: str, value: Any) -> Any:
+     if key not in _READER_KEYS:
+         raise KeyError(f"unknown reader config key {key!r}")
+@@ -167,11 +193,9 @@ def _coerce_reader_value(key: str, value: Any) -> Any:
+     if key == "device":
+         return None if value in {None, "", "none", "null"} else str(value)
+     if key == "spacy":
+-        value = str(value)
+-        if value not in SPACY_POLICIES:
+-            allowed = ", ".join(SPACY_POLICIES)
+-            raise ValueError(f"reader.spacy must be one of: {allowed}")
+-        return value
++        return normalize_spacy_policy(value)
++    if key == "short_sentence":
++        return normalize_short_sentence_policy(value)
+     if key == "language_detection":
+         return _optional_choice(value, "reader.language_detection", LANGUAGE_DETECTION_MODES)
+     if key == "detect_languages":
+@@ -293,6 +317,7 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
+     _coerce_reader_value("unit", cfg.reader.unit)
+     _coerce_reader_value("pause_mode", cfg.reader.pause_mode)
+     _coerce_reader_value("spacy", cfg.reader.spacy)
++    _coerce_reader_value("short_sentence", cfg.reader.short_sentence)
+     _coerce_reader_value("language_detection", cfg.reader.language_detection)
+     _coerce_reader_value("detect_languages", cfg.reader.detect_languages)
+     if not cfg.ssmd.voice_provider:
+diff --git a/readio/plan.py b/readio/plan.py
+index c351488..6041bab 100644
+--- a/readio/plan.py
++++ b/readio/plan.py
+@@ -15,7 +15,13 @@ from pathlib import Path
+ from typing import TYPE_CHECKING, Any, Literal
+
+ from . import __version__
+-from .config import SPACY_POLICIES, ReadioConfig, language_profile, normalize_language_key
++from .config import (
++    ReadioConfig,
++    language_profile,
++    normalize_language_key,
++    normalize_short_sentence_policy,
++    normalize_spacy_policy,
++)
+ from .document import InputDocument, InputFormat, InputFormatRequest, resolve_input_format
+ from .errors import SSMDInputError
+ from .formats import (
+@@ -163,6 +169,7 @@ class SynthesisRequest:
+     clear_lexicons: bool = False
+     auto_lexicons: bool = False
+     spacy: str | None = None
++    short_sentence: str | None = None
+     g2p_fallback: str | None = None
+     lexicon_data_policy: str | None = None
+     language_detection: str | None = None
+@@ -297,6 +304,7 @@ class SynthesisPlan:
+     lexicons: tuple[str, ...] | None
+     g2p_fallback: str | None
+     spacy: str
++    short_sentence: str
+     lexicon_data_policy: str | None
+     language_detection: str | None
+     detect_languages: tuple[str, ...] | None
+@@ -314,6 +322,7 @@ class SynthesisPlan:
+             "lexicons": list(self.lexicons) if self.lexicons is not None else None,
+             "g2p_fallback": self.g2p_fallback,
+             "spacy": self.spacy,
++            "short_sentence": self.short_sentence,
+             "lexicon_data_policy": self.lexicon_data_policy,
+             "language_detection": self.language_detection,
+             "detect_languages": (
+@@ -459,6 +468,7 @@ class SynthesisCandidate:
+     lexicons: tuple[str, ...] | None
+     g2p_fallback: str | None
+     spacy: str
++    short_sentence: str
+     lexicon_data_policy: str | None
+     language_detection: str | None
+     detect_languages: tuple[str, ...] | None
+@@ -606,9 +616,7 @@ def _resolve_synthesis_candidate(
+     g2p_fallback = profile.g2p_fallback if profile is not None else None
+     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
+
+-    spacy = request.spacy if request.spacy is not None else cfg.reader.spacy
+-    if spacy not in SPACY_POLICIES:
+-        raise ValueError(f"reader.spacy must be one of: {', '.join(SPACY_POLICIES)}")
++    spacy = normalize_spacy_policy(request.spacy if request.spacy is not None else cfg.reader.spacy)
+     if request.spacy is not None or spacy != "auto":
+         decisions.append(
+             ResolutionDecision(
+@@ -618,7 +626,22 @@ def _resolve_synthesis_candidate(
+                 locator="request.spacy" if request.spacy is not None else "reader.spacy",
+             )
+         )
+-
++    short_sentence = normalize_short_sentence_policy(
++        request.short_sentence if request.short_sentence is not None else cfg.reader.short_sentence
++    )
++    if request.short_sentence is not None or short_sentence != "auto":
++        decisions.append(
++            ResolutionDecision(
++                field="synthesis.short_sentence",
++                value=short_sentence,
++                origin=(ORIGIN_CLI if request.short_sentence is not None else ORIGIN_CONFIG_READER),
++                locator=(
++                    "request.short_sentence"
++                    if request.short_sentence is not None
++                    else "reader.short_sentence"
++                ),
++            )
++        )
+     language_detection = request.language_detection
+     detect_languages = request.detect_languages
+     detection_origin = (
+@@ -965,6 +988,7 @@ def _resolve_synthesis_candidate(
+         lexicons=lexicons,
+         g2p_fallback=g2p_fallback,
+         spacy=spacy,
++        short_sentence=short_sentence,
+         lexicon_data_policy=lexicon_data_policy,
+         language_detection=language_detection,
+         detect_languages=detect_languages,
+@@ -1094,6 +1118,7 @@ def _concretize_backend_defaults(
+             lexicons=candidate.lexicons,
+             g2p_fallback=candidate.g2p_fallback,
+             spacy=candidate.spacy,
++            short_sentence=candidate.short_sentence,
+             lexicon_data_policy=candidate.lexicon_data_policy,
+             language_detection=candidate.language_detection,
+             detect_languages=candidate.detect_languages,
+@@ -1663,6 +1688,7 @@ def resolve_plan(
+                 lexicons=candidate.lexicons,
+                 g2p_fallback=candidate.g2p_fallback,
+                 spacy=candidate.spacy,
++                short_sentence=candidate.short_sentence,
+                 lexicon_data_policy=candidate.lexicon_data_policy,
+                 language_detection=candidate.language_detection,
+                 detect_languages=candidate.detect_languages,
+@@ -1747,6 +1773,7 @@ def resolved_synthesis_from_plan(
+             lexicons=None,
+             allow_experimental=False,
+             spacy="auto",
++            short_sentence="auto",
+             speed=1.0,
+             pause_mode="tts",
+             unit="sentence",
+@@ -1762,6 +1789,7 @@ def resolved_synthesis_from_plan(
+         lexicons=sp.lexicons,
+         g2p_fallback=sp.g2p_fallback,
+         spacy=sp.spacy,
++        short_sentence=sp.short_sentence,
+         lexicon_data_policy=sp.lexicon_data_policy,
+         language_detection=sp.language_detection,
+         detect_languages=sp.detect_languages,
+diff --git a/readio/reader.py b/readio/reader.py
+index 78e7cfe..87d7a39 100644
+--- a/readio/reader.py
++++ b/readio/reader.py
+@@ -46,23 +46,48 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
+     return InputDocument(text=text, source_path=document.source_path, format="text")
+
+
++def _spacy_settings(policy: str | None) -> tuple[bool | None, str | None]:
++    if policy in {None, "auto"}:
++        return None, None
++    if policy == "off":
++        return False, None
++    if policy == "required":
++        policy = "sm"
++    if policy in {"sm", "md", "lg", "trf"}:
++        return True, policy
++    raise ValueError(f"unsupported spaCy policy: {policy!r}")
++
++
+ def tokenizer_config_for_synthesis(synthesis: object) -> Any:
+     """Build the explicit PyKokoro tokenizer override, if one is needed."""
+     from pykokoro.tokenizer import TokenizerConfig
+
+-    spacy_policy = getattr(synthesis, "spacy", None)
+-    use_spacy = {"off": False, "required": True}.get(spacy_policy)
++    use_spacy, spacy_model_size = _spacy_settings(getattr(synthesis, "spacy", None))
+     values = {
+         "lexicons": getattr(synthesis, "lexicons", None),
+         "fallback": getattr(synthesis, "g2p_fallback", None),
+         "lexicon_data_policy": getattr(synthesis, "lexicon_data_policy", None),
+         "use_spacy": use_spacy,
++        "spacy_model_size": spacy_model_size,
+     }
+     if not any(value is not None for value in values.values()):
+         return None
+     return TokenizerConfig(**{key: value for key, value in values.items() if value is not None})
+
+
++def short_sentence_config_for_synthesis(synthesis: object) -> Any:
++    policy = getattr(synthesis, "short_sentence", None)
++    if policy in {None, "auto"}:
++        return None
++    from pykokoro.short_sentence_handler import ShortSentenceConfig
++
++    if policy == "off":
++        return ShortSentenceConfig(enabled=False)
++    if policy in {"wrap", "phrase", "randomized-phrase"}:
++        return ShortSentenceConfig(enabled=True, resolve_mode=policy)
++    raise ValueError(f"unsupported short-sentence policy: {policy!r}")
++
++
+ def language_detection_config_for_synthesis(
+     synthesis: object,
+     document: InputDocument | None = None,
+@@ -112,6 +137,7 @@ def pipeline_config_for_document(
+         generation=generation,
+         language_detection=language_detection,
+         tokenizer_config=tokenizer_config,
++        short_sentence_config=short_sentence_config_for_synthesis(resolved),
+         ssmd=ssmd,
+     )
+
+@@ -167,6 +193,7 @@ def pipeline_config_from_plan(
+         language_detection=language_detection,
+         tokenizer_config=tokenizer_config,
+         ssmd=ssmd,
++        short_sentence_config=short_sentence_config_for_synthesis(synthesis),
+     )
+
+
+@@ -254,7 +281,16 @@ def _build_pipeline(
+         speed=cfg.speed,
+         pause_mode=cfg.pause_mode,
+     )
+-    return KokoroPipeline(PipelineConfig(voice=cfg.voice, generation=generation))
++    tokenizer_config = tokenizer_config_for_synthesis(cfg)
++    short_sentence_config = short_sentence_config_for_synthesis(cfg)
++    return KokoroPipeline(
++        PipelineConfig(
++            voice=cfg.voice,
++            generation=generation,
++            tokenizer_config=tokenizer_config,
++            short_sentence_config=short_sentence_config,
++        )
++    )
+
+
+ def _selected_indices(prepared: Any, selector: str) -> tuple[int, ...] | None:
+diff --git a/readio/synthesis.py b/readio/synthesis.py
+index a5ce55e..1def252 100644
+--- a/readio/synthesis.py
++++ b/readio/synthesis.py
+@@ -6,7 +6,14 @@ import logging
+ from argparse import Namespace
+ from dataclasses import dataclass
+
+-from .config import LanguageSettings, ReadioConfig, language_profile, normalize_language_key
++from .config import (
++    LanguageSettings,
++    ReadioConfig,
++    language_profile,
++    normalize_language_key,
++    normalize_short_sentence_policy,
++    normalize_spacy_policy,
++)
+ from .models import ModelInfo, get_model_info, validate_language_settings
+
+ logger = logging.getLogger(__name__)
+@@ -68,6 +75,7 @@ class ResolvedSynthesis:
+     unit: str
+     g2p_fallback: str | None = None
+     spacy: str = "auto"
++    short_sentence: str = "auto"
+     lexicon_data_policy: str | None = None
+     language_detection: str | None = None
+     detect_languages: tuple[str, ...] | None = None
+@@ -123,7 +131,10 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
+     g2p_fallback = profile.g2p_fallback if profile is not None else None
+     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
+
+-    spacy = getattr(args, "spacy", None) or cfg.reader.spacy
++    spacy = normalize_spacy_policy(getattr(args, "spacy", None) or cfg.reader.spacy)
++    short_sentence = normalize_short_sentence_policy(
++        getattr(args, "short_sentence", None) or cfg.reader.short_sentence
++    )
+     explicit_model = getattr(args, "model", None)
+     if explicit_model is not None:
+         model = explicit_model
+@@ -217,6 +228,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
+         g2p_fallback=g2p_fallback,
+         lexicon_data_policy=lexicon_data_policy,
+         spacy=spacy,
++        short_sentence=short_sentence,
+         language_detection=language_detection,
+         detect_languages=detect_languages,
+         allow_experimental=allow_experimental,
+diff --git a/skill/readio/references/cli.md b/skill/readio/references/cli.md
+index 5bbc4aa..b6df83f 100644
+--- a/skill/readio/references/cli.md
++++ b/skill/readio/references/cli.md
+@@ -94,6 +94,17 @@ readio defaults reset de
+
+ When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `--lexicon NAME` accepts named PyKokoro selectors such as `crane`; `--no-lexicons` selects no static layers, while `--auto-lexicons` restores language defaults. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
+
++### SpaCy and short-sentence controls
++
++The shared synthesis options are available on `speak`, `render`, and `spotify publish`:
++
++```text
++--spacy auto|off|sm|md|lg|trf
++--short-sentence auto|off|wrap|phrase|randomized-phrase
++```
++
++Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and phrase modes can perform carrier-phrase inference and retries. Persist these as `[reader] spacy` and `[reader] short_sentence`.
++
+ `--g2p-fallback` accepts `none`, `espeak`, or `goruut`; `--lexicon-data-policy` accepts `auto` or `installed-only`. `--language-detection auto` plus repeatable `--detect-language LANG` controls pronunciation routing. Plans preserve `lexicons: null` versus `lexicons: []`. Do not pass `de-de:crane` as the selector: it is the language-qualified Lexphon asset ID resolved downstream; `de-crane` is an acoustic model.
+
+ ## Audio
+diff --git a/skill/readio/references/troubleshooting.md b/skill/readio/references/troubleshooting.md
+index 7a8ca45..63eb8e1 100644
+--- a/skill/readio/references/troubleshooting.md
++++ b/skill/readio/references/troubleshooting.md
+@@ -68,6 +68,14 @@ readio doctor --json
+ - **Default validation failure:** `readio defaults set LANG ...` validates the complete model/language/quality/voice/lexicon combination before saving. Use `--no-lexicons` for explicit provider-only pronunciation and `--auto-lexicons` to remove an inherited lexicon override. `--allow-experimental` is only for intentionally opting into an experimental frontend.
+ - **Tokenizer policy failure:** `--g2p-fallback` must be `none`, `espeak`, or `goruut`; `--lexicon-data-policy` must be `auto` or `installed-only`. The latter controls lexicon acquisition and is distinct from model-registry `--offline`.
+
++### Explicit spaCy model unavailable
++
++If runtime reports an unavailable model such as `de_core_news_lg`, use `--spacy auto` to select an installed compatible tier, install the requested spaCy model, choose another explicit tier, or use `--spacy off`.
++
++### Slow short-sentence synthesis
++
++If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, use `--short-sentence wrap` for lower latency or `--short-sentence off` to bypass the workaround. `phrase` and `randomized-phrase` intentionally retain carrier-phrase extraction and may require additional inference calls.
++
+ ## Render manifest failures
+
+ A successful bounded render with `--manifest` writes `<audio>.readio.json` beside the committed audio. Compare the manifest's embedded `readio.plan.v1` and environment before comparing audio bytes when two renders differ:
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 84afb47..69d0972 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -69,3 +69,35 @@ def test_dotted_config_set_role_and_invalid_target():
+     assert cfg.voices["kokoro"].roles["analyst"] == "am_adam"
+     with pytest.raises(ValueError, match="not present"):
+         validate_config(set_config_value(ReadioConfig(), "voices.kokoro.roles.analyst", "missing"))
++
++
++def test_reader_policy_defaults() -> None:
++    cfg = ReaderConfig()
++    assert cfg.spacy == "auto"
++    assert cfg.short_sentence == "auto"
++
++
++def test_reader_policies_round_trip(tmp_path: Path) -> None:
++    path = tmp_path / "policies.toml"
++    for spacy in ("auto", "off", "sm", "md", "lg", "trf"):
++        for short_sentence in ("auto", "off", "wrap", "phrase", "randomized-phrase"):
++            cfg = ReaderConfig(spacy=spacy, short_sentence=short_sentence)
++            path.write_text(dumps_config(cfg), encoding="utf-8")
++            assert load_config(path).reader == cfg
++
++
++def test_legacy_required_spacy_migrates_to_sm(tmp_path: Path) -> None:
++    path = tmp_path / "legacy.toml"
++    path.write_text('[reader]\nspacy = "required"\n', encoding="utf-8")
++    cfg = load_config(path)
++    assert cfg.reader.spacy == "sm"
++    dumped = dumps_config(cfg)
++    assert 'spacy = "sm"' in dumped
++    assert "required" not in dumped
++
++
++def test_invalid_reader_policies_rejected() -> None:
++    with pytest.raises(ValueError):
++        set_config_value(ReaderConfig(), "spacy", "xl")
++    with pytest.raises(ValueError):
++        set_config_value(ReaderConfig(), "short_sentence", "fast")
+diff --git a/tests/test_plan.py b/tests/test_plan.py
+index 93a5a7b..0ef48dd 100644
+--- a/tests/test_plan.py
++++ b/tests/test_plan.py
+@@ -359,6 +359,22 @@ class TestHumanOutput:
+         assert "Why" in text
+
+
++def test_synthesis_policies_are_planned_and_serialized() -> None:
++    plan = resolve_plan(
++        _default_config(),
++        _text_request(
++            synthesis=SynthesisRequest(spacy="lg", short_sentence="wrap"),
++        ),
++    )
++    assert plan.synthesis is not None
++    assert plan.synthesis.spacy == "lg"
++    assert plan.synthesis.short_sentence == "wrap"
++    assert plan.to_dict()["synthesis"]["short_sentence"] == "wrap"
++    fields = {decision.field for decision in plan.decisions}
++    assert "synthesis.spacy" in fields
++    assert "synthesis.short_sentence" in fields
++
++
+ # ---------------------------------------------------------------------------
+ # Compatibility view
+ # ---------------------------------------------------------------------------
+diff --git a/tests/test_plan_no_tts_load.py b/tests/test_plan_no_tts_load.py
+index bf71f9d..f686167 100644
+--- a/tests/test_plan_no_tts_load.py
++++ b/tests/test_plan_no_tts_load.py
+@@ -62,6 +62,14 @@ class TestNoTTSLoad:
+             plan = resolve_plan(_default_config(), _text_request())
+             assert plan.schema == "readio.plan.v1"
+
++    def test_explicit_policies_do_not_load_tts(self) -> None:
++        request = _text_request(synthesis=SynthesisRequest(spacy="lg", short_sentence="wrap"))
++        with patch("pykokoro.KokoroPipeline", side_effect=AssertionError("should not be called")):
++            plan = resolve_plan(_default_config(), request)
++        assert plan.synthesis is not None
++        assert plan.synthesis.spacy == "lg"
++        assert plan.synthesis.short_sentence == "wrap"
++
+
+ # ---------------------------------------------------------------------------
+ # Plan/render equivalence
+diff --git a/tests/test_reader_synthesis.py b/tests/test_reader_synthesis.py
+index 226cc56..3e5edbe 100644
+--- a/tests/test_reader_synthesis.py
++++ b/tests/test_reader_synthesis.py
+@@ -1,5 +1,7 @@
+ from __future__ import annotations
+
++import pytest
++
+ from readio.config import ReadioConfig
+ from readio.document import InputDocument
+ from readio.reader import pipeline_config_for_document
+@@ -58,3 +60,75 @@ def test_pipeline_config_maps_required_spacy_policy() -> None:
+ def test_pipeline_config_leaves_tokenizer_config_unset_without_lexicons() -> None:
+     pipeline = pipeline_config_for_document(InputDocument("Hello", None, "text"), ReadioConfig())
+     assert pipeline.tokenizer_config is None
++
++
++def _synthesis(**overrides):
++    values = {
++        "language": "en-us",
++        "model": None,
++        "source": None,
++        "quality": None,
++        "voice": "af_sarah",
++        "lexicons": None,
++        "allow_experimental": False,
++        "speed": 1.0,
++        "pause_mode": "tts",
++        "unit": "sentence",
++        "spacy": "auto",
++        "short_sentence": "auto",
++    }
++    values.update(overrides)
++    return ResolvedSynthesis(**values)
++
++
++@pytest.mark.parametrize(
++    ("policy", "expected_use_spacy", "expected_size"),
++    [
++        ("auto", None, None),
++        ("off", False, None),
++        ("sm", True, "sm"),
++        ("md", True, "md"),
++        ("lg", True, "lg"),
++        ("trf", True, "trf"),
++    ],
++)
++def test_pipeline_config_maps_spacy_policies(policy, expected_use_spacy, expected_size) -> None:
++    pipeline = pipeline_config_for_document(
++        InputDocument("Hello", None, "text"),
++        ReadioConfig(),
++        synthesis=_synthesis(spacy=policy),
++    )
++    if policy == "auto":
++        assert pipeline.tokenizer_config is None
++        return
++    assert pipeline.tokenizer_config is not None
++    assert pipeline.tokenizer_config.use_spacy is expected_use_spacy
++    assert pipeline.tokenizer_config.spacy_model_size == expected_size
++
++
++@pytest.mark.parametrize(
++    ("policy", "expected_mode"),
++    [
++        ("auto", None),
++        ("off", None),
++        ("wrap", "wrap"),
++        ("phrase", "phrase"),
++        ("randomized-phrase", "randomized-phrase"),
++    ],
++)
++def test_pipeline_config_maps_short_sentence_policies(policy, expected_mode) -> None:
++    pipeline = pipeline_config_for_document(
++        InputDocument("Hello", None, "text"),
++        ReadioConfig(),
++        synthesis=_synthesis(short_sentence=policy),
++    )
++    config = pipeline.short_sentence_config
++    if policy == "auto":
++        assert config is None
++    elif policy == "off":
++        assert config is not None
++        assert config.enabled is False
++    else:
++        assert config is not None
++        assert config.enabled is True
++        assert config.resolve_mode == expected_mode
+diff --git a/tests/test_render_from_plan.py b/tests/test_render_from_plan.py
+index 89d2098..9bb2ac0 100644
+--- a/tests/test_render_from_plan.py
++++ b/tests/test_render_from_plan.py
+@@ -123,6 +123,10 @@ def test_normal_render_uses_plan_pipeline_config(
+             "af_bella",
+             "--speed",
+             "1.3",
++            "--spacy",
++            "lg",
++            "--short-sentence",
++            "wrap",
+             "-o",
+             str(output),
+             "--no-progress",
+@@ -132,7 +136,14 @@ def test_normal_render_uses_plan_pipeline_config(
+     used = fake_tts.instances[0].config
+     # Independently resolve the plan for the same request and compare.
+     expected = resolve_plan(
+-        _workspace_cfg(tmp_path), _plan_request_for("Hello world", "af_bella", 1.3)
++        _workspace_cfg(tmp_path),
++        _plan_request_for(
++            "Hello world",
++            "af_bella",
++            1.3,
++            spacy="lg",
++            short_sentence="wrap",
++        ),
+     )
+     assert expected.ok
+     assert used.model_variant == expected.synthesis.model.id
+@@ -144,15 +155,35 @@ def test_normal_render_uses_plan_pipeline_config(
+     assert used.generation.pause_mode == expected.synthesis.pause_mode
+     assert used.allow_experimental_frontend == expected.synthesis.allow_experimental
+
+-
+-def _plan_request_for(text: str, voice: str, speed: float) -> PlanRequest:
++    assert expected.synthesis.spacy == "lg"
++    assert expected.synthesis.short_sentence == "wrap"
++    assert used.tokenizer_config is not None
++    assert used.tokenizer_config.use_spacy is True
++    assert used.tokenizer_config.spacy_model_size == "lg"
++    assert used.short_sentence_config is not None
++    assert used.short_sentence_config.resolve_mode == "wrap"
++
++
++def _plan_request_for(
++    text: str,
++    voice: str,
++    speed: float,
++    *,
++    spacy: str | None = None,
++    short_sentence: str | None = None,
++) -> PlanRequest:
+     from readio.document import InputDocument
+     from readio.plan import InputRequest, OutputRequest, SynthesisRequest
+
+     return PlanRequest(
+         operation="render",
+         input=InputRequest(document=InputDocument(text=text, source_path=None, format="text")),
+-        synthesis=SynthesisRequest(voice=voice, speed=speed),
++        synthesis=SynthesisRequest(
++            voice=voice,
++            speed=speed,
++            spacy=spacy,
++            short_sentence=short_sentence,
++        ),
+         output=OutputRequest(),
+     )

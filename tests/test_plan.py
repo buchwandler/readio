@@ -191,6 +191,37 @@ class TestReaderControls:
 
 
 # ---------------------------------------------------------------------------
+def test_default_pause_mode_is_auto() -> None:
+    plan = resolve_plan(_default_config(), _text_request())
+
+    assert plan.synthesis is not None
+    assert plan.synthesis.pause_mode == "auto"
+
+    decision = next(item for item in plan.decisions if item.field == "synthesis.pause_mode")
+    assert decision.origin == "config.reader"
+    assert decision.value == "auto"
+
+
+def test_config_pause_mode_overrides_builtin_default() -> None:
+    plan = resolve_plan(_default_config(pause_mode="manual"), _text_request())
+
+    assert plan.synthesis is not None
+    assert plan.synthesis.pause_mode == "manual"
+
+
+def test_cli_pause_mode_overrides_config() -> None:
+    plan = resolve_plan(
+        _default_config(pause_mode="manual"),
+        _text_request(synthesis=SynthesisRequest(pause_mode="tts")),
+    )
+
+    assert plan.synthesis is not None
+    assert plan.synthesis.pause_mode == "tts"
+
+    decision = next(item for item in plan.decisions if item.field == "synthesis.pause_mode")
+    assert decision.origin == "cli"
+
+
 # Output planning
 # ---------------------------------------------------------------------------
 
