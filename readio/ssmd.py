@@ -320,13 +320,8 @@ def default_role_bindings(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
-) -> dict[str, dict[str, str]]:
-    """Effective non-document bindings, derived from resolve_voice_references.
-
-    For every reference the document actually uses, the shared primitive is
-    authoritative.  Configured roles and invocation bindings the document does
-    not reference stay in the map as harmless defaults.
-    """
+ ) -> dict[str, dict[str, str]]:
+    """Effective non-document bindings derived from voice-reference resolution."""
     provider = cfg.ssmd.voice_provider
     document = document_voice_bindings(text).get(provider, {})
     _, available = _available_voice_context(cfg, synthesis)
@@ -354,15 +349,17 @@ def build_ssmd_render_config(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
-) -> Any:
-    from pykokoro import SSMDRenderConfig
+ ) -> Any:
+    """Build SSMD configuration through the selected synthesis backend."""
+    from .backends import get_backend
 
-    return SSMDRenderConfig(
-        provider=cfg.ssmd.voice_provider,
-        voice_bindings=default_role_bindings(text, cfg, additional_bindings, synthesis),
-        missing_voice="error",
+    backend = get_backend(getattr(cfg, "engine", "pykokoro"))
+    return backend.build_ssmd_render_config(
+        text,
+        cfg,
+        dict(additional_bindings or {}),
+        synthesis,
     )
-
 
 def analyze_ssmd(
     text: str,

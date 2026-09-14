@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import __version__
-from .audio import RenderProgressCallback, RenderSummary
+from .audio import PlaybackSink, RenderProgressCallback, RenderSummary
 from .config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
@@ -44,6 +44,12 @@ from .formats import (
 )
 from .ingest import list_ingest, new_ingest
 from .jsonutil import json_value as _json_value
+from .lexicons import (
+    LexiconCatalogEntry,
+    discover_lexicon_catalog,
+    filter_lexicon_catalog,
+    find_lexicon_entries,
+)
 from .logging_config import MAX_VERBOSITY, configure_logging
 from .manifest import (
     MANIFEST_SCHEMA,
@@ -68,7 +74,6 @@ from .reader import (
     render_live,
     render_text,
     speak_live,
-    speak_text,
 )
 from .spotify import (
     SpotifyError,
@@ -145,11 +150,15 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
 
 def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--engine",
+        help="synthesis backend; default from configuration",
+    )
+    parser.add_argument(
         "--voice",
-        help="voice selector or canonical PyKokoro voice ID, e.g. de-1 or af_sarah",
+        help="voice selector or canonical backend voice ID, e.g. de-1 or af_sarah",
     )
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
-    parser.add_argument("--model", help="PyKokoro model ID")
+    parser.add_argument("--model", help="runtime model ID")
     parser.add_argument(
         "--model-source",
         choices=("github", "huggingface"),
@@ -162,7 +171,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         dest="lexicons",
         action="append",
         metavar="NAME",
-        help="named PyKokoro/KokoroG2P lexicon, e.g. crane; repeat for layered lookup",
+        help="named synthesis lexicon, e.g. crane; repeat for layered lookup",
     )
     lexicon_group.add_argument(
         "--no-lexicons",
@@ -172,7 +181,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     lexicon_group.add_argument(
         "--auto-lexicons",
         action="store_true",
-        help="use PyKokoro/KokoroG2P automatic language-default lexicons",
+        help="use automatic language-default lexicons",
     )
     parser.add_argument("--g2p-fallback", choices=G2P_FALLBACKS)
     parser.add_argument("--lexicon-data-policy", choices=LEXICON_DATA_POLICIES)
@@ -204,7 +213,6 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
     parser.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
     parser.add_argument("--unit", choices=("sentence", "paragraph"))
-
 
 def _add_voice_resolution_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -484,22 +492,29 @@ def _prepared_input(
 
 
 def _cmd_speak(args: argparse.Namespace) -> int:
-    _normalize_positional_input(args)
-    cfg = _resolved_config(args)
-    args._resolved_synthesis = resolve_synthesis(cfg, args)
     if args.live:
+        _normalize_positional_input(args)
+        cfg = _resolved_config(args)
+        args._resolved_synthesis = resolve_synthesis(cfg, args)
         _validate_live(args)
         speak_live(sys.stdin, cfg, unit=args.unit, synthesis=args._resolved_synthesis)
-    else:
-        document, bindings = _prepared_input(args, cfg)
-        speak_text(
-            document,
-            cfg,
-            selector=args.select,
-            unit=args.unit,
-            ssmd_voice_bindings=bindings,
-            synthesis=args._resolved_synthesis,
+        return 0
+
+    cfg = _resolved_config(args)
+    request = _build_plan_request(
+        args, cfg, operation="speak", allow_interactive=True
+    )
+    plan = resolve_plan(cfg, request)
+    if not plan.ok:
+        raise RenderError("speak plan is not executable")
+    with PlaybackSink(cfg.reader) as sink:
+        render_from_plan(
+            plan,
+            request.input.document,
+            sink,
+            selector=request.input.selector,
         )
+        sink.finish()
     return 0
 
 
@@ -586,6 +601,7 @@ def _build_plan_request(
 
     synthesis = SynthesisRequest(
         language=getattr(args, "lang", None),
+        engine=getattr(args, "engine", None),
         model=getattr(args, "model", None),
         model_source=getattr(args, "model_source", None),
         quality=getattr(args, "quality", None),
@@ -1125,6 +1141,8 @@ def _cmd_models(args: argparse.Namespace) -> int:
 
 def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
     print(f"Selector:       {entry.selector}")
+    print(f"Engine:         {entry.engine}")
+    print(f"Qualified ID:   {entry.qualified_id}")
     print(f"Voice:          {entry.id}")
     print(f"Gender:         {entry.gender}")
     print(f"Locale:         {entry.locale}")
@@ -1142,21 +1160,112 @@ def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
     )
 
 
+def _lexicon_entry_human(entry: LexiconCatalogEntry) -> None:
+    print(f"Selector:       {entry.selector}")
+    print(f"Engine:         {entry.engine}")
+    print(f"Language:       {entry.language}")
+    print(f"Locale:         {entry.locale}")
+    print(f"Asset ID:       {entry.asset_id or '-'}")
+    print(f"Data backend:   {entry.data_backend or '-'}")
+    print(f"Display name:   {entry.display_name or '-'}")
+    print(f"Phoneme format: {entry.phoneme_encoding or '-'}")
+    print(f"Default:        {'yes' if entry.default else 'no'}")
+    installed = '-' if entry.installed is None else 'yes' if entry.installed else 'no'
+    print(f"Installed:      {installed}")
+    print(f"Model support:  {entry.model_support}")
+    print(f"Models:         {', '.join(entry.models) or '-'}")
+    print()
+    print(f"Use with:       --lexicon {entry.selector}")
+    if entry.asset_id:
+        print(f"Asset metadata: {entry.asset_id}")
+
+
+def _cmd_lexicons(args: argparse.Namespace) -> int:
+    language = getattr(args, "lang", None) or getattr(args, "language", None)
+    entries, discovery = discover_lexicon_catalog(
+        language=language,
+        model=args.model,
+        engine=args.engine,
+        offline=args.offline,
+        refresh=args.refresh,
+        preference=args.preference,
+    )
+    if args.lexicons_command == "list":
+        lexicons = filter_lexicon_catalog(entries, language=language, model=args.model, engine=args.engine)
+        payload = {
+            "ok": True,
+            "filters": {"language": language, "model": args.model, "engine": args.engine},
+            "registry": _model_registry_payload(discovery, offline=args.offline),
+            "lexicons": [entry.to_dict() for entry in lexicons],
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        if discovery.cache_fallback:
+            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
+        print(f"Lexicons: {len(lexicons)}")
+        print()
+        print("LEXICON  LOCALE  ASSET           ENGINE    MODELS  DEFAULT  DATA")
+        print("-------  ------  --------------  --------  ------  -------  ---------")
+        for entry in lexicons:
+            models = ",".join(entry.models) or "-"
+            installed = "available" if entry.installed is not False else "missing"
+            print(
+                f"{entry.selector:<8} {entry.locale:<7} {entry.asset_id or '-':<15} "
+                f"{entry.engine:<9} {models:<7} {'yes' if entry.default else 'no':<8} {installed}"
+            )
+        return 0
+
+    matches = find_lexicon_entries(args.selector, entries)
+    matches = filter_lexicon_catalog(matches, language=language, model=args.model, engine=args.engine)
+    if not matches:
+        raise ValueError(
+            f"Lexicon {args.selector!r} is not available. "
+            f"Run `readio lexicons list --lang {language or 'en'}` to inspect selectors."
+        )
+    if len(matches) > 1:
+        alternatives = ", ".join(
+            f"{item.selector}/{item.locale}/{item.engine}" for item in matches
+        )
+        raise ValueError(f"Lexicon {args.selector!r} is ambiguous; use --lang or --engine: {alternatives}")
+    entry = matches[0]
+    payload = {
+        "ok": True,
+        "filters": {"language": language, "model": args.model, "engine": args.engine},
+        "registry": _model_registry_payload(discovery, offline=args.offline),
+        "lexicon": entry.to_dict(),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        _lexicon_entry_human(entry)
+    return 0
+
+
 def _cmd_voices(args: argparse.Namespace) -> int:
     if hasattr(args, "roles_command"):
         return _cmd_roles(args)
     entries, discovery = discover_voice_catalog(
-        offline=args.offline, refresh=args.refresh, preference=args.preference
+        offline=args.offline, refresh=args.refresh, preference=args.preference, engine=args.engine
     )
     if args.voices_command == "list":
         language = getattr(args, "lang", None) or getattr(args, "language", None)
         voices = filter_voice_catalog(
-            entries, language=language, gender=args.gender, model=args.model
+            entries,
+            language=language,
+            gender=args.gender,
+            model=args.model,
+            engine=args.engine,
         )
         payload = {
             "ok": True,
             "registry": _model_registry_payload(discovery, offline=args.offline),
-            "filters": {"language": language, "gender": args.gender, "model": args.model},
+            "filters": {
+                "language": language,
+                "gender": args.gender,
+                "model": args.model,
+                "engine": args.engine,
+            },
             "voices": [entry.to_dict() for entry in voices],
         }
         if args.json:
@@ -1166,11 +1275,17 @@ def _cmd_voices(args: argparse.Namespace) -> int:
             print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
         print(f"Voices: {len(voices)}")
         print()
-        print("SELECTOR  VOICE             GENDER   LOCALE    LANGUAGE                 MODEL          STATUS")
-        print("--------  ----------------  -------  --------  -----------------------  -------------  ------------")
+        print(
+            "SELECTOR  ENGINE    VOICE             GENDER   LOCALE    "
+            "LANGUAGE                 MODEL          STATUS"
+        )
+        print(
+            "--------  --------  ----------------  -------  --------  "
+            "-----------------------  -------------  ------------"
+        )
         for entry in voices:
             print(
-                f"{entry.selector:<9} {entry.id:<17} {entry.gender:<8} "
+                f"{entry.selector:<9} {entry.engine:<9} {entry.id:<17} {entry.gender:<8} "
                 f"{entry.locale:<9} {entry.language_label:<24} {entry.model:<14} {entry.status}"
             )
         return 0
@@ -1680,6 +1795,33 @@ def build_parser() -> argparse.ArgumentParser:
     models_show.add_argument("--refresh", action="store_true")
     models_show.set_defaults(func=_cmd_models)
 
+
+    lexicons = sub.add_parser("lexicons", help="discover named synthesis lexicons")
+    lexicons_sub = lexicons.add_subparsers(dest="lexicons_command", required=True)
+    lexicons_list = lexicons_sub.add_parser("list", help="list named lexicon selectors")
+    lexicons_list.add_argument("--lang", "--language", dest="language")
+    lexicons_list.add_argument("--model")
+    lexicons_list.add_argument("--engine")
+    lexicons_list.add_argument("--offline", action="store_true")
+    lexicons_list.add_argument("--refresh", action="store_true")
+    lexicons_list.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
+    lexicons_list.add_argument("--json", action="store_true")
+    lexicons_list.set_defaults(func=_cmd_lexicons)
+    lexicons_show = lexicons_sub.add_parser("show", help="show one named lexicon selector")
+    lexicons_show.add_argument("selector")
+    lexicons_show.add_argument("--lang", "--language", dest="language")
+    lexicons_show.add_argument("--model")
+    lexicons_show.add_argument("--engine")
+    lexicons_show.add_argument("--offline", action="store_true")
+    lexicons_show.add_argument("--refresh", action="store_true")
+    lexicons_show.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
+    lexicons_show.add_argument("--json", action="store_true")
+    lexicons_show.set_defaults(func=_cmd_lexicons)
+
     defaults = sub.add_parser("defaults", help="manage per-language synthesis defaults")
     defaults_sub = defaults.add_subparsers(dest="defaults_command", required=True)
     defaults_list = defaults_sub.add_parser("list", help="list persisted language defaults")
@@ -1737,6 +1879,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="filter by registry gender metadata",
     )
     voices_list.add_argument("--model", help="filter by discovered model")
+    voices_list.add_argument("--engine", help="filter by synthesis backend")
     voices_list.add_argument("--offline", action="store_true")
     voices_list.add_argument("--refresh", action="store_true")
     voices_list.add_argument(
@@ -1746,6 +1889,7 @@ def build_parser() -> argparse.ArgumentParser:
     voices_list.set_defaults(func=_cmd_voices)
     voices_show = voices_sub.add_parser("show", help="show one voice selector or canonical ID")
     voices_show.add_argument("selector")
+    voices_show.add_argument("--engine", help="filter by synthesis backend")
     voices_show.add_argument("--offline", action="store_true")
     voices_show.add_argument("--refresh", action="store_true")
     voices_show.add_argument(

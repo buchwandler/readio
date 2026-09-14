@@ -71,6 +71,9 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 PyKokoro >=0.9.5,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
 Readio v0.2.3 is tested against PyKokoro 0.9.5.
 
+
+Readio selects synthesis through an explicit backend registry. PyKokoro is the implemented backend; backend identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
+
 ```bash
 readio models list --language de --offline
 readio models show de-thorsten --offline
@@ -78,6 +81,8 @@ readio voices list --model de-thorsten --json
 readio models list --preference huggingface --json
 readio voices list --model de-thorsten --preference github --json
 ```
+readio lexicons list --lang de --offline --json
+readio lexicons show crane --lang de --offline --json
 
 Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 
@@ -94,6 +99,7 @@ When a model is selected, Readio fills its normalized source, default voice, and
 
 Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, repeatable `--detect-language`, `--spacy`, and `--short-sentence`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
 `--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
+Use `--engine BACKEND` to select a registered synthesis backend. Lexicon command selectors such as `crane` are backend-neutral names; they are not qualified asset IDs. `readio lexicons show crane --lang de` displays the matching backend asset metadata.
 
 Choose spaCy and short-sentence behavior explicitly when needed:
 

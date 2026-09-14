@@ -105,9 +105,12 @@ readio defaults set de --model de-thorsten --lexicon crane --offline
 readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
+readio lexicons list --lang de --offline --json
+readio lexicons show crane --lang de --offline --json
 
 `models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `--lexicon crane` selects a named lexicon; `de-de:crane` is the downstream Lexphon asset ID, while `de-crane` is an acoustic model ID.
 `--model-source github|huggingface` drives both discovery and runtime selection. Voices are model-scoped. The legacy global `reader.voice` applies only to unchanged default-reader use; a language override such as `--lang de` leaves voice selection to the active PyKokoro model unless explicitly set. SSMD preflight uses that same resolved model roster.
+Readio uses an explicit backend registry. PyKokoro is the implemented backend, while backend identity remains separate from distribution provider metadata. Use `--engine BACKEND` when selecting a registered backend. `readio lexicons list` and `readio lexicons show` expose backend-neutral selectors and their resolved asset metadata.
 
 ## Synthesis planning
 
@@ -120,9 +123,9 @@ readio render --file notes.md --dry-run
 
 Keep the layers separate:
 
-- **Discovery** (`readio models`, `readio voices`) enumerates what the installed PyKokoro runtime provides.
+- **Discovery** (`readio models`, `readio voices`, `readio lexicons`) enumerates what registered backends provide.
 - **Defaults** (`readio defaults`) persist validated per-language preferences.
-- **Planning** (`readio plan`, `render --dry-run`) resolves one concrete request — model, source, quality, voice, lexicons, SSMD cast with per-reference bindings, output format/backend/path — and records a decision (winning source) for every effective value. Generated output paths are allocated once by the plan and reused by the render.
+- **Planning** (`readio plan`, `render --dry-run`, and non-live `speak`) resolves one concrete request, including backend, model, source, quality, voice, lexicons, SSMD cast with per-reference bindings, output format/backend/path, and provenance. Generated output paths are allocated once by the plan and reused by the render.
 - **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
 
 Plans preserve the tokenizer tri-state: `lexicons: null` means PyKokoro language defaults, `lexicons: []` means no static lexicon layers, and a non-empty list means ordered named layers. Fallback and lexicon data policy are also carried unchanged into `TokenizerConfig`; SSMD `language_detection` hints are resolved into the plan before execution.

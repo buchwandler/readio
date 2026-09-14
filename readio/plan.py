@@ -181,6 +181,7 @@ class SynthesisRequest:
     unit: str | None = None
     offline: bool = False
     refresh: bool = False
+    engine: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +263,7 @@ class ModelPlan:
     experimental: bool
     distribution_id: str | None = None
     provider: str | None = None
+    backend: str = "pykokoro"
     frontend: str | None = None
     g2p_backend: str | None = None
     sample_rate: int | None = None
@@ -282,6 +284,8 @@ class ModelPlan:
             "experimental": self.experimental,
             "distribution_id": self.distribution_id,
             "provider": self.provider,
+            "distribution_provider": self.provider,
+            "backend": self.backend,
             "frontend": self.frontend,
             "g2p_backend": self.g2p_backend,
             "sample_rate": self.sample_rate,
@@ -478,6 +482,7 @@ class SynthesisCandidate:
     pause_mode: str
     unit: str
     decisions: tuple[ResolutionDecision, ...]
+    engine: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +599,7 @@ def _resolve_synthesis_candidate(
             model=selector_resolution.model,
             model_source=selector_resolution.source,
             voice=selector_resolution.voice,
+            engine=selector_resolution.backend,
         )
         decisions.append(
             ResolutionDecision(
@@ -640,6 +646,7 @@ def _resolve_synthesis_candidate(
     # Profile values
     model = profile.model if profile is not None else None
     source = profile.source if profile is not None else None
+    engine = profile.engine if profile is not None else None
     quality = profile.quality if profile is not None else None
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
@@ -647,6 +654,10 @@ def _resolve_synthesis_candidate(
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
 
+    if request.engine is not None:
+        engine = request.engine
+    if engine is None:
+        engine = cfg.reader.engine
     spacy = normalize_spacy_policy(request.spacy if request.spacy is not None else cfg.reader.spacy)
     if request.spacy is not None or spacy != "auto":
         decisions.append(
@@ -1028,6 +1039,7 @@ def _resolve_synthesis_candidate(
         pause_mode=pause_mode,
         unit=unit,
         decisions=tuple(decisions),
+        engine=engine,
     )
 
 
@@ -1040,137 +1052,14 @@ def _concretize_backend_defaults(
     candidate: SynthesisCandidate,
     *,
     cfg: ReadioConfig,
-) -> tuple[SynthesisCandidate, list[PlanDiagnostic]]:
-    """Use pykokoro.resolve_pipeline_config for automatic-model path.
+ ) -> tuple[SynthesisCandidate, list[PlanDiagnostic]]:
+    """Dispatch automatic selection to the selected backend adapter."""
+    from .backends import get_backend
 
-    When Readio has NOT selected a concrete model (candidate.model is None),
-    we ask PyKokoro what it would choose.  This is the key fix from 01.
-    """
-    diagnostics: list[PlanDiagnostic] = []
-    decisions = list(candidate.decisions)
+    backend = get_backend(candidate.engine or cfg.reader.engine)
+    updated, diagnostics = backend.resolve_defaults(candidate)
+    return updated, list(diagnostics)
 
-    if candidate.model is not None:
-        # Readio already selected a concrete model — do not override.
-        return candidate, diagnostics
-
-    # Automatic path: call PyKokoro's public resolver.
-    try:
-        from pykokoro import (
-            GenerationConfig,
-            LanguageDetectionConfig,
-            PipelineConfig,
-            resolve_pipeline_config,
-        )
-
-        from .reader import tokenizer_config_for_synthesis
-
-        requested_backend = PipelineConfig(
-            voice=candidate.voice,
-            model_source=candidate.source,
-            model_variant=candidate.model,
-            model_quality=candidate.quality,
-            allow_experimental_frontend=candidate.allow_experimental,
-            generation=GenerationConfig(
-                lang=candidate.language,
-                speed=candidate.speed,
-                pause_mode=candidate.pause_mode,
-            ),
-            tokenizer_config=tokenizer_config_for_synthesis(candidate),
-            language_detection=(
-                None
-                if candidate.language_detection is None
-                else LanguageDetectionConfig(
-                    mode=candidate.language_detection,
-                    languages=tuple(candidate.detect_languages or ()),
-                )
-            ),
-        )
-
-        effective_backend = resolve_pipeline_config(requested_backend)
-
-        # Track which fields were automatic before resolution
-        model_was_auto = candidate.model is None
-        source_was_auto = candidate.source is None
-        quality_was_auto = candidate.quality is None
-        voice_was_auto = candidate.voice is None
-
-        # Extract concrete values
-        new_model = effective_backend.model_variant
-        new_source = effective_backend.model_source
-        new_quality = effective_backend.model_quality
-        new_voice = effective_backend.voice
-
-        # Record provenance for fields that were automatic
-        if model_was_auto and new_model is not None:
-            decisions.append(
-                ResolutionDecision(
-                    field="synthesis.model",
-                    value=new_model,
-                    origin=ORIGIN_PYKOKORO_AUTO,
-                    reason="model was automatic before PyKokoro pipeline resolution",
-                )
-            )
-        if source_was_auto and new_source is not None:
-            decisions.append(
-                ResolutionDecision(
-                    field="synthesis.source",
-                    value=new_source,
-                    origin=ORIGIN_PYKOKORO_AUTO,
-                    reason="source was automatic before PyKokoro pipeline resolution",
-                )
-            )
-        if quality_was_auto and new_quality is not None:
-            decisions.append(
-                ResolutionDecision(
-                    field="synthesis.quality",
-                    value=new_quality,
-                    origin=ORIGIN_PYKOKORO_AUTO,
-                    reason="quality was automatic before PyKokoro pipeline resolution",
-                )
-            )
-        if voice_was_auto and new_voice is not None:
-            decisions.append(
-                ResolutionDecision(
-                    field="synthesis.voice",
-                    value=new_voice,
-                    origin=ORIGIN_PYKOKORO_AUTO,
-                    reason="voice was automatic before PyKokoro pipeline resolution",
-                )
-            )
-
-        candidate = SynthesisCandidate(
-            language=candidate.language,
-            profile_key=candidate.profile_key,
-            profile_match=candidate.profile_match,
-            model=new_model,
-            source=new_source,
-            quality=new_quality,
-            voice=new_voice,
-            lexicons=candidate.lexicons,
-            g2p_fallback=candidate.g2p_fallback,
-            spacy=candidate.spacy,
-            short_sentence=candidate.short_sentence,
-            lexicon_data_policy=candidate.lexicon_data_policy,
-            language_detection=candidate.language_detection,
-            detect_languages=candidate.detect_languages,
-            allow_experimental=candidate.allow_experimental,
-            speed=candidate.speed,
-            pause_mode=candidate.pause_mode,
-            unit=candidate.unit,
-            decisions=tuple(decisions),
-        )
-
-    except (ImportError, AttributeError, ValueError, TypeError) as exc:
-        diagnostics.append(
-            PlanDiagnostic(
-                code="backend_resolution_failed",
-                severity="error",
-                message=f"PyKokoro pipeline resolution failed: {exc}",
-                field="synthesis.model",
-            )
-        )
-
-    return candidate, diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -1204,6 +1093,7 @@ def _validate_and_build_model_plan(
         discovered, _result = get_model_info(
             candidate.model,
             offline=offline,
+            backend=candidate.engine,
             refresh=refresh,
             preference=candidate.source or "auto",
         )
@@ -1375,6 +1265,7 @@ def _validate_and_build_model_plan(
         experimental=discovered.experimental,
         distribution_id=discovered.distribution_id,
         provider=discovered.provider,
+        backend=discovered.backend,
         frontend=discovered.frontend,
         g2p_backend=discovered.g2p_backend,
         sample_rate=discovered.sample_rate,
@@ -1427,6 +1318,27 @@ def _plan_ssmd(
 
     provider = cfg.ssmd.voice_provider
     available_voices = model_plan.available_voices if model_plan is not None else None
+    from .backends import get_backend
+    backend = get_backend(
+        model_plan.backend if model_plan is not None else cfg.reader.engine
+    )
+    if provider != backend.ssmd_provider:
+        diagnostics.append(
+            PlanDiagnostic(
+                code="ssmd.provider_backend_mismatch",
+                severity="error",
+                message=(
+                    f"SSMD provider {provider!r} is not compatible with "
+                    f"backend {backend.id!r}; expected {backend.ssmd_provider!r}."
+                ),
+                field="ssmd.voice_provider",
+            )
+        )
+        return (
+            SSMDPlan(enabled=True, provider=provider, bindings=(), unresolved=()),
+            diagnostics,
+            decisions,
+        )
 
     try:
         resolved = resolve_voice_references(
@@ -1712,7 +1624,7 @@ def resolve_plan(
 
         if model_plan is not None:
             synthesis_plan = SynthesisPlan(
-                engine="pykokoro",
+                engine=candidate.engine or cfg.reader.engine,
                 language=candidate.language,
                 language_profile=language_profile_plan,
                 model=model_plan,

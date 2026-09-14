@@ -96,6 +96,8 @@ class ModelInfo:
     redistribution_allowed: bool
     distribution_id: str | None = None
     provider: str | None = None
+    distribution_provider: str | None = None
+    backend: str = "pykokoro"
     sample_rate: int | None = None
     max_tokens: int | None = None
     voice_details: tuple[VoiceMetadata, ...] = ()
@@ -119,6 +121,10 @@ class ModelInfo:
                 redistribution_allowed=capabilities.redistribution_allowed,
                 distribution_id=getattr(capabilities, "distribution_id", None),
                 provider=getattr(capabilities, "provider", None),
+                distribution_provider=getattr(
+                    capabilities, "distribution_provider", getattr(capabilities, "provider", None)
+                ),
+                backend=getattr(capabilities, "backend", "pykokoro"),
                 sample_rate=getattr(capabilities, "sample_rate", None),
                 max_tokens=getattr(capabilities, "max_tokens", None),
                 voice_details=_voice_metadata(capabilities),
@@ -157,6 +163,8 @@ class ModelInfo:
             "redistribution_allowed": self.redistribution_allowed,
             "distribution_id": self.distribution_id,
             "provider": self.provider,
+            "distribution_provider": self.distribution_provider,
+            "backend": self.backend,
             "sample_rate": self.sample_rate,
             "max_tokens": self.max_tokens,
         }
@@ -329,7 +337,7 @@ def _registry_error(exc: Exception) -> ModelDiscoveryError:
     return ModelDiscoveryError(message, code=code)
 
 
-def discover_model_info(
+def _discover_pykokoro_model_info(
     *,
     language: str | None = None,
     status: str | None = None,
@@ -387,15 +395,49 @@ def language_matches(requested: str, declared: tuple[str, ...]) -> bool:
     )
 
 
+def discover_model_info(
+    *,
+    language: str | None = None,
+    status: str | None = None,
+    offline: bool = False,
+    refresh: bool = False,
+    preference: str = "auto",
+    backend: str | None = None,
+    ) -> tuple[tuple[ModelInfo, ...], Any]:
+    """Discover models through the selected synthesis backend."""
+    from .backends import get_backend
+    from .backends.registry import default_backend
+
+    selected = default_backend() if backend is None else get_backend(backend)
+    if selected.id == "pykokoro":
+        return _discover_pykokoro_model_info(
+            language=language,
+            status=status,
+            offline=offline,
+            refresh=refresh,
+            preference=preference,
+        )
+    return selected.discover_models(
+        language=language,
+        status=status,
+        offline=offline,
+        refresh=refresh,
+        preference=preference,
+    )
+
+
 def get_model_info(
     model_id: str,
     *,
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
+    backend: str | None = None,
 ) -> tuple[ModelInfo, Any]:
     logger.debug("model.resolve.start model=%s", model_id)
-    models, result = discover_model_info(offline=offline, refresh=refresh, preference=preference)
+    models, result = discover_model_info(
+        offline=offline, refresh=refresh, preference=preference, backend=backend
+    )
     for model in models:
         if model.id == model_id:
             return model, result

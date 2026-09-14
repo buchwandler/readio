@@ -40,6 +40,7 @@ class ResolvedModel:
     runtime_available: bool
     distribution_id: str | None = None
     provider: str | None = None
+    backend: str = "pykokoro"
     sample_rate: int | None = None
     max_tokens: int | None = None
 
@@ -57,6 +58,7 @@ class ResolvedModel:
             runtime_available=info.runtime_available,
             distribution_id=info.distribution_id,
             provider=info.provider,
+            backend=info.backend,
             sample_rate=info.sample_rate,
             max_tokens=info.max_tokens,
         )
@@ -88,6 +90,7 @@ class ResolvedSynthesis:
     discovery_cache_fallback: bool = False
     discovery_offline: bool = False
     discovery_refreshed: bool = False
+    engine: str = "pykokoro"
 
 
 def _raw_synthesis_selection(
@@ -124,6 +127,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         offline=bool(getattr(args, "offline", False)),
         refresh=bool(getattr(args, "refresh", False)),
         preference=getattr(args, "model_source", None) or "auto",
+        engine=getattr(args, "engine", None),
     )
     if selector_resolution is not None and selector_resolution.selector is not None:
         args = Namespace(**vars(args))
@@ -131,6 +135,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         args.model = selector_resolution.model
         args.model_source = selector_resolution.source
         args.voice = selector_resolution.voice
+        args.engine = selector_resolution.backend
     language, profile, cli_language = _raw_synthesis_selection(cfg, args)
 
     logger.info(
@@ -143,6 +148,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     quality = profile.quality if profile is not None else None
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
+    engine = profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
     allow_experimental = profile.allow_experimental if profile is not None else False
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
@@ -154,6 +160,10 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     explicit_model = getattr(args, "model", None)
     if explicit_model is not None:
         model = explicit_model
+    if getattr(args, "engine", None) is not None:
+        engine = args.engine
+    from .backends import get_backend
+    get_backend(engine)
     if getattr(args, "model_source", None) is not None:
         source = args.model_source
     if getattr(args, "quality", None) is not None:
@@ -190,12 +200,14 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     # exactly the same public discovery and validation path as an explicit CLI model.
     if model is not None:
         policy = _discovery_policy(args, source)
-        discovered, result = get_model_info(
-            model,
-            offline=policy.offline,
-            refresh=policy.refresh,
-            preference=policy.preference,
-        )
+        discovery_kwargs: dict[str, object] = {
+            "offline": policy.offline,
+            "refresh": policy.refresh,
+            "preference": policy.preference,
+        }
+        if engine != "pykokoro":
+            discovery_kwargs["backend"] = engine
+        discovered, result = get_model_info(model, **discovery_kwargs)
         resolved_model = ResolvedModel.from_info(discovered)
         source = source or discovered.source
         if voice is None:
@@ -207,6 +219,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
             LanguageSettings(
                 model=model,
                 source=source,
+                engine=engine,
                 quality=quality,
                 voice=voice,
                 lexicons=lexicons,
@@ -270,6 +283,7 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         discovery_cache_fallback=discovery_cache_fallback,
         discovery_offline=discovery_offline,
         discovery_refreshed=discovery_refreshed,
+        engine=engine,
     )
 
 

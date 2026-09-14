@@ -42,7 +42,7 @@ RenderProgressCallback = Callable[[RenderProgress], None]
 
 
 class PlaybackSink:
-    """Send rendered chunks through one persistent PyKokoro player."""
+    """Send rendered chunks through one persistent backend player."""
 
     def __init__(self, cfg: ReaderSettings) -> None:
         self._cfg = cfg
@@ -69,15 +69,13 @@ class PlaybackSink:
                 channels,
                 self._cfg.device or "default",
             )
-            from pykokoro.playback import SoundDevicePlayer
+            from .backends import get_backend
 
             self._sample_rate = sample_rate
             self._channels = channels
-            self._player = SoundDevicePlayer(
-                sample_rate,
-                device=self._cfg.device,
-                queue_size=self._cfg.queue_size,
-                channels=channels,
+            backend = get_backend(self._cfg.engine)
+            self._player = backend.create_playback_player(
+                sample_rate, self._cfg, channels
             )
             self._player.start()
         elif sample_rate != self._sample_rate or channels != self._channels:

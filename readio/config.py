@@ -55,6 +55,7 @@ class ReaderSettings:
     unit: str = "sentence"
     queue_size: int = 2
     device: str | None = None
+    engine: str = "pykokoro"
 
     language_detection: str | None = None
     detect_languages: tuple[str, ...] | None = None
@@ -70,6 +71,7 @@ ReaderConfig = ReaderSettings
 class LanguageSettings:
     model: str | None = None
     source: str | None = None
+    engine: str | None = None
     quality: str | None = None
     voice: str | None = None
     lexicons: tuple[str, ...] | None = None
@@ -209,6 +211,11 @@ def _coerce_reader_value(key: str, value: Any) -> Any:
         if len(languages) != len(set(languages)):
             raise ValueError("reader.detect_languages must not contain duplicates")
         return languages
+    if key == "engine":
+        normalized = str(value).strip().lower()
+        if not normalized:
+            raise ValueError("reader.engine must be a non-empty backend name")
+        return normalized
     return str(value)
 
 
@@ -286,6 +293,7 @@ def _language(value: Any, language: str) -> LanguageSettings:
     if not isinstance(allow_experimental, bool):
         raise TypeError(f"languages.{language}.allow_experimental must be a boolean")
     return LanguageSettings(
+        engine=_optional_string(value.get("engine"), "engine"),
         model=_optional_string(value.get("model"), "model"),
         source=_optional_string(value.get("source"), "source"),
         quality=_optional_string(value.get("quality"), "quality"),
@@ -316,6 +324,7 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
     _coerce_reader_value("queue_size", cfg.reader.queue_size)
     _coerce_reader_value("unit", cfg.reader.unit)
     _coerce_reader_value("pause_mode", cfg.reader.pause_mode)
+    _coerce_reader_value("engine", cfg.reader.engine)
     _coerce_reader_value("spacy", cfg.reader.spacy)
     _coerce_reader_value("short_sentence", cfg.reader.short_sentence)
     _coerce_reader_value("language_detection", cfg.reader.language_detection)
@@ -336,6 +345,7 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
             {
                 "model": settings.model,
                 "source": settings.source,
+                "engine": settings.engine,
                 "quality": settings.quality,
                 "voice": settings.voice,
                 "lexicons": list(settings.lexicons) if settings.lexicons is not None else None,
@@ -505,6 +515,7 @@ def _serializable_data(cfg: ReadioConfig, *, schema: int = 2) -> dict[str, Any]:
                 for key, value in {
                     "model": settings.model,
                     "source": settings.source,
+                    "engine": settings.engine,
                     "quality": settings.quality,
                     "voice": settings.voice,
                     "lexicons": settings.lexicons,
@@ -553,7 +564,7 @@ def set_config_value(
             value = tuple(item.strip() for item in str(value).split(","))
         elif field_name == "allow_experimental":
             value = _coerce_bool(value, f"languages.{language}.{field_name}")
-        elif field_name in {"model", "source", "quality", "voice"}:
+        elif field_name in {"model", "source", "engine", "quality", "voice"}:
             value = _optional_string(value, field_name)
         elif field_name == "g2p_fallback":
             value = _optional_choice(value, field_name, G2P_FALLBACKS)

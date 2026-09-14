@@ -11,6 +11,7 @@ from .models import ModelDiscoveryError, ModelInfo, discover_model_info
 
 RUNNABLE_STATUSES = frozenset({"ready", "experimental"})
 MODEL_PRIORITY = {"v1.0": 0, "v1.1-zh": 1}
+BACKEND_PRIORITY = {"pykokoro": 0, "pipersynth": 1}
 _SELECTOR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-(\d+)$")
 
 
@@ -31,6 +32,17 @@ class VoiceCatalogEntry:
     runtime_available: bool
     distribution_id: str | None = None
     provider: str | None = None
+    engine: str = "pykokoro"
+
+    @property
+    def backend(self) -> str:
+        """Compatibility alias for the synthesis backend identity."""
+        return self.engine
+
+    @property
+    def qualified_id(self) -> str:
+        """Stable backend/model/voice identity, distinct from the short selector."""
+        return f"{self.engine}:{self.model}:{self.id}"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +61,9 @@ class VoiceCatalogEntry:
             "runtime_available": self.runtime_available,
             "distribution_id": self.distribution_id,
             "provider": self.provider,
+            "engine": self.engine,
+            "backend": self.engine,
+            "qualified_id": self.qualified_id,
         }
 
 
@@ -70,7 +85,12 @@ class VoiceSelectorResolution:
     source: str | None
     voice: str
     catalog_entry: VoiceCatalogEntry | None
+    engine: str | None = None
 
+
+    @property
+    def backend(self) -> str | None:
+        return self.catalog_entry.engine if self.catalog_entry is not None else None
 
 def normalize_locale(value: str) -> str:
     return normalize_language_key(value)
@@ -89,7 +109,17 @@ def _model_voice_metadata(model: ModelInfo, voice: str) -> tuple[str, str, str, 
 
 
 def _ordered_models(models: tuple[ModelInfo, ...]) -> tuple[ModelInfo, ...]:
-    return tuple(sorted(models, key=lambda item: (MODEL_PRIORITY.get(item.id, 100), item.id, item.source)))
+    return tuple(
+        sorted(
+            models,
+            key=lambda item: (
+                BACKEND_PRIORITY.get(item.backend, 100),
+                MODEL_PRIORITY.get(item.id, 100),
+                item.id,
+                item.source,
+            ),
+        )
+    )
 
 
 def build_voice_catalog(
@@ -127,6 +157,7 @@ def build_voice_catalog(
                     runtime_available=model.runtime_available,
                     distribution_id=model.distribution_id,
                     provider=model.provider,
+                    engine=model.backend,
                 )
             )
     return VoiceCatalog(
@@ -143,8 +174,11 @@ def discover_voice_catalog(
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
-) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
-    models, result = discover_model_info(offline=offline, refresh=refresh, preference=preference)
+    engine: str | None = None,
+ ) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
+    models, result = discover_model_info(
+        offline=offline, refresh=refresh, preference=preference, backend=engine
+    )
     catalog = build_voice_catalog(
         models,
         registry_source=getattr(result, "registry_source", None),
@@ -171,13 +205,15 @@ def filter_voice_catalog(
     language: str | None = None,
     gender: str | None = None,
     model: str | None = None,
-) -> tuple[VoiceCatalogEntry, ...]:
+    engine: str | None = None,
+ ) -> tuple[VoiceCatalogEntry, ...]:
     return tuple(
         entry
         for entry in entries
         if (language is None or _language_matches_entry(language, entry))
         and (gender is None or entry.gender == gender)
         and (model is None or entry.model == model)
+        and (engine is None or entry.engine == engine)
     )
 
 
@@ -187,18 +223,37 @@ def get_voice_selector(
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
+    engine: str | None = None,
 ) -> tuple[VoiceCatalogEntry, Any]:
     entries, result = discover_voice_catalog(
-        offline=offline, refresh=refresh, preference=preference
+        offline=offline, refresh=refresh, preference=preference, engine=engine
     )
-    for entry in entries:
-        if entry.selector == selector:
-            return entry, result
+    matches = tuple(entry for entry in entries if entry.selector == selector)
+    if len(matches) == 1:
+        return matches[0], result
+    if len(matches) > 1:
+        alternatives = ", ".join(entry.qualified_id for entry in matches)
+        raise ModelDiscoveryError(
+            f"Voice selector {selector!r} is ambiguous across backends. "
+            f"Use one of: {alternatives}",
+            code="readio.voice_selector_ambiguous",
+        )
+    if engine is not None:
+        all_entries, _ = discover_voice_catalog(
+            offline=offline, refresh=refresh, preference=preference
+        )
+        candidates = tuple(item for item in all_entries if item.selector == selector)
+        if candidates:
+            actual = candidates[0].engine
+            raise ModelDiscoveryError(
+                f"Voice selector {selector!r} resolves to backend {actual!r}, but "
+                f"backend {engine!r} was requested.",
+                code="voice_selector_backend_conflict",
+            )
     raise ModelDiscoveryError(
         f"Unknown voice selector {selector!r}. Run `readio voices list --lang {selector.rsplit('-', 1)[0]}`.",
         code="readio.voice_selector_not_found",
     )
-
 
 def is_selector_shape(value: str) -> bool:
     return _SELECTOR_RE.fullmatch(value.strip().lower()) is not None
@@ -217,7 +272,8 @@ def resolve_voice_selector(
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
-) -> VoiceSelectorResolution | None:
+    engine: str | None = None,
+ ) -> VoiceSelectorResolution | None:
     if voice is None:
         return None
     if not is_selector_shape(voice):
@@ -231,7 +287,11 @@ def resolve_voice_selector(
             catalog_entry=None,
         )
     entry, _ = get_voice_selector(
-        voice.strip().lower(), offline=offline, refresh=refresh, preference=preference
+        voice.strip().lower(),
+        offline=offline,
+        refresh=refresh,
+        preference=preference,
+        engine=engine,
     )
     if language is not None and _language_conflicts(language, entry):
         raise ModelDiscoveryError(
@@ -254,6 +314,7 @@ def resolve_voice_selector(
         language=normalize_locale(entry.locale),
         model=entry.model,
         source=entry.source,
+        engine=entry.engine,
         voice=entry.id,
         catalog_entry=entry,
     )
@@ -263,6 +324,9 @@ def find_voice_entries(
     value: str,
     entries: tuple[VoiceCatalogEntry, ...],
 ) -> tuple[VoiceCatalogEntry, ...]:
+    qualified = tuple(entry for entry in entries if entry.qualified_id == value)
+    if qualified:
+        return qualified
     by_selector = tuple(entry for entry in entries if entry.selector == value)
     if by_selector:
         return by_selector
@@ -270,6 +334,7 @@ def find_voice_entries(
 
 
 __all__ = [
+    "BACKEND_PRIORITY",
     "MODEL_PRIORITY",
     "RUNNABLE_STATUSES",
     "VoiceCatalog",
