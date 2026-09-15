@@ -67,7 +67,7 @@ The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-man
 
 ## Model discovery
 
-Use PyKokoro >=0.9.5,<0.10 metadata to inspect runnable voices first, then inspect backend models when needed. Discovery is metadata-only and does not download weights or voices:
+Use PyKokoro >=0.9.9,<0.10 metadata to inspect runnable voices first, then inspect backend models when needed. Discovery is metadata-only and does not download model weights or voices:
 
 ````bash
 readio voices list --lang de --offline --json

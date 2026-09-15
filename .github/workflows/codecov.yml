@@ -16,7 +16,7 @@ jobs:
           cache: pip
       - name: Install Readio runtime dependencies
         run: |
-          python -m pip install "pykokoro[playback]==0.9.5"
+          python -m pip install "pykokoro[playback]==0.9.9"
       - name: Install project and coverage tools
         run: |
           python -m pip install --upgrade pip

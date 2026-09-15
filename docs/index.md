@@ -94,7 +94,7 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.5,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.5:
+Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.9,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.9:
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
 ```bash

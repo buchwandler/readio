@@ -37,7 +37,7 @@ MODEL = ModelInfo(
 def test_discovery_rejects_pykokoro_094_with_required_version(monkeypatch) -> None:
     fake = SimpleNamespace(__version__="0.9.4")
     monkeypatch.setitem(sys.modules, "pykokoro", fake)
-    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.5,<0.10") as error:
+    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.9,<0.10") as error:
         _pykokoro_discovery()
     assert error.value.code == "pykokoro.version_unsupported"
     assert error.value.installed_version == "0.9.4"

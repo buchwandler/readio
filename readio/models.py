@@ -11,7 +11,7 @@ from typing import Any
 from .config import LanguageSettings, normalize_language_key
 
 logger = logging.getLogger(__name__)
-PYKOKORO_REQUIRED = ">=0.9.5,<0.10"
+PYKOKORO_REQUIRED = ">=0.9.9,<0.10"
 _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
 

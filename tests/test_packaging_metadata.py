@@ -18,13 +18,13 @@ def _project_dependencies() -> list[str]:
 def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
 
-    assert "pykokoro[playback]>=0.9.5,<0.10" in dependencies
+    assert "pykokoro[playback]>=0.9.9,<0.10" in dependencies
     assert "ssmd>=0.8.7,<0.9" in dependencies
 
 
 def test_release_ci_targets_released_pykokoro_artifact() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
 
-    assert "pykokoro[playback]==0.9.5" in workflow
+    assert "pykokoro[playback]==0.9.9" in workflow
     assert "pykokoro.git@" not in workflow
     assert "ssmd.git@" not in workflow
