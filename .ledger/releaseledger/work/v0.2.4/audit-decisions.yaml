@@ -1,66 +1,65 @@
 rows:
-- sha: 4791e709a5f940404c7e40f04333f0996931453d
-  inspected: true
-  inspected_paths:
-  - readio/config.py
-  - readio/plan.py
-  - readio/reader.py
-  - readio/synthesis.py
-  - tests/test_config.py
-  - tests/test_plan.py
-  - tests/test_reader_synthesis.py
-  observed_behavior: "Reader synthesis planning now supports explicit spaCy tiers and configurable short-sentence handling, with legacy required values normalized to sm."
-  public_impact: public
-  decision: accepted
-  target_entry_key: null
-  target_entry_id: null
-  notes: ''
-  stale: false
-- sha: 18d17658338164cf7a62f805eece4802de217394
-  inspected: false
-  inspected: true
-  inspected_paths:
-  - readio/voices.py
-  - readio/cli.py
-  - readio/models.py
-  - tests/test_voice_catalog.py
-  - tests/test_voices_cli.py
-  observed_behavior: "Voice discovery now exposes stable locale-number selectors, metadata filtering, selector inspection, and selector-aware role/default resolution."
-  public_impact: public
-  decision: accepted
-  target_entry_key: null
-  target_entry_id: null
-  notes: ''
-  stale: false
-- sha: 5840ad53704ab4efd000346c048638c9b2271eb7
-  inspected: true
-  inspected_paths:
-  - readio/backends/base.py
-  - readio/backends/pykokoro.py
-  - readio/lexicons.py
-  - readio/cli.py
-  - tests/test_lexicon_catalog.py
-  - tests/test_lexicons_cli.py
-  observed_behavior: "Synthesis backend contracts and the PyKokoro adapter now expose backend-neutral lexicon discovery, filtering, inspection, and runtime option plumbing."
-  public_impact: public
-  decision: accepted
-  target_entry_key: null
-  target_entry_id: null
-  notes: ''
-  stale: false
-- sha: 2c5e221eab0f4047a8157dcacb85e5d31c956d3a
-  inspected: true
-  inspected_paths:
-  - readio/lexicons.py
-  - readio/voices.py
-  - readio/cli.py
-  - tests/test_lexicons_cli.py
-  - tests/test_voice_catalog.py
-  - tests/test_voices_cli.py
-  observed_behavior: "Lexicon listing remains usable without a language filter and backend-aware voice and lexicon selection is formatted and validated consistently."
-  public_impact: public
-  decision: accepted
-  target_entry_key: null
-  target_entry_id: null
-  notes: ''
-  stale: false
+  - sha: 4791e709a5f940404c7e40f04333f0996931453d
+    inspected: true
+    inspected_paths:
+      - readio/config.py
+      - readio/plan.py
+      - readio/reader.py
+      - readio/synthesis.py
+      - tests/test_config.py
+      - tests/test_plan.py
+      - tests/test_reader_synthesis.py
+    observed_behavior: "Reader synthesis planning now supports explicit spaCy tiers and configurable short-sentence handling, with legacy required values normalized to sm."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: 18d17658338164cf7a62f805eece4802de217394
+    inspected: true
+    inspected_paths:
+      - readio/voices.py
+      - readio/cli.py
+      - readio/models.py
+      - tests/test_voice_catalog.py
+      - tests/test_voices_cli.py
+    observed_behavior: "Voice discovery now exposes stable locale-number selectors, metadata filtering, selector inspection, and selector-aware role/default resolution."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: 5840ad53704ab4efd000346c048638c9b2271eb7
+    inspected: true
+    inspected_paths:
+      - readio/backends/base.py
+      - readio/backends/pykokoro.py
+      - readio/lexicons.py
+      - readio/cli.py
+      - tests/test_lexicon_catalog.py
+      - tests/test_lexicons_cli.py
+    observed_behavior: "Synthesis backend contracts and the PyKokoro adapter now expose backend-neutral lexicon discovery, filtering, inspection, and runtime option plumbing."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: 2c5e221eab0f4047a8157dcacb85e5d31c956d3a
+    inspected: true
+    inspected_paths:
+      - readio/lexicons.py
+      - readio/voices.py
+      - readio/cli.py
+      - tests/test_lexicons_cli.py
+      - tests/test_voice_catalog.py
+      - tests/test_voices_cli.py
+    observed_behavior: "Lexicon listing remains usable without a language filter and backend-aware voice and lexicon selection is formatted and validated consistently."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
