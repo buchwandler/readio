@@ -36,6 +36,7 @@ from .voices import resolve_voice_selector
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
+    from .backends.base import SynthesisBackend
     from .synthesis import ResolvedSynthesis
 
 # ---------------------------------------------------------------------------
@@ -590,6 +591,7 @@ def _resolve_synthesis_candidate(
         offline=request.offline,
         refresh=request.refresh,
         preference=request.model_source or "auto",
+        engine=request.engine,
     )
     requested_selector = (
         request.voice if selector_resolution and selector_resolution.selector else None
@@ -1063,6 +1065,47 @@ def _concretize_backend_defaults(
     return updated, list(diagnostics)
 
 
+def _validate_backend_options(
+    candidate: SynthesisCandidate,
+    backend: SynthesisBackend,
+) -> list[PlanDiagnostic]:
+    """Reject requested options that the selected backend cannot consume."""
+    requested_options = (
+        (
+            "model_source",
+            any(decision.field == "synthesis.source" for decision in candidate.decisions),
+            "synthesis.source",
+        ),
+        ("lexicons", candidate.lexicons is not None, "synthesis.lexicons"),
+        ("g2p_fallback", candidate.g2p_fallback is not None, "synthesis.g2p_fallback"),
+        ("spacy", candidate.spacy != "auto", "synthesis.spacy"),
+        ("short_sentence", candidate.short_sentence != "auto", "synthesis.short_sentence"),
+        (
+            "language_detection",
+            candidate.language_detection is not None,
+            "synthesis.language_detection",
+        ),
+        ("detect_language", candidate.detect_languages is not None, "synthesis.detect_languages"),
+    )
+    selector_resolved = any(
+        decision.field == "synthesis.voice_selector" for decision in candidate.decisions
+    )
+    diagnostics: list[PlanDiagnostic] = []
+    for option, requested, field_name in requested_options:
+        if option == "model_source" and selector_resolved:
+            requested = False
+        if requested and option not in backend.supported_options:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="backend.option_unsupported",
+                    severity="error",
+                    message=f"Backend {backend.id!r} does not support option {option!r}.",
+                    field=field_name,
+                )
+            )
+    return diagnostics
+
+
 # ---------------------------------------------------------------------------
 # Stage 4 — Capability validation
 # ---------------------------------------------------------------------------
@@ -1089,6 +1132,14 @@ def _validate_and_build_model_plan(
             )
         )
         return None, diagnostics, decisions
+
+    from .backends import get_backend
+    from .backends.base import BackendResolution
+
+    backend = get_backend(candidate.engine or cfg.reader.engine)
+    option_diagnostics = _validate_backend_options(candidate, backend)
+    if option_diagnostics:
+        return None, option_diagnostics, decisions
 
     try:
         discovered, _result = get_model_info(
@@ -1274,6 +1325,18 @@ def _validate_and_build_model_plan(
         available_voices=discovered.voices,
         available_qualities=discovered.qualities,
         available_lexicons=discovered.lexicons,
+    )
+
+    diagnostics.extend(
+        backend.validate_selection(
+            BackendResolution(
+                backend=backend.id,
+                model=model_plan.id,
+                voice=model_plan.voice,
+                language=candidate.language,
+                metadata=model_plan,
+            )
+        )
     )
 
     return model_plan, diagnostics, decisions
@@ -1837,6 +1900,149 @@ def format_plan_human(plan: ReadioPlan) -> str:
     return "\n".join(lines)
 
 
+# =========================================================================
+# readio.plan.v2 — engine-neutral schema
+# =========================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticPlanRef:
+    """Reference to a persisted UtterancePlan."""
+
+    format: str = "utterplan"
+    schema_version: int = 1
+    plan_id: str = ""
+    sha256: str = ""
+    path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "format": self.format,
+            "schema_version": self.schema_version,
+            "plan_id": self.plan_id,
+            "sha256": self.sha256,
+            "path": self.path,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RenderTargetV2:
+    """Engine-neutral render target for plan v2."""
+
+    id: str
+    language: str
+    voice: str | None = None
+    speaker: str | int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "id": self.id,
+            "language": self.language,
+        }
+        if self.voice is not None:
+            d["voice"] = self.voice
+        if self.speaker is not None:
+            d["speaker"] = self.speaker
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class RenderPlanV2:
+    """Engine-neutral render configuration for plan v2."""
+
+    engine: str
+    target: RenderTargetV2
+    rate: float = 1.0
+    options: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "engine": self.engine,
+            "target": self.target.to_dict(),
+            "rate": self.rate,
+            "options": dict(self.options),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EnvironmentPlanV2:
+    """Engine-neutral environment info for plan v2."""
+
+    packages: dict[str, str] = field(default_factory=dict)
+    ffmpeg_available: bool | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "packages": dict(self.packages),
+            "ffmpeg_available": self.ffmpeg_available,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PlanningPlanV2:
+    """Planning configuration for plan v2."""
+
+    language: str
+    unit: str
+    text_preparation: str | None = None
+    pause_mode: str = "auto"
+    spacy: str | None = None
+    language_detection: str | None = None
+    detect_languages: tuple[str, ...] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "language": self.language,
+            "unit": self.unit,
+            "pause_mode": self.pause_mode,
+        }
+        if self.text_preparation is not None:
+            d["text_preparation"] = self.text_preparation
+        if self.spacy is not None:
+            d["spacy"] = self.spacy
+        if self.language_detection is not None:
+            d["language_detection"] = self.language_detection
+        if self.detect_languages is not None:
+            d["detect_languages"] = list(self.detect_languages)
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class ReadioPlanV2:
+    """Engine-neutral top-level plan for Readio."""
+
+    schema: str = "readio.plan.v2"
+    ok: bool = True
+    operation: Literal["speak", "render"] = "render"
+    input: InputPlan = field(default_factory=lambda: InputPlan())
+    planning: PlanningPlanV2 = field(default_factory=lambda: PlanningPlanV2(language="en-us", unit="paragraph"))
+    semantic_plan: SemanticPlanRef = field(default_factory=SemanticPlanRef)
+    render: RenderPlanV2 | None = None
+    output: OutputPlan = field(default_factory=lambda: OutputPlan(mode="file", format=None, encoder_backend=None, path=None, path_origin="none", force=False))
+    environment: EnvironmentPlanV2 = field(default_factory=EnvironmentPlanV2)
+    decisions: tuple[ResolutionDecision, ...] = ()
+    diagnostics: tuple[PlanDiagnostic, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "ok": self.ok,
+            "operation": self.operation,
+            "input": self.input.to_dict(),
+            "planning": self.planning.to_dict(),
+            "semantic_plan": self.semantic_plan.to_dict(),
+            "render": self.render.to_dict() if self.render is not None else None,
+            "output": self.output.to_dict(),
+            "environment": self.environment.to_dict(),
+            "decisions": [d.to_dict() for d in self.decisions],
+            "diagnostics": [d.to_dict() for d in self.diagnostics],
+        }
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+
 __all__ = [
     "DIAG_ENCODER_UNAVAILABLE",
     "DIAG_EXPERIMENTAL_FRONTEND_DISALLOWED",
@@ -1864,6 +2070,7 @@ __all__ = [
     "ORIGIN_PYKOKORO_AUTO",
     "ORIGIN_READIO_DEFAULT",
     "EnvironmentPlan",
+    "EnvironmentPlanV2",
     "InputPlan",
     "InputRequest",
     "LanguageProfilePlan",
@@ -1872,9 +2079,14 @@ __all__ = [
     "OutputRequest",
     "PlanDiagnostic",
     "PlanRequest",
+    "PlanningPlanV2",
     "ReadioPlan",
+    "ReadioPlanV2",
+    "RenderPlanV2",
+    "RenderTargetV2",
     "ResolutionDecision",
     "SSMDPlan",
+    "SemanticPlanRef",
     "SynthesisPlan",
     "SynthesisRequest",
     "VoiceBindingPlan",

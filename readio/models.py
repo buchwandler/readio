@@ -23,7 +23,7 @@ class ModelDiscoveryError(ValueError):
         self,
         message: str,
         *,
-        code: str = "pykokoro.registry_unavailable",
+        code: str = "readio.registry_unavailable",
         installed_version: str | None = None,
         distribution_version: str | None = None,
         module_version: str | None = None,
@@ -417,14 +417,6 @@ def discover_model_info(
     from .backends.registry import default_backend
 
     selected = default_backend() if backend is None else get_backend(backend)
-    if selected.id == "pykokoro":
-        return _discover_pykokoro_model_info(
-            language=language,
-            status=status,
-            offline=offline,
-            refresh=refresh,
-            preference=preference,
-        )
     return selected.discover_models(
         language=language,
         status=status,
@@ -451,8 +443,16 @@ def get_model_info(
             return model, result
     raise ModelDiscoveryError(
         f"Unknown model '{model_id}'. Run `readio models list` to inspect available models.",
-        code="pykokoro.model_not_found",
+        code="readio.model_not_found",
     )
+
+
+def _validation_error_code(
+    model: ModelInfo,
+    generic: str,
+    pykokoro: str,
+) -> str:
+    return pykokoro if model.backend == "pykokoro" else generic
 
 
 def validate_language_settings(
@@ -465,7 +465,9 @@ def validate_language_settings(
     if not model.runtime_available:
         raise ModelDiscoveryError(
             f"Model '{model.id}' is not available in the installed runtime.",
-            code="pykokoro.model_unsupported",
+            code=_validation_error_code(
+                model, "readio.model_unsupported", "pykokoro.model_unsupported"
+            ),
         )
     if model.experimental and not settings.allow_experimental:
         raise ModelDiscoveryError(
@@ -477,36 +479,46 @@ def validate_language_settings(
     if model.status != "ready" and not (model.experimental and settings.allow_experimental):
         raise ModelDiscoveryError(
             f"Model '{model.id}' is not runnable: {model.status}",
-            code="pykokoro.model_unsupported",
+            code=_validation_error_code(
+                model, "readio.model_unsupported", "pykokoro.model_unsupported"
+            ),
         )
     if not language_matches(normalized, model.languages):
         declared = ", ".join(model.languages) or "none"
         raise ModelDiscoveryError(
             f"Model '{model.id}' does not declare language '{normalized}'. Declared languages: {declared}",
-            code="pykokoro.model_unsupported",
+            code=_validation_error_code(
+                model, "readio.model_unsupported", "pykokoro.model_unsupported"
+            ),
         )
     if settings.source is not None and settings.source not in _RUNTIME_SOURCES:
         raise ModelDiscoveryError(
             f"Model source '{settings.source}' is not supported; use github or huggingface.",
-            code="pykokoro.model_source_invalid",
+            code=_validation_error_code(
+                model, "readio.model_source_invalid", "pykokoro.model_source_invalid"
+            ),
         )
     if settings.source is not None and model.source != settings.source:
         raise ModelDiscoveryError(
             f"Model '{model.id}' resolved from {model.source!r}, not requested source "
             f"{settings.source!r}.",
-            code="pykokoro.model_source_invalid",
+            code=_validation_error_code(
+                model, "readio.model_source_invalid", "pykokoro.model_source_invalid"
+            ),
         )
     if settings.quality is not None and settings.quality not in model.qualities:
         available = ", ".join(model.qualities) or "none"
         raise ModelDiscoveryError(
             f"Quality '{settings.quality}' is not available for model '{model.id}'. Available qualities: {available}",
-            code="pykokoro.quality_invalid",
+            code=_validation_error_code(
+                model, "readio.quality_invalid", "pykokoro.quality_invalid"
+            ),
         )
     if settings.voice is not None and settings.voice not in model.voices:
         available = ", ".join(model.voices) or "none"
         raise ModelDiscoveryError(
             f"Voice '{settings.voice}' is not available for model '{model.id}'. Available voices: {available}",
-            code="pykokoro.voice_invalid",
+            code=_validation_error_code(model, "readio.voice_invalid", "pykokoro.voice_invalid"),
         )
     if settings.lexicons is not None and model.lexicons is not None:
         missing = tuple(item for item in settings.lexicons if item not in model.lexicons)
@@ -526,7 +538,9 @@ def validate_language_settings(
                 )
             raise ModelDiscoveryError(
                 message,
-                code="pykokoro.lexicon_invalid",
+                code=_validation_error_code(
+                    model, "readio.lexicon_invalid", "pykokoro.lexicon_invalid"
+                ),
             )
     return settings
 

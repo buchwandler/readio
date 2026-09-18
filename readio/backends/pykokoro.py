@@ -26,6 +26,7 @@ class PyKokoroBackend:
     ssmd_provider = "kokoro"
     supported_options = frozenset(
         {
+            "lexicons",
             "model_source",
             "g2p_fallback",
             "lexicon_data_policy",

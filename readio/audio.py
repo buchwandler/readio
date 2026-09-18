@@ -1,184 +1,119 @@
+"""Audio output and rendering for Readio.
+
+This module provides audio output sinks and the RenderedUnit type
+for normalized live/streaming results.
+"""
+
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import TracebackType
-from typing import Any, Protocol
+from typing import Any
 
 import numpy as np
 
-from .config import ReaderSettings
 
-logger = logging.getLogger(__name__)
+@dataclass(slots=True)
+class RenderedUnit:
+    """Normalized view of a rendered unit for live/streaming mode.
 
+    This provides a neutral representation that adapters convert
+    their native unit results into.
+    """
 
-class AudioSink(Protocol):
-    """Synchronous destination for one rendered waveform chunk."""
-
-    def write(self, audio: np.ndarray, sample_rate: int) -> None: ...
-
-    def close(self) -> None: ...
-
-
-@dataclass(frozen=True, slots=True)
-class RenderSummary:
-    sample_rate: int = 0
-    sample_count: int = 0
-    channels: int = 0
-    document_metadata: Mapping[str, Any] = field(default_factory=dict)
-    markers: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class RenderProgress:
-    completed_units: int
-    total_units: int | None
-    sample_count: int
+    index: int
+    plan_unit_id: str
+    content_hash: str | None
+    audio: np.ndarray
     sample_rate: int
+    markers: tuple[dict[str, Any], ...] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def release_audio(self) -> None:
+        """Release the audio buffer."""
+        self.audio = np.array([], dtype=np.float32)
 
 
-RenderProgressCallback = Callable[[RenderProgress], None]
+@dataclass(frozen=True, slots=True)
+class AudioSink:
+    """Base class for audio output sinks."""
 
+    sample_rate: int
+    channels: int = 1
 
-class PlaybackSink:
-    """Send rendered chunks through one persistent backend player."""
-
-    def __init__(self, cfg: ReaderSettings) -> None:
-        self._cfg = cfg
-        self._player: Any = None
-        self._sample_rate: int | None = None
-        self._channels: int | None = None
-        self._closed = False
-
-    def write(self, audio: np.ndarray, sample_rate: int) -> None:
-        if self._closed:
-            raise RuntimeError("audio sink is closed")
-        if audio.ndim == 1:
-            channels = 1
-        elif audio.ndim == 2:
-            channels = int(audio.shape[1])
-        else:
-            channels = 0
-        if channels <= 0:
-            raise ValueError("rendered audio must be a one- or two-dimensional array")
-        if self._player is None:
-            logger.info(
-                "playback.start sample_rate=%d channels=%d device=%s",
-                sample_rate,
-                channels,
-                self._cfg.device or "default",
-            )
-            from .backends import get_backend
-
-            self._sample_rate = sample_rate
-            self._channels = channels
-            backend = get_backend(self._cfg.engine)
-            self._player = backend.create_playback_player(sample_rate, self._cfg, channels)
-            self._player.start()
-        elif sample_rate != self._sample_rate or channels != self._channels:
-            raise ValueError("all rendered chunks must use the same sample rate and channel count")
-        self._player.submit(audio)
-
-    def finish(self) -> None:
-        if self._player is not None:
-            logger.info("playback.drain")
-            self._player.drain()
+    def write(self, audio: np.ndarray) -> None:
+        """Write audio data to the sink."""
+        raise NotImplementedError
 
     def close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            if self._player is not None:
-                self._player.close()
-
-    def __enter__(self) -> PlaybackSink:  # noqa: PYI034
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
+        """Close the sink."""
+        pass
 
 
-def render_prepared(
-    prepared: Any,
-    sink: AudioSink,
-    *,
-    indices: tuple[int, ...] | None = None,
-    on_progress: RenderProgressCallback | None = None,
-) -> RenderSummary:
-    sample_rate = 0
-    sample_count = 0
-    channels = 0
-    markers: list[dict[str, Any]] = []
-    metadata = dict(getattr(prepared, "document_metadata", {}) or {})
+@dataclass(frozen=True, slots=True)
+class FileSink(AudioSink):
+    """Audio sink that writes to a file."""
 
-    units = getattr(prepared, "units", None)
-    total_units = (
-        len(indices) if indices is not None else (len(units) if units is not None else None)
-    )
-    completed_units = 0
-    logger.info("render.start units=%s", total_units if total_units is not None else "live")
+    path: str
+    format: str = "wav"
 
-    def emit_progress() -> None:
-        if on_progress is not None:
-            on_progress(
-                RenderProgress(
-                    completed_units=completed_units,
-                    total_units=total_units,
-                    sample_count=sample_count,
-                    sample_rate=sample_rate,
+    def write(self, audio: np.ndarray) -> None:
+        """Write audio data to a file."""
+        import soundfile as sf
+
+        sf.write(self.path, audio, self.sample_rate, format=self.format)
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackSink(AudioSink):
+    """Audio sink for live playback."""
+
+    device: int | str | None = None
+    queue_size: int = 2
+
+    def write(self, audio: np.ndarray) -> None:
+        """Write audio data for playback."""
+        # This is a placeholder; actual playback implementation
+        # depends on the platform
+        raise NotImplementedError("PlaybackSink.write() not implemented")
+
+
+def render_to_audio_job(
+    units: list[RenderedUnit],
+    sample_rate: int = 24000,
+) -> Any:
+    """Convert rendered units to an AudioJob.
+
+    This is the bounded render path that creates an AudioJob
+    from the rendered units.
+    """
+    from audiocompose import AudioBufferSource, AudioClip, AudioJob, OutputPolicy, Silence
+
+    items = []
+    for unit in units:
+        if unit.audio.size > 0:
+            items.append(
+                AudioClip(
+                    id=f"unit:{unit.index}",
+                    source=AudioBufferSource(unit.audio, unit.sample_rate),
+                    metadata={
+                        "plan_unit_id": unit.plan_unit_id,
+                        "content_hash": unit.content_hash,
+                        **dict(unit.metadata),
+                    },
                 )
             )
 
-    emit_progress()
-    for result in prepared.render(indices=indices):
-        try:
-            audio = result.audio
-            if audio.ndim == 1:
-                result_channels = 1
-            elif audio.ndim == 2:
-                result_channels = int(audio.shape[1])
-            else:
-                result_channels = 0
-            if result_channels <= 0:
-                raise ValueError("rendered audio must be a one- or two-dimensional array")
-            if not sample_count:
-                sample_rate = int(result.sample_rate)
-                channels = result_channels
-                if not metadata:
-                    metadata = dict(getattr(result, "document_metadata", {}) or {})
-            elif result.sample_rate != sample_rate or result_channels != channels:
-                raise ValueError(
-                    "all rendered chunks must use the same sample rate and channel count"
-                )
-            sink.write(audio, result.sample_rate)
-            markers.extend(
-                {
-                    **marker,
-                    "sample_offset": int(marker["sample_offset"]) + sample_count,
-                }
-                for marker in getattr(result, "markers", ())
-            )
-            sample_count += len(audio)
-            completed_units += 1
-            emit_progress()
-        finally:
-            result.release_audio()
+    return AudioJob(
+        items=tuple(items),
+        output=OutputPolicy(sample_rate=sample_rate),
+    )
 
-    logger.info(
-        "render.finish units=%d samples=%d sample_rate=%d",
-        completed_units,
-        sample_count,
-        sample_rate,
-    )
-    return RenderSummary(
-        sample_rate=sample_rate,
-        sample_count=sample_count,
-        channels=channels,
-        document_metadata=metadata,
-        markers=tuple(markers),
-    )
+
+__all__ = [
+    "AudioSink",
+    "FileSink",
+    "PlaybackSink",
+    "RenderedUnit",
+    "render_to_audio_job",
+]
