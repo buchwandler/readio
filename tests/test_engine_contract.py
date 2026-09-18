@@ -162,9 +162,7 @@ class TestPiperPlanDoesNotRequireKokoroFields:
             "create_playback_player",
         ]
         for method in forbidden_methods:
-            assert not hasattr(EngineAdapter, method), (
-                f"EngineAdapter must not have {method!r}"
-            )
+            assert not hasattr(EngineAdapter, method), f"EngineAdapter must not have {method!r}"
 
 
 class TestEngineSpecificOptionIsRejectedForWrongEngine:

@@ -62,16 +62,18 @@ class PyKokoroEngineAdapter:
         return EngineCapabilities(
             id=self.id,
             ssmd_provider="kokoro",
-            option_names=frozenset({
-                "lexicons",
-                "model_source",
-                "g2p_fallback",
-                "lexicon_data_policy",
-                "spacy",
-                "short_sentence",
-                "language_detection",
-                "detect_language",
-            }),
+            option_names=frozenset(
+                {
+                    "lexicons",
+                    "model_source",
+                    "g2p_fallback",
+                    "lexicon_data_policy",
+                    "spacy",
+                    "short_sentence",
+                    "language_detection",
+                    "detect_language",
+                }
+            ),
             supports_prepared_units=True,
             supports_audio_job=True,
             supports_lexicons=True,

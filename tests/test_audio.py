@@ -179,3 +179,26 @@ def test_playback_sink_rejects_format_change(monkeypatch):
         sink.write(np.ones(2), 22050)
 
     sink.close()
+
+
+def test_audio_contract_exports() -> None:
+    from readio import audio
+
+    assert hasattr(audio, "AudioSink")
+    assert hasattr(audio, "PlaybackSink")
+    assert hasattr(audio, "RenderProgress")
+    assert hasattr(audio, "RenderProgressCallback")
+    assert hasattr(audio, "RenderSummary")
+    assert hasattr(audio, "render_prepared")
+
+
+def test_soundfile_sink_matches_audio_sink_write_contract() -> None:
+    import inspect
+
+    from readio.wave import SoundFileSink
+
+    assert list(inspect.signature(SoundFileSink.write).parameters) == [
+        "self",
+        "audio",
+        "sample_rate",
+    ]

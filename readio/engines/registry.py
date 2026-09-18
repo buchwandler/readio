@@ -47,6 +47,7 @@ class EngineRegistry:
         """Try to register PyKokoro if available."""
         try:
             from .pykokoro import PyKokoroEngineAdapter
+
             self.register(PyKokoroEngineAdapter())
         except ImportError:
             logger.debug("PyKokoro not available")
@@ -55,6 +56,7 @@ class EngineRegistry:
         """Try to register PiperSynth if available."""
         try:
             from .pipersynth import PiperSynthEngineAdapter
+
             self.register(PiperSynthEngineAdapter())
         except ImportError:
             logger.debug("PiperSynth not available")

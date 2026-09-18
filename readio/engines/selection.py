@@ -46,10 +46,7 @@ def reject_incompatible_options(
     supported_options: frozenset[str],
 ) -> list[str]:
     """Return list of unsupported option names."""
-    return [
-        name for name in options
-        if name not in supported_options
-    ]
+    return [name for name in options if name not in supported_options]
 
 
 __all__ = [

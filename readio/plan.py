@@ -2015,10 +2015,21 @@ class ReadioPlanV2:
     ok: bool = True
     operation: Literal["speak", "render"] = "render"
     input: InputPlan = field(default_factory=lambda: InputPlan())
-    planning: PlanningPlanV2 = field(default_factory=lambda: PlanningPlanV2(language="en-us", unit="paragraph"))
+    planning: PlanningPlanV2 = field(
+        default_factory=lambda: PlanningPlanV2(language="en-us", unit="paragraph")
+    )
     semantic_plan: SemanticPlanRef = field(default_factory=SemanticPlanRef)
     render: RenderPlanV2 | None = None
-    output: OutputPlan = field(default_factory=lambda: OutputPlan(mode="file", format=None, encoder_backend=None, path=None, path_origin="none", force=False))
+    output: OutputPlan = field(
+        default_factory=lambda: OutputPlan(
+            mode="file",
+            format=None,
+            encoder_backend=None,
+            path=None,
+            path_origin="none",
+            force=False,
+        )
+    )
     environment: EnvironmentPlanV2 = field(default_factory=EnvironmentPlanV2)
     decisions: tuple[ResolutionDecision, ...] = ()
     diagnostics: tuple[PlanDiagnostic, ...] = ()
@@ -2040,7 +2051,6 @@ class ReadioPlanV2:
 
     def to_json_dict(self) -> dict[str, Any]:
         return self.to_dict()
-
 
 
 __all__ = [

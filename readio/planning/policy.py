@@ -91,11 +91,15 @@ class PlanningPolicy:
             unit=getattr(cfg, "unit", "paragraph"),
             text_preparation=getattr(cfg, "text_preparation", "identity"),
             document_format=getattr(cfg, "document_format", "plain"),
-            ssmd_provider=getattr(cfg.ssmd, "voice_provider", None) if hasattr(cfg, "ssmd") else None,
+            ssmd_provider=getattr(cfg.ssmd, "voice_provider", None)
+            if hasattr(cfg, "ssmd")
+            else None,
             pause_mode=resolved.pause_mode,
             spacy_policy=resolved.spacy if hasattr(resolved, "spacy") else None,
             language_aliases=dict(getattr(cfg, "language_aliases", {})),
-            language_detection=resolved.language_detection if hasattr(resolved, "language_detection") else None,
+            language_detection=resolved.language_detection
+            if hasattr(resolved, "language_detection")
+            else None,
             detect_languages=tuple(getattr(resolved, "detect_languages", ()) or ()),
         )
 

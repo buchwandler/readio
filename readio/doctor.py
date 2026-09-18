@@ -42,6 +42,7 @@ def _check_pykokoro() -> dict[str, Any]:
     # Check if adapter is available
     try:
         from .engines.pykokoro import PyKokoroEngineAdapter
+
         status["adapter"] = True
     except ImportError:
         pass
@@ -70,6 +71,7 @@ def _check_piper() -> dict[str, Any]:
     # Check if adapter is available
     try:
         from .engines.pipersynth import PiperSynthEngineAdapter
+
         status["adapter"] = True
     except ImportError:
         pass

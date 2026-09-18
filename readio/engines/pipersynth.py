@@ -62,13 +62,15 @@ class PiperSynthEngineAdapter:
         return EngineCapabilities(
             id=self.id,
             ssmd_provider="piper",
-            option_names=frozenset({
-                "speaker",
-                "noise_scale",
-                "noise_w_scale",
-                "length_scale",
-                "normalize_audio",
-            }),
+            option_names=frozenset(
+                {
+                    "speaker",
+                    "noise_scale",
+                    "noise_w_scale",
+                    "length_scale",
+                    "normalize_audio",
+                }
+            ),
             supports_prepared_units=True,
             supports_audio_job=True,
             supports_lexicons=False,
