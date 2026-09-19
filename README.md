@@ -72,7 +72,9 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 PyKokoro >=0.9.9,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
 Readio v0.2.3 is tested against PyKokoro 0.9.9.
 
-Readio selects synthesis through an explicit backend registry. PyKokoro is the implemented backend; backend identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
+Readio selects synthesis through an explicit engine registry. PyKokoro and Piper are the supported engines; engine identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
+
+The canonical engine IDs are `pykokoro` and `piper`. The alias `pipersynth` is accepted as a compatibility alias for `piper`.
 
 ```bash
 readio models list --language de --offline
@@ -95,28 +97,14 @@ readio defaults show de-at --json
 readio render --lang de --file notes.md
 ```
 
-When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to PyKokoro language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
-
-Direct `speak`, `render`, and `spotify publish` options (`--model`, `--model-source`, `--quality`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, `--lexicon-data-policy`, `--language-detection`, repeatable `--detect-language`, `--spacy`, `--short-sentence`, and `--pause-mode`) override persisted defaults. Use `--json` for automation; JSON preserves `null` versus `[]` for lexicon selection.
-`--model-source github|huggingface` selects the same distribution for discovery, validation, and runtime construction. Voices are model-scoped: the legacy global `reader.voice` is retained only for unchanged default-reader use; `--lang de` without a voice leaves PyKokoro free to choose the German model default.
-Use `--engine BACKEND` to select a registered synthesis backend. Lexicon command selectors such as `crane` are backend-neutral names; they are not qualified asset IDs. `readio lexicons show crane --lang de` displays the matching backend asset metadata.
-
-Choose spaCy and short-sentence behavior explicitly when needed:
-
-```bash
-readio speak "hi" --spacy sm --short-sentence wrap
-```
-
-`--spacy auto` selects the largest installed compatible model and falls back when unavailable. `--spacy sm|md|lg|trf` requires that exact tier, while `--spacy off` disables spaCy. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency workaround, and `off` disables the workaround. The `phrase` modes can trigger additional inference calls.
-
+When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to engine language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
 Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave pause timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. A persisted `reader.pause_mode` remains the default for that installation.
-Named lexicons use PyKokoro selectors, not backend asset IDs:
+Named lexicons use engine selectors, not backend asset IDs:
+crane = named selection token
+de-de:crane = language-qualified Lexphon asset resolved downstream
+de-crane = separate acoustic model ID
 
-```text
-crane          = named selection token
-de-de:crane    = language-qualified Lexphon asset resolved downstream
-de-crane       = separate acoustic model ID
-```
+````
 
 For reproducible German synthesis:
 
@@ -125,7 +113,7 @@ readio models show de-thorsten
 readio defaults set de --model de-thorsten --lexicon crane --g2p-fallback espeak --lexicon-data-policy auto
 readio plan --file article.md --lang de --json
 readio render --file article.md --lang de --model de-thorsten --no-lexicons --g2p-fallback espeak --format mp3
-```
+````
 
 The plan also records optional PyKokoro language detection. SSMD documents may use `language_detection: {mode: auto, languages: [de, en]}`; this routes pronunciation fragments while retaining the selected acoustic language.
 
@@ -185,31 +173,30 @@ readio render --file episode.ssmd                    # resolves the same plan, t
 
 Planning, discovery, defaults, and render results are distinct layers:
 
-- **`readio models` / `readio voices` (discovery)** list what the installed PyKokoro runtime _could_ provide — model IDs, languages, voices, qualities, lexicons, status.
+- **`readio models` / `readio voices` (discovery)** list what the installed engine runtime _could_ provide — model IDs, languages, voices, qualities, lexicons, status.
 - **`readio defaults` (defaults)** persist validated per-language policy that resolution _prefers_.
-- **`readio plan` (planning)** resolves one concrete request against config, defaults, CLI options, and PyKokoro's automatic selection: a concrete model, source, quality, voice, SSMD cast, and output allocation, with provenance for every effective value. No TTS model is loaded.
+- **`readio plan` (planning)** resolves one concrete request against config, defaults, CLI options, and the engine's automatic selection: a concrete model, source, quality, voice, SSMD cast, and output allocation, with provenance for every effective value. No TTS model is loaded.
 - **`readio render` (render result)** executes the plan; the plan JSON's synthesis, SSMD bindings, and output path are the values actually used. A render that fails planning exits 1 with the plan and its diagnostics instead of loading TTS.
 
-`readio.plan.v1` JSON exposes `schema`, `ok`, `input`, `synthesis` (with `model` capability metadata), `ssmd` bindings, `output` (format, encoder backend, path, path origin, `force`), `environment` (including `ffmpeg_available`), `decisions` (winning source per field), and `diagnostics`:
+`readio.plan.v2` JSON exposes `schema`, `ok`, `input`, `planning`, `semantic_plan`, `render` (with engine-neutral target), `output` (format, encoder backend, path, path origin, `force`), `environment` (generic package versions), `decisions` (winning source per field), and `diagnostics`:
 
 ```json
 {
-  "schema": "readio.plan.v1",
+  "schema": "readio.plan.v2",
   "ok": true,
   "operation": "render",
-  "synthesis": {
-    "engine": "pykokoro",
-    "language": "de",
-    "model": {
-      "id": "de-thorsten",
-      "source": "github",
-      "quality": "fp32",
-      "voice": "thorsten",
-      "status": "ready",
-      "runtime_available": true,
-      "languages": ["de"],
-      "experimental": false
-    }
+  "input": {
+  "render": {
+    "engine": "piper",
+    "target": {
+      "id": "de_DE-thorsten-medium",
+      "language": "de",
+      "voice": "thorsten"
+    "rate": 1.0,
+    "options": {}
+  "semantic_plan": {
+    "plan_id": "abc123",
+    "sha256": "def456"
   },
   "ssmd": { "enabled": false, "bindings": [], "unresolved": [] },
   "output": {
@@ -244,7 +231,7 @@ readio render --file episode.ssmd --format mp3 --manifest
 readio render --file episode.ssmd --format mp3 --manifest --json
 ```
 
-A successful render writes the audio and a colocated `<audio>.readio.json` sidecar. The sidecar uses schema `readio.render-manifest.v1` and records the exact executed `readio.plan.v1`, its canonical SHA-256, the final encoded audio hash and byte count, render summary facts, document metadata, and final marker offsets. The plan is pre-execution intent; the manifest is post-execution evidence.
+A successful render writes the audio and a colocated `<audio>.readio.json` sidecar. The sidecar uses schema `readio.render-manifest.v1` and records the exact executed `readio.plan.v2`, its canonical SHA-256, the semantic plan identity, the final encoded audio hash and byte count, render summary facts, document metadata, and final marker offsets. The plan is pre-execution intent; the manifest is post-execution evidence.
 
 Human stdout remains only the audio path. JSON render output remains one object and adds `manifest` with the sidecar schema and path, or `null` when the flag is absent. `--manifest` is available only for bounded rendering, not `--live`, `speak`, planning, dry runs, or publishing. If sidecar writing fails, Readio preserves the committed audio and returns `render.manifest_error`.
 

@@ -10,13 +10,29 @@ from .base import (
     EngineSession,
 )
 from .catalog import SynthesisTarget
-from .registry import EngineRegistry
+from .registry import (
+    CANONICAL_ENGINE_IDS,
+    ENGINE_ALIASES,
+    EngineRegistry,
+    default_engine,
+    engine_ids,
+    get_engine,
+    iter_engines,
+    normalize_engine_id,
+)
 
 __all__ = [
+    "CANONICAL_ENGINE_IDS",
+    "ENGINE_ALIASES",
     "EngineAdapter",
     "EngineCapabilities",
     "EngineRegistry",
     "EngineSelection",
     "EngineSession",
     "SynthesisTarget",
+    "default_engine",
+    "engine_ids",
+    "get_engine",
+    "iter_engines",
+    "normalize_engine_id",
 ]

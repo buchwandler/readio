@@ -102,6 +102,64 @@ def build_render_manifest(
     }
 
 
+def build_render_manifest_v2(
+    *,
+    plan_v2: Any,  # ReadioPlanV2
+    summary: RenderSummary,
+    output: Path,
+    created_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Build evidence from the executed v2 plan, render summary, and final artifact.
+
+    This embeds the v2 plan and semantic plan identity.
+    """
+    output_format = plan_v2.output.format
+    if output_format is None:
+        raise ValueError("render manifest requires a resolved output format")
+    if plan_v2.output.encoder_backend is None:
+        raise ValueError("render manifest requires a resolved encoder backend")
+
+    # Compute plan hash from v2 plan
+    plan_json = json.dumps(
+        plan_v2.to_dict(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    plan_hash = hashlib.sha256(plan_json).hexdigest()
+
+    return {
+        "schema": MANIFEST_SCHEMA,
+        "ok": True,
+        "created_at": _created_at(created_at),
+        "plan": {
+            "sha256": plan_hash,
+            "resolved": plan_v2.to_dict(),
+        },
+        "semantic_plan": {
+            "plan_id": plan_v2.semantic_plan.plan_id,
+            "sha256": plan_v2.semantic_plan.sha256,
+        },
+        "result": {
+            "output": {
+                "path": str(output),
+                "format": output_format,
+                "encoder_backend": plan_v2.output.encoder_backend,
+                "byte_count": output.stat().st_size,
+                "sha256": file_sha256(output),
+            },
+            "audio": {
+                "sample_rate": summary.sample_rate,
+                "sample_count": summary.sample_count,
+                "channels": summary.channels,
+                "duration_ms": round(summary.sample_count * 1000 / summary.sample_rate),
+            },
+            "document_metadata": json_value(summary.document_metadata),
+            "markers": json_value(summary.markers),
+        },
+    }
+
+
 def write_render_manifest(path: Path, payload: Mapping[str, Any]) -> None:
     """Atomically write a readable, deterministic UTF-8 manifest JSON file."""
     path.parent.mkdir(parents=True, exist_ok=True)

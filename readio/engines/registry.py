@@ -6,11 +6,37 @@ This module provides a registry for discovering and selecting synthesis engines.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import Any
 
 from .base import EngineAdapter
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Canonical engine identity
+# ---------------------------------------------------------------------------
+
+ENGINE_ALIASES: dict[str, str] = {
+    "pipersynth": "piper",
+    "kokoro": "pykokoro",
+}
+
+CANONICAL_ENGINE_IDS: frozenset[str] = frozenset({"pykokoro", "piper"})
+
+
+def normalize_engine_id(value: str) -> str:
+    """Normalize an engine ID to its canonical form.
+
+    Accepts aliases (e.g. ``pipersynth``) and returns the canonical ID
+    (e.g. ``piper``).  Canonical IDs are returned unchanged.
+    """
+    return ENGINE_ALIASES.get(value, value)
+
+
+# ---------------------------------------------------------------------------
+# EngineRegistry class
+# ---------------------------------------------------------------------------
 
 
 class EngineRegistry:
@@ -65,10 +91,14 @@ class EngineRegistry:
         """Return IDs of all registered engines."""
         return tuple(sorted(self._adapters.keys()))
 
+    def iter_adapters(self) -> Iterator[EngineAdapter]:
+        """Iterate over all registered adapters."""
+        yield from self._adapters.values()
+
     def status(self) -> dict[str, dict[str, Any]]:
         """Return status information for all known engines."""
         result: dict[str, dict[str, Any]] = {}
-        for engine_id in sorted(set(list(self._adapters.keys()) + ["pykokoro", "piper"])):
+        for engine_id in sorted(set(list(self._adapters.keys()) + list(CANONICAL_ENGINE_IDS))):
             adapter = self._adapters.get(engine_id)
             if adapter is not None:
                 result[engine_id] = {
@@ -85,4 +115,55 @@ class EngineRegistry:
         return result
 
 
-__all__ = ["EngineRegistry"]
+# ---------------------------------------------------------------------------
+# Module-level registry singleton
+# ---------------------------------------------------------------------------
+
+_registry = EngineRegistry()
+
+
+def get_engine(name: str) -> EngineAdapter:
+    """Get an engine adapter by canonical name.
+
+    Normalizes the name first, then looks up the adapter.  Raises
+    ``ValueError`` if the engine is not available.
+    """
+    canonical = normalize_engine_id(name)
+    adapter = _registry.get(canonical)
+    if adapter is None:
+        available = _registry.available_engines()
+        raise ValueError(
+            f"Engine {name!r} (canonical: {canonical!r}) is not available. "
+            f"Available engines: {available}"
+        )
+    return adapter
+
+
+def iter_engines() -> Iterator[EngineAdapter]:
+    """Iterate over all registered engine adapters."""
+    yield from _registry.iter_adapters()
+
+
+def engine_ids() -> tuple[str, ...]:
+    """Return canonical IDs of all registered engines."""
+    return _registry.available_engines()
+
+
+def default_engine() -> EngineAdapter:
+    """Return the default engine adapter (pykokoro).
+
+    Raises ``ValueError`` if pykokoro is not available.
+    """
+    return get_engine("pykokoro")
+
+
+__all__ = [
+    "CANONICAL_ENGINE_IDS",
+    "ENGINE_ALIASES",
+    "EngineRegistry",
+    "default_engine",
+    "engine_ids",
+    "get_engine",
+    "iter_engines",
+    "normalize_engine_id",
+]

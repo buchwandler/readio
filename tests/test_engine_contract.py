@@ -1,74 +1,24 @@
 """Architecture tests for the multi-engine contract.
 
 These tests express the invariants from the multi-engine architecture brief.
-They are expected to fail initially and pass after the refactoring is complete.
+They validate the production contract from readio.engines.base.
 """
 
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import pytest
 
 from utterplan import UtterancePlan
 
-
-# ---------------------------------------------------------------------------
-# New engine contract types (will be moved to readio/engines/base.py later)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class EngineCapabilities:
-    id: str
-    ssmd_provider: str | None
-    option_names: frozenset[str]
-    supports_prepared_units: bool
-    supports_audio_job: bool
-    supports_lexicons: bool = False
-    supports_speakers: bool = False
-    supports_model_sources: bool = False
-    supports_qualities: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class EngineSelection:
-    engine: str
-    target_id: str
-    language: str
-    voice: str | None = None
-    speaker: str | int | None = None
-    options: dict[str, Any] | None = None
-    metadata: dict[str, Any] | None = None
-
-
-class EngineSession(Protocol):
-    def prepare_plan(
-        self,
-        plan: UtterancePlan,
-        *,
-        options: dict[str, Any],
-    ) -> AbstractContextManager[Any]: ...
-
-    def to_audio_job(
-        self,
-        plan: UtterancePlan,
-        *,
-        options: dict[str, Any],
-    ) -> Any: ...
-
-
-class EngineAdapter(Protocol):
-    id: str
-
-    def version(self) -> str | None: ...
-    def capabilities(self) -> EngineCapabilities: ...
-    def discover(self, request: Any) -> Any: ...
-    def resolve(self, request: Any) -> tuple[EngineSelection, tuple[Any, ...]]: ...
-    def planner_config(self, selection: EngineSelection, planning: Any) -> Any: ...
-    def open(self, selection: EngineSelection) -> AbstractContextManager[EngineSession]: ...
+from readio.engines.base import (
+    EngineAdapter,
+    EngineCapabilities,
+    EngineSelection,
+    EngineSession,
+)
 
 
 # ---------------------------------------------------------------------------

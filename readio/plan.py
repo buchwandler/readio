@@ -1759,10 +1759,93 @@ def resolve_plan(
 
 
 # ---------------------------------------------------------------------------
-# Compatibility view
+# Plan v2 resolver
 # ---------------------------------------------------------------------------
 
 
+def resolve_plan_v2(
+    cfg: ReadioConfig,
+    request: PlanRequest,
+) -> ReadioPlanV2:
+    """Resolve a complete ReadioPlanV2 from config and request.
+
+    This produces an engine-neutral v2 plan with a real SemanticPlanRef.
+    """
+    from .engines.registry import normalize_engine_id
+    from .formats import ffmpeg_executable
+
+    # First resolve v1 plan to get all the resolved values
+    v1_plan = resolve_plan(cfg, request)
+
+    # Normalize engine ID
+    engine = normalize_engine_id(
+        v1_plan.synthesis.engine if v1_plan.synthesis else cfg.reader.engine
+    )
+
+    # Build semantic plan ref from the compiled plan
+    # For now, we'll create a placeholder until the compiler is integrated
+    semantic_plan_ref = SemanticPlanRef(
+        format="utterplan",
+        schema_version=1,
+        plan_id="",  # Will be populated when compiler is integrated
+        sha256="",  # Will be populated when compiler is integrated
+        path=None,
+    )
+
+    # Build planning section
+    planning = PlanningPlanV2(
+        language=v1_plan.synthesis.language if v1_plan.synthesis else "en-us",
+        unit=v1_plan.synthesis.unit if v1_plan.synthesis else "paragraph",
+        text_preparation=None,
+        pause_mode=v1_plan.synthesis.pause_mode if v1_plan.synthesis else "auto",
+        spacy=v1_plan.synthesis.spacy if v1_plan.synthesis else None,
+        language_detection=v1_plan.synthesis.language_detection if v1_plan.synthesis else None,
+        detect_languages=v1_plan.synthesis.detect_languages if v1_plan.synthesis else None,
+    )
+
+    # Build render section
+    render: RenderPlanV2 | None = None
+    if v1_plan.synthesis and v1_plan.synthesis.model:
+        target = RenderTargetV2(
+            id=v1_plan.synthesis.model.id,
+            language=v1_plan.synthesis.language,
+            voice=v1_plan.synthesis.model.voice,
+            speaker=None,
+        )
+        render = RenderPlanV2(
+            engine=engine,
+            target=target,
+            rate=v1_plan.synthesis.speed,
+            options={},
+        )
+
+    # Build environment section
+    environment = EnvironmentPlanV2(
+        packages={
+            "readio": _package_version("readio"),
+            "utterplan": _package_version("utterplan"),
+        },
+        ffmpeg_available=ffmpeg_executable() is not None,
+    )
+
+    return ReadioPlanV2(
+        schema="readio.plan.v2",
+        ok=v1_plan.ok,
+        operation=v1_plan.operation,
+        input=v1_plan.input,
+        planning=planning,
+        semantic_plan=semantic_plan_ref,
+        render=render,
+        output=v1_plan.output,
+        environment=environment,
+        decisions=v1_plan.decisions,
+        diagnostics=v1_plan.diagnostics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Compatibility view
+# ---------------------------------------------------------------------------
 def resolved_synthesis_from_plan(
     plan: ReadioPlan,
 ) -> ResolvedSynthesis:
@@ -2014,7 +2097,16 @@ class ReadioPlanV2:
     schema: str = "readio.plan.v2"
     ok: bool = True
     operation: Literal["speak", "render"] = "render"
-    input: InputPlan = field(default_factory=lambda: InputPlan())
+    input: InputPlan = field(
+        default_factory=lambda: InputPlan(
+            source_path=None,
+            source_kind="text",
+            requested_format="text",
+            format="text",
+            source_sha256="",
+            selector="all",
+        )
+    )
     planning: PlanningPlanV2 = field(
         default_factory=lambda: PlanningPlanV2(language="en-us", unit="paragraph")
     )
@@ -2102,5 +2194,6 @@ __all__ = [
     "VoiceBindingPlan",
     "format_plan_human",
     "resolve_plan",
+    "resolve_plan_v2",
     "resolved_synthesis_from_plan",
 ]

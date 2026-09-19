@@ -56,39 +56,27 @@ class SemanticPlanningService:
         Returns:
             Immutable UtterancePlan with plan_id and provenance.
         """
-        from utterplan import PlanSource, PlanTexts, TextPreparationInfo
+        from utterplan import PlannerConfig
 
-        # Get combined planner config
-        planner_config = policy.to_planner_config(engine_config)
+        # Get combined planner config as dict
+        config_dict = policy.to_planner_config(engine_config)
+
+        # Create PlannerConfig object
+        planner_config = PlannerConfig(
+            language=config_dict.get("language", "en-us"),
+            document_format=config_dict.get("document_format", "plain"),
+            text_preparation=config_dict.get("text_preparation", "identity"),
+            unit=config_dict.get("unit", "paragraph"),
+        )
 
         # Create planner
         planner = UtterancePlanner(planner_config)
 
-        # Create source
-        source = PlanSource(
-            format=source_format,
-            text=text,
-        )
-
-        # Create texts
-        texts = PlanTexts(
-            structural=text,
-            spoken=text,  # Will be updated by planner
-        )
-
-        # Create preparation info
-        preparation = TextPreparationInfo(
-            backend=policy.text_preparation,
-            version=None,
-            languages=(policy.language,),
-        )
-
         # Compile the plan
         plan = planner.plan(
             text,
-            source=source,
             config=planner_config,
-            document_metadata=document_metadata or {},
+            unit=policy.unit,
         )
 
         # Ensure plan has identity

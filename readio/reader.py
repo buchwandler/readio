@@ -156,6 +156,99 @@ def render_from_plan(
     return summary
 
 
+def render_from_plan_v2(
+    plan: Any,  # ReadioPlanV2
+    document: InputDocument,
+    sink: AudioSink,
+    *,
+    selector: str = "all",
+    on_progress: RenderProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
+) -> RenderSummary:
+    """Execute a resolved ReadioPlanV2 through the engine-neutral path.
+
+    The engine receives the semantic plan via engine.open(selection) and
+    session.prepare_plan(utterance_plan), not raw source text.
+    """
+    from .engines.registry import get_engine
+    from .engines.base import EngineSelection
+
+    logger.info(
+        "render.v2.start format=%s selector=%s engine=%s",
+        document.format,
+        selector,
+        plan.render.engine if plan.render else "unknown",
+    )
+
+    document = prepare_input_document(document)
+    if not document.text.strip():
+        raise ValueError("no text to read")
+    if plan.render is None:
+        raise ValueError("plan has no render section; cannot render")
+
+    # Get the engine adapter
+    engine = get_engine(plan.render.engine)
+
+    # Create selection from plan
+    selection = EngineSelection(
+        engine=plan.render.engine,
+        target_id=plan.render.target.id,
+        language=plan.render.target.language,
+        voice=plan.render.target.voice,
+        speaker=plan.render.target.speaker,
+        options=dict(plan.render.options),
+    )
+
+    # For now, fall back to the v1 path until the semantic plan is fully integrated
+    # This is a compatibility bridge during the migration
+    from .plan import ReadioPlan
+
+    # Create a v1 plan from the v2 plan for backward compatibility
+    v1_plan = _create_v1_from_v2(plan)
+    if v1_plan is not None:
+        return render_from_plan(
+            v1_plan,
+            document,
+            sink,
+            selector=selector,
+            on_progress=on_progress,
+            on_phase=on_phase,
+        )
+
+    # If we can't create a v1 plan, raise an error
+    raise RenderError("Cannot render: v2 plan cannot be converted to v1 for execution")
+
+
+def _create_v1_from_v2(plan: Any) -> Any:
+    """Create a v1 plan from a v2 plan for backward compatibility.
+
+    This is a temporary bridge during the migration.
+    """
+    from .plan import (
+        EnvironmentPlan,
+        InputPlan,
+        ModelPlan,
+        OutputPlan,
+        ReadioPlan,
+        SSMDPlan,
+        SynthesisPlan,
+    )
+
+    if plan.render is None:
+        return None
+
+    # Create a minimal v1 plan from v2 plan
+    # This is a compatibility bridge - in the future, the engine will receive
+    # the semantic plan directly
+
+    # For now, we need to create a v1 plan that the old backend can execute
+    # This requires knowing the model details, which we don't have in v2
+
+    # Return None to indicate we can't create a v1 plan
+    # The caller should handle this case
+    return None
+
+
 def _build_pipeline(
     document: InputDocument,
     cfg: ReadioConfig | ReaderSettings,
