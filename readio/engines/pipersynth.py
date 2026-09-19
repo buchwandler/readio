@@ -12,11 +12,10 @@ from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
+from audiocompose import AudioJob
 from utterplan import UtterancePlan
 
-from audiocompose import AudioJob
-
-from .base import EngineAdapter, EngineCapabilities, EngineSelection, EngineSession
+from .base import EngineCapabilities, EngineSelection
 from .catalog import SynthesisTarget
 
 logger = logging.getLogger(__name__)
@@ -159,8 +158,8 @@ class PiperSynthEngineAdapter:
     ) -> Any:
         """Return the planner configuration needed for this selection."""
         try:
-            from pipersynth.planning import planner_config_from_pipersynth
             from pipersynth.config import PipelineConfig
+            from pipersynth.planning import planner_config_from_pipersynth
         except ImportError:
             return None
 

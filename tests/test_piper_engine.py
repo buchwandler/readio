@@ -9,12 +9,7 @@ These tests verify:
 
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
-
 from readio.engines.registry import normalize_engine_id
-
 
 # ---------------------------------------------------------------------------
 # Canonical ID tests

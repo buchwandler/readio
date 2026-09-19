@@ -10,12 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from readio.document import InputDocument
 from readio.planning.compiler import CompiledSemanticPlan, compile_semantic_plan
 from readio.planning.policy import PlanningPolicy
-
 
 # ---------------------------------------------------------------------------
 # Helper fixtures

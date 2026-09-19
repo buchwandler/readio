@@ -12,9 +12,8 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from utterplan import UtterancePlan
-
 from audiocompose import AudioJob
+from utterplan import UtterancePlan
 
 
 @dataclass(frozen=True, slots=True)

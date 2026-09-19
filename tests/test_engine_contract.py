@@ -6,20 +6,13 @@ They validate the production contract from readio.engines.base.
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
-from typing import Any
-
-import pytest
-
 from utterplan import UtterancePlan
 
 from readio.engines.base import (
     EngineAdapter,
     EngineCapabilities,
-    EngineSelection,
     EngineSession,
 )
-
 
 # ---------------------------------------------------------------------------
 # Architecture invariant tests
@@ -83,8 +76,8 @@ class TestPlanV2EnvironmentIsEngineNeutral:
 
     def test_plan_schema_v2_exists(self) -> None:
         """readio.plan.v2 schema must exist."""
-        from readio.plan import ReadioPlanV2, EnvironmentPlanV2, SemanticPlanRef
-        from pathlib import Path
+
+        from readio.plan import EnvironmentPlanV2, SemanticPlanRef
 
         # Verify v2 classes exist and are engine-neutral
         env = EnvironmentPlanV2(packages={"readio": "0.1.0", "utterplan": "0.1.2"})

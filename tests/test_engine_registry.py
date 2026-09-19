@@ -8,7 +8,6 @@ These tests verify:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -23,7 +22,6 @@ from readio.engines.registry import (
     iter_engines,
     normalize_engine_id,
 )
-
 
 # ---------------------------------------------------------------------------
 # Alias normalization tests
@@ -98,9 +96,11 @@ class TestRegistryFacade:
         """get_engine should raise ValueError for unavailable engines."""
         registry = EngineRegistry()
 
-        with patch("readio.engines.registry._registry", registry):
-            with pytest.raises(ValueError, match="not available"):
-                get_engine("nonexistent")
+        with (
+            patch("readio.engines.registry._registry", registry),
+            pytest.raises(ValueError, match="not available"),
+        ):
+            get_engine("nonexistent")
 
     def test_engine_ids_returns_registered(self) -> None:
         """engine_ids should return canonical IDs of registered engines."""

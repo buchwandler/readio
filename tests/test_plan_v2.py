@@ -9,10 +9,6 @@ These tests verify:
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from readio.plan import (
     EnvironmentPlanV2,
     PlanningPlanV2,
@@ -21,7 +17,6 @@ from readio.plan import (
     RenderTargetV2,
     SemanticPlanRef,
 )
-
 
 # ---------------------------------------------------------------------------
 # Schema tests

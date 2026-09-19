@@ -41,9 +41,12 @@ def _check_pykokoro() -> dict[str, Any]:
 
     # Check if adapter is available
     try:
-        from .engines.pykokoro import PyKokoroEngineAdapter
+        import importlib.util
 
-        status["adapter"] = True
+        if importlib.util.find_spec("pykokoro") is not None:
+            from .engines.pykokoro import PyKokoroEngineAdapter  # noqa: F401
+
+            status["adapter"] = True
     except ImportError:
         pass
 
@@ -70,9 +73,12 @@ def _check_piper() -> dict[str, Any]:
 
     # Check if adapter is available
     try:
-        from .engines.pipersynth import PiperSynthEngineAdapter
+        import importlib.util
 
-        status["adapter"] = True
+        if importlib.util.find_spec("pipersynth") is not None:
+            from .engines.pipersynth import PiperSynthEngineAdapter  # noqa: F401
+
+            status["adapter"] = True
     except ImportError:
         pass
 

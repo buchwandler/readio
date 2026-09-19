@@ -70,12 +70,11 @@ def compile_semantic_plan(
     try:
         serialized = plan.to_json().encode("utf-8")
         sha256 = _compute_sha256(serialized)
-    except Exception:
+    except (TypeError, ValueError, UnicodeEncodeError):
         # Fallback: use semantic dict hash
         semantic = plan.semantic_dict()
         sha256 = _compute_sha256(json.dumps(semantic, sort_keys=True).encode("utf-8"))
         serialized = None
-
     logger.debug(
         "Compiled semantic plan: plan_id=%s, sha256=%s, segments=%d, units=%d",
         plan_id,

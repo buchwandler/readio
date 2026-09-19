@@ -8,16 +8,11 @@ These tests verify:
 
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
-
 from readio.plan import (
     ReadioPlanV2,
     RenderPlanV2,
     RenderTargetV2,
 )
-
 
 # ---------------------------------------------------------------------------
 # Existence tests

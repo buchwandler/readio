@@ -13,20 +13,15 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from audiocompose import AudioJob
 from utterplan import UtterancePlan
 
-from audiocompose import AudioJob
-
-from .base import EngineAdapter, EngineCapabilities, EngineSelection, EngineSession
+from .base import EngineCapabilities, EngineSelection
 from .catalog import SynthesisTarget
 
 if TYPE_CHECKING:
-    from ..config import ReadioConfig
-    from ..document import InputDocument
     from ..lexicons import LexiconCatalogEntry
-    from ..models import ModelInfo
-    from ..plan import PlanDiagnostic, ReadioPlan, SynthesisCandidate
-    from ..synthesis import ResolvedSynthesis
+    from ..plan import PlanDiagnostic, SynthesisCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +94,7 @@ class PyKokoroEngineAdapter:
         offline = getattr(request, "offline", False)
         refresh = getattr(request, "refresh", False)
 
-        models, result = _discover_pykokoro_model_info(
+        models, _result = _discover_pykokoro_model_info(
             language=language,
             offline=offline,
             refresh=refresh,
@@ -281,8 +276,8 @@ class PyKokoroEngineAdapter:
         planning: Any,
     ) -> Any:
         """Return the planner configuration needed for this selection."""
-        from pykokoro.planning import planner_config_from_pipeline
         from pykokoro import PipelineConfig
+        from pykokoro.planning import planner_config_from_pipeline
 
         # Create a minimal pipeline config for planner config extraction
         cfg = PipelineConfig(

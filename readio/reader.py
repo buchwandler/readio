@@ -170,9 +170,6 @@ def render_from_plan_v2(
     The engine receives the semantic plan via engine.open(selection) and
     session.prepare_plan(utterance_plan), not raw source text.
     """
-    from .engines.registry import get_engine
-    from .engines.base import EngineSelection
-
     logger.info(
         "render.v2.start format=%s selector=%s engine=%s",
         document.format,
@@ -186,22 +183,9 @@ def render_from_plan_v2(
     if plan.render is None:
         raise ValueError("plan has no render section; cannot render")
 
-    # Get the engine adapter
-    engine = get_engine(plan.render.engine)
-
-    # Create selection from plan
-    selection = EngineSelection(
-        engine=plan.render.engine,
-        target_id=plan.render.target.id,
-        language=plan.render.target.language,
-        voice=plan.render.target.voice,
-        speaker=plan.render.target.speaker,
-        options=dict(plan.render.options),
-    )
-
+    # Note: engine selection is handled by the v1 compatibility bridge
     # For now, fall back to the v1 path until the semantic plan is fully integrated
     # This is a compatibility bridge during the migration
-    from .plan import ReadioPlan
 
     # Create a v1 plan from the v2 plan for backward compatibility
     v1_plan = _create_v1_from_v2(plan)
@@ -224,15 +208,6 @@ def _create_v1_from_v2(plan: Any) -> Any:
 
     This is a temporary bridge during the migration.
     """
-    from .plan import (
-        EnvironmentPlan,
-        InputPlan,
-        ModelPlan,
-        OutputPlan,
-        ReadioPlan,
-        SSMDPlan,
-        SynthesisPlan,
-    )
 
     if plan.render is None:
         return None
