@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import normalize_language_key
+from .engines.catalog import CatalogResult
+from .engines.discovery import discover_targets
+from .engines.registry import normalize_engine_id
 from .models import ModelDiscoveryError, ModelInfo, discover_model_info
 
 RUNNABLE_STATUSES = frozenset({"ready", "experimental"})
@@ -169,13 +172,66 @@ def build_voice_catalog(
     )
 
 
+def _piper_voice_catalog(
+    *,
+    offline: bool,
+    refresh: bool,
+    language: str | None,
+    engine: str,
+) -> tuple[tuple[VoiceCatalogEntry, ...], CatalogResult]:
+    """Project Piper targets for legacy voice CLI compatibility."""
+    result = discover_targets(
+        engine=engine,
+        language=language,
+        offline=offline,
+        refresh=refresh,
+    )
+    entries = tuple(
+        VoiceCatalogEntry(
+            selector=target.id,
+            number=index,
+            id=target.id,
+            gender="unknown",
+            language=target.languages[0] if target.languages else "unknown",
+            locale=target.languages[0] if target.languages else "unknown",
+            language_label=(
+                str(
+                    target.metadata.get("region")
+                    or target.metadata.get("language_family")
+                    or "unknown"
+                )
+            ),
+            model=target.id,
+            source="pipersynth",
+            default=False,
+            status=target.status,
+            experimental=target.status == "experimental",
+            runtime_available=target.runtime_available,
+            distribution_id=target.id,
+            provider="piper",
+            engine="piper",
+        )
+        for index, target in enumerate(result.targets, start=1)
+    )
+    return entries, result
+
+
 def discover_voice_catalog(
     *,
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
     engine: str | None = None,
+    language: str | None = None,
 ) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
+    canonical_engine = normalize_engine_id(engine) if engine is not None else None
+    if canonical_engine == "piper":
+        return _piper_voice_catalog(
+            offline=offline,
+            refresh=refresh,
+            language=language,
+            engine=canonical_engine,
+        )
     models, result = discover_model_info(
         offline=offline, refresh=refresh, preference=preference, backend=engine
     )

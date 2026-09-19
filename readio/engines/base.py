@@ -43,6 +43,10 @@ class EngineSelection:
     options: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
+    # Runtime/discovery policy is kept separate from acoustic render options.
+    offline: bool = False
+    refresh: bool = False
+
 
 class EngineSession(Protocol):
     """The rendering part of an engine session consumed by Readio."""

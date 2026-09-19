@@ -246,6 +246,76 @@ def test_input_format_option_and_live_markdown_restriction():
         _validate_live(live)
 
 
+def test_piper_live_mode_is_rejected(monkeypatch):
+    from readio.config import ReadioConfig
+
+    cfg = ReadioConfig()
+    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    for command in ("speak", "render"):
+        args = build_parser().parse_args([command, "--live", "--engine", "piper"])
+        with pytest.raises(ValueError, match="Live streaming is not yet supported"):
+            if command == "speak":
+                cli._cmd_speak(args)
+            else:
+                cli._cmd_render(args)
+
+
+def test_synthesis_parser_exposes_speaker_and_asset_policy():
+    args = build_parser().parse_args(
+        [
+            "plan",
+            "hello",
+            "--speaker",
+            "narrator",
+            "--offline",
+            "--refresh",
+        ]
+    )
+    assert args.speaker == "narrator"
+    assert args.offline is True
+    assert args.refresh is True
+
+
+def test_speak_uses_v2_execution_bundle(monkeypatch):
+    from types import SimpleNamespace
+
+    from readio.config import ReadioConfig
+    from readio.document import document_from_text
+
+    cfg = ReadioConfig()
+    resolved = SimpleNamespace(
+        plan=SimpleNamespace(ok=True),
+        document=document_from_text("hello"),
+    )
+    calls = []
+
+    class FakePlayback:
+        def __init__(self, reader):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def finish(self):
+            calls.append("finish")
+
+    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    monkeypatch.setattr(cli, "resolve_execution_v2", lambda cfg, request: resolved)
+    monkeypatch.setattr(
+        cli,
+        "render_from_plan",
+        lambda bundle, document, sink, **kwargs: calls.append(bundle),
+    )
+    monkeypatch.setattr(cli, "PlaybackSink", FakePlayback)
+
+    args = build_parser().parse_args(["speak", "hello"])
+    assert cli._cmd_speak(args) == 0
+    assert calls == [resolved, "finish"]
+
+
 @contextmanager
 def _sink_passthrough(path, audio_format):
     yield path

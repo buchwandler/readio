@@ -86,6 +86,18 @@ readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 ```
 
+Piper voice bundles are discovered through PiperSynth without loading ONNX during planning:
+
+```bash
+readio voices list --engine piper --lang de
+readio plan --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt" --json
+readio speak --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt"
+readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest -o article.wav --text "Hallo Welt"
+readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
+```
+
+Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Piper live mode is not supported yet; use bounded input.
+
 Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 
 Persist a validated default per language. Language keys are normalized, and locale-specific profiles fall back to their base language:

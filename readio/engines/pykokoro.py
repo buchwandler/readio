@@ -55,6 +55,7 @@ class PyKokoroEngineAdapter:
     """PyKokoro implementation of the EngineAdapter protocol."""
 
     id = "pykokoro"
+    package_name = "pykokoro"
 
     def version(self) -> str | None:
         try:

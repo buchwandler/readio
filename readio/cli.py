@@ -67,7 +67,6 @@ from .plan import (
     SynthesisRequest,
     format_plan_human,
     resolve_execution_v2,
-    resolve_plan,
 )
 from .progress import TerminalProgress
 from .reader import (
@@ -155,10 +154,13 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         "--engine",
         help="synthesis backend; default from configuration",
     )
+    parser.add_argument("--offline", action="store_true", help="do not fetch engine assets")
+    parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
     parser.add_argument(
         "--voice",
         help="voice selector or canonical backend voice ID, e.g. de-1 or af_sarah",
     )
+    parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
     parser.add_argument("--model", help="runtime model ID")
     parser.add_argument(
@@ -427,6 +429,18 @@ def _validate_live(args: argparse.Namespace) -> None:
         raise ValueError("--live requires piped stdin")
 
 
+def _reject_piper_live(args: argparse.Namespace, cfg: ReadioConfig) -> None:
+    """Reject Piper live mode until an engine-neutral streaming contract exists."""
+    from .engines.registry import normalize_engine_id
+
+    engine = getattr(args, "engine", None) or cfg.reader.engine
+    if normalize_engine_id(engine) == "piper":
+        raise ValueError(
+            "Live streaming is not yet supported by the Piper engine path. "
+            "Use bounded input or omit --live."
+        )
+
+
 def _prompt_for_missing_voices(
     result: object,
     cfg: ReadioConfig,
@@ -506,20 +520,22 @@ def _cmd_speak(args: argparse.Namespace) -> int:
     if args.live:
         _normalize_positional_input(args)
         cfg = _resolved_config(args)
+        _reject_piper_live(args, cfg)
         args._resolved_synthesis = resolve_synthesis(cfg, args)
         _validate_live(args)
         speak_live(sys.stdin, cfg, unit=args.unit, synthesis=args._resolved_synthesis)
         return 0
 
     cfg = _resolved_config(args)
+    _reject_piper_live(args, cfg)
     request = _build_plan_request(args, cfg, operation="speak", allow_interactive=True)
-    plan = resolve_plan(cfg, request)
-    if not plan.ok:
+    resolved = resolve_execution_v2(cfg, request)
+    if not resolved.plan.ok:
         raise RenderError("speak plan is not executable")
     with PlaybackSink(cfg.reader) as sink:
         render_from_plan(
-            plan,
-            request.input.document,
+            resolved,
+            resolved.document,
             sink,
             selector=request.input.selector,
         )
@@ -616,6 +632,7 @@ def _build_plan_request(
         quality=getattr(args, "quality", None),
         voice=getattr(args, "voice", None),
         lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) is not None else None,
+        speaker=getattr(args, "speaker", None),
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),
         auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
         g2p_fallback=getattr(args, "g2p_fallback", None),
@@ -667,13 +684,13 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     """Resolve and display the synthesis plan without loading TTS."""
     cfg = _resolved_config(args)
     request = _build_plan_request(args, cfg, operation="render")
-    plan = resolve_plan(cfg, request)
+    resolved = resolve_execution_v2(cfg, request)
+    plan = resolved.plan
 
     if getattr(args, "json", False):
         print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
     else:
         print(format_plan_human(plan))
-
     return 0 if plan.ok else 1
 
 
@@ -754,17 +771,15 @@ def _cmd_render(args: argparse.Namespace) -> int:
             "does not execute a bounded ReadioPlan"
         )
     cfg = _resolved_config(args)
+    _reject_piper_live(args, cfg)
 
     if args.live:
         return _render_cli_live(args, cfg)
 
     dry_run = bool(getattr(args, "dry_run", False))
     request = _build_plan_request(args, cfg, operation="render", allow_interactive=not dry_run)
-    if dry_run:
-        plan = resolve_plan(cfg, request)
-    else:
-        resolved = resolve_execution_v2(cfg, request)
-        plan = resolved.plan
+    resolved = resolve_execution_v2(cfg, request)
+    plan = resolved.plan
 
     if dry_run or not plan.ok:
         # A rejected plan is the structured render failure; no TTS is loaded.
@@ -1268,8 +1283,16 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
 def _cmd_voices(args: argparse.Namespace) -> int:
     if hasattr(args, "roles_command"):
         return _cmd_roles(args)
+    language = getattr(args, "lang", None) or getattr(args, "language", None)
+    from .engines.registry import normalize_engine_id
+
+    canonical_engine = normalize_engine_id(args.engine) if args.engine else None
     entries, discovery = discover_voice_catalog(
-        offline=args.offline, refresh=args.refresh, preference=args.preference, engine=args.engine
+        offline=args.offline,
+        refresh=args.refresh,
+        preference=args.preference,
+        engine=canonical_engine,
+        language=language,
     )
     if args.voices_command == "list":
         language = getattr(args, "lang", None) or getattr(args, "language", None)
@@ -1278,7 +1301,6 @@ def _cmd_voices(args: argparse.Namespace) -> int:
             language=language,
             gender=args.gender,
             model=args.model,
-            engine=args.engine,
         )
         payload = {
             "ok": True,
@@ -1287,7 +1309,7 @@ def _cmd_voices(args: argparse.Namespace) -> int:
                 "language": language,
                 "gender": args.gender,
                 "model": args.model,
-                "engine": args.engine,
+                "engine": canonical_engine,
             },
             "voices": [entry.to_dict() for entry in voices],
         }

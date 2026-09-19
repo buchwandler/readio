@@ -123,3 +123,39 @@ def test_selector_resolution_expands_canonical_identity(monkeypatch) -> None:
         "github",
         "martin",
     )
+
+
+def test_piper_discovery_projects_voice_bundle_targets(monkeypatch) -> None:
+    import readio.voices as voices_module
+    from readio.engines.catalog import CatalogResult, SynthesisTarget
+
+    target = SynthesisTarget(
+        engine="piper",
+        id="de_DE-thorsten-medium",
+        display_name="Thorsten",
+        languages=("de-DE",),
+        qualities=("medium",),
+        metadata={"language_family": "de", "region": "DE"},
+    )
+    monkeypatch.setattr(
+        voices_module,
+        "discover_targets",
+        lambda **kwargs: CatalogResult(
+            targets=(target,),
+            registry_source="engine-adapters",
+            offline=kwargs["offline"],
+            refreshed=kwargs["refresh"],
+        ),
+    )
+
+    entries, result = voices_module.discover_voice_catalog(
+        engine="pipersynth",
+        language="de",
+        offline=True,
+        refresh=True,
+    )
+    assert result.offline is True
+    assert result.refreshed is True
+    assert entries[0].engine == "piper"
+    assert entries[0].selector == "de_DE-thorsten-medium"
+    assert entries[0].id == "de_DE-thorsten-medium"

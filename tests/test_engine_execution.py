@@ -232,3 +232,15 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
     assert adapter.received_plan is resolved.semantic.plan
     assert sink.sample_rate == 24000
     assert result.composition.items[0].item_id == resolved.semantic.plan.units[0].id
+
+
+def test_explicit_engine_switch_does_not_inherit_reader_voice() -> None:
+    from readio.plan import _resolve_synthesis_candidate
+
+    cfg = ReadioConfig(reader=ReaderSettings(engine="pykokoro", voice="af_sarah"))
+    candidate = _resolve_synthesis_candidate(
+        cfg,
+        SynthesisRequest(engine="piper", language="de"),
+    )
+    assert candidate.engine == "piper"
+    assert candidate.voice is None

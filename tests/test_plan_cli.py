@@ -24,8 +24,8 @@ class TestPlanCommand:
         code = args.func(args)
         assert code == 0
         output = capsys.readouterr().out
-        assert "Synthesis" in output
-        assert "No TTS model was loaded" in output
+        assert "Planning" in output
+        assert "Semantic plan" in output
 
     def test_plan_json_output(self, capsys) -> None:
         parser = build_parser()
@@ -34,9 +34,9 @@ class TestPlanCommand:
         assert code == 0
         output = capsys.readouterr().out
         data = json.loads(output)
-        assert data["schema"] == "readio.plan.v1"
+        assert data["schema"] == "readio.plan.v2"
         assert data["ok"] is True
-        assert "synthesis" in data
+        assert "render" in data
 
     def test_plan_with_model(self, capsys) -> None:
         parser = build_parser()
@@ -57,7 +57,7 @@ class TestPlanCommand:
         assert code == 0
         output = capsys.readouterr().out
         data = json.loads(output)
-        assert data["synthesis"]["model"]["id"] == "de-thorsten"
+        assert data["render"]["target"]["id"] == "de-thorsten"
 
     def test_plan_with_format(self, capsys) -> None:
         parser = build_parser()
@@ -86,8 +86,8 @@ class TestRenderDryRun:
         code = args.func(args)
         assert code == 0
         output = capsys.readouterr().out
-        assert "Synthesis" in output
-        assert "No TTS model was loaded" in output
+        assert "Planning" in output
+        assert "Semantic plan" in output
 
     def test_render_dry_run_json(self, capsys) -> None:
         parser = build_parser()
@@ -96,8 +96,9 @@ class TestRenderDryRun:
         assert code == 0
         output = capsys.readouterr().out
         data = json.loads(output)
-        assert data["schema"] == "readio.plan.v1"
+        assert data["schema"] == "readio.plan.v2"
         assert data["ok"] is True
+        assert "render" in data
 
     def test_render_dry_run_with_model(self, capsys) -> None:
         parser = build_parser()
@@ -119,7 +120,7 @@ class TestRenderDryRun:
         assert code == 0
         output = capsys.readouterr().out
         data = json.loads(output)
-        assert data["synthesis"]["model"]["id"] == "de-thorsten"
+        assert data["render"]["target"]["id"] == "de-thorsten"
 
 
 class TestPlanDryRunEquivalence:
@@ -171,8 +172,8 @@ class TestPlanDryRunEquivalence:
         assert plan_data["ok"] == render_data["ok"]
 
         # Synthesis should match
-        assert plan_data["synthesis"]["model"]["id"] == render_data["synthesis"]["model"]["id"]
-        assert plan_data["synthesis"]["language"] == render_data["synthesis"]["language"]
+        assert plan_data["render"]["target"]["id"] == render_data["render"]["target"]["id"]
+        assert plan_data["planning"]["language"] == render_data["planning"]["language"]
 
 
 class TestResolveVoicesRejection:

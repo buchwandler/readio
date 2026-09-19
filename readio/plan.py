@@ -169,6 +169,7 @@ class SynthesisRequest:
     quality: str | None = None
     voice: str | None = None
     lexicons: tuple[str, ...] | None = None
+    speaker: str | int | None = None
     clear_lexicons: bool = False
     auto_lexicons: bool = False
     spacy: str | None = None
@@ -1012,7 +1013,19 @@ def _resolve_synthesis_candidate(
         )
 
     # Global reader voice fallback (only when no model, no CLI lang, no profile)
-    if voice is None and model is None and not cli_language and profile is None:
+    # A global reader voice may only cross into the selected engine when the
+    # request did not explicitly switch engines.
+    from .engines.registry import normalize_engine_id
+
+    selected_engine = normalize_engine_id(engine or cfg.reader.engine)
+    reader_engine = normalize_engine_id(cfg.reader.engine)
+    if (
+        voice is None
+        and model is None
+        and not cli_language
+        and profile is None
+        and (request.engine is None or selected_engine == reader_engine)
+    ):
         voice = cfg.reader.voice
         if voice is not None:
             decisions.append(
@@ -1855,7 +1868,10 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             target_id=candidate.model or candidate.voice,
             language=candidate.language,
             voice=candidate.voice,
+            speaker=request.synthesis.speaker,
             options=options,
+            offline=request.synthesis.offline,
+            refresh=request.synthesis.refresh,
         )
         try:
             selection, engine_diags = adapter.resolve(engine_request)
@@ -1864,6 +1880,11 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             if validate_selection is not None:
                 try:
                     diagnostics.extend(validate_selection(selection))
+                    target_metadata = getattr(adapter, "target_metadata", None)
+                    if target_metadata is not None:
+                        metadata = target_metadata(selection)
+                        if metadata:
+                            selection = replace(selection, metadata=dict(metadata))
                 except (ImportError, AttributeError, TypeError, ValueError) as exc:
                     diagnostics.append(
                         PlanDiagnostic(
@@ -1931,6 +1952,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                 language=selection.language,
                 voice=selection.voice,
                 speaker=selection.speaker,
+                metadata=dict(selection.metadata),
             )
             render = RenderPlanV2(
                 engine=selection.engine,
@@ -1949,11 +1971,17 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                 )
             )
 
+    environment_packages = {
+        "readio": _package_version("readio"),
+        "utterplan": _package_version("utterplan"),
+    }
+    if adapter is not None:
+        engine_version = adapter.version()
+        if engine_version is not None:
+            package_name = getattr(adapter, "package_name", engine_id)
+            environment_packages[package_name] = engine_version
     environment = EnvironmentPlanV2(
-        packages={
-            "readio": _package_version("readio"),
-            "utterplan": _package_version("utterplan"),
-        },
+        packages=environment_packages,
         ffmpeg_available=ffmpeg_executable() is not None,
     )
     ssmd_bindings: list[VoiceBindingPlan] = []
@@ -2239,6 +2267,7 @@ class RenderTargetV2:
     language: str
     voice: str | None = None
     speaker: str | int | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -2249,6 +2278,8 @@ class RenderTargetV2:
             d["voice"] = self.voice
         if self.speaker is not None:
             d["speaker"] = self.speaker
+        if self.metadata:
+            d["metadata"] = dict(self.metadata)
         return d
 
 

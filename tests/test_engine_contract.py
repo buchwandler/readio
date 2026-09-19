@@ -123,3 +123,30 @@ class TestEngineSpecificOptionIsRejectedForWrongEngine:
         assert "speaker" in caps.option_names
         assert "noise_scale" in caps.option_names
         assert "lexicons" not in caps.option_names
+
+
+class TestEngineRequestPolicy:
+    """Discovery/runtime policy must be explicit engine request data."""
+
+    def test_request_carries_offline_and_refresh(self) -> None:
+        from readio.engines.selection import EngineRequest
+
+        request = EngineRequest(offline=True, refresh=True)
+        assert request.offline is True
+        assert request.refresh is True
+
+    def test_selection_carries_policy_separately_from_options(self) -> None:
+        from readio.engines.base import EngineSelection
+
+        selection = EngineSelection(
+            engine="piper",
+            target_id="voice",
+            language="de",
+            options={"length_scale": 0.5},
+            offline=True,
+            refresh=True,
+        )
+        assert selection.offline is True
+        assert selection.refresh is True
+        assert "offline" not in selection.options
+        assert "refresh" not in selection.options

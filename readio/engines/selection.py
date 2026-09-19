@@ -25,6 +25,8 @@ class EngineRequest:
     voice: str | None = None
     speaker: str | int | None = None
     options: Mapping[str, Any] = field(default_factory=dict)
+    offline: bool = False
+    refresh: bool = False
 
 
 @dataclass(frozen=True, slots=True)

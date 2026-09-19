@@ -69,6 +69,39 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     assert shown["voice"]["model"] == "de-model"
 
 
+def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+    piper_entry = VoiceCatalogEntry(
+        selector="de_DE-thorsten-medium",
+        number=1,
+        id="de_DE-thorsten-medium",
+        gender="unknown",
+        language="de",
+        locale="de-DE",
+        language_label="DE",
+        model="de_DE-thorsten-medium",
+        source="pipersynth",
+        default=False,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+        engine="piper",
+    )
+    monkeypatch.setattr(
+        cli,
+        "discover_voice_catalog",
+        lambda **kwargs: (
+            (piper_entry,),
+            SimpleNamespace(registry_source="engine-adapters", cache_fallback=False),
+        ),
+    )
+    args = cli.build_parser().parse_args(["voices", "list", "--engine", "pipersynth", "--json"])
+    assert cli._cmd_voices(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["filters"]["engine"] == "piper"
+    assert payload["voices"][0]["engine"] == "piper"
+
+
 def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     cfg = config(tmp_path)
     saved = []

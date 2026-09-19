@@ -31,6 +31,12 @@ class PlanningPolicy:
     language_detection: str | None = None
     detect_languages: tuple[str, ...] = ()
 
+    pauses: Any | None = None
+    linguistics: Any | None = None
+    ssmd: Any | None = None
+    overlap_mode: str = "snap"
+    diagnostics: bool = True
+
     def to_planner_config(self, engine_config: Any = None) -> dict[str, Any]:
         """Convert to a planner configuration dict.
 
@@ -46,7 +52,13 @@ class PlanningPolicy:
             "text_preparation": self.text_preparation,
             "document_format": self.document_format,
             "pause_mode": self.pause_mode,
+            "overlap_mode": self.overlap_mode,
+            "diagnostics": self.diagnostics,
         }
+        for key in ("pauses", "linguistics", "ssmd"):
+            value = getattr(self, key)
+            if value is not None:
+                config[key] = value
 
         if self.ssmd_provider is not None:
             config["ssmd_provider"] = self.ssmd_provider
@@ -69,19 +81,11 @@ class PlanningPolicy:
                     for key in getattr(engine_config, "__dataclass_fields__", {})
                     if getattr(engine_config, key, None) is not None
                 }
-            semantic_keys = {
-                "language",
-                "unit",
-                "text_preparation",
-                "document_format",
-                "pause_mode",
-                "ssmd_provider",
-                "ssmd_voice_bindings",
-                "spacy",
-                "language_aliases",
-                "language_detection",
-                "detect_languages",
-            }
+            from dataclasses import fields
+
+            from utterplan import PlannerConfig
+
+            semantic_keys = {item.name for item in fields(PlannerConfig)}
             config.update({key: value for key, value in values.items() if key in semantic_keys})
 
         return config

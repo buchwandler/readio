@@ -124,3 +124,28 @@ class TestSemanticPlanIdentityAcousticInvariant:
         # Note: This depends on the engine_config not affecting the UtterancePlan identity
         # If engine_config affects the plan, this test should be adjusted
         assert plan1.plan_id == plan2.plan_id
+
+
+def test_semantic_compiler_preserves_full_planner_config() -> None:
+    from utterplan.config import LinguisticsConfig, PauseConfig, SSMDConfig
+
+    policy = _make_policy()
+    result = compile_semantic_plan(
+        _make_document("Hello world"),
+        planning=policy,
+        engine_config={
+            "pauses": PauseConfig(sentence=1.25),
+            "linguistics": LinguisticsConfig(use_spacy=False, spacy_model_size="lg"),
+            "ssmd": SSMDConfig(unknown_header="ignore"),
+            "overlap_mode": "strict",
+            "language_aliases": {"en": "en-us"},
+            "diagnostics": False,
+        },
+    )
+
+    config = result.plan.semantic_dict()["config"]
+    assert config["pauses"]["sentence"] == 1.25
+    assert config["linguistics"]["spacy_model_size"] == "lg"
+    assert config["ssmd"]["unknown_header"] == "ignore"
+    assert config["overlap_mode"] == "strict"
+    assert config["language_aliases"] == {"en": "en-us"}

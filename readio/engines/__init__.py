@@ -10,6 +10,7 @@ from .base import (
     EngineSession,
 )
 from .catalog import SynthesisTarget
+from .discovery import discover_targets
 from .registry import (
     CANONICAL_ENGINE_IDS,
     ENGINE_ALIASES,
@@ -31,6 +32,7 @@ __all__ = [
     "EngineSession",
     "SynthesisTarget",
     "default_engine",
+    "discover_targets",
     "engine_ids",
     "get_engine",
     "iter_engines",
