@@ -18,8 +18,8 @@ def _project_dependencies() -> list[str]:
 def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
 
-    assert "pykokoro[playback]>=0.9.9,<0.10" in dependencies
     assert "ssmd>=0.8.7,<0.9" in dependencies
+    assert "pykokoro[playback]>=0.9.9,<0.10" not in dependencies
 
 
 def test_release_ci_targets_released_pykokoro_artifact() -> None:

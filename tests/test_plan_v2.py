@@ -16,6 +16,7 @@ from readio.plan import (
     RenderPlanV2,
     RenderTargetV2,
     SemanticPlanRef,
+    render_identity,
 )
 
 # ---------------------------------------------------------------------------
@@ -225,3 +226,27 @@ class TestPiperPlanHasNoKokoroFields:
         assert "pykokoro_version" not in d.get("environment", {})
         # Engine-specific options should be in render.options
         assert d["render"]["options"]["noise_scale"] == 0.667
+
+
+def test_render_identity_is_acoustic_and_packaging_independent():
+    semantic_sha = "semantic-sha"
+    first = RenderPlanV2(
+        engine="piper",
+        target=RenderTargetV2(id="voice-a", language="en", voice="voice-a"),
+        rate=1.0,
+        options={"length_scale": 1.0},
+    )
+    second = RenderPlanV2(
+        engine="piper",
+        target=RenderTargetV2(id="voice-a", language="en", voice="voice-a"),
+        rate=1.0,
+        options={"length_scale": 1.0},
+    )
+    different_voice = RenderPlanV2(
+        engine="piper",
+        target=RenderTargetV2(id="voice-b", language="en", voice="voice-b"),
+        rate=1.0,
+        options={"length_scale": 1.0},
+    )
+    assert render_identity(semantic_sha, first) == render_identity(semantic_sha, second)
+    assert render_identity(semantic_sha, first) != render_identity(semantic_sha, different_voice)

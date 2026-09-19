@@ -245,8 +245,67 @@ class PyKokoroEngineAdapter:
         ), ()
 
     def validate_selection(self, selection: Any) -> tuple[PlanDiagnostic, ...]:
-        """Validate a concrete selection."""
-        return ()
+        """Validate the resolved model, language, voice, and quality."""
+        from ..models import ModelDiscoveryError, get_model_info, language_matches
+        from ..plan import (
+            DIAG_MODEL_LANGUAGE_INCOMPATIBLE,
+            DIAG_MODEL_NOT_FOUND,
+            DIAG_QUALITY_UNAVAILABLE,
+            DIAG_VOICE_UNAVAILABLE,
+            PlanDiagnostic,
+        )
+
+        options = dict(selection.options)
+        try:
+            model, _result = get_model_info(
+                selection.target_id,
+                offline=bool(options.get("offline", False)),
+                backend=self.id,
+                refresh=bool(options.get("refresh", False)),
+                preference=options.get("model_source", "auto"),
+            )
+        except ModelDiscoveryError as exc:
+            return (
+                PlanDiagnostic(
+                    code=DIAG_MODEL_NOT_FOUND,
+                    severity="error",
+                    message=f"Model {selection.target_id!r} not found: {exc}",
+                    field="render.target.id",
+                ),
+            )
+        diagnostics: list[PlanDiagnostic] = []
+        if not language_matches(selection.language, model.languages):
+            diagnostics.append(
+                PlanDiagnostic(
+                    code=DIAG_MODEL_LANGUAGE_INCOMPATIBLE,
+                    severity="error",
+                    message=(
+                        f"Model {selection.target_id!r} does not declare language "
+                        f"{selection.language!r}."
+                    ),
+                    field="render.target.language",
+                )
+            )
+        if selection.voice is not None and selection.voice not in model.voices:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code=DIAG_VOICE_UNAVAILABLE,
+                    severity="error",
+                    message=f"Voice {selection.voice!r} is not available for model {selection.target_id!r}.",
+                    field="render.target.voice",
+                )
+            )
+        quality = options.get("quality")
+        if quality is not None and quality not in model.qualities:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code=DIAG_QUALITY_UNAVAILABLE,
+                    severity="error",
+                    message=f"Quality {quality!r} is not available for model {selection.target_id!r}.",
+                    field="render.options.quality",
+                )
+            )
+        return tuple(diagnostics)
 
     def resolve(
         self,
@@ -261,7 +320,7 @@ class PyKokoroEngineAdapter:
 
         selection = EngineSelection(
             engine=engine,
-            target_id=getattr(request, "target_id", "default"),
+            target_id=getattr(request, "target_id", None) or "default",
             language=language,
             voice=voice,
             speaker=speaker,
@@ -276,15 +335,18 @@ class PyKokoroEngineAdapter:
         planning: Any,
     ) -> Any:
         """Return the planner configuration needed for this selection."""
-        from pykokoro import PipelineConfig
+        from pykokoro import GenerationConfig, PipelineConfig
         from pykokoro.planning import planner_config_from_pipeline
 
-        # Create a minimal pipeline config for planner config extraction
         cfg = PipelineConfig(
             voice=selection.voice,
-            generation=None,
+            generation=GenerationConfig(
+                speed=float(selection.options.get("speed", 1.0)),
+                lang=selection.language,
+                pause_mode=str(selection.options.get("pause_mode", planning.pause_mode)),
+            ),
         )
-        return planner_config_from_pipeline(cfg)
+        return planner_config_from_pipeline(cfg, unit=planning.unit)
 
     def open(
         self,
@@ -293,12 +355,58 @@ class PyKokoroEngineAdapter:
         """Open a rendering session for the given selection."""
         from pykokoro import GenerationConfig, KokoroPipeline, PipelineConfig
 
-        cfg = PipelineConfig(
-            voice=selection.voice,
-            generation=GenerationConfig(
-                lang=selection.language,
-            ),
+        options = dict(selection.options)
+        generation = GenerationConfig(
+            speed=float(options.get("speed", selection.options.get("rate", 1.0))),
+            lang=selection.language,
+            pause_mode=str(options.get("pause_mode", "tts")),
         )
+        config_kwargs: dict[str, Any] = {
+            "voice": selection.voice,
+            "model_variant": selection.target_id,
+            "model_source": options.get("model_source"),
+            "model_quality": options.get("quality"),
+            "generation": generation,
+            "allow_experimental_frontend": bool(options.get("allow_experimental", False)),
+        }
+        tokenizer_values = {
+            "lexicons": options.get("lexicons"),
+            "fallback": options.get("g2p_fallback"),
+            "lexicon_data_policy": options.get("lexicon_data_policy"),
+        }
+        if options.get("spacy") not in {None, "auto"}:
+            tokenizer_values["use_spacy"] = True
+            tokenizer_values["spacy_model_size"] = options["spacy"]
+        if any(value is not None for value in tokenizer_values.values()):
+            from pykokoro.tokenizer import TokenizerConfig
+
+            config_kwargs["tokenizer_config"] = TokenizerConfig(
+                **{key: value for key, value in tokenizer_values.items() if value is not None}
+            )
+        short_sentence = options.get("short_sentence")
+        if short_sentence not in {None, "auto"}:
+            from pykokoro.short_sentence_handler import ShortSentenceConfig
+
+            if short_sentence == "off":
+                config_kwargs["short_sentence_config"] = ShortSentenceConfig(enabled=False)
+            else:
+                config_kwargs["short_sentence_config"] = ShortSentenceConfig(
+                    enabled=True, resolve_mode=short_sentence
+                )
+        if options.get("ssmd_voice_bindings"):
+            from pykokoro import SSMDRenderConfig
+
+            config_kwargs["ssmd"] = SSMDRenderConfig(
+                voice_bindings={"kokoro": dict(options["ssmd_voice_bindings"])}
+            )
+        if options.get("language_detection") is not None:
+            from pykokoro import LanguageDetectionConfig
+
+            config_kwargs["language_detection"] = LanguageDetectionConfig(
+                mode=options["language_detection"],
+                languages=tuple(options.get("detect_languages") or ()),
+            )
+        cfg = PipelineConfig(**config_kwargs)
         pipeline = KokoroPipeline(cfg)
 
         @contextmanager

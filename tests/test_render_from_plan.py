@@ -12,7 +12,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
+import numpy as np
 import pytest
+from audiocompose import AudioBufferSource, AudioClip, AudioJob
 
 from readio import cli, reader
 from readio.audio import RenderSummary
@@ -50,6 +52,17 @@ class _FakePipeline:
 
         return ctx()
 
+    def to_audio_job_from_plan(self, plan, **overrides):
+        unit = plan.units[0]
+        return AudioJob(
+            items=(
+                AudioClip(
+                    id=unit.id,
+                    source=AudioBufferSource(np.ones(8, dtype=np.float32), 24000),
+                ),
+            ),
+        )
+
 
 @pytest.fixture
 def fake_tts(monkeypatch: pytest.MonkeyPatch):
@@ -73,17 +86,18 @@ def _render(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str]) ->
 
 
 def _capture_plan(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
-    """Wrap cli.resolve_plan to capture the plan resolved during the render."""
+    """Wrap cli.resolve_execution_v2 to capture the resolved plan."""
     captured: dict[str, object] = {}
-    original = cli.resolve_plan
+    original = cli.resolve_execution_v2
 
     def traced(cfg, request: PlanRequest):
-        plan = original(cfg, request)
-        captured["plan"] = plan
+        resolved = original(cfg, request)
+        captured["plan"] = resolved.plan
+        captured["resolved"] = resolved
         captured["request"] = request
-        return plan
+        return resolved
 
-    monkeypatch.setattr(cli, "resolve_plan", traced)
+    monkeypatch.setattr(cli, "resolve_execution_v2", traced)
     return captured
 
 
@@ -91,22 +105,22 @@ def test_normal_render_resolves_plan_before_loading_tts(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
     events: list[str] = []
-    original = cli.resolve_plan
+    original = cli.resolve_execution_v2
 
     def traced(cfg, request: PlanRequest):
-        events.append("resolve_plan")
+        events.append("resolve_execution_v2")
         return original(cfg, request)
 
-    monkeypatch.setattr(cli, "resolve_plan", traced)
+    monkeypatch.setattr(cli, "resolve_execution_v2", traced)
     output = tmp_path / "episode.wav"
     code = _render(
         monkeypatch, tmp_path, ["render", "Hello world", "-o", str(output), "--no-progress"]
     )
 
     assert code == 0
-    assert events == ["resolve_plan"]
+    assert events == ["resolve_execution_v2"]
     assert fake_tts.events == ["load_tts"]
-    assert events + fake_tts.events == ["resolve_plan", "load_tts"]
+    assert events + fake_tts.events == ["resolve_execution_v2", "load_tts"]
 
 
 def test_normal_render_uses_plan_pipeline_config(
@@ -219,7 +233,6 @@ def test_normal_render_uses_plan_ssmd_bindings(
         '<div voice="host">Hello from host.</div>\n<div voice="analyst">Analysis.</div>',
         encoding="utf-8",
     )
-    captured = _capture_plan(monkeypatch)
     output = tmp_path / "cast.wav"
     code = _render(
         monkeypatch,
@@ -235,8 +248,8 @@ def test_normal_render_uses_plan_ssmd_bindings(
         ],
     )
     assert code == 0
-    plan = captured["plan"]
-    expected = {binding.reference: binding.voice for binding in plan.ssmd.bindings}
+    used = fake_tts.instances[0].config
+    expected = dict(used.ssmd.voice_bindings["kokoro"])
     assert expected == {"host": "af_sarah", "analyst": "am_michael"}
     used = fake_tts.instances[0].config
     assert dict(used.ssmd.voice_bindings["kokoro"]) == expected

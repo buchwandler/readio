@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from .plan import ReadioPlan
 
 
-MANIFEST_SCHEMA = "readio.render-manifest.v1"
+RENDER_MANIFEST_SCHEMA_V1 = "readio.render-manifest.v1"
+RENDER_MANIFEST_SCHEMA_V2 = "readio.render-manifest.v2"
+MANIFEST_SCHEMA = RENDER_MANIFEST_SCHEMA_V1
 
 
 def manifest_path_for(output: Path) -> Path:
@@ -107,19 +109,23 @@ def build_render_manifest_v2(
     plan_v2: Any,  # ReadioPlanV2
     summary: RenderSummary,
     output: Path,
+    composition: Any | None = None,
     created_at: datetime | None = None,
 ) -> dict[str, Any]:
-    """Build evidence from the executed v2 plan, render summary, and final artifact.
-
-    This embeds the v2 plan and semantic plan identity.
-    """
+    """Build v2 evidence for one completed bounded render."""
     output_format = plan_v2.output.format
     if output_format is None:
         raise ValueError("render manifest requires a resolved output format")
     if plan_v2.output.encoder_backend is None:
         raise ValueError("render manifest requires a resolved encoder backend")
+    if plan_v2.render is None:
+        raise ValueError("render manifest requires a resolved render section")
+    semantic = plan_v2.semantic_plan
+    if not semantic.plan_id or not semantic.sha256:
+        raise ValueError("render manifest requires a concrete semantic plan identity")
+    if not plan_v2.render.render_id:
+        raise ValueError("render manifest requires a concrete render identity")
 
-    # Compute plan hash from v2 plan
     plan_json = json.dumps(
         plan_v2.to_dict(),
         sort_keys=True,
@@ -127,9 +133,18 @@ def build_render_manifest_v2(
         ensure_ascii=False,
     ).encode("utf-8")
     plan_hash = hashlib.sha256(plan_json).hexdigest()
+    composition_sample_rate = (
+        composition.sample_rate if composition is not None else summary.sample_rate
+    )
+    composition_sample_count = (
+        int(composition.audio.shape[0]) if composition is not None else summary.sample_count
+    )
+    composition_markers = composition.markers if composition is not None else summary.markers
+    composition_spans = composition.spans if composition is not None else ()
+    composition_items = composition.items if composition is not None else ()
 
     return {
-        "schema": MANIFEST_SCHEMA,
+        "schema": RENDER_MANIFEST_SCHEMA_V2,
         "ok": True,
         "created_at": _created_at(created_at),
         "plan": {
@@ -137,8 +152,26 @@ def build_render_manifest_v2(
             "resolved": plan_v2.to_dict(),
         },
         "semantic_plan": {
-            "plan_id": plan_v2.semantic_plan.plan_id,
-            "sha256": plan_v2.semantic_plan.sha256,
+            "format": semantic.format,
+            "schema_version": semantic.schema_version,
+            "plan_id": semantic.plan_id,
+            "sha256": semantic.sha256,
+        },
+        "render": plan_v2.render.to_dict(),
+        "composition": {
+            "sample_rate": composition_sample_rate,
+            "sample_count": composition_sample_count,
+            "duration_ms": round(composition_sample_count * 1000 / composition_sample_rate),
+            "items": json_value(composition_items),
+            "markers": json_value(composition_markers),
+            "spans": json_value(composition_spans),
+        },
+        "output": {
+            "path": str(output),
+            "format": output_format,
+            "encoder_backend": plan_v2.output.encoder_backend,
+            "byte_count": output.stat().st_size,
+            "sha256": file_sha256(output),
         },
         "result": {
             "output": {
@@ -149,13 +182,13 @@ def build_render_manifest_v2(
                 "sha256": file_sha256(output),
             },
             "audio": {
-                "sample_rate": summary.sample_rate,
-                "sample_count": summary.sample_count,
+                "sample_rate": composition_sample_rate,
+                "sample_count": composition_sample_count,
                 "channels": summary.channels,
-                "duration_ms": round(summary.sample_count * 1000 / summary.sample_rate),
+                "duration_ms": round(composition_sample_count * 1000 / composition_sample_rate),
             },
             "document_metadata": json_value(summary.document_metadata),
-            "markers": json_value(summary.markers),
+            "markers": json_value(composition_markers),
         },
     }
 

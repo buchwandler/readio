@@ -10,7 +10,7 @@ from readio import cli
 from readio.audio import RenderSummary
 from readio.config import PathSettings, ReadioConfig
 from readio.errors import ManifestError
-from readio.manifest import MANIFEST_SCHEMA, manifest_path_for
+from readio.manifest import RENDER_MANIFEST_SCHEMA_V2, manifest_path_for
 
 
 def _workspace_cfg(tmp_path: Path) -> ReadioConfig:
@@ -82,8 +82,6 @@ def test_manifest_render_embeds_exact_plan_and_preserves_human_stdout(
 ) -> None:
     cfg = _workspace_cfg(tmp_path)
     output = tmp_path / "episode.wav"
-    captured: dict[str, object] = {}
-    resolve_calls = 0
 
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
@@ -101,18 +99,6 @@ def test_manifest_render_embeds_exact_plan_and_preserves_human_stdout(
         ),
     )
 
-    def resolve(config, request):
-        nonlocal resolve_calls
-        resolve_calls += 1
-        plan = _fake_plan(
-            request.output.requested_path,
-            text=request.input.document.text,
-            force=request.output.force,
-        )
-        captured["plan"] = plan
-        return plan
-
-    monkeypatch.setattr(cli, "resolve_plan", resolve)
     args = cli.build_parser().parse_args(
         ["render", "Hello world", "-o", str(output), "--manifest", "--no-progress"]
     )
@@ -121,9 +107,9 @@ def test_manifest_render_embeds_exact_plan_and_preserves_human_stdout(
 
     sidecar = manifest_path_for(output)
     manifest = json.loads(sidecar.read_text(encoding="utf-8"))
-    assert resolve_calls == 1
-    assert manifest["schema"] == MANIFEST_SCHEMA
-    assert manifest["plan"]["resolved"] == captured["plan"].to_dict()
+    assert manifest["schema"] == RENDER_MANIFEST_SCHEMA_V2
+    assert manifest["semantic_plan"]["plan_id"]
+    assert manifest["render"]["render_id"]
     assert manifest["result"]["output"]["sha256"]
     assert manifest["result"]["document_metadata"] == {"title": "Überblick"}
     assert manifest["result"]["markers"] == [{"label": "start", "sample_offset": 12}]
@@ -137,7 +123,6 @@ def test_json_render_result_is_additive_with_and_without_manifest(
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
     monkeypatch.setattr(cli, "render_from_plan", _stub_render())
-    _patch_plan(monkeypatch)
 
     output_without = tmp_path / "without.wav"
     args_without = cli.build_parser().parse_args(
@@ -163,7 +148,7 @@ def test_json_render_result_is_additive_with_and_without_manifest(
     assert cli._cmd_render(args_with) == 0
     result_with = json.loads(capsys.readouterr().out)
     assert result_with["manifest"] == {
-        "schema": MANIFEST_SCHEMA,
+        "schema": RENDER_MANIFEST_SCHEMA_V2,
         "path": str(manifest_path_for(output_with)),
     }
 
@@ -176,7 +161,6 @@ def test_manifest_write_failure_preserves_audio_and_exposes_both_paths(
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
     monkeypatch.setattr(cli, "render_from_plan", _stub_render())
-    _patch_plan(monkeypatch)
 
     def fail_write(path, payload):
         raise OSError("read-only sidecar directory")
@@ -220,7 +204,6 @@ def test_failed_render_does_not_create_audio_or_manifest(
     output = tmp_path / "episode.wav"
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-    _patch_plan(monkeypatch)
 
     def fail_render(plan, document, path, *, selector="all", **kwargs):
         path.write_bytes(b"temporary audio")
@@ -245,7 +228,6 @@ def test_force_rerender_replaces_manifest_with_new_execution_evidence(
     output = tmp_path / "episode.wav"
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-    _patch_plan(monkeypatch)
 
     calls = 0
 

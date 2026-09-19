@@ -173,11 +173,20 @@ class PiperSynthEngineAdapter:
         selection: EngineSelection,
     ) -> AbstractContextManager[PiperSynthEngineSession]:
         """Open a rendering session for the given selection."""
-        from pipersynth import PiperPipeline
+        from pipersynth import GenerationConfig, PiperPipeline
 
+        options = dict(selection.options)
+        generation = GenerationConfig(
+            speaker=selection.speaker,
+            length_scale=options.get("length_scale"),
+            noise_scale=options.get("noise_scale"),
+            noise_w_scale=options.get("noise_w_scale"),
+            normalize_audio=bool(options.get("normalize_audio", True)),
+        )
         pipeline = PiperPipeline.from_pretrained(
             voice=selection.voice or selection.target_id,
             language=selection.language,
+            generation=generation,
         )
 
         @contextmanager

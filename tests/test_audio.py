@@ -4,7 +4,13 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from readio.audio import PlaybackSink, RenderProgress, render_prepared
+from readio.audio import (
+    PlaybackSink,
+    RenderedUnit,
+    RenderProgress,
+    render_prepared,
+    render_to_audio_job,
+)
 from readio.config import ReaderConfig
 
 
@@ -202,3 +208,19 @@ def test_soundfile_sink_matches_audio_sink_write_contract() -> None:
         "audio",
         "sample_rate",
     ]
+
+
+def test_render_to_audio_job_uses_stable_plan_unit_id():
+    job = render_to_audio_job(
+        [
+            RenderedUnit(
+                index=0,
+                plan_unit_id="unit-stable-id",
+                content_hash="content-hash",
+                audio=np.ones(4, dtype=np.float32),
+                sample_rate=24000,
+            )
+        ]
+    )
+    assert job.items[0].id == "unit-stable-id"
+    assert job.items[0].metadata["content_hash"] == "content-hash"

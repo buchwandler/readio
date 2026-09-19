@@ -253,7 +253,7 @@ def render_to_audio_job(
         if unit.audio.size > 0:
             items.append(
                 AudioClip(
-                    id=f"unit:{unit.index}",
+                    id=unit.plan_unit_id,
                     source=AudioBufferSource(unit.audio, unit.sample_rate),
                     metadata={
                         "plan_unit_id": unit.plan_unit_id,

@@ -62,19 +62,21 @@ def compile_semantic_plan(
 
     service = SemanticPlanningService()
     plan = service.compile_from_document(document, planning, engine_config)
-
-    # Compute identity
+    # Compute identity after the compiler has materialized UtterPlan identity.
+    plan = plan.with_identity()
     plan_id = plan.plan_id or ""
+    if not plan_id:
+        raise ValueError("semantic compiler returned an empty plan identity")
 
-    # Compute SHA-256 of the canonical serialized form
+    # Compute SHA-256 of the exact canonical serialized artifact.
     try:
         serialized = plan.to_json().encode("utf-8")
-        sha256 = _compute_sha256(serialized)
     except (TypeError, ValueError, UnicodeEncodeError):
-        # Fallback: use semantic dict hash
         semantic = plan.semantic_dict()
-        sha256 = _compute_sha256(json.dumps(semantic, sort_keys=True).encode("utf-8"))
-        serialized = None
+        serialized = json.dumps(
+            semantic, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    sha256 = _compute_sha256(serialized)
     logger.debug(
         "Compiled semantic plan: plan_id=%s, sha256=%s, segments=%d, units=%d",
         plan_id,

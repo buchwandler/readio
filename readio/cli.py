@@ -53,7 +53,8 @@ from .lexicons import (
 from .logging_config import MAX_VERBOSITY, configure_logging
 from .manifest import (
     MANIFEST_SCHEMA,
-    build_render_manifest,
+    RENDER_MANIFEST_SCHEMA_V2,
+    build_render_manifest_v2,
     manifest_path_for,
     write_render_manifest,
 )
@@ -65,6 +66,7 @@ from .plan import (
     PlanRequest,
     SynthesisRequest,
     format_plan_human,
+    resolve_execution_v2,
     resolve_plan,
 )
 from .progress import TerminalProgress
@@ -714,6 +716,7 @@ def _emit_render_result(
     summary: RenderSummary,
     *,
     manifest_path: Path | None = None,
+    manifest_schema: str = MANIFEST_SCHEMA,
 ) -> None:
     if args.json:
         print(
@@ -729,7 +732,7 @@ def _emit_render_result(
                     "markers": _json_value(summary.markers),
                     "manifest": (
                         {
-                            "schema": MANIFEST_SCHEMA,
+                            "schema": manifest_schema,
                             "path": str(manifest_path),
                         }
                         if manifest_path is not None
@@ -757,7 +760,11 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
     dry_run = bool(getattr(args, "dry_run", False))
     request = _build_plan_request(args, cfg, operation="render", allow_interactive=not dry_run)
-    plan = resolve_plan(cfg, request)
+    if dry_run:
+        plan = resolve_plan(cfg, request)
+    else:
+        resolved = resolve_execution_v2(cfg, request)
+        plan = resolved.plan
 
     if dry_run or not plan.ok:
         # A rejected plan is the structured render failure; no TTS is loaded.
@@ -767,7 +774,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
             print(format_plan_human(plan))
         return 0 if plan.ok else 1
 
-    document = request.input.document
+    document = resolved.document
     output = plan.output.path
     audio_format = plan.output.format
     if output is None or audio_format is None:
@@ -784,7 +791,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
             create_audio_sink(temporary, audio_format) as sink,
         ):
             summary = render_from_plan(
-                plan,
+                resolved,
                 document,
                 sink,
                 selector=request.input.selector,
@@ -795,7 +802,11 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if getattr(args, "manifest", False):
         manifest_path = manifest_path_for(output)
         try:
-            manifest = build_render_manifest(plan=plan, summary=summary, output=output)
+            manifest = build_render_manifest_v2(
+                plan_v2=plan,
+                summary=summary,
+                output=output,
+            )
             write_render_manifest(manifest_path, manifest)
         except (OSError, TypeError, ValueError) as exc:
             raise ManifestError(
@@ -809,6 +820,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
         audio_format,
         summary,
         manifest_path=manifest_path,
+        manifest_schema=RENDER_MANIFEST_SCHEMA_V2,
     )
     return 0
 

@@ -7,9 +7,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base import EngineSelection
+
+if TYPE_CHECKING:
+    from ..plan import RenderPlanV2
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +20,7 @@ class EngineRequest:
     """Request for engine selection."""
 
     engine: str | None = None
+    target_id: str | None = None
     language: str | None = None
     voice: str | None = None
     speaker: str | int | None = None
@@ -29,6 +33,18 @@ class EngineResolution:
 
     selection: EngineSelection
     diagnostics: tuple[Any, ...] = ()
+
+
+def engine_selection_from_render_plan(render: RenderPlanV2) -> EngineSelection:
+    """Convert a resolved render plan into its concrete engine selection."""
+    return EngineSelection(
+        engine=render.engine,
+        target_id=render.target.id,
+        language=render.target.language,
+        voice=render.target.voice,
+        speaker=render.target.speaker,
+        options=dict(render.options),
+    )
 
 
 def validate_engine_option(
@@ -52,6 +68,7 @@ def reject_incompatible_options(
 __all__ = [
     "EngineRequest",
     "EngineResolution",
+    "engine_selection_from_render_plan",
     "reject_incompatible_options",
     "validate_engine_option",
 ]

@@ -8,6 +8,7 @@ that produces a ``ReadioPlan`` before any TTS loading occurs.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -23,7 +24,7 @@ from .config import (
     normalize_spacy_policy,
 )
 from .document import InputDocument, InputFormat, InputFormatRequest, resolve_input_format
-from .errors import SSMDInputError
+from .errors import RenderError, SSMDInputError
 from .formats import (
     AudioFormat,
     audio_format_available,
@@ -1763,63 +1764,191 @@ def resolve_plan(
 # ---------------------------------------------------------------------------
 
 
-def resolve_plan_v2(
-    cfg: ReadioConfig,
-    request: PlanRequest,
-) -> ReadioPlanV2:
-    """Resolve a complete ReadioPlanV2 from config and request.
-
-    This produces an engine-neutral v2 plan with a real SemanticPlanRef.
-    """
-    from .engines.registry import normalize_engine_id
+def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
+    """Resolve a serializable v2 plan and its in-memory execution artifacts."""
+    from .engines.base import EngineSelection
+    from .engines.registry import get_engine, normalize_engine_id
+    from .engines.selection import EngineRequest
+    from .execution import ResolvedExecutionV2
     from .formats import ffmpeg_executable
+    from .planning import PlanningPolicy, compile_semantic_plan
+    from .planning.compiler import CompiledSemanticPlan
 
-    # First resolve v1 plan to get all the resolved values
-    v1_plan = resolve_plan(cfg, request)
+    input_plan, effective_doc, input_diags = _plan_input(request.input, cfg)
+    diagnostics: list[PlanDiagnostic] = list(input_diags)
+    decisions: list[ResolutionDecision] = []
 
-    # Normalize engine ID
-    engine = normalize_engine_id(
-        v1_plan.synthesis.engine if v1_plan.synthesis else cfg.reader.engine
+    document_language_detection: tuple[str, tuple[str, ...]] | None = None
+    if effective_doc.format == "ssmd":
+        from .ssmd import language_detection_hint
+
+        try:
+            document_language_detection = language_detection_hint(effective_doc.text)
+        except SSMDInputError as exc:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="ssmd.language_detection_invalid",
+                    severity="error",
+                    message=str(exc),
+                    field="synthesis.language_detection",
+                    source_path=effective_doc.source_path,
+                )
+            )
+
+    candidate = _resolve_synthesis_candidate(cfg, request.synthesis, document_language_detection)
+    decisions.extend(candidate.decisions)
+    engine_id = normalize_engine_id(candidate.engine or cfg.reader.engine)
+    adapter = None
+    selection: EngineSelection | None = None
+    semantic: CompiledSemanticPlan | None = None
+
+    try:
+        adapter = get_engine(engine_id)
+    except (ImportError, ValueError) as exc:
+        diagnostics.append(
+            PlanDiagnostic(
+                code="engine_unavailable",
+                severity="error",
+                message=str(exc),
+                field="synthesis.engine",
+            )
+        )
+
+    if adapter is not None:
+        resolve_defaults = getattr(adapter, "resolve_defaults", None)
+        if resolve_defaults is not None:
+            try:
+                candidate, default_diags = resolve_defaults(candidate)
+                diagnostics.extend(default_diags)
+                decisions = list(candidate.decisions)
+            except (ImportError, AttributeError, TypeError, ValueError) as exc:
+                diagnostics.append(
+                    PlanDiagnostic(
+                        code="engine_resolution_failed",
+                        severity="error",
+                        message=f"{engine_id} default resolution failed: {exc}",
+                        field="synthesis.engine",
+                    )
+                )
+
+        options: dict[str, Any] = {
+            "rate": candidate.speed,
+            "speed": candidate.speed,
+            "pause_mode": candidate.pause_mode,
+            "spacy": candidate.spacy,
+            "short_sentence": candidate.short_sentence,
+            "allow_experimental": candidate.allow_experimental,
+            "ssmd_voice_bindings": dict(request.voice_bindings),
+        }
+        optional_options = {
+            "model_source": candidate.source,
+            "quality": candidate.quality,
+            "lexicons": candidate.lexicons,
+            "g2p_fallback": candidate.g2p_fallback,
+            "lexicon_data_policy": candidate.lexicon_data_policy,
+            "language_detection": candidate.language_detection,
+            "detect_languages": candidate.detect_languages,
+        }
+        options.update({key: value for key, value in optional_options.items() if value is not None})
+        engine_request = EngineRequest(
+            engine=engine_id,
+            target_id=candidate.model or candidate.voice,
+            language=candidate.language,
+            voice=candidate.voice,
+            options=options,
+        )
+        try:
+            selection, engine_diags = adapter.resolve(engine_request)
+            diagnostics.extend(engine_diags)
+            validate_selection = getattr(adapter, "validate_selection", None)
+            if validate_selection is not None:
+                try:
+                    diagnostics.extend(validate_selection(selection))
+                except (ImportError, AttributeError, TypeError, ValueError) as exc:
+                    diagnostics.append(
+                        PlanDiagnostic(
+                            code="engine_validation_failed",
+                            severity="error",
+                            message=f"{engine_id} selection validation failed: {exc}",
+                            field="synthesis.engine",
+                        )
+                    )
+        except (ImportError, AttributeError, TypeError, ValueError) as exc:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="engine_resolution_failed",
+                    severity="error",
+                    message=f"{engine_id} selection failed: {exc}",
+                    field="synthesis.engine",
+                )
+            )
+
+    output_plan, output_diags, output_decisions = _plan_output(
+        request.output, cfg, input_plan=input_plan
     )
+    diagnostics.extend(output_diags)
+    decisions.extend(output_decisions)
 
-    # Build semantic plan ref from the compiled plan
-    # For now, we'll create a placeholder until the compiler is integrated
-    semantic_plan_ref = SemanticPlanRef(
-        format="utterplan",
-        schema_version=1,
-        plan_id="",  # Will be populated when compiler is integrated
-        sha256="",  # Will be populated when compiler is integrated
-        path=None,
-    )
-
-    # Build planning section
     planning = PlanningPlanV2(
-        language=v1_plan.synthesis.language if v1_plan.synthesis else "en-us",
-        unit=v1_plan.synthesis.unit if v1_plan.synthesis else "paragraph",
-        text_preparation=None,
-        pause_mode=v1_plan.synthesis.pause_mode if v1_plan.synthesis else "auto",
-        spacy=v1_plan.synthesis.spacy if v1_plan.synthesis else None,
-        language_detection=v1_plan.synthesis.language_detection if v1_plan.synthesis else None,
-        detect_languages=v1_plan.synthesis.detect_languages if v1_plan.synthesis else None,
+        language=candidate.language,
+        unit=candidate.unit,
+        text_preparation="identity",
+        pause_mode=candidate.pause_mode,
+        spacy=candidate.spacy,
+        language_detection=candidate.language_detection,
+        detect_languages=candidate.detect_languages,
     )
-
-    # Build render section
+    semantic_plan_ref = SemanticPlanRef()
     render: RenderPlanV2 | None = None
-    if v1_plan.synthesis and v1_plan.synthesis.model:
-        target = RenderTargetV2(
-            id=v1_plan.synthesis.model.id,
-            language=v1_plan.synthesis.language,
-            voice=v1_plan.synthesis.model.voice,
-            speaker=None,
-        )
-        render = RenderPlanV2(
-            engine=engine,
-            target=target,
-            rate=v1_plan.synthesis.speed,
-            options={},
-        )
 
-    # Build environment section
+    if adapter is not None and selection is not None:
+        policy = PlanningPolicy(
+            language=candidate.language,
+            unit=candidate.unit,
+            text_preparation="identity",
+            document_format="ssmd" if effective_doc.format == "ssmd" else "plain",
+            ssmd_provider=adapter.capabilities().ssmd_provider,
+            ssmd_voice_bindings=dict(request.voice_bindings),
+            pause_mode=candidate.pause_mode,
+            spacy_policy=candidate.spacy,
+            language_detection=candidate.language_detection,
+            detect_languages=tuple(candidate.detect_languages or ()),
+        )
+        try:
+            planner_config = adapter.planner_config(selection, policy)
+            semantic = compile_semantic_plan(
+                effective_doc, planning=policy, engine_config=planner_config
+            )
+            semantic_plan_ref = SemanticPlanRef(
+                format="utterplan",
+                schema_version=semantic.plan.schema_version,
+                plan_id=semantic.plan_id,
+                sha256=semantic.sha256,
+                path=None,
+            )
+            target = RenderTargetV2(
+                id=selection.target_id,
+                language=selection.language,
+                voice=selection.voice,
+                speaker=selection.speaker,
+            )
+            render = RenderPlanV2(
+                engine=selection.engine,
+                target=target,
+                rate=candidate.speed,
+                options=dict(selection.options),
+            )
+            render = replace(render, render_id=render_identity(semantic.sha256, render))
+        except (ImportError, AttributeError, TypeError, ValueError, RenderError) as exc:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="semantic_plan_failed",
+                    severity="error",
+                    message=f"semantic plan compilation failed: {exc}",
+                    field="planning",
+                )
+            )
+
     environment = EnvironmentPlanV2(
         packages={
             "readio": _package_version("readio"),
@@ -1827,20 +1956,94 @@ def resolve_plan_v2(
         },
         ffmpeg_available=ffmpeg_executable() is not None,
     )
+    ssmd_bindings: list[VoiceBindingPlan] = []
+    ssmd_unresolved: list[str] = []
+    if effective_doc.format == "ssmd":
+        from .ssmd import resolve_voice_references
 
-    return ReadioPlanV2(
+        try:
+            settings = cfg.voices.get(cfg.ssmd.voice_provider)
+            available = settings.ids if settings is not None else ()
+            resolved_refs = resolve_voice_references(
+                effective_doc.text,
+                cfg,
+                available_voices=available or None,
+                additional_bindings=dict(request.voice_bindings),
+            )
+            for item in resolved_refs:
+                if item.voice is None:
+                    ssmd_unresolved.append(item.reference)
+                    diagnostics.append(
+                        PlanDiagnostic(
+                            code=DIAG_SSMD_UNRESOLVED_VOICE,
+                            severity="error",
+                            message=f"Cannot resolve SSMD voice reference {item.reference!r}.",
+                            field=f"ssmd.bindings.{item.reference}",
+                        )
+                    )
+                    continue
+                ssmd_bindings.append(
+                    VoiceBindingPlan(
+                        reference=item.reference,
+                        voice=item.voice,
+                        origin=item.origin,
+                        locator=item.locator,
+                    )
+                )
+                decisions.append(
+                    ResolutionDecision(
+                        field=f"ssmd.bindings.{item.reference}",
+                        value=item.voice,
+                        origin=item.origin,
+                        locator=item.locator,
+                    )
+                )
+        except SSMDInputError as exc:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="ssmd_parse_error",
+                    severity="error",
+                    message=str(exc),
+                    field="ssmd",
+                    source_path=effective_doc.source_path,
+                )
+            )
+    if selection is not None and ssmd_bindings:
+        bindings = {item.reference: item.voice for item in ssmd_bindings}
+        selection = replace(
+            selection,
+            options={**selection.options, "ssmd_voice_bindings": bindings},
+        )
+        if render is not None:
+            render = replace(
+                render,
+                options={**render.options, "ssmd_voice_bindings": bindings},
+            )
+    has_errors = any(d.severity == "error" for d in diagnostics)
+    plan = ReadioPlanV2(
         schema="readio.plan.v2",
-        ok=v1_plan.ok,
-        operation=v1_plan.operation,
-        input=v1_plan.input,
+        ok=not has_errors and semantic is not None and selection is not None,
+        operation=request.operation,
+        input=input_plan,
         planning=planning,
         semantic_plan=semantic_plan_ref,
         render=render,
-        output=v1_plan.output,
+        output=output_plan,
         environment=environment,
-        decisions=v1_plan.decisions,
-        diagnostics=v1_plan.diagnostics,
+        decisions=tuple(decisions),
+        diagnostics=tuple(diagnostics),
     )
+    return ResolvedExecutionV2(
+        plan=plan,
+        semantic=semantic,
+        document=effective_doc,
+        selection=selection,
+    )
+
+
+def resolve_plan_v2(cfg: ReadioConfig, request: PlanRequest) -> ReadioPlanV2:
+    """Resolve the serializable engine-neutral v2 plan."""
+    return resolve_execution_v2(cfg, request).plan
 
 
 # ---------------------------------------------------------------------------
@@ -1896,6 +2099,8 @@ def resolved_synthesis_from_plan(
 
 def format_plan_human(plan: ReadioPlan) -> str:
     """Format a plan for human-readable terminal output."""
+    if hasattr(plan, "planning") and not hasattr(plan, "synthesis"):
+        return format_plan_v2_human(plan)
     lines: list[str] = []
 
     lines.append("Input")
@@ -1988,6 +2193,24 @@ def format_plan_human(plan: ReadioPlan) -> str:
 # =========================================================================
 
 
+def render_identity(semantic_sha256: str, render: RenderPlanV2) -> str:
+    """Return the deterministic identity of an acoustic render."""
+    payload = {
+        "semantic_plan_sha256": semantic_sha256,
+        "engine": render.engine,
+        "target": render.target.to_dict(),
+        "rate": render.rate,
+        "options": dict(render.options),
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 @dataclass(frozen=True, slots=True)
 class SemanticPlanRef:
     """Reference to a persisted UtterancePlan."""
@@ -2038,12 +2261,15 @@ class RenderPlanV2:
     rate: float = 1.0
     options: dict[str, Any] = field(default_factory=dict)
 
+    render_id: str | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "engine": self.engine,
             "target": self.target.to_dict(),
             "rate": self.rate,
             "options": dict(self.options),
+            "render_id": self.render_id,
         }
 
 
@@ -2143,6 +2369,44 @@ class ReadioPlanV2:
 
     def to_json_dict(self) -> dict[str, Any]:
         return self.to_dict()
+
+
+def format_plan_v2_human(plan: ReadioPlanV2) -> str:
+    """Format an engine-neutral v2 plan for terminal output."""
+    lines = [
+        "Input",
+        f"  Source:    {plan.input.source_path or '(stdin)'}",
+        f"  Format:    {plan.input.format}",
+        f"  SHA256:    {plan.input.source_sha256[:16]}...",
+        "",
+        "Planning",
+        f"  Language:  {plan.planning.language}",
+        f"  Unit:      {plan.planning.unit}",
+        f"  Pause:     {plan.planning.pause_mode}",
+        "",
+        "Semantic plan",
+        f"  Plan ID:   {plan.semantic_plan.plan_id or '(none)'}",
+        f"  SHA256:    {plan.semantic_plan.sha256 or '(none)'}",
+    ]
+    if plan.render is not None:
+        lines.extend(
+            [
+                "",
+                "Render",
+                f"  Engine:    {plan.render.engine}",
+                f"  Target:    {plan.render.target.id}",
+                f"  Voice:     {plan.render.target.voice or '(none)'}",
+                f"  Render ID: {plan.render.render_id or '(none)'}",
+            ]
+        )
+    if plan.output.format is not None:
+        lines.extend(["", "Output", f"  Format:    {plan.output.format}"])
+    if plan.diagnostics:
+        lines.extend(["", "Diagnostics"])
+        lines.extend(f"  [{d.code}] {d.message}" for d in plan.diagnostics)
+    lines.append("")
+    lines.append("Plan is executable." if plan.ok else "Plan has errors.")
+    return "\n".join(lines)
 
 
 __all__ = [

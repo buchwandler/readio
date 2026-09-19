@@ -8,10 +8,25 @@ These tests verify:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
+import numpy as np
+from audiocompose import AudioBufferSource, AudioClip, AudioJob
+
+from readio.config import ReaderSettings, ReadioConfig
+from readio.document import document_from_text
+from readio.engines.base import EngineCapabilities, EngineSelection
+from readio.engines.registry import _registry
+from readio.execution import execute_bounded_v2
 from readio.plan import (
+    InputRequest,
+    OutputRequest,
+    PlanRequest,
     ReadioPlanV2,
     RenderPlanV2,
     RenderTargetV2,
+    SynthesisRequest,
+    resolve_execution_v2,
 )
 
 # ---------------------------------------------------------------------------
@@ -115,3 +130,105 @@ class TestPlanNotReResolvedDuringExecution:
         plan2 = dataclasses.replace(plan, ok=False)
         assert plan.ok is True
         assert plan2.ok is False
+
+
+def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
+    class FakeSession:
+        def __init__(self, adapter):
+            self.adapter = adapter
+
+        def to_audio_job(self, plan, *, options):
+            self.adapter.received_plan = plan
+            self.adapter.received_options = dict(options)
+            unit = plan.units[0]
+            clip = AudioClip(
+                id=unit.id,
+                source=AudioBufferSource(np.ones(16, dtype=np.float32), 24000),
+                metadata={"plan_unit_id": unit.id},
+            )
+            return AudioJob(items=(clip,))
+
+    class FakeAdapter:
+        id = "fake"
+
+        def __init__(self):
+            self.resolve_calls = 0
+            self.open_calls = 0
+            self.discover_calls = 0
+            self.received_plan = None
+            self.received_options = None
+
+        def version(self):
+            return "fake-1"
+
+        def capabilities(self):
+            return EngineCapabilities(id=self.id, ssmd_provider="fake")
+
+        def discover(self, request):
+            self.discover_calls += 1
+            return ()
+
+        def resolve(self, request):
+            self.resolve_calls += 1
+            return (
+                EngineSelection(
+                    engine=self.id,
+                    target_id=request.target_id or "fake-target",
+                    language=request.language or "en-us",
+                    voice=request.voice,
+                    options=dict(request.options),
+                ),
+                (),
+            )
+
+        def planner_config(self, selection, planning):
+            return None
+
+        def open(self, selection):
+            self.open_calls += 1
+            assert selection.target_id == "fake-voice"
+
+            @contextmanager
+            def session():
+                yield FakeSession(self)
+
+            return session()
+
+    adapter = FakeAdapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=document_from_text("hello world")),
+        synthesis=SynthesisRequest(engine="fake", voice="fake-voice"),
+        output=OutputRequest(mode="file", requested_path=tmp_path / "out.wav"),
+    )
+
+    resolved = resolve_execution_v2(cfg, request)
+    assert resolved.plan.ok
+    assert resolved.semantic is not None
+    assert resolved.plan.semantic_plan.plan_id
+    assert resolved.plan.semantic_plan.sha256
+    assert resolved.plan.render is not None
+    assert resolved.plan.render.render_id
+    assert adapter.resolve_calls == 1
+    assert adapter.discover_calls == 0
+
+    class Sink:
+        def __init__(self):
+            self.audio = None
+            self.sample_rate = None
+
+        def write(self, audio, sample_rate):
+            self.audio = audio
+            self.sample_rate = sample_rate
+
+        def close(self):
+            pass
+
+    sink = Sink()
+    result = execute_bounded_v2(resolved, sink)
+    assert adapter.open_calls == 1
+    assert adapter.received_plan is resolved.semantic.plan
+    assert sink.sample_rate == 24000
+    assert result.composition.items[0].item_id == resolved.semantic.plan.units[0].id
