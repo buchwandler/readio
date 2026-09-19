@@ -4,6 +4,7 @@ The project format deliberately keeps semantic, acoustic, composition, and
 encoding identities separate.  Loaders are strict about the format and schema
 markers so corrupted or unrelated directories fail early.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -38,7 +39,11 @@ class PlanScope:
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"id": self.id, "kind": self.kind, "path": self.path}
-        for key, value in (("title", self.title), ("plan_id", self.plan_id), ("sha256", self.sha256)):
+        for key, value in (
+            ("title", self.title),
+            ("plan_id", self.plan_id),
+            ("sha256", self.sha256),
+        ):
             if value is not None:
                 result[key] = value
         return result
@@ -157,15 +162,29 @@ class ProjectManifest:
             source_path=_require_string(source.get("path"), "source.path"),
             source_format=_require_string(source.get("format"), "source.format"),
             source_sha256=_require_string(source.get("sha256"), "source.sha256"),
-            document_metadata_path=_require_string(document.get("metadata_path"), "document.metadata_path"),
+            document_metadata_path=_require_string(
+                document.get("metadata_path"), "document.metadata_path"
+            ),
             document_text_path=_require_string(document.get("text_path"), "document.text_path"),
             plan_index_path=_require_string(plan.get("index_path"), "plan.index_path"),
-            synthesis_profile_path=_require_string(synthesis.get("profile_path"), "active_synthesis.profile_path"),
-            synthesis_trace_path=_require_string(synthesis.get("trace_path"), "active_synthesis.trace_path"),
-            composition_audiojob_path=_require_string(composition.get("audiojob_path"), "composition.audiojob_path"),
-            composition_state_path=_require_string(composition.get("state_path"), "composition.state_path"),
-            composition_master_path=_require_string(composition.get("master_path"), "composition.master_path"),
-            composition_timeline_path=_require_string(composition.get("timeline_path"), "composition.timeline_path"),
+            synthesis_profile_path=_require_string(
+                synthesis.get("profile_path"), "active_synthesis.profile_path"
+            ),
+            synthesis_trace_path=_require_string(
+                synthesis.get("trace_path"), "active_synthesis.trace_path"
+            ),
+            composition_audiojob_path=_require_string(
+                composition.get("audiojob_path"), "composition.audiojob_path"
+            ),
+            composition_state_path=_require_string(
+                composition.get("state_path"), "composition.state_path"
+            ),
+            composition_master_path=_require_string(
+                composition.get("master_path"), "composition.master_path"
+            ),
+            composition_timeline_path=_require_string(
+                composition.get("timeline_path"), "composition.timeline_path"
+            ),
             outputs=outputs,
             settings=settings,
         )
@@ -179,7 +198,12 @@ class StageStatus:
     details: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"stage": self.stage, "state": self.state, "reason": self.reason, **dict(self.details)}
+        return {
+            "stage": self.stage,
+            "state": self.state,
+            "reason": self.reason,
+            **dict(self.details),
+        }
 
 
 __all__ = ["PlanIndex", "PlanScope", "ProjectFormatError", "ProjectManifest", "StageStatus"]

@@ -1,4 +1,5 @@
 """Engine-neutral selection of persisted UtterancePlan units."""
+
 from __future__ import annotations
 
 import re
@@ -47,12 +48,16 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
     if normalized in {"last-paragraph", "last:paragraph"}:
         paragraphs = [_paragraphs_for_unit(plan, unit) for unit in units]
         last = max((value for values in paragraphs for value in values), default=0)
-        selected = tuple(int(unit.index) for unit, values in zip(units, paragraphs) if last in values)
+        selected = tuple(
+            int(unit.index) for unit, values in zip(units, paragraphs) if last in values
+        )
         if not selected:
             raise SelectionError("the plan contains no last paragraph")
         return UnitSelection(selected, "last-paragraph")
     if ":" not in normalized:
-        raise SelectionError("selector must be all, first:N, last:N, paragraph:N[-M], sentence:N[-M], or unit:N[-M]")
+        raise SelectionError(
+            "selector must be all, first:N, last:N, paragraph:N[-M], sentence:N[-M], or unit:N[-M]"
+        )
     kind, raw = normalized.split(":", 1)
     if kind in {"first", "last", "unit"}:
         start, end = _range(raw, kind)
@@ -73,16 +78,14 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
     if kind == "sentence" and all(getattr(unit, "kind", "") == "sentence" for unit in units):
         selected_units = units[start - 1 : end]
         if not selected_units:
-            raise SelectionError(f"sentence {start} is out of range; plan has {len(units)} sentences")
+            raise SelectionError(
+                f"sentence {start} is out of range; plan has {len(units)} sentences"
+            )
         return UnitSelection(tuple(int(unit.index) for unit in selected_units), normalized)
     selected: list[int] = []
     by_id = {segment.id: segment for segment in getattr(plan, "segments", ())}
     for unit in units:
-        values = {
-            int(getattr(by_id[sid], kind, 0)) + 1
-            for sid in unit.segment_ids
-            if sid in by_id
-        }
+        values = {int(getattr(by_id[sid], kind, 0)) + 1 for sid in unit.segment_ids if sid in by_id}
         if any(start <= value <= end for value in values):
             selected.append(int(unit.index))
     if not selected:

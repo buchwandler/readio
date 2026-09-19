@@ -11,14 +11,22 @@ def test_semantic_planning_does_not_resolve_engine_and_is_acoustic_invariant(mon
 
     monkeypatch.setattr("readio.engines.registry.get_engine", fail)
     document = document_from_text("Hello.\n\nWorld.")
-    first = resolve_semantic_planning(ReadioConfig(reader=ReaderSettings(engine="fake", voice="one")), document)
-    second = resolve_semantic_planning(ReadioConfig(reader=ReaderSettings(engine="other", voice="two")), document)
+    first = resolve_semantic_planning(
+        ReadioConfig(reader=ReaderSettings(engine="fake", voice="one")), document
+    )
+    second = resolve_semantic_planning(
+        ReadioConfig(reader=ReaderSettings(engine="other", voice="two")), document
+    )
     assert first.compiled.plan_id == second.compiled.plan_id
     assert first.compiled.plan.units
 
 
 def test_semantic_policy_changes_identity():
     document = document_from_text("Hello.\n\nWorld.")
-    first = resolve_semantic_planning(ReadioConfig(reader=ReaderSettings(unit="sentence")), document)
-    second = resolve_semantic_planning(ReadioConfig(reader=ReaderSettings(unit="paragraph")), document)
+    first = resolve_semantic_planning(
+        ReadioConfig(reader=ReaderSettings(unit="sentence")), document
+    )
+    second = resolve_semantic_planning(
+        ReadioConfig(reader=ReaderSettings(unit="paragraph")), document
+    )
     assert first.compiled.plan_id != second.compiled.plan_id

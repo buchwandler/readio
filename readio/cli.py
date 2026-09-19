@@ -709,7 +709,9 @@ def _project_synthesis_request(args: argparse.Namespace, project: object) -> Pla
     )
     return PlanRequest(
         operation="render",
-        input=InputRequest(document=project.document(), selector=getattr(args, "select", "all"), source_kind="file"),
+        input=InputRequest(
+            document=project.document(), selector=getattr(args, "select", "all"), source_kind="file"
+        ),
         synthesis=synthesis,
         output=OutputRequest(mode="file", requested_format="wav", force=True),
         voice_bindings=bindings,
@@ -720,7 +722,11 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     cfg = _resolved_config(args)
     result = synthesize_project(
-        project, cfg, request=_project_synthesis_request(args, project), selector=args.select, activate=True
+        project,
+        cfg,
+        request=_project_synthesis_request(args, project),
+        selector=args.select,
+        activate=True,
     )
     payload = {
         "ok": True,
@@ -736,7 +742,6 @@ def _cmd_synth(args: argparse.Namespace) -> int:
         print(f"Synthesis profile: {payload['profile_id']}")
         print(f"Synthesis cache: {payload['reused']} reused, {payload['rendered']} rendered")
     return 0
-
 
 
 def _cmd_compose(args: argparse.Namespace) -> int:
@@ -758,13 +763,14 @@ def _cmd_compose(args: argparse.Namespace) -> int:
 
 def _cmd_export(args: argparse.Namespace) -> int:
     project = load_project(args.project)
-    result = export_project(project, audio_format=args.format, bitrate=args.bitrate, output=args.output)
+    result = export_project(
+        project, audio_format=args.format, bitrate=args.bitrate, output=args.output
+    )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
     else:
         print(result["path"])
     return 0
-
 
 
 def _cmd_preview(args: argparse.Namespace) -> int:
@@ -781,7 +787,9 @@ def _cmd_preview(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
     else:
-        print(f"Preview: {result['items']} units, {result['rendered']} synthesized, {result['reused']} reused")
+        print(
+            f"Preview: {result['items']} units, {result['rendered']} synthesized, {result['reused']} reused"
+        )
         if result["output"] is not None:
             print(result["output"])
     return 0
@@ -790,14 +798,15 @@ def _cmd_preview(args: argparse.Namespace) -> int:
 def _cmd_project_render(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     cfg = _resolved_config(args)
-    result = render_project(project, cfg, audio_format=args.format, args=args, target_lufs=args.target_lufs)
+    result = render_project(
+        project, cfg, audio_format=args.format, args=args, target_lufs=args.target_lufs
+    )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
     else:
         for operation in result["operations"]:
             print(f"{operation['stage']}: {operation['action']}")
     return 0
-
 
 
 def _cmd_project(args: argparse.Namespace) -> int:
@@ -864,7 +873,13 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     if output is not None and output.name.endswith(".utterplan.json") and len(positional) == 1:
         document = _read_input(args, cfg)
         compiled = plan_document(document, cfg, output)
-        result = {"ok": True, "format": "utterplan", "path": str(output), "plan_id": compiled.plan_id, "sha256": compiled.sha256}
+        result = {
+            "ok": True,
+            "format": "utterplan",
+            "path": str(output),
+            "plan_id": compiled.plan_id,
+            "sha256": compiled.sha256,
+        }
         if getattr(args, "json", False):
             print(json.dumps(result, ensure_ascii=False))
         else:
@@ -959,7 +974,13 @@ def _cmd_render(args: argparse.Namespace) -> int:
         if candidate.is_dir() and (candidate / "project.json").is_file():
             project = load_project(candidate)
             cfg = _resolved_config(args)
-            result = render_project(project, cfg, audio_format=args.format or "wav", args=args, target_lufs=getattr(args, "target_lufs", None))
+            result = render_project(
+                project,
+                cfg,
+                audio_format=args.format or "wav",
+                args=args,
+                target_lufs=getattr(args, "target_lufs", None),
+            )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
             else:
@@ -2029,7 +2050,9 @@ def build_parser() -> argparse.ArgumentParser:
     plan_cmd.set_defaults(func=_cmd_plan)
     project_cmd = sub.add_parser("project", help="create or maintain a persistent Readio project")
     project_sub = project_cmd.add_subparsers(dest="project_command", required=True)
-    project_init = project_sub.add_parser("init", help="initialize a project from a source document")
+    project_init = project_sub.add_parser(
+        "init", help="initialize a project from a source document"
+    )
     project_init.add_argument("source", type=Path)
     project_init.add_argument("-o", "--output", type=Path)
     project_init.add_argument("--json", action="store_true")
@@ -2052,7 +2075,9 @@ def build_parser() -> argparse.ArgumentParser:
     compose_cmd.add_argument("project", nargs="?", type=Path)
     compose_cmd.add_argument("--target-lufs", type=float)
     compose_cmd.add_argument("--true-peak-ceiling-dbtp", type=float, default=-1.0)
-    compose_cmd.add_argument("--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain")
+    compose_cmd.add_argument(
+        "--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain"
+    )
     compose_cmd.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
     compose_cmd.add_argument("--json", action="store_true")
     compose_cmd.set_defaults(func=_cmd_compose)

@@ -26,12 +26,12 @@ readio render manuscript.readio --format mp3
 
 The high-level command rebuilds only stale stages. Typical decisions are:
 
-| Change | Rebuilt stages |
-| --- | --- |
-| source sentence | plan, changed synthesis units, composition, export |
-| voice/model/engine | synthesis units for the new profile, composition, export |
-| target LUFS or peak policy | composition, export |
-| MP3/M4A/OGG/WAV or encoder settings | export |
+| Change                              | Rebuilt stages                                           |
+| ----------------------------------- | -------------------------------------------------------- |
+| source sentence                     | plan, changed synthesis units, composition, export       |
+| voice/model/engine                  | synthesis units for the new profile, composition, export |
+| target LUFS or peak policy          | composition, export                                      |
+| MP3/M4A/OGG/WAV or encoder settings | export                                                   |
 
 `readio preview PROJECT --select paragraph:1-3 --voice VOICE -o preview.wav`
 uses the same synthesis and composition primitives for a selected range. It

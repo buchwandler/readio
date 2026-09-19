@@ -19,7 +19,10 @@ def test_composition_uses_persisted_audio_and_loudness_only_rebuild(tmp_path, mo
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, cfg)
     synthesize_project(project, cfg, request=request(project))
-    monkeypatch.setattr("readio.engines.registry.get_engine", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TTS touched")))
+    monkeypatch.setattr(
+        "readio.engines.registry.get_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TTS touched")),
+    )
     first = compose_project(project, target_lufs=-18)
     second = compose_project(project, target_lufs=-20)
     assert first["composition_id"] != second["composition_id"]

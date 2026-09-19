@@ -97,21 +97,22 @@ class PlanningPolicy:
         ssmd = getattr(cfg, "ssmd", None)
         language = getattr(reader, "lang", "en-us")
         return cls(
-        language=language,
-        unit=getattr(reader, "unit", "sentence"),
-        text_preparation=getattr(reader, "text_preparation", "identity"),
-        document_format=document_format,
-        ssmd_provider=getattr(ssmd, "voice_provider", None),
-        pause_mode=getattr(reader, "pause_mode", "auto"),
-        spacy_policy=getattr(reader, "spacy", None),
-        language_aliases=dict(getattr(cfg, "language_aliases", {}) or {}),
-        language_detection=getattr(reader, "language_detection", None),
-        detect_languages=tuple(getattr(reader, "detect_languages", None) or ()),
-    )
+            language=language,
+            unit=getattr(reader, "unit", "sentence"),
+            text_preparation=getattr(reader, "text_preparation", "identity"),
+            document_format=document_format,
+            ssmd_provider=getattr(ssmd, "voice_provider", None),
+            pause_mode=getattr(reader, "pause_mode", "auto"),
+            spacy_policy=getattr(reader, "spacy", None),
+            language_aliases=dict(getattr(cfg, "language_aliases", {}) or {}),
+            language_detection=getattr(reader, "language_detection", None),
+            detect_languages=tuple(getattr(reader, "detect_languages", None) or ()),
+        )
 
     @classmethod
     def from_readio_config(cls, cfg: Any) -> PlanningPolicy:
         """Backward-compatible alias for the engine-free semantic policy."""
         return cls.from_semantic_config(cfg)
+
 
 __all__ = ["PlanningPolicy"]

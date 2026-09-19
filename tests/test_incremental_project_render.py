@@ -19,9 +19,19 @@ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, cfg)
     first = render_project(project, cfg, audio_format="wav")
-    assert [row["action"] for row in first["operations"]] == ["skipped", "rebuilt", "rebuilt", "rebuilt"]
+    assert [row["action"] for row in first["operations"]] == [
+        "skipped",
+        "rebuilt",
+        "rebuilt",
+        "rebuilt",
+    ]
     second = render_project(project, cfg, audio_format="wav")
-    assert [row["action"] for row in second["operations"]] == ["skipped", "skipped", "skipped", "skipped"]
+    assert [row["action"] for row in second["operations"]] == [
+        "skipped",
+        "skipped",
+        "skipped",
+        "skipped",
+    ]
     assert adapter.open_calls == 1
     project_source = project.root / "source" / "book.txt"
     project_source.write_text("Alpha.\n\nChanged.\n\nGamma.", encoding="utf-8")

@@ -57,7 +57,13 @@ class _Adapter:
         return EngineCapabilities(id=self.id)
 
     def resolve(self, request):
-        return EngineSelection(self.id, "fake-target", request.language or "en-us", voice=request.voice, options=dict(request.options)), ()
+        return EngineSelection(
+            self.id,
+            "fake-target",
+            request.language or "en-us",
+            voice=request.voice,
+            options=dict(request.options),
+        ), ()
 
     def planner_config(self, selection, planning):
         return None

@@ -1,4 +1,5 @@
 """Engine-free semantic planning stage."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -72,7 +73,7 @@ def plan_project_scope(
     *,
     kind: str = "chapter",
     title: str | None = None,
- ) -> CompiledSemanticPlan:
+) -> CompiledSemanticPlan:
     """Compile/replace one independent scope while preserving other scopes."""
     if not scope_id or "/" in scope_id or "\\" in scope_id or scope_id in {".", ".."}:
         raise ValueError("scope_id must be a simple identifier")
@@ -84,12 +85,20 @@ def plan_project_scope(
         old_scopes = ()
         if project.paths["plan_index"].is_file():
             old_scopes = project.load_plan_index().scopes
-        replacement = PlanScope(id=scope_id, kind=kind, path=relative.as_posix(), title=title, plan_id=resolved.compiled.plan_id, sha256=plan_sha)
+        replacement = PlanScope(
+            id=scope_id,
+            kind=kind,
+            path=relative.as_posix(),
+            title=title,
+            plan_id=resolved.compiled.plan_id,
+            sha256=plan_sha,
+        )
         scopes = tuple(replacement if item.id == scope_id else item for item in old_scopes)
         if not any(item.id == scope_id for item in old_scopes):
             scopes = (*scopes, replacement)
         atomic_write_json(project.paths["plan_index"], PlanIndex(scopes=tuple(scopes)).to_dict())
         return resolved.compiled
+
 
 def plan_project(project: Project, cfg: Any) -> CompiledSemanticPlan:
     with project_lock(project, operation="plan"):
@@ -133,17 +142,40 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
     source_sha = hash_file(paths["source"]) if source_exists else None
     source_state = "current" if source_exists else "stale"
     document_state = "stale"
-    if paths["document_metadata"].is_file() and paths["document_text"].is_file() and source_sha is not None:
+    if (
+        paths["document_metadata"].is_file()
+        and paths["document_text"].is_file()
+        and source_sha is not None
+    ):
         try:
-            metadata = __import__("json").loads(paths["document_metadata"].read_text(encoding="utf-8"))
+            metadata = __import__("json").loads(
+                paths["document_metadata"].read_text(encoding="utf-8")
+            )
             document_state = "current" if metadata.get("source_sha256") == source_sha else "stale"
         except (OSError, UnicodeError, ValueError):
             document_state = "stale"
-    plan_state = "current" if paths["plan_index"].is_file() and document_state == "current" else "stale"
+    plan_state = (
+        "current" if paths["plan_index"].is_file() and document_state == "current" else "stale"
+    )
     return [
-        {"stage": "source", "state": source_state, "reason": "current" if source_state == "current" else "source.missing", "sha256": source_sha},
-        {"stage": "document", "state": document_state, "reason": "current" if document_state == "current" else "document.stale.source_changed"},
-        {"stage": "plan", "state": plan_state, "reason": "current" if plan_state == "current" else ("plan.stale.source_changed" if document_state != "current" else "plan.missing")},
+        {
+            "stage": "source",
+            "state": source_state,
+            "reason": "current" if source_state == "current" else "source.missing",
+            "sha256": source_sha,
+        },
+        {
+            "stage": "document",
+            "state": document_state,
+            "reason": "current" if document_state == "current" else "document.stale.source_changed",
+        },
+        {
+            "stage": "plan",
+            "state": plan_state,
+            "reason": "current"
+            if plan_state == "current"
+            else ("plan.stale.source_changed" if document_state != "current" else "plan.missing"),
+        },
     ]
 
 

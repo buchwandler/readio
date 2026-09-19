@@ -1,4 +1,5 @@
 """Composition of persisted project synthesis artifacts without TTS access."""
+
 from __future__ import annotations
 
 import hashlib
@@ -83,18 +84,37 @@ def build_audio_job(
         clips.append(
             AudioClip(
                 id=unit.id,
-                source=AudioFileSource(part, expected_sha256=expected, sample_rate=int(info.samplerate), channels=int(info.channels), frames=int(info.frames)),
-                metadata={"scope_id": "document", "plan_unit_id": unit.id, "content_hash": unit.content_hash, "synthesis_key": item["synthesis_key"]},
+                source=AudioFileSource(
+                    part,
+                    expected_sha256=expected,
+                    sample_rate=int(info.samplerate),
+                    channels=int(info.channels),
+                    frames=int(info.frames),
+                ),
+                metadata={
+                    "scope_id": "document",
+                    "plan_unit_id": unit.id,
+                    "content_hash": unit.content_hash,
+                    "synthesis_key": item["synthesis_key"],
+                },
             )
         )
         ordered_audio.append({"unit": unit.id, "audio_sha256": expected})
     policy_payload = {
         "sample_rate": sample_rate,
         "channels": 1,
-        "loudness": {"target_lufs": target_lufs, "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp, "peak_policy": peak_policy},
+        "loudness": {
+            "target_lufs": target_lufs,
+            "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
+            "peak_policy": peak_policy,
+        },
         "clip_policy": clip_policy,
     }
-    identity_payload = {"schema": "readio.composition.v1", "ordered_audio": ordered_audio, **policy_payload}
+    identity_payload = {
+        "schema": "readio.composition.v1",
+        "ordered_audio": ordered_audio,
+        **policy_payload,
+    }
     job = AudioJob(
         items=tuple(clips),
         output=OutputPolicy(
@@ -104,9 +124,15 @@ def build_audio_job(
             clip_policy=clip_policy,
         ),
         producer={"readio": "project"},
-        source={"project_id": project.manifest.project_id, "composition_id": composition_id(identity_payload)},
+        source={
+            "project_id": project.manifest.project_id,
+            "composition_id": composition_id(identity_payload),
+        },
     )
-    return job, {"identity_payload": identity_payload, "composition_id": composition_id(identity_payload)}
+    return job, {
+        "identity_payload": identity_payload,
+        "composition_id": composition_id(identity_payload),
+    }
 
 
 def compose_project(
@@ -137,10 +163,24 @@ def compose_project(
             "schema_version": 1,
             "sample_rate": result.sample_rate,
             "items": [
-                {"id": item.item_id, "kind": item.kind, "start_sample": item.start_sample, "end_sample": item.end_sample, "source_sample_rate": item.source_sample_rate}
+                {
+                    "id": item.item_id,
+                    "kind": item.kind,
+                    "start_sample": item.start_sample,
+                    "end_sample": item.end_sample,
+                    "source_sample_rate": item.source_sample_rate,
+                }
                 for item in result.items
             ],
-            "markers": [{"id": marker.id, "sample_offset": marker.sample_offset, "name": marker.name, "item_id": marker.item_id} for marker in result.markers],
+            "markers": [
+                {
+                    "id": marker.id,
+                    "sample_offset": marker.sample_offset,
+                    "name": marker.name,
+                    "item_id": marker.item_id,
+                }
+                for marker in result.markers
+            ],
         }
         atomic_write_json(project.paths["composition_timeline"], timeline)
         master_sha = hash_file(master)
@@ -155,14 +195,26 @@ def compose_project(
                 "timeline_sha256": hash_file(project.paths["composition_timeline"]),
                 "sample_rate": result.sample_rate,
                 "frames": len(result.audio),
-                "loudness": ({
-                    "integrated_lufs_before": result.loudness.before.integrated_lufs if result.loudness else None,
-                    "integrated_lufs_after": result.loudness.after.integrated_lufs if result.loudness else None,
-                    "gain_db": result.loudness.applied_gain_db if result.loudness else 0.0,
-                }),
+                "loudness": (
+                    {
+                        "integrated_lufs_before": result.loudness.before.integrated_lufs
+                        if result.loudness
+                        else None,
+                        "integrated_lufs_after": result.loudness.after.integrated_lufs
+                        if result.loudness
+                        else None,
+                        "gain_db": result.loudness.applied_gain_db if result.loudness else 0.0,
+                    }
+                ),
             },
         )
-        return {"composition_id": identity["composition_id"], "master": master, "frames": len(result.audio), "items": len(result.items)}
+        return {
+            "composition_id": identity["composition_id"],
+            "master": master,
+            "frames": len(result.audio),
+            "items": len(result.items),
+        }
+
 
 def compose_artifacts(
     artifacts: Any,
@@ -172,7 +224,7 @@ def compose_artifacts(
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
     output: Path | None = None,
- ) -> dict[str, Any]:
+) -> dict[str, Any]:
     """Compose a temporary/preview selection without changing project state."""
     clips = tuple(
         AudioClip(
@@ -184,7 +236,11 @@ def compose_artifacts(
                 channels=artifact.channels,
                 frames=artifact.frames,
             ),
-            metadata={"plan_unit_id": artifact.unit_id, "content_hash": artifact.content_hash, "synthesis_key": artifact.synthesis_key},
+            metadata={
+                "plan_unit_id": artifact.unit_id,
+                "content_hash": artifact.content_hash,
+                "synthesis_key": artifact.synthesis_key,
+            },
         )
         for artifact in artifacts
     )
@@ -203,8 +259,12 @@ def compose_artifacts(
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
         sf.write(output, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
-    return {"sample_rate": result.sample_rate, "frames": len(result.audio), "items": len(result.items), "output": output}
-
+    return {
+        "sample_rate": result.sample_rate,
+        "frames": len(result.audio),
+        "items": len(result.items),
+        "output": output,
+    }
 
 
 __all__ = ["build_audio_job", "compose_artifacts", "compose_project", "composition_id"]

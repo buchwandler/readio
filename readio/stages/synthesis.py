@@ -1,4 +1,5 @@
 """Incremental, content-addressed project synthesis stage."""
+
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +25,12 @@ class SynthesisProfile:
     payload: Mapping[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"format": "readio.synthesis-profile", "schema_version": 1, "profile_id": self.profile_id, **dict(self.payload)}
+        return {
+            "format": "readio.synthesis-profile",
+            "schema_version": 1,
+            "profile_id": self.profile_id,
+            **dict(self.payload),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +69,11 @@ def synthesis_profile_id(payload: Mapping[str, Any]) -> str:
 
 
 def unit_synthesis_key(content_hash: str, profile_id: str) -> str:
-    payload = {"schema": "readio.synthesis-unit.v1", "content_hash": content_hash, "profile_id": profile_id}
+    payload = {
+        "schema": "readio.synthesis-unit.v1",
+        "content_hash": content_hash,
+        "profile_id": profile_id,
+    }
     return f"sha256:{hashlib.sha256(canonical_json(payload)).hexdigest()}"
 
 
@@ -138,7 +148,9 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
     )
 
 
-def _resolve_profile(project: Project, cfg: Any, request: PlanRequest) -> tuple[Any, Any, SynthesisProfile]:
+def _resolve_profile(
+    project: Project, cfg: Any, request: PlanRequest
+) -> tuple[Any, Any, SynthesisProfile]:
     resolved = resolve_execution_v2(cfg, request)
     if not resolved.plan.ok or resolved.selection is None:
         diagnostics = "; ".join(item.message for item in resolved.plan.diagnostics)
@@ -149,12 +161,22 @@ def _resolve_profile(project: Project, cfg: Any, request: PlanRequest) -> tuple[
     return resolved, adapter, _profile_from_selection(adapter, resolved.selection)
 
 
-def _render_missing(project: Project, plan: Any, adapter: Any, selection: Any, stale: list[Any], profile: SynthesisProfile) -> None:
+def _render_missing(
+    project: Project,
+    plan: Any,
+    adapter: Any,
+    selection: Any,
+    stale: list[Any],
+    profile: SynthesisProfile,
+) -> None:
     if not stale:
         return
     cache_dir = project.root / "synthesis" / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    with adapter.open(selection) as session, session.prepare_plan(plan, options=selection.options) as prepared:
+    with (
+        adapter.open(selection) as session,
+        session.prepare_plan(plan, options=selection.options) as prepared,
+    ):
         for result in prepared.render(indices=tuple(int(unit.index) for unit in stale)):
             index = int(getattr(result, "index", getattr(result, "unit_index", -1)))
             if index < 0:
@@ -194,7 +216,9 @@ def synthesize_project(
         unit_selection = resolve_unit_selection(plan, selector)
         request = _request_for_project(project, cfg, request)
         resolved, adapter, profile = _resolve_profile(project, cfg, request)
-        selected = [unit for unit in plan.units if int(unit.index) in set(unit_selection.unit_indices)]
+        selected = [
+            unit for unit in plan.units if int(unit.index) in set(unit_selection.unit_indices)
+        ]
         cache_dir = project.root / "synthesis" / "cache"
         stale: list[Any] = []
         cached: dict[int, SynthesisArtifact] = {}
@@ -207,9 +231,16 @@ def synthesize_project(
                 continue
             rate, channels, frames, digest = checked
             cached[int(unit.index)] = SynthesisArtifact(
-                unit.id, int(unit.index), unit.content_hash, key,
+                unit.id,
+                int(unit.index),
+                unit.content_hash,
+                key,
                 project.root / "synthesis" / "segments" / f"seg-{int(unit.index) + 1:06d}.wav",
-                cache_path, digest, rate, channels, frames,
+                cache_path,
+                digest,
+                rate,
+                channels,
+                frames,
             )
         _render_missing(project, plan, adapter, resolved.selection, stale, profile)
         for unit in stale:
@@ -220,9 +251,16 @@ def synthesize_project(
                 raise ValueError(f"synthesis did not persist valid audio for {unit.id}")
             rate, channels, frames, digest = checked
             cached[int(unit.index)] = SynthesisArtifact(
-                unit.id, int(unit.index), unit.content_hash, key,
+                unit.id,
+                int(unit.index),
+                unit.content_hash,
+                key,
                 project.root / "synthesis" / "segments" / f"seg-{int(unit.index) + 1:06d}.wav",
-                cache_path, digest, rate, channels, frames,
+                cache_path,
+                digest,
+                rate,
+                channels,
+                frames,
             )
         if activate:
             for artifact in cached.values():
@@ -232,8 +270,17 @@ def synthesize_project(
                 "format": "readio.synthesis-trace",
                 "schema_version": 1,
                 "profile": {"profile_id": profile.profile_id, **dict(profile.payload)},
-                "plans": [{"scope_id": "document", "plan_id": plan.plan_id, "plan_sha256": hash_file(project.root / "plan" / "document.utterplan.json")}],
-                "units": [artifact.to_dict(project.root) for artifact in sorted(cached.values(), key=lambda item: item.unit_index)],
+                "plans": [
+                    {
+                        "scope_id": "document",
+                        "plan_id": plan.plan_id,
+                        "plan_sha256": hash_file(project.root / "plan" / "document.utterplan.json"),
+                    }
+                ],
+                "units": [
+                    artifact.to_dict(project.root)
+                    for artifact in sorted(cached.values(), key=lambda item: item.unit_index)
+                ],
             }
             atomic_write_json(project.paths["synthesis_trace"], trace)
         return {

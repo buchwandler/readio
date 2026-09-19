@@ -1,4 +1,5 @@
 """Filesystem and persistence helpers for Readio projects."""
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +21,9 @@ class ProjectError(ValueError):
 
 
 def canonical_json(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -49,7 +52,10 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
 
 
 def atomic_write_json(path: Path, value: Any) -> None:
-    atomic_write_bytes(path, json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n")
+    atomic_write_bytes(
+        path,
+        json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n",
+    )
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -93,6 +99,7 @@ def project_paths(root: Path) -> dict[str, Path]:
     }
     return paths
 
+
 class Project:
     def __init__(self, root: Path, manifest: ProjectManifest) -> None:
         self.root = root.resolve()
@@ -115,6 +122,7 @@ class Project:
             format="text",
         )
 
+
 @contextmanager
 def project_lock(project: Project, *, operation: str = "mutation") -> Iterator[None]:
     lock_path = project.paths["lock"]
@@ -127,7 +135,9 @@ def project_lock(project: Project, *, operation: str = "mutation") -> Iterator[N
             owner = lock_path.read_text(encoding="utf-8").strip()
         except OSError:
             pass
-        raise ProjectError(f"project is locked for another mutation ({owner or 'unknown owner'})") from exc
+        raise ProjectError(
+            f"project is locked for another mutation ({owner or 'unknown owner'})"
+        ) from exc
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
@@ -189,7 +199,11 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
     input_format = infer_input_format(source_path)
     project_payload = {
         "name": root.stem,
-        "source": {"path": source_relative.as_posix(), "format": input_format, "sha256": source_sha},
+        "source": {
+            "path": source_relative.as_posix(),
+            "format": input_format,
+            "sha256": source_sha,
+        },
     }
     project_id = f"sha256:{sha256_bytes(canonical_json(project_payload))}"
     manifest = ProjectManifest(
@@ -200,7 +214,16 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
         source_sha256=source_sha,
     )
     try:
-        for directory in ("source", "document", "plan", "synthesis/segments", "synthesis/cache", "composition/parts", "output", "report"):
+        for directory in (
+            "source",
+            "document",
+            "plan",
+            "synthesis/segments",
+            "synthesis/cache",
+            "composition/parts",
+            "output",
+            "report",
+        ):
             (temporary / directory).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_path, temporary / source_relative)
         (temporary / manifest.document_text_path).write_text(document_text, encoding="utf-8")
