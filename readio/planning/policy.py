@@ -91,35 +91,27 @@ class PlanningPolicy:
         return config
 
     @classmethod
-    def from_readio_config(cls, cfg: Any) -> PlanningPolicy:
-        """Create a PlanningPolicy from a ReadioConfig.
-
-        Args:
-            cfg: Readio configuration.
-
-        Returns:
-            PlanningPolicy instance.
-        """
-        from ..synthesis import resolve_synthesis
-
-        resolved = resolve_synthesis(cfg)
-
+    def from_semantic_config(cls, cfg: Any, *, document_format: str = "plain") -> PlanningPolicy:
+        """Create semantic policy without resolving an engine or voice."""
+        reader = getattr(cfg, "reader", cfg)
+        ssmd = getattr(cfg, "ssmd", None)
+        language = getattr(reader, "lang", "en-us")
         return cls(
-            language=resolved.language,
-            unit=getattr(cfg, "unit", "paragraph"),
-            text_preparation=getattr(cfg, "text_preparation", "identity"),
-            document_format=getattr(cfg, "document_format", "plain"),
-            ssmd_provider=getattr(cfg.ssmd, "voice_provider", None)
-            if hasattr(cfg, "ssmd")
-            else None,
-            pause_mode=resolved.pause_mode,
-            spacy_policy=resolved.spacy if hasattr(resolved, "spacy") else None,
-            language_aliases=dict(getattr(cfg, "language_aliases", {})),
-            language_detection=resolved.language_detection
-            if hasattr(resolved, "language_detection")
-            else None,
-            detect_languages=tuple(getattr(resolved, "detect_languages", ()) or ()),
-        )
+        language=language,
+        unit=getattr(reader, "unit", "sentence"),
+        text_preparation=getattr(reader, "text_preparation", "identity"),
+        document_format=document_format,
+        ssmd_provider=getattr(ssmd, "voice_provider", None),
+        pause_mode=getattr(reader, "pause_mode", "auto"),
+        spacy_policy=getattr(reader, "spacy", None),
+        language_aliases=dict(getattr(cfg, "language_aliases", {}) or {}),
+        language_detection=getattr(reader, "language_detection", None),
+        detect_languages=tuple(getattr(reader, "detect_languages", None) or ()),
+    )
 
+    @classmethod
+    def from_readio_config(cls, cfg: Any) -> PlanningPolicy:
+        """Backward-compatible alias for the engine-free semantic policy."""
+        return cls.from_semantic_config(cfg)
 
 __all__ = ["PlanningPolicy"]

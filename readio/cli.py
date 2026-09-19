@@ -69,6 +69,7 @@ from .plan import (
     resolve_execution_v2,
 )
 from .progress import TerminalProgress
+from .project import find_project, init_project, load_project
 from .reader import (
     SelectionError,
     render_from_plan,
@@ -85,6 +86,11 @@ from .spotify import (
 )
 from .ssmd import analyze_ssmd, preflight_ssmd
 from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
+from .stages.composition import compose_project
+from .stages.export import export_project
+from .stages.pipeline import preview_project, project_status, render_project
+from .stages.planning import plan_document, plan_project
+from .stages.synthesis import synthesize_project
 from .synthesis import resolve_synthesis
 from .templates import (
     add_template,
@@ -680,13 +686,195 @@ def _build_plan_request(
     )
 
 
-def _cmd_plan(args: argparse.Namespace) -> int:
-    """Resolve and display the synthesis plan without loading TTS."""
+def _project_synthesis_request(args: argparse.Namespace, project: object) -> PlanRequest:
+    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
+    reader = _resolved_config(args).reader
+    synthesis = SynthesisRequest(
+        language=getattr(args, "lang", None) or reader.lang,
+        engine=getattr(args, "engine", None) or reader.engine,
+        model=getattr(args, "model", None),
+        model_source=getattr(args, "model_source", None),
+        quality=getattr(args, "quality", None),
+        voice=getattr(args, "voice", None) or reader.voice,
+        speaker=getattr(args, "speaker", None),
+        spacy=getattr(args, "spacy", None),
+        short_sentence=getattr(args, "short_sentence", None),
+        language_detection=getattr(args, "language_detection", None),
+        detect_languages=tuple(getattr(args, "detect_languages", None) or ()) or None,
+        speed=getattr(args, "speed", None),
+        pause_mode=getattr(args, "pause_mode", None),
+        unit=getattr(args, "unit", None),
+        offline=bool(getattr(args, "offline", False)),
+        refresh=bool(getattr(args, "refresh", False)),
+    )
+    return PlanRequest(
+        operation="render",
+        input=InputRequest(document=project.document(), selector=getattr(args, "select", "all"), source_kind="file"),
+        synthesis=synthesis,
+        output=OutputRequest(mode="file", requested_format="wav", force=True),
+        voice_bindings=bindings,
+    )
+
+
+def _cmd_synth(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
     cfg = _resolved_config(args)
+    result = synthesize_project(
+        project, cfg, request=_project_synthesis_request(args, project), selector=args.select, activate=True
+    )
+    payload = {
+        "ok": True,
+        "project": str(project.root),
+        "profile_id": result["profile"].profile_id,
+        "reused": result["reused"],
+        "rendered": result["rendered"],
+        "selected": len(result["selection"].unit_indices),
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(f"Synthesis profile: {payload['profile_id']}")
+        print(f"Synthesis cache: {payload['reused']} reused, {payload['rendered']} rendered")
+    return 0
+
+
+
+def _cmd_compose(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    result = compose_project(
+        project,
+        target_lufs=args.target_lufs,
+        true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
+        peak_policy=args.peak_policy,
+        clip_policy=args.clip_policy,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+    else:
+        print(f"Composition: {result['composition_id']}")
+        print(f"Master: {result['master']}")
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    result = export_project(project, audio_format=args.format, bitrate=args.bitrate, output=args.output)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+    else:
+        print(result["path"])
+    return 0
+
+
+
+def _cmd_preview(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    cfg = _resolved_config(args)
+    result = preview_project(
+        project,
+        cfg,
+        request=_project_synthesis_request(args, project),
+        selector=args.select,
+        output=args.output,
+        activate=args.activate,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+    else:
+        print(f"Preview: {result['items']} units, {result['rendered']} synthesized, {result['reused']} reused")
+        if result["output"] is not None:
+            print(result["output"])
+    return 0
+
+
+def _cmd_project_render(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    cfg = _resolved_config(args)
+    result = render_project(project, cfg, audio_format=args.format, args=args, target_lufs=args.target_lufs)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+    else:
+        for operation in result["operations"]:
+            print(f"{operation['stage']}: {operation['action']}")
+    return 0
+
+
+
+def _cmd_project(args: argparse.Namespace) -> int:
+    if args.project_command != "init":
+        raise ValueError(f"unknown project command: {args.project_command}")
+    project = init_project(args.source, args.output)
+    result = {"ok": True, "project": str(project.root), "project_id": project.manifest.project_id}
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(project.root)
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    project = load_project(getattr(args, "project", None))
+    result = project_status(project)
+    if getattr(args, "json", False):
+        print(json.dumps(result, default=str, ensure_ascii=False))
+    else:
+        print(f"Project: {project.root}")
+        for row in result["stages"]:
+            details = ""
+            if "reusable" in row:
+                details = f" ({row['reusable']}/{row['total']} units reusable)"
+            print(f"{row['stage'].upper():<12} {row['state']:<7} {row['reason']}{details}")
+    return 0
+
+
+def _project_from_args(args: argparse.Namespace) -> object | None:
+    positional = tuple(getattr(args, "text", ()) or ())
+    if getattr(args, "file", None) is not None or len(positional) > 1:
+        return None
+    candidate = Path(positional[0]).expanduser() if positional else Path.cwd()
+    if positional and candidate.exists() and candidate.is_file():
+        return None
+    return load_project(candidate) if find_project(candidate) is not None else None
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """Create/show a semantic plan for projects and preserve legacy inspection for text."""
+    project = _project_from_args(args)
+    cfg = _resolved_config(args)
+    if project is not None:
+        compiled = plan_project(project, cfg)
+        result = {
+            "ok": True,
+            "format": "readio.semantic-plan",
+            "project": str(project.root),
+            "path": "plan/document.utterplan.json",
+            "plan_id": compiled.plan_id,
+            "sha256": compiled.sha256,
+            "units": len(compiled.plan.units),
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"Semantic plan: {compiled.plan_id}")
+            print(f"Path: {project.root / 'plan' / 'document.utterplan.json'}")
+            print(f"Units: {len(compiled.plan.units)}")
+        return 0
+    output = getattr(args, "output", None)
+    positional = tuple(getattr(args, "text", ()) or ())
+    if output is not None and output.name.endswith(".utterplan.json") and len(positional) == 1:
+        document = _read_input(args, cfg)
+        compiled = plan_document(document, cfg, output)
+        result = {"ok": True, "format": "utterplan", "path": str(output), "plan_id": compiled.plan_id, "sha256": compiled.sha256}
+        if getattr(args, "json", False):
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"Semantic plan: {compiled.plan_id}")
+            print(f"Path: {output}")
+        return 0
+    # Legacy resolved execution-plan inspection remains available for ordinary text.
     request = _build_plan_request(args, cfg, operation="render")
     resolved = resolve_execution_v2(cfg, request)
     plan = resolved.plan
-
     if getattr(args, "json", False):
         print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
     else:
@@ -764,7 +952,20 @@ def _emit_render_result(
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
-    """Render to an audio file by resolving and executing one ReadioPlan."""
+    """Render one-shot text or orchestrate a persistent project."""
+    positional = tuple(getattr(args, "text", ()) or ())
+    if not args.live and len(positional) == 1 and getattr(args, "file", None) is None:
+        candidate = Path(positional[0]).expanduser()
+        if candidate.is_dir() and (candidate / "project.json").is_file():
+            project = load_project(candidate)
+            cfg = _resolved_config(args)
+            result = render_project(project, cfg, audio_format=args.format or "wav", args=args, target_lufs=getattr(args, "target_lufs", None))
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+            else:
+                for operation in result["operations"]:
+                    print(f"{operation['stage']}: {operation['action']}")
+            return 0
     if args.live and getattr(args, "manifest", False):
         raise ValueError(
             "--manifest is not available with --live because live rendering "
@@ -1788,6 +1989,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="output audio path (.wav, .mp3, .m4a, or .ogg)",
     )
+    render.add_argument("--target-lufs", type=float, help="project composition loudness target")
     render.add_argument("--force", action="store_true", help="replace an existing output")
     _add_runtime_options(render, playback=False)
     _add_progress_option(render)
@@ -1825,6 +2027,53 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_cmd.add_argument("--json", action="store_true", help="emit one JSON plan object")
     plan_cmd.set_defaults(func=_cmd_plan)
+    project_cmd = sub.add_parser("project", help="create or maintain a persistent Readio project")
+    project_sub = project_cmd.add_subparsers(dest="project_command", required=True)
+    project_init = project_sub.add_parser("init", help="initialize a project from a source document")
+    project_init.add_argument("source", type=Path)
+    project_init.add_argument("-o", "--output", type=Path)
+    project_init.add_argument("--json", action="store_true")
+    project_cmd.set_defaults(func=_cmd_project)
+
+    status_cmd = sub.add_parser("status", help="show persistent project stage freshness")
+    status_cmd.add_argument("project", nargs="?", type=Path)
+    status_cmd.add_argument("--json", action="store_true")
+    status_cmd.set_defaults(func=_cmd_status)
+
+    synth_cmd = sub.add_parser("synth", help="incrementally synthesize a Readio project")
+    synth_cmd.add_argument("project", nargs="?", type=Path)
+    synth_cmd.add_argument("--select", default="all")
+    _add_synthesis_options(synth_cmd)
+    _add_voice_resolution_options(synth_cmd)
+    synth_cmd.add_argument("--json", action="store_true")
+    synth_cmd.set_defaults(func=_cmd_synth)
+
+    compose_cmd = sub.add_parser("compose", help="compose persisted project synthesis audio")
+    compose_cmd.add_argument("project", nargs="?", type=Path)
+    compose_cmd.add_argument("--target-lufs", type=float)
+    compose_cmd.add_argument("--true-peak-ceiling-dbtp", type=float, default=-1.0)
+    compose_cmd.add_argument("--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain")
+    compose_cmd.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
+    compose_cmd.add_argument("--json", action="store_true")
+    compose_cmd.set_defaults(func=_cmd_compose)
+
+    export_cmd = sub.add_parser("export", help="encode a composed project master")
+    export_cmd.add_argument("project", nargs="?", type=Path)
+    export_cmd.add_argument("--format", choices=SUPPORTED_AUDIO_FORMATS, default="wav")
+    export_cmd.add_argument("--bitrate")
+    export_cmd.add_argument("-o", "--output", type=Path)
+    export_cmd.add_argument("--json", action="store_true")
+    export_cmd.set_defaults(func=_cmd_export)
+
+    preview_cmd = sub.add_parser("preview", help="synthesize and compose a selected project range")
+    preview_cmd.add_argument("project", nargs="?", type=Path)
+    preview_cmd.add_argument("--select", default="first:3")
+    preview_cmd.add_argument("-o", "--output", type=Path)
+    preview_cmd.add_argument("--activate", action="store_true")
+    _add_synthesis_options(preview_cmd)
+    _add_voice_resolution_options(preview_cmd)
+    preview_cmd.add_argument("--json", action="store_true")
+    preview_cmd.set_defaults(func=_cmd_preview)
     from .spotify_cli import add_spotify_parser
 
     add_spotify_parser(sub)

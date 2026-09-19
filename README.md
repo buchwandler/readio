@@ -351,3 +351,20 @@ readio render --file episode.ssmd \
 ```
 
 `--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind` instead. Document bindings remain authoritative, and unresolved roles are reported before TTS or external publishing work begins. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
+
+## Persistent incremental projects
+
+For resumable builds, create a project and use explicit stages:
+
+```bash
+readio project init manuscript.md -o manuscript.readio
+readio plan manuscript.readio                 # semantic only; no TTS
+readio preview manuscript.readio --select first:3 --voice de-ko-01 -o preview.wav
+readio synth manuscript.readio --voice de-ko-01
+readio compose manuscript.readio --target-lufs -18
+readio export manuscript.readio --format mp3
+readio status manuscript.readio --json
+readio render manuscript.readio --format mp3  # build stale stages
+```
+
+See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout, cache identities, status diagnostics, and invalidation matrix.
