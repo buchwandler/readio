@@ -341,7 +341,7 @@ voice_bindings:
     architect: am_michael
 ```
 
-Discover runnable registry voices and selectors with `readio voices list --json` or `readio voices list --lang de`. Inspect one with `readio voices show de-1`. Persist reusable SSMD roles with `readio roles bind ROLE VOICE_ID` and inspect them with `readio roles list`. Selectors are interactive aliases; persisted configuration and SSMD continue to use canonical voice IDs. For deterministic one-run automation, use repeatable options:
+Discover runnable registry voices and stable selectors with `readio voices list --json` or `readio voices list --lang de`. Inspect one with `readio voices show de-ko-3`. Kokoro selectors use `<lang>-ko-<slot>` and Piper selectors use `<lang>-pi-<slot>`; canonical engine voice IDs remain visible and accepted. Persist reusable SSMD roles with `readio roles bind ROLE VOICE_ID` and inspect them with `readio roles list`. Selectors are stable short lookup aliases; persisted configuration and SSMD continue to use canonical concrete voice IDs. For deterministic one-run automation, use repeatable options:
 Runtime voice inventories are model-specific. Use `readio voices list --model MODEL --json` for concrete IDs; a configured portable role such as `host` must be bound to a voice supported by the selected model. Readio reports the active model and valid voices before inference when a binding is incompatible.
 
 ```bash

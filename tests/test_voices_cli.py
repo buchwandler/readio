@@ -23,8 +23,8 @@ def config(tmp_path: Path) -> ReadioConfig:
 
 def catalog_entry() -> VoiceCatalogEntry:
     return VoiceCatalogEntry(
-        selector="de-1",
-        number=1,
+        selector="de-ko-3",
+        slot=3,
         id="martin",
         gender="male",
         language="de",
@@ -60,20 +60,22 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     )
     listed = json.loads(capsys.readouterr().out)
     assert listed["filters"]["language"] == "de"
-    assert listed["voices"][0]["selector"] == "de-1"
+    assert listed["voices"][0]["selector"] == "de-ko-3"
     assert listed["voices"][0]["id"] == "martin"
 
-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "show", "de-1", "--json"])) == 0
+    assert (
+        cli._cmd_voices(cli.build_parser().parse_args(["voices", "show", "de-ko-3", "--json"])) == 0
+    )
     shown = json.loads(capsys.readouterr().out)
-    assert shown["voice"]["selector"] == "de-1"
+    assert shown["voice"]["selector"] == "de-ko-3"
     assert shown["voice"]["model"] == "de-model"
 
 
 def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
     piper_entry = VoiceCatalogEntry(
-        selector="de_DE-thorsten-medium",
-        number=1,
+        selector="de-pi-9",
+        slot=9,
         id="de_DE-thorsten-medium",
         gender="unknown",
         language="de",

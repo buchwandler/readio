@@ -71,7 +71,7 @@ Use PyKokoro >=0.9.9,<0.10 metadata to inspect runnable voices first, then inspe
 
 ````bash
 readio voices list --lang de --offline --json
-readio voices show de-1 --offline --json
+readio voices show de-ko-3 --offline --json
 readio models show de-thorsten --offline --json
 readio models list --preference huggingface --json
 
@@ -79,7 +79,7 @@ readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 `--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
 Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. Synthesis/default `--model-source github|huggingface` selects the same distribution for metadata validation and `PipelineConfig`. Voices are model-scoped; SSMD checks the active model roster, not the legacy configured list.
-Readio uses an explicit backend registry. PyKokoro is the implemented backend. Use `--engine BACKEND` to select a registered backend. Lexicon selectors such as `crane` are stable selection tokens, while qualified asset IDs such as `de-de:crane` remain backend-owned metadata.
+Readio uses an explicit backend registry. PyKokoro and Piper are supported engines. Use `--engine BACKEND` with `kokoro`/`pykokoro` or `piper`/`pipersynth`; stable selectors are engine-qualified (`de-ko-3`, `de-pi-9`) and canonical voice IDs remain accepted.
 
 ## Language defaults
 

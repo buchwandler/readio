@@ -283,10 +283,10 @@ SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and
 
 ````bash
 readio voices list --lang de --json
-readio voices show de-1 --json
+readio voices show de-ko-3 --json
 readio roles list --provider kokoro
 
-For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; selectors are discovery aliases, while bindings remain canonical voice IDs. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
+For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; stable selectors are engine-qualified lookup aliases (`de-ko-3`, `de-pi-9`), while bindings remain canonical concrete voice IDs. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
 Use `readio roles bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
 
 ```bash

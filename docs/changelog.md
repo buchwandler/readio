@@ -7,7 +7,7 @@
 ### Added
 
 - Added explicit spaCy model tiers and configurable short-sentence synthesis policies
-- Added stable locale-number voice selectors with catalog discovery, filtering, and selector-aware resolution
+- Added append-only OnnxVoice identities with engine-qualified selectors for Kokoro and Piper
 - Added backend-neutral lexicon discovery and CLI inspection with language, model, and engine filters
 
 ### Fixed

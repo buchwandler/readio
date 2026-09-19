@@ -22,6 +22,16 @@ ENGINE_ALIASES: dict[str, str] = {
     "kokoro": "pykokoro",
 }
 
+
+READIO_ENGINE_TO_ONNXVOICE_SYSTEM: dict[str, str] = {
+    "pykokoro": "kokoro",
+    "piper": "piper",
+}
+
+ONNXVOICE_SYSTEM_TO_READIO_ENGINE: dict[str, str] = {
+    "kokoro": "pykokoro",
+    "piper": "piper",
+}
 CANONICAL_ENGINE_IDS: frozenset[str] = frozenset({"pykokoro", "piper"})
 
 
@@ -160,6 +170,8 @@ def default_engine() -> EngineAdapter:
 __all__ = [
     "CANONICAL_ENGINE_IDS",
     "ENGINE_ALIASES",
+    "ONNXVOICE_SYSTEM_TO_READIO_ENGINE",
+    "READIO_ENGINE_TO_ONNXVOICE_SYSTEM",
     "EngineRegistry",
     "default_engine",
     "engine_ids",

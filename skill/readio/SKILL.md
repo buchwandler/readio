@@ -23,7 +23,7 @@ PyKokoro >=0.9.9,<0.10 is the source of truth for runtime model and voice metada
 
 ```bash
 readio voices list --lang de --offline --json
-readio voices show de-1 --offline --json
+readio voices show de-ko-3 --offline --json
 readio models show de-thorsten --offline --json
 ```
 
@@ -40,6 +40,7 @@ readio defaults show de-at --json
 
 Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `lexicons: null` means automatic/unknown capability depending on the payload; in synthesis plans, `null` means PyKokoro language defaults and `[]` means explicit provider-only pronunciation. Exact locale defaults override base-language defaults. Use `--no-lexicons` for `()`, `--auto-lexicons` for `None`, and repeat `--lexicon` to preserve ordered layers.
 `--preference auto|github|huggingface|upstream` makes discovery views deterministic. `--model-source github|huggingface` controls the distribution used for discovery, validation, and runtime. Voices are model-scoped: the global reader voice is only a legacy fallback when no language/model selection changes the domain, and SSMD uses the resolved model roster. Use `readio doctor --json` for PyKokoro path/version/public-API mismatches.
+Stable short selectors are engine-qualified and append-only: Kokoro uses `de-ko-3`, Piper uses `de-pi-9`. They are lookup aliases; role and SSMD/provider bindings continue to persist canonical concrete voice IDs. Canonical backend voice IDs remain accepted.
 
 Readio uses an explicit synthesis backend registry. PyKokoro is the implemented backend. Use `--engine BACKEND` to select a registered backend, and keep lexicon selectors such as `crane` separate from downstream asset IDs such as `de-de:crane`.
 

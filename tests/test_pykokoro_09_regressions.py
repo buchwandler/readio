@@ -72,8 +72,8 @@ def test_experimental_model_requires_opt_in() -> None:
 
 def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> None:
     entry = VoiceCatalogEntry(
-        selector="de-1",
-        number=1,
+        selector="de-ko-3",
+        slot=3,
         id="thorsten",
         gender="male",
         language="de",

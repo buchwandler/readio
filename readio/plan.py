@@ -614,8 +614,9 @@ def _resolve_synthesis_candidate(
                 origin=ORIGIN_CLI,
                 locator="request.voice",
                 reason=(
-                    f"voice selector {requested_selector!r} resolved via registry to "
-                    f"model {selector_resolution.model!r} / voice {selector_resolution.voice!r}"
+                    f"voice selector {requested_selector!r} resolved via OnnxVoice to "
+                    f"engine {selector_resolution.backend!r} / model "
+                    f"{selector_resolution.model!r} / voice {selector_resolution.voice!r}"
                 ),
             )
         )

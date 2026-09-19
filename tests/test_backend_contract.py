@@ -155,24 +155,20 @@ def test_generic_discovery_delegates_to_fixture_backend(monkeypatch: pytest.Monk
     assert backend.discovery_calls == 1
 
 
-def test_voice_selector_is_scoped_to_selected_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    first = FixtureBackend("fixture-a")
-    second = FixtureBackend("fixture-b")
-    monkeypatch.setitem(registry._BACKENDS, first.id, first)
-    monkeypatch.setitem(registry._BACKENDS, second.id, second)
+def test_legacy_selector_does_not_use_fixture_catalog_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = FixtureBackend("fixture-a")
+    monkeypatch.setitem(registry._BACKENDS, backend.id, backend)
 
-    resolved = resolve_voice_selector(
-        "en-us-1",
-        language="en-us",
-        model=None,
-        source=None,
-        engine=first.id,
-    )
-
-    assert resolved is not None
-    assert resolved.engine == first.id
-    assert first.discovery_calls == 1
-    assert second.discovery_calls == 0
+    with pytest.raises(models.ModelDiscoveryError, match="Unknown stable voice selector"):
+        resolve_voice_selector(
+            "en-us-1",
+            language="en-us",
+            model=None,
+            source=None,
+            engine=backend.id,
+        )
 
 
 def test_unsupported_backend_option_fails_before_discovery(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -158,7 +158,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
     parser.add_argument(
         "--voice",
-        help="voice selector or canonical backend voice ID, e.g. de-1 or af_sarah",
+        help="stable selector or canonical backend voice ID, e.g. de-ko-3, de-pi-9, or af_sarah",
     )
     parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
@@ -1176,6 +1176,8 @@ def _cmd_models(args: argparse.Namespace) -> int:
 def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
     print(f"Selector:       {entry.selector}")
     print(f"Engine:         {entry.engine}")
+    print(f"Slot:           {entry.slot if entry.slot is not None else '-'}")
+    print(f"Selector status: {entry.selector_status}")
     print(f"Qualified ID:   {entry.qualified_id}")
     print(f"Voice:          {entry.id}")
     print(f"Gender:         {entry.gender}")
@@ -1330,7 +1332,7 @@ def _cmd_voices(args: argparse.Namespace) -> int:
         )
         for entry in voices:
             print(
-                f"{entry.selector:<9} {entry.engine:<9} {entry.id:<17} {entry.gender:<8} "
+                f"{entry.selector or '-':<9} {entry.engine:<9} {entry.id:<17} {entry.gender:<8} "
                 f"{entry.locale:<9} {entry.language_label:<24} {entry.model:<14} {entry.status}"
             )
         return 0
