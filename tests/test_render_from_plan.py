@@ -334,3 +334,27 @@ def test_normal_render_passes_an_audio_sink_not_a_path(
     sink = received["sink"]
     assert not isinstance(sink, Path)
     assert callable(getattr(sink, "write", None))
+
+
+def test_one_shot_render_does_not_create_project_tree(
+    monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
+) -> None:
+    def unexpected_project_init(*args, **kwargs):
+        raise AssertionError("one-shot render must not initialize a Readio project")
+
+    monkeypatch.setattr(cli, "init_project", unexpected_project_init)
+    output = tmp_path / "hello.wav"
+
+    code = _render(
+        monkeypatch,
+        tmp_path,
+        ["render", "Hello", "-o", str(output), "--no-progress"],
+    )
+
+    assert code == 0
+    assert output.is_file()
+    assert not any(
+        path.is_file() and path.name == "project.json" for path in tmp_path.rglob("project.json")
+    )
+    for name in ("source", "document", "plan", "synthesis", "composition", "report"):
+        assert not (tmp_path / name).exists()

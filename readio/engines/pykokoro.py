@@ -10,7 +10,7 @@ import importlib.metadata
 import logging
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import TYPE_CHECKING, Any
 
 from audiocompose import AudioJob
@@ -26,11 +26,71 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# An existing UtterancePlan already owns these semantic/planning decisions.
+# PyKokoro intentionally rejects them when consuming a plan rather than raw text.
+# Keep this list local instead of importing PyKokoro planning internals.
+_PYKOKORO_PLAN_OWNED_OPTIONS = frozenset(
+    {
+        "lang",
+        "generation",
+        "ssmd",
+        "overlap_mode",
+        "unit",
+        "document_format",
+        "text_preparation",
+        "pause_mode",
+        "pause_weak",
+        "pause_clause",
+        "pause_sentence",
+        "pause_paragraph",
+    }
+)
+
+
+def _plan_renderer_options(
+    options: Mapping[str, Any],
+    *,
+    allowed_options: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """Return options legal when rendering an existing UtterancePlan.
+
+    Semantic/planning options are already represented by the UtterancePlan and
+    must not be forwarded to PyKokoro's plan-consumption APIs. When a concrete
+    pipeline config is available, also omit neutral Readio aliases that were
+    consumed while opening that config, such as ``speed`` and ``rate``.
+    """
+    rendered = {
+        key: value for key, value in options.items() if key not in _PYKOKORO_PLAN_OWNED_OPTIONS
+    }
+    if allowed_options is not None:
+        rendered = {key: value for key, value in rendered.items() if key in allowed_options}
+    return rendered
+
+
+def _pipeline_config_options(pipeline: Any) -> frozenset[str] | None:
+    """Return public PipelineConfig option names when available.
+
+    Readio's neutral selection options are consumed while opening the
+    pipeline. Only options accepted by the already-open PyKokoro config may
+    be forwarded to plan-consumption APIs; aliases such as ``speed`` and
+    ``rate`` have already been applied to ``generation``. Test doubles that
+    do not expose a config retain the neutral mapping for boundary tests.
+    """
+    config = getattr(pipeline, "config", None)
+    if config is None:
+        return None
+    try:
+        return frozenset(field.name for field in fields(config))
+    except TypeError:
+        return None
+
+
 class PyKokoroEngineSession:
     """PyKokoro rendering session."""
 
     def __init__(self, pipeline: Any) -> None:
         self._pipeline = pipeline
+        self._allowed_renderer_options = _pipeline_config_options(pipeline)
 
     def prepare_plan(
         self,
@@ -39,7 +99,10 @@ class PyKokoroEngineSession:
         options: Mapping[str, Any],
     ) -> AbstractContextManager[Any]:
         """Prepare renderer units from an existing UtterancePlan."""
-        return self._pipeline.prepare_plan_units(plan, **dict(options))
+        return self._pipeline.prepare_plan_units(
+            plan,
+            **_plan_renderer_options(options, allowed_options=self._allowed_renderer_options),
+        )
 
     def to_audio_job(
         self,
@@ -48,7 +111,10 @@ class PyKokoroEngineSession:
         options: Mapping[str, Any],
     ) -> AudioJob:
         """Create an AudioJob from an existing UtterancePlan."""
-        return self._pipeline.to_audio_job_from_plan(plan, **dict(options))
+        return self._pipeline.to_audio_job_from_plan(
+            plan,
+            **_plan_renderer_options(options, allowed_options=self._allowed_renderer_options),
+        )
 
 
 class PyKokoroEngineAdapter:
