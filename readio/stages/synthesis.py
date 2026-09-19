@@ -178,7 +178,18 @@ def _render_missing(
         session.prepare_plan(plan, options=selection.options) as prepared,
     ):
         for result in prepared.render(indices=tuple(int(unit.index) for unit in stale)):
-            index = int(getattr(result, "index", getattr(result, "unit_index", -1)))
+            descriptor = getattr(result, "descriptor", None)
+            index = int(
+                getattr(
+                    result,
+                    "index",
+                    getattr(
+                        result,
+                        "unit_index",
+                        getattr(descriptor, "index", -1),
+                    ),
+                )
+            )
             if index < 0:
                 metadata = getattr(result, "metadata", {}) or {}
                 index = int(metadata.get("unit_index", metadata.get("index", -1)))

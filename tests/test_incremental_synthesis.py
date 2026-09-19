@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -15,7 +16,7 @@ from readio.stages.synthesis import synthesize_project
 
 class _Result:
     def __init__(self, index: int):
-        self.index = index
+        self.descriptor = SimpleNamespace(index=index)
         self.audio = np.full(160, 0.1, dtype=np.float32)
         self.sample_rate = 24000
         self.markers = []
