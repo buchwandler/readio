@@ -19,7 +19,7 @@ dependencies = [
   "tomli-w>=1.0",
   "PyYAML>=6.0",
   "ssmd>=0.8.7,<0.9",
-  "onnxvoice>=0.1.6,<0.2",
+  "onnxvoice>=0.1.8,<0.2",
   "markdown-it-py>=3.0,<5.0",
   "mdit-py-plugins>=0.4,<1.0",
 ]

@@ -161,7 +161,7 @@ def test_legacy_selector_does_not_use_fixture_catalog_order(
     backend = FixtureBackend("fixture-a")
     monkeypatch.setitem(registry._BACKENDS, backend.id, backend)
 
-    with pytest.raises(models.ModelDiscoveryError, match="Unknown stable voice selector"):
+    with pytest.raises(models.ModelDiscoveryError, match="but engine .* requested"):
         resolve_voice_selector(
             "en-us-1",
             language="en-us",

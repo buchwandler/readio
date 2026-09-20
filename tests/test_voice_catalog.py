@@ -49,6 +49,60 @@ def identity(selector: str, language: str, slot: int, asset_id: str, voice_id: s
     )
 
 
+def test_catalog_consumes_packaged_onnxvoice_en_us_registry() -> None:
+    expected = (
+        ("en_us-ko-1", "v1.0", "af_alloy"),
+        ("en_us-ko-2", "v1.0", "af_aoede"),
+        ("en_us-ko-3", "v1.0", "af_bella"),
+        ("en_us-ko-4", "v1.0", "af_heart"),
+        ("en_us-ko-5", "v1.0", "af_jessica"),
+        ("en_us-ko-6", "v1.0", "af_kore"),
+        ("en_us-ko-7", "v1.0", "af_nicole"),
+        ("en_us-ko-8", "v1.0", "af_nova"),
+        ("en_us-ko-9", "v1.0", "af_river"),
+        ("en_us-ko-10", "v1.0", "af_sarah"),
+        ("en_us-ko-11", "v1.0", "af_sky"),
+        ("en_us-ko-12", "v1.0", "am_adam"),
+        ("en_us-ko-13", "v1.0", "am_echo"),
+        ("en_us-ko-14", "v1.0", "am_eric"),
+        ("en_us-ko-15", "v1.0", "am_fenrir"),
+        ("en_us-ko-16", "v1.0", "am_liam"),
+        ("en_us-ko-17", "v1.0", "am_michael"),
+        ("en_us-ko-18", "v1.0", "am_onyx"),
+        ("en_us-ko-19", "v1.0", "am_puck"),
+        ("en_us-ko-20", "v1.0", "am_santa"),
+        ("en_us-ko-21", "v1.0", "af_ameliaearhart"),
+        ("en_us-ko-22", "v1.0", "af_libritts5338"),
+        ("en_us-ko-23", "v1.0", "am_libritts1272"),
+        ("en_us-ko-24", "v1.0", "am_libritts6241"),
+        ("en_us-ko-25", "v1.0", "am_vincentprice"),
+        ("en_us-ko-26", "v1.1-zh", "af_maple"),
+        ("en_us-ko-27", "v1.1-zh", "af_sol"),
+    )
+    v1_0_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.0")
+    v1_1_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.1-zh")
+    details = lambda voices: tuple(
+        VoiceMetadata(voice, "unknown", "en", "en-US", "American English")
+        for voice in voices
+    )
+    catalog = build_voice_catalog(
+        (
+            model("v1.0", v1_0_voices, details(v1_0_voices)),
+            model("v1.1-zh", v1_1_voices, details(v1_1_voices)),
+            model(
+                "de-anna",
+                ("df_anna",),
+                (VoiceMetadata("df_anna", "female", "de", "de", "German"),),
+            ),
+        )
+    )
+    assert [
+        (entry.selector, entry.model, entry.id)
+        for entry in catalog.voices
+        if entry.locale == "en-US"
+    ] == list(expected)
+    german = next(entry for entry in catalog.voices if entry.id == "df_anna")
+    assert (german.selector, german.model, german.id) == ("de-ko-1", "de-anna", "df_anna")
 def test_catalog_projects_authoritative_identities_and_display_orders(monkeypatch) -> None:
     identities = {
         ("v1.0", "af_a"): identity("en_us-ko-1", "en_us", 1, "v1.0", "af_a"),

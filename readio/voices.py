@@ -561,14 +561,17 @@ def find_voice_entries(
     value: str,
     entries: tuple[VoiceCatalogEntry, ...],
 ) -> tuple[VoiceCatalogEntry, ...]:
-    canonical_value = _legacy_selector_to_canonical(value) or value
-    if _legacy_selector_to_canonical(value) is not None:
-        canonical_legacy = _legacy_selector_to_canonical(value)
+    requested = value.strip().lower()
+    canonical_value = _legacy_selector_to_canonical(requested) or requested
+    if _legacy_selector_to_canonical(requested) is not None:
+        canonical_legacy = _legacy_selector_to_canonical(requested)
         warnings.warn(
             f"Voice selector {value!r} is deprecated; use {canonical_legacy!r}.",
             UserWarning,
             stacklevel=2,
         )
+    elif is_voice_selector(requested):
+        canonical_value = parse_voice_selector(requested).selector
     qualified = tuple(entry for entry in entries if entry.qualified_id == value)
     if qualified:
         return qualified

@@ -6,9 +6,43 @@ from types import SimpleNamespace
 
 from readio import cli
 from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
-from readio.voices import VoiceCatalogEntry
+from readio.models import ModelInfo, VoiceMetadata
+from readio.voices import VoiceCatalogEntry, build_voice_catalog
 
 
+def real_en_us_catalog() -> tuple[VoiceCatalogEntry, ...]:
+    voices = (
+        "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore",
+        "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky", "am_adam",
+        "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
+        "am_puck", "am_santa", "af_ameliaearhart", "af_libritts5338",
+        "am_libritts1272", "am_libritts6241", "am_vincentprice",
+    )
+    def make_model(model_id: str, model_voices: tuple[str, ...]) -> ModelInfo:
+        return ModelInfo(
+            id=model_id,
+            source="github",
+            languages=("en",),
+            voices=model_voices,
+            default_voice=model_voices[0],
+            qualities=("fp32",),
+            g2p_backend="kokorog2p",
+            lexicons=(),
+            frontend="frontend",
+            status="ready",
+            experimental=False,
+            runtime_available=True,
+            redistribution_allowed=True,
+            voice_details=tuple(
+                VoiceMetadata(voice, "unknown", "en", "en-US", "American English")
+                for voice in model_voices
+            ),
+        )
+    models = (
+        make_model("v1.0", voices),
+        make_model("v1.1-zh", ("af_maple", "af_sol")),
+    )
+    return build_voice_catalog(models).voices
 def config(tmp_path: Path) -> ReadioConfig:
     return ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "out"),
@@ -71,6 +105,37 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     assert shown["voice"]["model"] == "de-model"
 
 
+def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(
+    monkeypatch, capsys
+    ):
+    entries = real_en_us_catalog()
+    monkeypatch.setattr(
+        cli,
+        "discover_voice_catalog",
+        lambda **_: (entries, SimpleNamespace(registry_source="packaged", cache_fallback=False)),
+    )
+    args = cli.build_parser().parse_args(
+        ["voices", "list", "--engine", "kokoro", "--lang", "en-us", "--json"]
+    )
+    assert cli._cmd_voices(args) == 0
+    listed = json.loads(capsys.readouterr().out)
+    voices = listed["voices"]
+    assert len(voices) == 27
+    assert [voice["selector"] for voice in voices] == [f"en_us-ko-{i}" for i in range(1, 28)]
+    assert all(voice["selector"] is not None for voice in voices)
+    assert [voice["model"] for voice in voices[:25]] == ["v1.0"] * 25
+    assert [voice["model"] for voice in voices[25:]] == ["v1.1-zh"] * 2
+    by_id = {voice["id"]: voice for voice in voices}
+    assert by_id["af_heart"]["selector"] == "en_us-ko-4"
+    assert by_id["af_maple"]["selector"] == "en_us-ko-26"
+    assert by_id["af_sol"]["selector"] == "en_us-ko-27"
+    for requested in ("en_us-ko-4", "en-us-ko-4"):
+        args = cli.build_parser().parse_args(["voices", "show", requested, "--json"])
+        assert cli._cmd_voices(args) == 0
+        shown = json.loads(capsys.readouterr().out)["voice"]
+        assert (shown["selector"], shown["id"], shown["model"]) == (
+            "en_us-ko-4", "af_heart", "v1.0"
+        )
 def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
     piper_entry = VoiceCatalogEntry(

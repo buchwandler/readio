@@ -286,7 +286,7 @@ readio voices list --lang de --json
 readio voices show de-ko-3 --json
 readio roles list --provider kokoro
 
-For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; stable selectors are engine-qualified lookup aliases (`de-ko-3`, `de-pi-9`), while bindings remain canonical concrete voice IDs. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
+For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; stable selectors are engine-qualified lookup aliases (`en_us-ko-4` -> `af_heart` on Kokoro v1.0, `de-ko-3`, `de-pi-9`), while `--lang en-us` is a locale filter and bindings remain canonical concrete voice IDs. Selector identities come from the authoritative registry rather than Readio-owned numbering. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
 Use `readio roles bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
 
 ```bash
