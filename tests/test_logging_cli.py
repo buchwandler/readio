@@ -20,7 +20,7 @@ def clean_verbose_logging():
 
 
 def _reset_verbose_loggers() -> None:
-    for name in ("readio", "pykokoro"):
+    for name in ("readio", "pykokoro", "onnxvoice"):
         logger = logging.getLogger(name)
         for handler in logger.handlers[:]:
             if getattr(handler, "_readio_verbose_handler", False):
@@ -55,6 +55,15 @@ def test_debug_logging_and_pykokoro_namespace_propagate():
     configure_logging(2, stream=stream)
     logging.getLogger("pykokoro.test").debug("internal")
     assert "DEBUG pykokoro.test internal" in stream.getvalue()
+
+
+def test_debug_logging_includes_onnxvoice_namespace():
+    stream = io.StringIO()
+    configure_logging(2, stream=stream)
+
+    logging.getLogger("onnxvoice.systems.kokoro").debug("timing output durations")
+
+    assert "DEBUG onnxvoice.systems.kokoro timing output durations" in stream.getvalue()
 
 
 def test_repeated_configuration_does_not_duplicate_records():

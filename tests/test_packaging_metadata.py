@@ -15,6 +15,11 @@ def _project_dependencies() -> list[str]:
         return tomllib.load(stream)["project"]["dependencies"]
 
 
+def _project_optional_dependencies() -> dict[str, list[str]]:
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        return tomllib.load(stream)["project"]["optional-dependencies"]
+
+
 def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
 
@@ -25,6 +30,16 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
 def test_release_ci_targets_released_pykokoro_artifact() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
 
-    assert "pykokoro[playback]==0.9.9" in workflow
+    assert "pykokoro[playback]==0.9.11" in workflow
     assert "pykokoro.git@" not in workflow
     assert "ssmd.git@" not in workflow
+    assert "0.9.9" not in workflow
+
+
+def test_fixed_runtime_dependency_floors_are_declared() -> None:
+    dependencies = _project_dependencies()
+    optional = _project_optional_dependencies()
+
+    assert "onnxvoice>=0.1.6,<0.2" in dependencies
+    assert optional["kokoro"] == ["pykokoro[playback]>=0.9.11,<0.10"]
+    assert "pykokoro[playback]>=0.9.11,<0.10" in optional["all"]

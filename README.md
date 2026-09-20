@@ -69,8 +69,8 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 
 ### Model discovery and language defaults
 
-PyKokoro >=0.9.9,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Discovery is metadata-only and does not download model weights:
-Readio v0.2.3 is tested against PyKokoro 0.9.9.
+PyKokoro >=0.9.11,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Readio also requires OnnxVoice >=0.1.6,<0.2 for the runtime model and timing integration. Discovery is metadata-only and does not download model weights:
+Readio v0.2.5 is tested against PyKokoro 0.9.11.
 
 Readio selects synthesis through an explicit engine registry. PyKokoro and Piper are the supported engines; engine identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
 
