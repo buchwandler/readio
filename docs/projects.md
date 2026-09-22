@@ -7,7 +7,7 @@ The `.readio` suffix is conventional; the manifest is authoritative.
 readio project init manuscript.md -o manuscript.readio
 readio plan manuscript.readio
 readio synth manuscript.readio --voice de-ko-01
-readio compose manuscript.readio
+readio compose manuscript.readio --progress
 readio export manuscript.readio --format mp3
 ```
 
@@ -66,4 +66,12 @@ Project document metadata keeps editable `input_format` separate from semantic `
 
 Use `--no-progress` for quiet automation or `--progress` to force progress. Repeat the existing global verbosity flag (`-v` or `-vv`) for INFO or bounded backend/runtime diagnostics. Diagnostics identify decisions, paths, counts, timings, and cache keys; raw tensors, waveforms, and embeddings are never dumped.
 
+
+## Composition observability
+
+`readio compose PROJECT` reports progress from the audiocompose layer that performs source loading, operations, resampling, assembly, and complete-output loudness. Readio maps generic item metadata to speech segment IDs and renders the active operation on stderr.
+
+Interactive terminals update a current line. Forced non-TTY progress is throttled. `--progress` enables output, `--no-progress` suppresses it, and automatic progress is disabled by `--json` unless explicitly forced. JSON stdout remains uncontaminated.
+
+The composition ETA is approximate and covers only segment processing. After segment processing, Readio reports `Assembling master`, `Finalizing loudness and true peak`, and `Writing composition artifacts` as separate phases. Preview and incremental `render PROJECT` use the same composition callback path when they rebuild composition. Progress is runtime-only and does not affect composition IDs, timelines, AudioJob files, or composition state.
 A complete cache hit emits no engine-open phase and does not load the model. Active `synthesis/profile.json` and `synthesis/trace.json` are the persisted status truth; changing content or profile invalidates only affected synthesis keys.

@@ -276,7 +276,7 @@ def _add_progress_option(parser: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "show rendering progress on stderr; enabled automatically on an "
+            "show progress on stderr; enabled automatically on an "
             "interactive terminal, use --no-progress to disable"
         ),
     )
@@ -771,20 +771,22 @@ def _cmd_synth(args: argparse.Namespace) -> int:
 
 def _cmd_compose(args: argparse.Namespace) -> int:
     project = load_project(args.project)
-    result = compose_project(
-        project,
-        target_lufs=args.target_lufs,
-        true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
-        peak_policy=args.peak_policy,
-        clip_policy=args.clip_policy,
-    )
+    with _build_progress(args) as progress:
+        result = compose_project(
+            project,
+            target_lufs=args.target_lufs,
+            true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
+            peak_policy=args.peak_policy,
+            clip_policy=args.clip_policy,
+            on_progress=progress.composition_event if progress.enabled else None,
+            on_phase=progress.phase if progress.enabled else None,
+        )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
     else:
         print(f"Composition: {result['composition_id']}")
         print(f"Master: {result['master']}")
     return 0
-
 
 def _cmd_export(args: argparse.Namespace) -> int:
     project = load_project(args.project)
@@ -801,16 +803,18 @@ def _cmd_export(args: argparse.Namespace) -> int:
 def _cmd_preview(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     cfg = _resolved_config(args)
-    progress = _build_progress(args)
-    result = preview_project(
-        project,
-        cfg,
-        request=_project_synthesis_request(args, project),
-        selector=args.select,
-        output=args.output,
-        activate=args.activate,
-        on_event=progress.synthesis_event,
-    )
+    with _build_progress(args) as progress:
+        result = preview_project(
+            project,
+            cfg,
+            request=_project_synthesis_request(args, project),
+            selector=args.select,
+            output=args.output,
+            activate=args.activate,
+            on_event=progress.synthesis_event,
+            on_composition_progress=progress.composition_event if progress.enabled else None,
+            on_phase=progress.phase if progress.enabled else None,
+        )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
     else:
@@ -819,16 +823,23 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         )
         if result["output"] is not None:
             print(result["output"])
-    progress.close()
     return 0
 
 
 def _cmd_project_render(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     cfg = _resolved_config(args)
-    result = render_project(
-        project, cfg, audio_format=args.format, args=args, target_lufs=args.target_lufs
-    )
+    with _build_progress(args) as progress:
+        result = render_project(
+            project,
+            cfg,
+            audio_format=args.format,
+            args=args,
+            target_lufs=args.target_lufs,
+            on_synthesis_event=progress.synthesis_event,
+            on_composition_progress=progress.composition_event if progress.enabled else None,
+            on_phase=progress.phase if progress.enabled else None,
+        )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
     else:
@@ -1013,13 +1024,17 @@ def _cmd_render(args: argparse.Namespace) -> int:
         if candidate.is_dir() and (candidate / "project.json").is_file():
             project = load_project(candidate)
             cfg = _resolved_config(args)
-            result = render_project(
-                project,
-                cfg,
-                audio_format=args.format or "wav",
-                args=args,
-                target_lufs=getattr(args, "target_lufs", None),
-            )
+            with _build_progress(args) as progress:
+                result = render_project(
+                    project,
+                    cfg,
+                    audio_format=args.format or "wav",
+                    args=args,
+                    target_lufs=getattr(args, "target_lufs", None),
+                    on_synthesis_event=progress.synthesis_event,
+                    on_composition_progress=progress.composition_event if progress.enabled else None,
+                    on_phase=progress.phase if progress.enabled else None,
+                )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
             else:
@@ -2119,6 +2134,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain"
     )
     compose_cmd.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
+    _add_progress_option(compose_cmd)
     compose_cmd.add_argument("--json", action="store_true")
     compose_cmd.set_defaults(func=_cmd_compose)
 

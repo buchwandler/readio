@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from audiocompose import CompositionProgress
 
 from readio import cli
 from readio.audio import RenderSummary
@@ -456,10 +457,55 @@ def test_render_json_reports_stable_envelope(monkeypatch, capsys, tmp_path: Path
 
 def test_project_commands_share_progress_option():
     synth = build_parser().parse_args(["synth", "--progress"])
+    compose = build_parser().parse_args(["compose", "--progress"])
+    compose_disabled = build_parser().parse_args(["compose", "--no-progress"])
+    compose_auto = build_parser().parse_args(["compose"])
     preview = build_parser().parse_args(["preview", "--no-progress"])
     assert synth.progress is True
+    assert compose.progress is True
+    assert compose_disabled.progress is False
+    assert compose_auto.progress is None
     assert preview.progress is False
 
+def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_project", lambda project: object())
+
+    def compose(project, **kwargs):
+        kwargs["on_phase"]("Preparing composition")
+        kwargs["on_progress"](
+            CompositionProgress(
+                kind="compose_started",
+                completed_items=0,
+                total_items=1,
+                target_sample_rate=24000,
+                details={"clip_items": 1},
+            )
+        )
+        kwargs["on_progress"](
+            CompositionProgress(
+                kind="compose_completed",
+                completed_items=1,
+                total_items=1,
+                target_sample_rate=24000,
+                output_frames=24000,
+            )
+        )
+        return {"composition_id": "sha256:test", "master": "master.wav"}
+
+    monkeypatch.setattr(cli, "compose_project", compose)
+    args = build_parser().parse_args(["compose", "--progress"])
+    assert cli._cmd_compose(args) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "Composition: sha256:test\nMaster: master.wav\n"
+    assert "Preparing composition…" in captured.err
+    assert "Composing" in captured.err
+    assert "Composition complete:" in captured.err
+
+    json_args = build_parser().parse_args(["compose", "--json", "--progress"])
+    assert cli._cmd_compose(json_args) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"ok": True, "composition_id": "sha256:test", "master": "master.wav"}
+    assert "Composing" in captured.err
 
 def test_status_discovers_project_from_nested_directory(tmp_path, monkeypatch, capsys):
     source = tmp_path / "episode.txt"

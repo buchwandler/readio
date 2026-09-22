@@ -271,19 +271,22 @@ readio render --file episode.ssmd --format m4a
 readio render "Hello" --format ogg
 ```
 
-## Render progress
+## Progress
 
-`render` and `spotify` report low-noise rendering progress on stderr when stderr is an interactive terminal:
+`render`, `synth`, `preview`, `compose`, project render, and `spotify` report low-noise progress on stderr. It is enabled automatically on an interactive terminal. Use `--progress` to force it or `--no-progress` to suppress it:
 
 ```bash
+readio compose manuscript.readio
+readio compose manuscript.readio --progress
+readio compose manuscript.readio --no-progress
+readio compose manuscript.readio --json --progress
 readio render --file episode.ssmd -o episode.mp3 --progress
-readio render --file episode.ssmd -o episode.mp3 --no-progress
-readio render --file episode.ssmd -o episode.mp3 --json
 readio spotify publish --file episode.ssmd --title "Episode" --json
-readio --json spotify status spotify:episode:abc --wait
 ```
 
-Progress includes the current phase, completed units, elapsed time, approximate ETA for bounded renders, generated audio duration, and finalization. Live renders show cumulative units without a percentage or ETA. `--json` keeps stdout to one result object; automatic progress is disabled in JSON mode, while explicit `--progress` remains stderr-only.
+Composition progress shows the current speech segment, active operation, completed and total segments, elapsed time, and an approximate ETA after enough segment work has completed. The ETA covers segment processing only. Assembly, complete-output loudness and true-peak processing, and composition artifact writing are shown as separate final stages.
+
+`--json` keeps stdout to one machine-readable result object. Progress remains on stderr, automatic progress is disabled in JSON mode, and explicit `--progress` remains stderr-only. Verbose mode uses line-oriented stderr output instead of in-place terminal rewriting.
 
 ## Verbose diagnostics
 

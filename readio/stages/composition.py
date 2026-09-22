@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,7 @@ from audiocompose import (
     AudioFileSource,
     AudioJob,
     Composer,
+    CompositionProgressCallback,
     FadeIn,
     FadeOut,
     Gain,
@@ -388,8 +389,12 @@ def compose_project(
     true_peak_ceiling_dbtp: float | None = -1.0,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
+    on_progress: CompositionProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     with project_lock(project, operation="compose"):
+        if on_phase is not None:
+            on_phase("Preparing composition")
         job, identity = build_audio_job(
             project,
             target_lufs=target_lufs,
@@ -397,7 +402,9 @@ def compose_project(
             peak_policy=peak_policy,
             clip_policy=clip_policy,
         )
-        result = Composer().compose(job)
+        result = Composer().compose(job, on_progress=on_progress)
+        if on_phase is not None:
+            on_phase("Writing composition artifacts")
         return _write_composition_result(project, job, identity, result)
 
 
@@ -411,6 +418,8 @@ def compose_artifacts(
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
     output: Path | None = None,
+    on_progress: CompositionProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     artifact_list = tuple(artifacts)
     if not artifact_list:
@@ -444,8 +453,10 @@ def compose_artifacts(
             clip_policy=clip_policy,
             composition=composition,
         )
-    result = Composer().compose(job)
+    result = Composer().compose(job, on_progress=on_progress)
     if output is not None:
+        if on_phase is not None:
+            on_phase("Writing preview artifacts")
         output.parent.mkdir(parents=True, exist_ok=True)
         sf.write(output, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
     return {"sample_rate": result.sample_rate, "frames": len(result.audio), "items": len(result.items), "output": output, "composition_id": identity["composition_id"]}

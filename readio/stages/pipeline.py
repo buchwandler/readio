@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from audiocompose import CompositionProgressCallback
 
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, hash_file, read_json
@@ -255,6 +258,9 @@ def render_project(
     audio_format: str = "wav",
     args: Any = None,
     target_lufs: float | None = None,
+    on_synthesis_event: Callable[[Any], None] | None = None,
+    on_composition_progress: CompositionProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     operations: list[dict[str, Any]] = []
     status = project_status(project)
@@ -264,7 +270,13 @@ def render_project(
     else:
         operations.append({"stage": "plan", "action": "skipped"})
     request = _project_request(project, cfg, args)
-    synthesis = synthesize_project(project, cfg, request=request, activate=True)
+    synthesis = synthesize_project(
+        project,
+        cfg,
+        request=request,
+        activate=True,
+        on_event=on_synthesis_event,
+    )
     operations.append(
         {
             "stage": "synthesis",
@@ -285,7 +297,12 @@ def render_project(
     ):
         operations.append({"stage": "composition", "action": "skipped"})
     else:
-        composed = compose_project(project, target_lufs=target_lufs)
+        composed = compose_project(
+            project,
+            target_lufs=target_lufs,
+            on_progress=on_composition_progress,
+            on_phase=on_phase,
+        )
         operations.append({"stage": "composition", "action": "rebuilt", **composed})
     output_state = project.root / "output" / "state.json"
     output_path = project.root / "output" / f"{project.manifest.name}.{audio_format}"
@@ -317,6 +334,8 @@ def preview_project(
     target_lufs: float | None = None,
     activate: bool = False,
     on_event: Any = None,
+    on_composition_progress: CompositionProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     synthesis = synthesize_project(
         project,
@@ -332,6 +351,8 @@ def preview_project(
         target_lufs=target_lufs,
         composition=synthesis["profile"].payload.get("composition", {}),
         output=output,
+        on_progress=on_composition_progress,
+        on_phase=on_phase,
     )
     return {
         "profile_id": synthesis["profile"].profile_id,

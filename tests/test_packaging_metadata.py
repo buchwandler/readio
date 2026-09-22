@@ -24,7 +24,7 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
 
     assert "ssmd>=0.8.7,<0.9" in dependencies
-    assert "utterplan>=0.1.4,<0.2" in dependencies
+    assert "utterplan>=0.2.0,<0.3" in dependencies
     assert "pykokoro[playback]>=0.9.9,<0.10" not in dependencies
 
 

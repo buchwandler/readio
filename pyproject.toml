@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = [
   "utterplan>=0.2.0,<0.3",
-  "audiocompose>=0.1.0,<0.2",
+  "audiocompose>=0.1.1,<0.2",
   "platformdirs>=4.0",
   "soundfile>=0.12",
   "tomli>=2.0; python_version < '3.11'",

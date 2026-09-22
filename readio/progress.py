@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TextIO
 
+from audiocompose import CompositionProgress
 from typing_extensions import Self
 
 from .audio import RenderProgress, RenderSummary
@@ -17,6 +18,23 @@ def format_duration(seconds: float) -> str:
     if hours:
         return f"{hours:d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _format_composition_operation(operation: Mapping[str, Any] | None) -> str:
+    if not operation:
+        return "operation"
+    kind = operation.get("type", "operation")
+    if kind == "gain":
+        return f"gain {float(operation.get('db', 0.0)):+.1f} dB"
+    if kind == "tempo":
+        return f"tempo ×{float(operation.get('factor', 1.0)):.2f}"
+    if kind == "pitch":
+        return f"pitch {float(operation.get('semitones', 0.0)):+.1f} st"
+    if kind == "fade_in":
+        return f"fade-in {float(operation.get('seconds', 0.0)):.2f} s"
+    if kind == "fade_out":
+        return f"fade-out {float(operation.get('seconds', 0.0)):.2f} s"
+    return f"operation {kind}"
 
 
 class TerminalProgress:
@@ -39,6 +57,15 @@ class TerminalProgress:
         self._last_logged_percent: int | None = None
         self._last_logged_completed = -1
         self._latest_completed = 0
+        self._composition_started_at: float | None = None
+        self._composition_last_update_at: float | None = None
+        self._composition_last_logged_percent: int | None = None
+        self._composition_latest_completed = 0
+        self._composition_total_segments = 0
+        self._composition_current_segment = "-"
+        self._composition_current_step = "preparing"
+        self._composition_completed_audio_seconds: float | None = None
+        self._composition_total_audio_seconds: float | None = None
         self._previous_width = 0
         self._line_active = False
         self._closed = False
@@ -194,6 +221,166 @@ class TerminalProgress:
             self._last_logged_percent = (
                 100 if total == 0 else min(100, round(event.completed_units * 100 / total))
             )
+
+    def _composition_elapsed(self, now: float | None = None) -> float:
+        if self._composition_started_at is None:
+            self._composition_started_at = self._clock() if now is None else now
+        current = self._clock() if now is None else now
+        return max(0.0, current - self._composition_started_at)
+
+    def _composition_item_label(self, event: CompositionProgress) -> str:
+        metadata = event.item_metadata or {}
+        return str(metadata.get("segment_id") or event.item_id or "-")
+
+    def _composition_is_silence(self, event: CompositionProgress) -> bool:
+        return event.item_kind == "silence" or (event.item_metadata or {}).get("kind") == "silence"
+
+    def _composition_step_label(self, event: CompositionProgress) -> str:
+        if event.kind == "item_started":
+            if self._composition_is_silence(event):
+                seconds = (event.details or {}).get("seconds")
+                if seconds is None:
+                    frames = (event.item_metadata or {}).get("frames")
+                    seconds = float(frames) / event.target_sample_rate if frames and event.target_sample_rate else 0.0
+                seconds = float(seconds)
+                return f"pause {seconds:.2f} s"
+            return "preparing"
+        if event.kind == "source_load_started":
+            return "loading source"
+        if event.kind == "operation_started":
+            return _format_composition_operation(event.operation)
+        if event.kind == "resample_started":
+            return f"resampling {event.source_sample_rate} -> {event.target_sample_rate} Hz"
+        if event.kind == "item_completed":
+            return "complete"
+        return self._composition_current_step
+
+    def _composition_should_emit(self, now: float) -> bool:
+        if self._tty:
+            return True
+        if self._composition_last_update_at is None:
+            return True
+        if now - self._composition_last_update_at >= 30.0:
+            return True
+        percent = (
+            min(100, round(self._composition_latest_completed * 100 / self._composition_total_segments))
+            if self._composition_total_segments
+            else 100
+        )
+        return (
+            self._composition_last_logged_percent is None
+            or percent >= self._composition_last_logged_percent + 10
+        )
+
+    def _composition_eta(self, elapsed: float) -> float | None:
+        completed = self._composition_latest_completed
+        total = self._composition_total_segments
+        if completed <= 0 or elapsed < 1.0 or completed >= total:
+            return None
+        completed_seconds = self._composition_completed_audio_seconds
+        total_seconds = self._composition_total_audio_seconds
+        if completed_seconds is not None and total_seconds is not None and completed_seconds > 0:
+            remaining = total_seconds - completed_seconds
+            if remaining > 0:
+                return elapsed / completed_seconds * remaining
+        return elapsed / completed * (total - completed)
+
+    def _composition_text(self, elapsed: float) -> str:
+        total = self._composition_total_segments
+        completed = min(self._composition_latest_completed, total) if total else 0
+        percent = 100 if total == 0 else min(100, round(completed * 100 / total))
+        text = (
+            f"Composing {percent:3d}%  {completed}/{total} segments"
+            f"  elapsed {format_duration(elapsed)}"
+        )
+        if (eta := self._composition_eta(elapsed)) is not None:
+            text += f"  ETA ~{format_duration(eta)}"
+        if self._composition_current_segment != "-":
+            text += f"  {self._composition_current_segment}"
+        if self._composition_current_step:
+            text += f"  {self._composition_current_step}"
+        return text
+
+    def composition_event(self, event: CompositionProgress) -> None:
+        """Render structured audiocompose events without sharing render timing state."""
+        if not self._enabled:
+            return
+        now = self._clock()
+        if event.kind == "compose_started":
+            self._composition_started_at = now
+            details = event.details or {}
+            metadata_kinds = details.get("metadata_kinds", {})
+            speech_count = metadata_kinds.get("speech") if isinstance(metadata_kinds, dict) else None
+            self._composition_total_segments = int(speech_count if speech_count is not None else details.get("clip_items", 0))
+            self._composition_latest_completed = 0
+            self._composition_current_segment = "-"
+            self._composition_current_step = "preparing"
+            self._composition_completed_audio_seconds = event.completed_audio_seconds
+            self._composition_total_audio_seconds = event.total_audio_seconds
+            self._composition_last_update_at = None
+            self._composition_last_logged_percent = None
+            self._composition_emit(event, now, force=True)
+            return
+        if event.completed_audio_seconds is not None:
+            self._composition_completed_audio_seconds = event.completed_audio_seconds
+        if event.total_audio_seconds is not None:
+            self._composition_total_audio_seconds = event.total_audio_seconds
+        if event.kind == "item_started":
+            self._composition_current_segment = self._composition_item_label(event)
+            self._composition_current_step = self._composition_step_label(event)
+        elif event.kind == "item_completed":
+            if event.item_kind == "clip" and not self._composition_is_silence(event):
+                self._composition_latest_completed += 1
+            self._composition_current_segment = self._composition_item_label(event)
+            self._composition_current_step = self._composition_step_label(event)
+        elif event.kind in {"source_load_started", "operation_started", "resample_started"}:
+            self._composition_current_segment = self._composition_item_label(event)
+            self._composition_current_step = self._composition_step_label(event)
+        elif event.kind == "assembly_started":
+            self.phase("Assembling master")
+            return
+        elif event.kind == "loudness_started":
+            self.phase("Finalizing loudness and true peak")
+            return
+        elif event.kind == "compose_completed":
+            self.composition_complete(event)
+            return
+        else:
+            return
+        self._composition_emit(event, now)
+
+    def _composition_emit(
+        self,
+        event: CompositionProgress,
+        now: float,
+        *,
+        force: bool = False,
+    ) -> None:
+        if not force and not self._composition_should_emit(now):
+            return
+        text = self._composition_text(self._composition_elapsed(now))
+        if self._tty:
+            self._write(text, inplace=True)
+        else:
+            self._write(text, newline=True)
+        self._composition_last_update_at = now
+        total = self._composition_total_segments
+        self._composition_last_logged_percent = 100 if total == 0 else min(
+            100, round(self._composition_latest_completed * 100 / total)
+        )
+
+    def composition_complete(self, event: CompositionProgress) -> None:
+        if not self._enabled:
+            return
+        elapsed = self._composition_elapsed(self._clock())
+        self._finish_line()
+        text = (
+            f"Composition complete: {self._composition_latest_completed} segments"
+            f" in {format_duration(elapsed)}"
+        )
+        if event.target_sample_rate and event.output_frames is not None:
+            text += f"  audio {format_duration(event.output_frames / event.target_sample_rate)}"
+        self._write(text, newline=True)
 
     def complete(self, summary: RenderSummary) -> None:
         if not self._enabled:

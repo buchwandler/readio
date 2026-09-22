@@ -7,7 +7,7 @@ readio project init SOURCE -o PROJECT
 readio plan PROJECT
 readio synth PROJECT [--engine ENGINE] [--voice VOICE] [--select SELECTOR]
 readio preview PROJECT --select SELECTOR [--voice VOICE] [-o PREVIEW.wav]
-readio compose PROJECT [--target-lufs FLOAT]
+readio compose PROJECT [--target-lufs FLOAT] [--progress | --no-progress] [--json]
 readio export PROJECT --format {wav,mp3,m4a,ogg}
 readio status PROJECT [--json]
 readio render PROJECT --format FORMAT
@@ -24,6 +24,14 @@ Plan artifact reasons include `plan.index.missing`, `plan.index.invalid`, `plan.
 Project `synth` and `preview` accept the shared `--progress` / `--no-progress` option. Interactive progress is written to stderr and includes the resolved profile, cache counts, model-loading phase, and unit/segment preview. `-v` and `-vv` select the existing INFO and DEBUG logging levels; use them for bounded stage, runtime, timing, and cache diagnostics.
 
 `readio synth --json` emits one final JSON object on stdout. It includes the project, scope, plan ID, profile identity and engine/model/voice/language, selector/count, and cache reuse/render counts. Progress and logs remain on stderr, and automatic progress is disabled for JSON unless explicitly forced.
+
+## Composition progress
+
+`readio compose PROJECT` shares the progress policy with synthesis, preview, render, and project rendering. Progress is enabled automatically on an interactive terminal, can be forced with `--progress`, and can be disabled with `--no-progress`. All progress is written to stderr.
+
+Composition events identify the current speech segment and operation, show completed and total segments, and show an approximate ETA only after enough segment processing has completed. The ETA covers segment processing and does not predict assembly, complete-output loudness or true-peak processing, or artifact writing. Those stages are rendered separately so all segments reaching 100 percent does not imply that the master is complete.
+
+With `--json`, stdout remains one JSON document. Explicit progress remains on stderr, and progress callbacks are runtime observations only. They do not enter composition IDs, AudioJob serialization, timelines, or composition state identities.
 
 `plan` is semantic and engine-free for a project or when its output ends in
 `.utterplan.json`. Ordinary text `plan` and `render --dry-run` retain the
