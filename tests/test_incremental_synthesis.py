@@ -193,6 +193,7 @@ def test_project_synthesis_emits_lifecycle_events_and_skips_engine_on_cache_hit(
         events.append(event)
 
     synthesize_project(project, cfg, request=_request(project), on_event=on_event)
+    assert events[0].details["target"] == {"id": "fake-target", "voice": "fake-voice", "language": "en-us"}
     assert [event.kind for event in events] == [
         "profile_resolved",
         "cache_scanned",

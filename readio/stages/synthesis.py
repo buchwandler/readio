@@ -358,10 +358,12 @@ def _render_missing(
                     details={"elapsed_ms": round((time.monotonic() - prepare_started) * 1000, 3)},
                 ),
             )
-            render_indices = tuple(
-                item["render_index"] if use_segments else item["unit"].index for item in stale
+            render_kwargs = (
+                {"segment_ids": tuple(item["segment_id"] for item in stale)}
+                if use_segments
+                else {"indices": tuple(item["unit"].index for item in stale)}
             )
-            render_iter = iter(prepared.render(indices=render_indices))
+            render_iter = iter(prepared.render(**render_kwargs))
             try:
                 for completed, item in enumerate(stale, 1):
                     segment = item["segment"]
@@ -393,29 +395,37 @@ def _render_missing(
                             f"(index {item['render_index'] if use_segments else unit.index})"
                         ) from exc
                     try:
-                        descriptor = getattr(result, "descriptor", None)
-                        index = int(
-                            getattr(
-                                result,
-                                "index",
+                        result_segment_id = getattr(result, "segment_id", None)
+                        if use_segments and result_segment_id is not None:
+                            if str(result_segment_id) != item["segment_id"]:
+                                raise ValueError(
+                                    f"engine returned segment {result_segment_id}; "
+                                    f"expected {item['segment_id']}"
+                                )
+                        else:
+                            descriptor = getattr(result, "descriptor", None)
+                            index = int(
                                 getattr(
                                     result,
-                                    "segment_index",
+                                    "index",
                                     getattr(
                                         result,
-                                        "unit_index",
-                                        getattr(descriptor, "index", -1),
+                                        "segment_index",
+                                        getattr(
+                                            result,
+                                            "unit_index",
+                                            getattr(descriptor, "index", -1),
+                                        ),
                                     ),
-                                ),
+                                )
                             )
-                        )
-                        if index < 0:
-                            metadata = getattr(result, "metadata", {}) or {}
-                            index = int(metadata.get("segment_index", metadata.get("unit_index", -1)))
-                        expected = item["render_index"] if use_segments else int(unit.index)
-                        if index != expected:
-                            kind = "segment" if use_segments else "plan unit"
-                            raise ValueError(f"engine returned {kind} index {index}; expected {expected}")
+                            if index < 0:
+                                metadata = getattr(result, "metadata", {}) or {}
+                                index = int(metadata.get("segment_index", metadata.get("unit_index", -1)))
+                            expected = item["render_index"] if use_segments else int(unit.index)
+                            if index != expected:
+                                kind = "segment" if use_segments else "plan unit"
+                                raise ValueError(f"engine returned {kind} index {index}; expected {expected}")
                         rate, channels, frames, digest, sidecar = _write_cache_artifact(
                             project, item, result, profile
                         )
@@ -534,7 +544,11 @@ def synthesize_project(
                     "profile_id": profile.profile_id,
                     "engine": profile.payload.get("canonical", {}).get("engine"),
                     "engine_version": profile.payload.get("canonical", {}).get("engine_version"),
-                    "target": profile.payload.get("canonical", {}).get("target_id"),
+                    "target": {
+                        "id": resolved.selection.target_id,
+                        "voice": resolved.selection.voice,
+                        "language": resolved.selection.language,
+                    },
                 },
             ),
         )

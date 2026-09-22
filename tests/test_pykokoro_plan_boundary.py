@@ -48,7 +48,7 @@ def test_prepare_plan_does_not_forward_plan_owned_options() -> None:
 
 
 
-def test_prepare_segments_uses_model_speed_only() -> None:
+def test_prepare_segments_does_not_forward_model_speed_or_generation() -> None:
     pipeline = _Pipeline()
     session = PyKokoroEngineSession(pipeline)
     session.prepare_segments(object(), options=_options())
@@ -56,7 +56,6 @@ def test_prepare_segments_uses_model_speed_only() -> None:
     assert pipeline.segment_overrides == {
         "lexicons": ("gold",),
         "model_source": "auto",
-        "generation": {"speed": 1.0},
     }
 
 def test_to_audio_job_does_not_forward_plan_owned_options() -> None:

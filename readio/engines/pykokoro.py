@@ -118,8 +118,7 @@ class PyKokoroEngineSession:
         rendered.pop("speed", None)
         rendered.pop("rate", None)
         rendered.pop("volume", None)
-        model_speed = rendered.pop("model_speed", 1.0)
-        rendered["generation"] = {"speed": float(model_speed)}
+        rendered.pop("model_speed", None)
         return self._pipeline.prepare_plan_segments(plan, **rendered)
 
 
