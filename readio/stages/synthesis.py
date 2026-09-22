@@ -16,9 +16,10 @@ from typing import Any
 import soundfile as sf
 
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
-from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock
+from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..selection import resolve_unit_selection
 from .planning import load_scope_plan
+from .speech_identity import segment_speech_hash, segment_synthesis_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,8 @@ class SynthesisEvent:
     scope_id: str | None = None
     unit_id: str | None = None
     unit_index: int | None = None
+    segment_id: str | None = None
+    segment_index: int | None = None
     completed: int | None = None
     total: int | None = None
     text: str | None = None
@@ -43,7 +46,7 @@ class SynthesisProfile:
     def to_dict(self) -> dict[str, Any]:
         return {
             "format": "readio.synthesis-profile",
-            "schema_version": 1,
+            "schema_version": 2,
             "profile_id": self.profile_id,
             **dict(self.payload),
         }
@@ -51,6 +54,8 @@ class SynthesisProfile:
 
 @dataclass(frozen=True, slots=True)
 class SynthesisArtifact:
+    """A validated canonical speech artifact and its active segment view."""
+
     unit_id: str
     unit_index: int
     content_hash: str
@@ -62,13 +67,26 @@ class SynthesisArtifact:
     channels: int
     frames: int
     markers: tuple[Mapping[str, Any], ...] = ()
+    speech_hash: str | None = None
+    segment_id_value: str | None = None
+    segment_index_value: int | None = None
+    sidecar_path: Path | None = None
+
+    @property
+    def segment_id(self) -> str:
+        return self.segment_id_value or self.unit_id
+
+    @property
+    def segment_index(self) -> int:
+        return self.segment_index_value if self.segment_index_value is not None else self.unit_index
 
     def to_dict(self, root: Path) -> dict[str, Any]:
-        return {
+        speech_hash = self.speech_hash or self.content_hash
+        data: dict[str, Any] = {
             "scope_id": "document",
-            "unit_id": self.unit_id,
-            "unit_index": self.unit_index,
-            "content_hash": self.content_hash,
+            "segment_id": self.segment_id,
+            "segment_index": self.segment_index,
+            "speech_hash": speech_hash,
             "synthesis_key": self.synthesis_key,
             "path": self.path.relative_to(root).as_posix(),
             "cache_path": self.cache_path.relative_to(root).as_posix(),
@@ -78,6 +96,9 @@ class SynthesisArtifact:
             "frames": self.frames,
             "markers": list(self.markers),
         }
+        if self.sidecar_path is not None:
+            data["sidecar_path"] = self.sidecar_path.relative_to(root).as_posix()
+        return data
 
 
 def synthesis_profile_id(payload: Mapping[str, Any]) -> str:
@@ -85,6 +106,7 @@ def synthesis_profile_id(payload: Mapping[str, Any]) -> str:
 
 
 def unit_synthesis_key(content_hash: str, profile_id: str) -> str:
+    """Compatibility helper for callers of the former unit cache API."""
     payload = {
         "schema": "readio.synthesis-unit.v1",
         "content_hash": content_hash,
@@ -97,22 +119,57 @@ def _safe_key(key: str) -> str:
     return key.replace(":", "-")
 
 
-def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
-    payload: dict[str, Any] = {
-        "schema": "readio.synthesis-profile.v1",
+def _fallback_canonical_identity(selection: Any, adapter: Any) -> dict[str, Any]:
+    editorial = {
+        "speed",
+        "rate",
+        "volume",
+        "pitch",
+        "emphasis",
+        "pause_mode",
+        "sentence_silence",
+        "pause_sentence",
+        "pause_paragraph",
+        "fade_in",
+        "fade_out",
+        "target_lufs",
+        "true_peak_ceiling_dbtp",
+    }
+    return {
         "engine": selection.engine,
         "engine_version": adapter.version(),
-        "target": {
-            "id": selection.target_id,
-            "language": selection.language,
-            "voice": selection.voice,
-            "speaker": selection.speaker,
-            "metadata": dict(selection.metadata),
+        "target_id": selection.target_id,
+        "language": selection.language,
+        "voice": selection.voice,
+        "speaker": selection.speaker,
+        "options": {
+            key: value for key, value in selection.options.items() if key not in editorial
         },
-        "rate": selection.options.get("rate", selection.options.get("speed", 1.0)),
-        "options": dict(selection.options),
+        "metadata": dict(selection.metadata),
     }
-    return SynthesisProfile(synthesis_profile_id(payload), payload)
+
+
+def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
+    identity_method = getattr(adapter, "canonical_synthesis_identity", None)
+    identity = (
+        dict(identity_method(selection))
+        if callable(identity_method)
+        else _fallback_canonical_identity(selection, adapter)
+    )
+    composition = {
+        key: value
+        for key, value in selection.options.items()
+        if key in {"speed", "rate", "pitch", "volume", "emphasis"} and value is not None
+    }
+    identity_payload = {
+        "schema": "readio.synthesis-profile.v2",
+        "canonical": identity,
+    }
+    payload: dict[str, Any] = {
+        **identity_payload,
+        "composition": composition,
+    }
+    return SynthesisProfile(synthesis_profile_id(identity_payload), payload)
 
 
 def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
@@ -204,6 +261,11 @@ def _unit_preview(plan: Any, unit: Any) -> str | None:
     return text[:117] + "..." if len(text) > 120 else text
 
 
+def _segment_preview(segment: Any) -> str:
+    text = " ".join(str(getattr(segment, "text", "")).split())
+    return text[:117] + "..." if len(text) > 120 else text
+
+
 def _result_details(result: Any) -> dict[str, Any]:
     metadata = getattr(result, "metadata", {}) or {}
     details: dict[str, Any] = {}
@@ -219,22 +281,55 @@ def _result_details(result: Any) -> dict[str, Any]:
     return details
 
 
+def _write_cache_artifact(
+    project: Project,
+    item: Mapping[str, Any],
+    result: Any,
+    profile: SynthesisProfile,
+) -> tuple[int, int, int, str, Path]:
+    cache_path = item["cache_path"]
+    sidecar_path = item["sidecar_path"]
+    temporary = cache_path.with_name(f".tmp-{secrets.token_hex(8)}.wav")
+    try:
+        sf.write(temporary, result.audio, int(result.sample_rate), subtype="PCM_16")
+        checked = _valid_audio(temporary)
+        if checked is None:
+            raise ValueError(f"engine produced invalid audio for {item['segment_id']}")
+        rate, channels, frames, digest = checked
+        os.replace(temporary, cache_path)
+        atomic_write_json(
+            sidecar_path,
+            {
+                "format": "readio.synthesis-artifact",
+                "schema_version": 2,
+                "segment_id_at_creation": item["segment_id"],
+                "speech_hash": item["speech_hash"],
+                "synthesis_key": item["synthesis_key"],
+                "profile_id": profile.profile_id,
+                "audio_sha256": digest,
+                "sample_rate": rate,
+                "channels": channels,
+                "frames": frames,
+            },
+        )
+        return rate, channels, frames, digest, sidecar_path
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _render_missing(
     project: Project,
     plan: Any,
     adapter: Any,
     selection: Any,
-    stale: list[Any],
+    stale: list[dict[str, Any]],
     profile: SynthesisProfile,
     *,
     on_event: Callable[[SynthesisEvent], None] | None = None,
     scope_id: str = "document",
-    started_at: float | None = None,
 ) -> dict[int, Mapping[str, Any]]:
     if not stale:
         return {}
-    cache_dir = project.root / "synthesis" / "cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
     details_by_index: dict[int, Mapping[str, Any]] = {}
     total = len(stale)
     _emit(on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=total))
@@ -249,9 +344,11 @@ def _render_missing(
                 details={"elapsed_ms": round((time.monotonic() - engine_started) * 1000, 3)},
             ),
         )
+        use_segments = callable(getattr(session, "prepare_segments", None))
+        prepare_method = session.prepare_segments if use_segments else session.prepare_plan
         _emit(on_event, SynthesisEvent("prepare_started", scope_id=scope_id, total=total))
         prepare_started = time.monotonic()
-        with session.prepare_plan(plan, options=selection.options) as prepared:
+        with prepare_method(plan, options=selection.options) as prepared:
             _emit(
                 on_event,
                 SynthesisEvent(
@@ -261,32 +358,39 @@ def _render_missing(
                     details={"elapsed_ms": round((time.monotonic() - prepare_started) * 1000, 3)},
                 ),
             )
-            by_index = {int(unit.index): unit for unit in plan.units}
-            render_indices = tuple(int(unit.index) for unit in stale)
+            render_indices = tuple(
+                item["render_index"] if use_segments else item["unit"].index for item in stale
+            )
             render_iter = iter(prepared.render(indices=render_indices))
             try:
-                for completed, unit in enumerate(stale, 1):
-                    expected_index = int(unit.index)
+                for completed, item in enumerate(stale, 1):
+                    segment = item["segment"]
+                    unit = item["unit"]
+                    event_kind = "segment_started" if use_segments else "unit_started"
                     _emit(
                         on_event,
                         SynthesisEvent(
-                            "unit_started",
+                            event_kind,
                             scope_id=scope_id,
                             unit_id=unit.id,
-                            unit_index=expected_index,
+                            unit_index=int(unit.index),
+                            segment_id=item["segment_id"],
+                            segment_index=item["segment_index"],
                             completed=completed - 1,
                             total=total,
-                            text=_unit_preview(plan, unit),
-                            details={"segment_ids": list(unit.segment_ids)},
+                            text=_segment_preview(segment) if use_segments else _unit_preview(plan, unit),
+                            details={"segment_ids": [item["segment_id"]]},
                         ),
                     )
                     render_started = time.monotonic()
                     try:
                         result = next(render_iter)
                     except StopIteration as exc:
+                        label = "segment" if use_segments else "plan unit"
                         raise ValueError(
-                            f"engine stopped rendering before plan unit {unit.id} "
-                            f"(index {expected_index})"
+                            f"engine stopped rendering before {label} "
+                            f"{item['segment_id'] if use_segments else unit.id} "
+                            f"(index {item['render_index'] if use_segments else unit.index})"
                         ) from exc
                     try:
                         descriptor = getattr(result, "descriptor", None)
@@ -296,57 +400,45 @@ def _render_missing(
                                 "index",
                                 getattr(
                                     result,
-                                    "unit_index",
-                                    getattr(descriptor, "index", -1),
+                                    "segment_index",
+                                    getattr(
+                                        result,
+                                        "unit_index",
+                                        getattr(descriptor, "index", -1),
+                                    ),
                                 ),
                             )
                         )
                         if index < 0:
                             metadata = getattr(result, "metadata", {}) or {}
-                            index = int(metadata.get("unit_index", metadata.get("index", -1)))
-                        if index != expected_index:
-                            raise ValueError(
-                                "engine returned plan unit index "
-                                f"{index}; expected {expected_index}"
-                            )
-                        rendered_unit = by_index[index]
-                        key = unit_synthesis_key(rendered_unit.content_hash, profile.profile_id)
-                        cache_path = cache_dir / f"{_safe_key(key)}.wav"
-                        temporary = cache_path.with_name(f".tmp-{secrets.token_hex(8)}.wav")
-                        try:
-                            sf.write(
-                                temporary,
-                                result.audio,
-                                int(result.sample_rate),
-                                subtype="PCM_16",
-                            )
-                            checked = _valid_audio(temporary)
-                            if checked is None:
-                                raise ValueError(
-                                    f"engine produced invalid audio for {rendered_unit.id}"
-                                )
-                            os.replace(temporary, cache_path)
-                        finally:
-                            temporary.unlink(missing_ok=True)
-                        result_details = _result_details(result)
-                        details_by_index[index] = result_details
+                            index = int(metadata.get("segment_index", metadata.get("unit_index", -1)))
+                        expected = item["render_index"] if use_segments else int(unit.index)
+                        if index != expected:
+                            kind = "segment" if use_segments else "plan unit"
+                            raise ValueError(f"engine returned {kind} index {index}; expected {expected}")
+                        rate, channels, frames, digest, sidecar = _write_cache_artifact(
+                            project, item, result, profile
+                        )
+                        item["rendered"] = (rate, channels, frames, digest, sidecar)
+                        details = _result_details(result)
+                        details_by_index[item["segment_index"]] = details
+                        finished_kind = "segment_finished" if use_segments else "unit_finished"
                         _emit(
                             on_event,
                             SynthesisEvent(
-                                "unit_finished",
+                                finished_kind,
                                 scope_id=scope_id,
-                                unit_id=rendered_unit.id,
-                                unit_index=index,
+                                unit_id=unit.id,
+                                unit_index=int(unit.index),
+                                segment_id=item["segment_id"],
+                                segment_index=item["segment_index"],
                                 completed=completed,
                                 total=total,
-                                text=_unit_preview(plan, rendered_unit),
+                                text=_segment_preview(segment) if use_segments else _unit_preview(plan, unit),
                                 details={
-                                    **result_details,
-                                    "segment_ids": list(rendered_unit.segment_ids),
-                                    "render_ms": round(
-                                        (time.monotonic() - render_started) * 1000,
-                                        3,
-                                    ),
+                                    **details,
+                                    "segment_ids": [item["segment_id"]],
+                                    "render_ms": round((time.monotonic() - render_started) * 1000, 3),
                                 },
                             ),
                         )
@@ -361,6 +453,40 @@ def _render_missing(
     return details_by_index
 
 
+def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
+    checked = _valid_audio(item["cache_path"])
+    if checked is None:
+        return None
+    rate, channels, frames, digest = checked
+    try:
+        sidecar = read_json(item["sidecar_path"])
+    except (OSError, ValueError):
+        return None
+    if (
+        sidecar.get("speech_hash") != item["speech_hash"]
+        or sidecar.get("synthesis_key") != item["synthesis_key"]
+        or sidecar.get("profile_id") != item["profile_id"]
+        or sidecar.get("audio_sha256") != digest
+    ):
+        return None
+    return SynthesisArtifact(
+        unit_id=item["unit"].id,
+        unit_index=int(item["unit"].index),
+        content_hash=item["speech_hash"],
+        synthesis_key=item["synthesis_key"],
+        path=item["path"],
+        cache_path=item["cache_path"],
+        audio_sha256=digest,
+        sample_rate=rate,
+        channels=channels,
+        frames=frames,
+        speech_hash=item["speech_hash"],
+        segment_id_value=item["segment_id"],
+        segment_index_value=item["segment_index"],
+        sidecar_path=item["sidecar_path"],
+    )
+
+
 def synthesize_project(
     project: Project,
     cfg: Any,
@@ -370,7 +496,7 @@ def synthesize_project(
     activate: bool = True,
     on_event: Callable[[SynthesisEvent], None] | None = None,
 ) -> dict[str, Any]:
-    """Synthesize selected stale units, loading the engine only when needed."""
+    """Synthesize selected stale segments, loading the engine only when needed."""
     started_at = time.monotonic()
     started_wall = datetime.now(timezone.utc).isoformat()
     with project_lock(project, operation="synth"):
@@ -378,59 +504,86 @@ def synthesize_project(
         unit_selection = resolve_unit_selection(plan, selector)
         request = _request_for_project(project, cfg, request)
         resolved, adapter, profile = _resolve_profile(project, cfg, request)
+        selected_indices = set(unit_selection.unit_indices)
+        selected_units = [unit for unit in plan.units if int(unit.index) in selected_indices]
+        units_by_segment: dict[str, Any] = {}
+        for unit in selected_units:
+            for segment_id in unit.segment_ids:
+                units_by_segment.setdefault(str(segment_id), unit)
+        segments_by_id = {str(segment.id): segment for segment in plan.segments}
+        selected_segments = [
+            segments_by_id[segment_id]
+            for segment_id in unit_selection.segment_ids
+            if segment_id in segments_by_id
+        ]
+        if not selected_segments:
+            raise ValueError("selected units contain no readable plan segments")
         _emit(
             on_event,
             SynthesisEvent(
                 "profile_resolved",
                 scope_id="document",
-                total=len(unit_selection.unit_indices),
+                total=len(selected_segments),
                 details={
                     "project": str(project.root),
                     "source": str(project.manifest.source_path),
                     "source_format": project.manifest.source_format,
                     "plan_id": plan.plan_id,
                     "selected_units": len(unit_selection.unit_indices),
+                    "selected_segments": len(selected_segments),
                     "profile_id": profile.profile_id,
-                    "engine": profile.payload.get("engine"),
-                    "engine_version": profile.payload.get("engine_version"),
-                    "target": dict(profile.payload.get("target", {})),
-                    "rate": profile.payload.get("rate"),
+                    "engine": profile.payload.get("canonical", {}).get("engine"),
+                    "engine_version": profile.payload.get("canonical", {}).get("engine_version"),
+                    "target": profile.payload.get("canonical", {}).get("target_id"),
                 },
             ),
         )
-        selected_indices = set(unit_selection.unit_indices)
-        selected = [unit for unit in plan.units if int(unit.index) in selected_indices]
         cache_dir = project.root / "synthesis" / "cache"
-        stale: list[Any] = []
-        cached: dict[int, SynthesisArtifact] = {}
-        for unit in selected:
-            key = unit_synthesis_key(unit.content_hash, profile.profile_id)
-            cache_path = cache_dir / f"{_safe_key(key)}.wav"
-            checked = _valid_audio(cache_path)
-            if checked is None:
-                stale.append(unit)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        items: list[dict[str, Any]] = []
+        cached: dict[str, SynthesisArtifact] = {}
+        stale: list[dict[str, Any]] = []
+        for segment_index, segment in enumerate(plan.segments):
+            segment_id = str(segment.id)
+            if segment_id not in unit_selection.segment_ids:
                 continue
-            rate, channels, frames, digest = checked
-            cached[int(unit.index)] = SynthesisArtifact(
-                unit.id,
-                int(unit.index),
-                unit.content_hash,
-                key,
-                project.root / "synthesis" / "segments" / f"seg-{int(unit.index) + 1:06d}.wav",
-                cache_path,
-                digest,
-                rate,
-                channels,
-                frames,
-            )
+            unit = units_by_segment[segment_id]
+            speech_hash = segment_speech_hash(plan, segment, profile.payload["canonical"])
+            key = segment_synthesis_key(speech_hash, profile.profile_id)
+            cache_path = cache_dir / f"{_safe_key(key)}.wav"
+            sidecar_path = cache_dir / f"{_safe_key(key)}.json"
+            item: dict[str, Any] = {
+                "segment": segment,
+                "segment_id": segment_id,
+                "segment_index": segment_index,
+                "render_index": segment_index,
+                "unit": unit,
+                "speech_hash": speech_hash,
+                "synthesis_key": key,
+                "profile_id": profile.profile_id,
+                "cache_path": cache_path,
+                "sidecar_path": sidecar_path,
+                "path": project.root / "synthesis" / "segments" / f"seg-{segment_index:06d}.wav",
+            }
+            items.append(item)
+            artifact = _artifact_from_item(project, item)
+            if artifact is None:
+                stale.append(item)
+            else:
+                cached[segment_id] = artifact
         _emit(
             on_event,
             SynthesisEvent(
                 "cache_scanned",
                 scope_id="document",
                 completed=len(cached),
-                total=len(selected),
-                details={"reused": len(cached), "rendered": len(stale)},
+                total=len(items),
+                details={
+                    "reused": len(cached),
+                    "rendered": len(stale),
+                    "required": len(items),
+                    "missing": len(stale),
+                },
             ),
         )
         render_details = _render_missing(
@@ -442,26 +595,11 @@ def synthesize_project(
             profile,
             on_event=on_event,
         )
-        for unit in stale:
-            key = unit_synthesis_key(unit.content_hash, profile.profile_id)
-            cache_path = cache_dir / f"{_safe_key(key)}.wav"
-            checked = _valid_audio(cache_path)
-            if checked is None:
-                raise ValueError(f"synthesis did not persist valid audio for {unit.id}")
-            rate, channels, frames, digest = checked
-            cached[int(unit.index)] = SynthesisArtifact(
-                unit.id,
-                int(unit.index),
-                unit.content_hash,
-                key,
-                project.root / "synthesis" / "segments" / f"seg-{int(unit.index) + 1:06d}.wav",
-                cache_path,
-                digest,
-                rate,
-                channels,
-                frames,
-            )
-        finished_wall = datetime.now(timezone.utc).isoformat()
+        for item in stale:
+            artifact = _artifact_from_item(project, item)
+            if artifact is None:
+                raise ValueError(f"synthesis did not persist valid audio for {item['segment_id']}")
+            cached[item["segment_id"]] = artifact
         if activate:
             _emit(
                 on_event,
@@ -476,16 +614,45 @@ def synthesize_project(
                 _link_or_copy(artifact.cache_path, artifact.path)
             atomic_write_json(project.paths["synthesis_profile"], profile.to_dict())
             plan_path = project.root / "plan" / "document.utterplan.json"
+            segment_rows = []
+            for item in items:
+                artifact = cached[item["segment_id"]]
+                segment_rows.append(
+                    {
+                        **artifact.to_dict(project.root),
+                        "unit_id": item["unit"].id,
+                        "unit_index": int(item["unit"].index),
+                        **(
+                            {"diagnostics": dict(render_details[item["segment_index"]])}
+                            if item["segment_index"] in render_details
+                            else {}
+                        ),
+                    }
+                )
+            compatibility_units = []
+            for unit in selected_units:
+                unit_items = [item for item in items if item["unit"].id == unit.id]
+                if len(unit_items) == 1:
+                    compatibility_units.append(
+                        {
+                            **cached[unit_items[0]["segment_id"]].to_dict(project.root),
+                            "unit_id": unit.id,
+                            "unit_index": int(unit.index),
+                            "content_hash": unit.content_hash,
+                        }
+                    )
+            finished_wall = datetime.now(timezone.utc).isoformat()
             trace = {
                 "format": "readio.synthesis-trace",
-                "schema_version": 1,
+                "schema_version": 2,
                 "started_at": started_wall,
                 "finished_at": finished_wall,
                 "engine_open_ms": None,
                 "render_ms": round((time.monotonic() - started_at) * 1000, 3),
-                "selected_units": len(selected),
-                "reused_units": len(selected) - len(stale),
-                "rendered_units": len(stale),
+                "selected_units": len(selected_units),
+                "selected_segments": len(items),
+                "reused_segments": len(items) - len(stale),
+                "rendered_segments": len(stale),
                 "diagnostics": {"short_sentence_fallbacks": 0, "timing_failures": 0},
                 "profile": {"profile_id": profile.profile_id, **dict(profile.payload)},
                 "plans": [
@@ -495,17 +662,8 @@ def synthesize_project(
                         "plan_sha256": hash_file(plan_path),
                     }
                 ],
-                "units": [
-                    {
-                        **artifact.to_dict(project.root),
-                        **(
-                            {"diagnostics": dict(render_details.get(artifact.unit_index, {}))}
-                            if artifact.unit_index in render_details
-                            else {}
-                        ),
-                    }
-                    for artifact in sorted(cached.values(), key=lambda item: item.unit_index)
-                ],
+                "segments": segment_rows,
+                "units": compatibility_units,
             }
             atomic_write_json(project.paths["synthesis_trace"], trace)
             _emit(
@@ -523,11 +681,11 @@ def synthesize_project(
             SynthesisEvent(
                 "complete",
                 scope_id="document",
-                completed=len(selected),
-                total=len(selected),
+                completed=len(items),
+                total=len(items),
                 details={
                     "profile_id": profile.profile_id,
-                    "reused": len(selected) - len(stale),
+                    "reused": len(items) - len(stale),
                     "rendered": len(stale),
                     "activated": activate,
                 },
@@ -538,7 +696,7 @@ def synthesize_project(
             "selection": unit_selection,
             "plan_id": plan.plan_id,
             "scope": "document",
-            "reused": len(selected) - len(stale),
+            "reused": len(items) - len(stale),
             "rendered": len(stale),
             "artifacts": tuple(cached.values()),
             "activated": activate,
@@ -549,6 +707,8 @@ __all__ = [
     "SynthesisArtifact",
     "SynthesisEvent",
     "SynthesisProfile",
+    "segment_speech_hash",
+    "segment_synthesis_key",
     "synthesis_profile_id",
     "synthesize_project",
     "unit_synthesis_key",

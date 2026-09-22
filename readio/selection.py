@@ -1,4 +1,4 @@
-"""Engine-neutral selection of persisted UtterancePlan units."""
+"""Engine-neutral selection of persisted UtterPlan units and segments."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ class SelectionError(ValueError):
 class UnitSelection:
     unit_indices: tuple[int, ...]
     description: str
+    segment_ids: tuple[str, ...] = ()
 
 
 def _range(value: str, label: str) -> tuple[int, int]:
@@ -40,11 +41,25 @@ def _paragraphs_for_unit(plan: Any, unit: Any) -> set[int]:
     return {int(getattr(by_id[sid], "paragraph", 0)) for sid in unit.segment_ids if sid in by_id}
 
 
+def _with_segments(plan: Any, unit_indices: tuple[int, ...], description: str) -> UnitSelection:
+    units = {int(unit.index): unit for unit in getattr(plan, "units", ())}
+    segment_ids: list[str] = []
+    seen: set[str] = set()
+    for index in unit_indices:
+        for segment_id in tuple(getattr(units[index], "segment_ids", ()) or ()):
+            if segment_id not in seen:
+                seen.add(segment_id)
+                segment_ids.append(str(segment_id))
+    return UnitSelection(unit_indices, description, tuple(segment_ids))
+
+
 def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
     units = _ensure_units(plan)
     normalized = (selector or "all").strip().lower()
     if normalized == "all":
-        return UnitSelection(tuple(int(unit.index) for unit in units), "all")
+        return _with_segments(
+            plan, tuple(int(unit.index) for unit in units), "all"
+        )
     if normalized in {"last-paragraph", "last:paragraph"}:
         paragraphs = [_paragraphs_for_unit(plan, unit) for unit in units]
         last = max((value for values in paragraphs for value in values), default=0)
@@ -53,7 +68,7 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
         )
         if not selected:
             raise SelectionError("the plan contains no last paragraph")
-        return UnitSelection(selected, "last-paragraph")
+        return _with_segments(plan, selected, "last-paragraph")
     if ":" not in normalized:
         raise SelectionError(
             "selector must be all, first:N, last:N, paragraph:N[-M], sentence:N[-M], or unit:N[-M]"
@@ -71,7 +86,8 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
             selected_units = units[start - 1 : end]
         if not selected_units:
             raise SelectionError("selector selected no units")
-        return UnitSelection(tuple(int(unit.index) for unit in selected_units), normalized)
+        indices = tuple(int(unit.index) for unit in selected_units)
+        return _with_segments(plan, indices, normalized)
     if kind not in {"paragraph", "sentence"}:
         raise SelectionError(f"unknown selector kind: {kind}")
     start, end = _range(raw, kind)
@@ -81,11 +97,16 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
             raise SelectionError(
                 f"sentence {start} is out of range; plan has {len(units)} sentences"
             )
-        return UnitSelection(tuple(int(unit.index) for unit in selected_units), normalized)
+        indices = tuple(int(unit.index) for unit in selected_units)
+        return _with_segments(plan, indices, normalized)
     selected: list[int] = []
     by_id = {segment.id: segment for segment in getattr(plan, "segments", ())}
     for unit in units:
-        values = {int(getattr(by_id[sid], kind, 0)) + 1 for sid in unit.segment_ids if sid in by_id}
+        values = {
+            int(getattr(by_id[sid], kind, 0)) + 1
+            for sid in unit.segment_ids
+            if sid in by_id
+        }
         if any(start <= value <= end for value in values):
             selected.append(int(unit.index))
     if not selected:
@@ -94,7 +115,7 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
             default=0,
         )
         raise SelectionError(f"{kind} {start} is out of range; plan has {maximum} {kind}s")
-    return UnitSelection(tuple(selected), normalized)
+    return _with_segments(plan, tuple(selected), normalized)
 
 
 __all__ = ["SelectionError", "UnitSelection", "resolve_unit_selection"]

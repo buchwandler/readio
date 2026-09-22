@@ -82,6 +82,21 @@ class PiperSynthEngineSession:
         """Prepare renderer units from an existing UtterancePlan."""
         return self._pipeline.prepare_plan(plan, **_plan_renderer_options(options))
 
+    def prepare_segments(
+        self,
+        plan: UtterancePlan,
+        *,
+        options: Mapping[str, Any],
+    ) -> AbstractContextManager[Any]:
+        """Prepare canonical speech-only plan segments."""
+        rendered = _plan_renderer_options(options)
+        if "speed" in options:
+            rendered.pop("length_scale", None)
+        rendered.pop("volume", None)
+        rendered.pop("sentence_silence", None)
+        return self._pipeline.prepare_plan_segments(plan, **rendered)
+
+
     def to_audio_job(
         self,
         plan: UtterancePlan,
@@ -103,6 +118,29 @@ class PiperSynthEngineAdapter:
             return importlib.metadata.version("pipersynth")
         except importlib.metadata.PackageNotFoundError:
             return None
+
+    def canonical_synthesis_identity(self, selection: EngineSelection) -> Mapping[str, Any]:
+        return {
+            "engine": self.id,
+            "engine_version": self.version(),
+            "target_id": selection.target_id,
+            "voice": selection.voice,
+            "speaker": selection.speaker,
+            "options": {
+                key: value
+                for key, value in selection.options.items()
+                if key not in {
+                    "speed",
+                    "rate",
+                    "volume",
+                    "pitch",
+                    "emphasis",
+                    "sentence_silence",
+                } and not (key == "length_scale" and "speed" in selection.options)
+            },
+            "metadata": dict(selection.metadata),
+        }
+
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(
@@ -163,6 +201,7 @@ class PiperSynthEngineAdapter:
             if not math.isfinite(resolved_speed) or resolved_speed <= 0:
                 raise ValueError("piper.invalid_speed: speed must be finite and > 0")
             options["length_scale"] = 1.0 / resolved_speed
+            options["speed"] = resolved_speed
 
         incompatible = {
             "lexicons": bool,
@@ -304,7 +343,9 @@ class PiperSynthEngineAdapter:
         options = dict(selection.options)
         generation = GenerationConfig(
             speaker=options.get("speaker", selection.speaker),
-            length_scale=options.get("length_scale"),
+            length_scale=(
+                None if "speed" in options else options.get("length_scale")
+            ),
             noise_scale=options.get("noise_scale"),
             noise_w_scale=options.get("noise_w_scale"),
             normalize_audio=bool(options.get("normalize_audio", True)),

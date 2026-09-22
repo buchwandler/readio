@@ -105,6 +105,24 @@ class PyKokoroEngineSession:
             **_plan_renderer_options(options, allowed_options=self._allowed_renderer_options),
         )
 
+    def prepare_segments(
+        self,
+        plan: UtterancePlan,
+        *,
+        options: Mapping[str, Any],
+    ) -> AbstractContextManager[Any]:
+        """Prepare canonical speech-only plan segments."""
+        rendered = _plan_renderer_options(
+            options, allowed_options=self._allowed_renderer_options
+        )
+        rendered.pop("speed", None)
+        rendered.pop("rate", None)
+        rendered.pop("volume", None)
+        model_speed = rendered.pop("model_speed", 1.0)
+        rendered["generation"] = {"speed": float(model_speed)}
+        return self._pipeline.prepare_plan_segments(plan, **rendered)
+
+
     def to_audio_job(
         self,
         plan: UtterancePlan,
@@ -129,6 +147,30 @@ class PyKokoroEngineAdapter:
             return importlib.metadata.version("pykokoro")
         except importlib.metadata.PackageNotFoundError:
             return None
+
+    def canonical_synthesis_identity(self, selection: EngineSelection) -> Mapping[str, Any]:
+        return {
+            "engine": self.id,
+            "engine_version": self.version(),
+            "target_id": selection.target_id,
+            "voice": selection.voice,
+            "speaker": selection.speaker,
+            "options": {
+                key: value
+                for key, value in selection.options.items()
+                if key not in {
+                    "speed",
+                    "rate",
+                    "volume",
+                    "pitch",
+                    "emphasis",
+                    "pause_mode",
+                    "sentence_silence",
+                }
+            },
+            "metadata": dict(selection.metadata),
+        }
+
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(
@@ -425,7 +467,7 @@ class PyKokoroEngineAdapter:
 
         options = dict(selection.options)
         generation = GenerationConfig(
-            speed=float(options.get("speed", selection.options.get("rate", 1.0))),
+            speed=float(options.get("model_speed", options.get("speed", 1.0))),
             lang=selection.language,
             pause_mode=str(options.get("pause_mode", "tts")),
         )

@@ -24,6 +24,7 @@ class EngineCapabilities:
     ssmd_provider: str | None = None
     option_names: frozenset[str] = frozenset()
     supports_prepared_units: bool = True
+    supports_prepared_segments: bool = True
     supports_audio_job: bool = True
     supports_lexicons: bool = False
     supports_speakers: bool = False
@@ -59,6 +60,28 @@ class RenderedUnit(Protocol):
         ...
 
 
+
+class RenderedSegment(Protocol):
+    """Minimum result contract for canonical speech-only segment audio."""
+
+    segment_id: str
+    audio: Any
+    sample_rate: int
+    word_timings: Any
+    diagnostics: Mapping[str, Any]
+
+
+class PreparedSegmentRenderer(Protocol):
+    """Single-pass renderer for prepared canonical plan segments."""
+
+    def render(
+        self,
+        *,
+        segment_ids: Iterable[str] | None = None,
+    ) -> Iterator[RenderedSegment]:
+        """Yield speech-only segment audio in requested plan order."""
+        ...
+
 class PreparedUnitRenderer(Protocol):
     """Single-pass renderer for prepared utterance-plan units."""
 
@@ -88,6 +111,15 @@ class EngineSession(Protocol):
         idempotent ``release_audio()`` after consuming each result; engines may
         also release results automatically when the iterator advances or closes.
         """
+        ...
+
+    def prepare_segments(
+        self,
+        plan: UtterancePlan,
+        *,
+        options: Mapping[str, Any],
+    ) -> AbstractContextManager[PreparedSegmentRenderer]:
+        """Prepare canonical speech-only segment rendering for an UtterancePlan."""
         ...
 
     def to_audio_job(
@@ -139,6 +171,14 @@ class EngineAdapter(Protocol):
         """Return the planner configuration needed for this selection."""
         ...
 
+    def canonical_synthesis_identity(
+        self,
+        selection: EngineSelection,
+    ) -> Mapping[str, Any]:
+        """Return identity inputs for canonical speech synthesis."""
+        ...
+
+
     def open(
         self,
         selection: EngineSelection,
@@ -152,6 +192,8 @@ __all__ = [
     "EngineCapabilities",
     "EngineSelection",
     "EngineSession",
+    "PreparedSegmentRenderer",
     "PreparedUnitRenderer",
+    "RenderedSegment",
     "RenderedUnit",
 ]

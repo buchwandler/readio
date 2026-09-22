@@ -27,6 +27,9 @@ class TestEngineRenderContractConsumesUtterPlan:
         # This test verifies the protocol shape exists
         assert hasattr(EngineSession, "prepare_plan")
 
+    def test_engine_session_protocol_has_prepare_segments(self) -> None:
+        assert hasattr(EngineSession, "prepare_segments")
+
     def test_engine_session_protocol_has_to_audio_job(self) -> None:
         """EngineSession must have to_audio_job(UtterancePlan, ...)."""
         assert hasattr(EngineSession, "to_audio_job")
