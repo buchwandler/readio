@@ -110,3 +110,91 @@ def test_complete_cache_hit_does_not_open_engine_and_edit_rebuilds_one_unit(tmp_
     assert third["rendered"] == 1
     assert third["reused"] == 2
     assert adapter.open_calls == 2
+
+
+def test_project_synthesis_emits_lifecycle_events_and_skips_engine_on_cache_hit(tmp_path, monkeypatch):
+    adapter = _Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "book.txt"
+    source.write_text("Alpha.\n\nBeta.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    plan_project(project, cfg)
+    events = []
+    synthesize_project(project, cfg, request=_request(project), on_event=events.append)
+    assert [event.kind for event in events] == [
+        "profile_resolved",
+        "cache_scanned",
+        "engine_open_started",
+        "engine_open_finished",
+        "prepare_started",
+        "prepare_finished",
+        "unit_started",
+        "unit_finished",
+        "unit_started",
+        "unit_finished",
+        "activation_started",
+        "activation_finished",
+        "complete",
+    ]
+    assert events[6].unit_id == "unit-0000"
+    assert events[7].completed == 1
+    assert events[7].text == "Alpha."
+    assert events[7].details["segment_ids"] == ["seg-000000"]
+    assert events[-1].details["rendered"] == 2
+
+    events.clear()
+    second = synthesize_project(project, cfg, request=_request(project), on_event=events.append)
+    assert second["rendered"] == 0
+    assert adapter.open_calls == 1
+    assert [event.kind for event in events] == [
+        "profile_resolved",
+        "cache_scanned",
+        "activation_started",
+        "activation_finished",
+        "complete",
+    ]
+
+
+def test_project_synthesis_merges_document_voice_bindings_with_explicit_overrides(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+
+    from readio.stages import synthesis as synthesis_stage
+
+    adapter = _Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "episode.ssmd"
+    source.write_text(
+        "---\nvoice_bindings:\n  kokoro:\n    narrator: af_heart\n    guest: af_bella\n---\n"
+        '<div voice="narrator">Hello.</div>',
+        encoding="utf-8",
+    )
+    project = init_project(source, tmp_path / "episode.readio")
+    plan_project(project, cfg)
+    request = replace(_request(project), voice_bindings={"narrator": "af_sarah"})
+    captured = {}
+
+    def resolve(_cfg, resolved_request):
+        captured["request"] = resolved_request
+        return SimpleNamespace(
+            plan=SimpleNamespace(ok=True, diagnostics=()),
+            selection=EngineSelection(
+                engine="fake",
+                target_id="fake-target",
+                language="en-us",
+                voice="fake-voice",
+            ),
+        )
+
+    monkeypatch.setattr(synthesis_stage, "resolve_execution_v2", resolve)
+    synthesis_stage._resolve_profile(project, cfg, request)
+
+    resolved_request = captured["request"]
+    assert resolved_request.input.document.format == "ssmd"
+    assert dict(resolved_request.voice_bindings) == {
+        "narrator": "af_sarah",
+        "guest": "af_bella",
+    }

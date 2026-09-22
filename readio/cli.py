@@ -721,17 +721,41 @@ def _project_synthesis_request(args: argparse.Namespace, project: object) -> Pla
 def _cmd_synth(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     cfg = _resolved_config(args)
+    progress = _build_progress(args)
     result = synthesize_project(
         project,
         cfg,
         request=_project_synthesis_request(args, project),
         selector=args.select,
         activate=True,
+        on_event=progress.synthesis_event,
     )
+    profile = result["profile"]
+    target = profile.payload.get("target", {})
     payload = {
         "ok": True,
         "project": str(project.root),
-        "profile_id": result["profile"].profile_id,
+        "scope": result.get("scope", "document"),
+        "plan_id": result.get("plan_id"),
+        "profile": {
+            "profile_id": profile.profile_id,
+            "source": target.get("metadata", {}).get("source"),
+            "quality": target.get("metadata", {}).get("quality"),
+            "engine": profile.payload.get("engine"),
+            "engine_version": profile.payload.get("engine_version"),
+            "model": target.get("id"),
+            "voice": target.get("voice"),
+            "language": target.get("language"),
+        },
+        "selection": {
+            "selector": args.select,
+            "selected": len(result["selection"].unit_indices),
+        },
+        "cache": {
+            "reused": result["reused"],
+            "rendered": result["rendered"],
+        },
+        "profile_id": profile.profile_id,
         "reused": result["reused"],
         "rendered": result["rendered"],
         "selected": len(result["selection"].unit_indices),
@@ -741,6 +765,7 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     else:
         print(f"Synthesis profile: {payload['profile_id']}")
         print(f"Synthesis cache: {payload['reused']} reused, {payload['rendered']} rendered")
+    progress.close()
     return 0
 
 
@@ -776,6 +801,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 def _cmd_preview(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     cfg = _resolved_config(args)
+    progress = _build_progress(args)
     result = preview_project(
         project,
         cfg,
@@ -783,6 +809,7 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         selector=args.select,
         output=args.output,
         activate=args.activate,
+        on_event=progress.synthesis_event,
     )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
@@ -792,6 +819,7 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         )
         if result["output"] is not None:
             print(result["output"])
+    progress.close()
     return 0
 
 
@@ -827,12 +855,23 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         print(json.dumps(result, default=str, ensure_ascii=False))
     else:
-        print(f"Project: {project.root}")
+        print(f"Readio project: {result.get('name', project.root.name)}")
+        print(f"Root: {project.root}")
+        source = result.get("source", {})
+        print(f"Source: {source.get('path', '-')}  [{source.get('format', '-')}]\n")
         for row in result["stages"]:
             details = ""
             if "reusable" in row:
                 details = f" ({row['reusable']}/{row['total']} units reusable)"
+            if row.get("blocked_by"):
+                details += f" blocked by {row['blocked_by']}"
             print(f"{row['stage'].upper():<12} {row['state']:<7} {row['reason']}{details}")
+        print()
+        if result.get("next_actions"):
+            print("Next:")
+            print(f"  {result['next_actions'][0]['command']}")
+        else:
+            print("Project is fully built.")
     return 0
 
 
@@ -2068,6 +2107,7 @@ def build_parser() -> argparse.ArgumentParser:
     synth_cmd.add_argument("--select", default="all")
     _add_synthesis_options(synth_cmd)
     _add_voice_resolution_options(synth_cmd)
+    _add_progress_option(synth_cmd)
     synth_cmd.add_argument("--json", action="store_true")
     synth_cmd.set_defaults(func=_cmd_synth)
 
@@ -2097,6 +2137,7 @@ def build_parser() -> argparse.ArgumentParser:
     preview_cmd.add_argument("--activate", action="store_true")
     _add_synthesis_options(preview_cmd)
     _add_voice_resolution_options(preview_cmd)
+    _add_progress_option(preview_cmd)
     preview_cmd.add_argument("--json", action="store_true")
     preview_cmd.set_defaults(func=_cmd_preview)
     from .spotify_cli import add_spotify_parser

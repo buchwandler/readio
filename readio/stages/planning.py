@@ -31,7 +31,10 @@ class ResolvedSemanticPlanning:
 
 def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSemanticPlanning:
     prepared = prepare_input_document(document)
-    policy = PlanningPolicy.from_semantic_config(cfg, document_format="plain")
+    planner_document_format = "ssmd" if prepared.format == "ssmd" else "plain"
+    policy = PlanningPolicy.from_semantic_config(
+        cfg, document_format=planner_document_format
+    )
     compiled = compile_semantic_plan(prepared, planning=policy)
     return ResolvedSemanticPlanning(prepared, policy, compiled)
 
@@ -49,7 +52,15 @@ def prepare_project_document(project: Project) -> InputDocument:
     raw = source.read_text(encoding="utf-8")
     metadata = __import__("json").loads(paths["document_metadata"].read_text(encoding="utf-8"))
     input_format = metadata.get("input_format", project.manifest.source_format)
-    normalized = markdown_to_speech(raw) if input_format == "markdown" else raw
+    if input_format == "markdown":
+        normalized = markdown_to_speech(raw)
+        document_format = "text"
+    elif input_format == "ssmd":
+        normalized = raw
+        document_format = "ssmd"
+    else:
+        normalized = raw
+        document_format = "text"
     atomic_write_bytes(paths["document_text"], normalized.encode("utf-8"))
     atomic_write_json(
         paths["document_metadata"],
@@ -59,10 +70,11 @@ def prepare_project_document(project: Project) -> InputDocument:
             "source_sha256": hash_file(source),
             "document_sha256": sha256_bytes(normalized.encode("utf-8")),
             "input_format": input_format,
+            "document_format": document_format,
             "source_path": f"../{project.manifest.source_path}",
         },
     )
-    return InputDocument(text=normalized, source_path=source, format="text")
+    return InputDocument(text=normalized, source_path=source, format=document_format)
 
 
 def plan_project_scope(
@@ -136,27 +148,92 @@ def load_scope_plan(project: Project, scope: PlanScope | None = None) -> Any:
     return UtterancePlan.load(project.root / "plan" / scope.path)
 
 
+def _plan_artifact_status(project: Project, document_format: str) -> dict[str, Any]:
+    """Validate the indexed plans against the current semantic document."""
+    try:
+        index = project.load_plan_index()
+    except (OSError, UnicodeError, ValueError):
+        return {
+            "state": "stale",
+            "reason": "plan.index.invalid",
+            "details": {},
+        }
+    expected_format = "ssmd" if document_format == "ssmd" else "plain"
+    for scope in index.scopes:
+        try:
+            path = project.path(str(Path("plan") / scope.path))
+            if not path.is_file():
+                return {
+                    "state": "stale",
+                    "reason": "plan.artifact.missing",
+                    "details": {"scope_id": scope.id},
+                }
+            if scope.sha256 is None or hash_file(path) != scope.sha256:
+                return {
+                    "state": "stale",
+                    "reason": "plan.artifact.hash_mismatch",
+                    "details": {"scope_id": scope.id},
+                }
+            from utterplan import UtterancePlan
+            plan = UtterancePlan.load(path)
+        except (OSError, UnicodeError, ValueError, TypeError, KeyError):
+            return {
+                "state": "stale",
+                "reason": "plan.artifact.invalid",
+                "details": {"scope_id": scope.id},
+            }
+        if scope.plan_id is None or plan.plan_id != scope.plan_id:
+            return {
+                "state": "stale",
+                "reason": "plan.artifact.plan_id_mismatch",
+                "details": {"scope_id": scope.id},
+            }
+        actual_format = plan.config.get("document_format")
+        if actual_format != expected_format:
+            return {
+                "state": "stale",
+                "reason": "plan.stale.document_format_mismatch",
+                "details": {
+                    "scope_id": scope.id,
+                    "stored": actual_format,
+                    "expected": expected_format,
+                },
+            }
+    return {"state": "current", "reason": "current", "details": {"scopes": len(index.scopes)}}
+
+
 def semantic_status(project: Project) -> list[dict[str, Any]]:
     paths = project.paths
     source_exists = paths["source"].is_file()
     source_sha = hash_file(paths["source"]) if source_exists else None
     source_state = "current" if source_exists else "stale"
     document_state = "stale"
-    if (
-        paths["document_metadata"].is_file()
-        and paths["document_text"].is_file()
-        and source_sha is not None
-    ):
+    document_format = project.manifest.source_format
+    if paths["document_metadata"].is_file() and paths["document_text"].is_file() and source_sha is not None:
         try:
             metadata = __import__("json").loads(
                 paths["document_metadata"].read_text(encoding="utf-8")
             )
-            document_state = "current" if metadata.get("source_sha256") == source_sha else "stale"
+            input_format = metadata.get("input_format", project.manifest.source_format)
+            document_format = metadata.get("document_format") or (
+                "ssmd" if input_format == "ssmd" else "text"
+            )
+            document_state = (
+                "current"
+                if metadata.get("source_sha256") == source_sha
+                else "stale"
+            )
         except (OSError, UnicodeError, ValueError):
             document_state = "stale"
-    plan_state = (
-        "current" if paths["plan_index"].is_file() and document_state == "current" else "stale"
-    )
+    if not paths["plan_index"].is_file():
+        plan_state, plan_reason, plan_details = "stale", "plan.index.missing", {}
+    elif document_state != "current":
+        plan_state, plan_reason, plan_details = "stale", "plan.stale.source_changed", {}
+    else:
+        validation = _plan_artifact_status(project, document_format)
+        plan_state = validation["state"]
+        plan_reason = validation["reason"]
+        plan_details = validation["details"]
     return [
         {
             "stage": "source",
@@ -172,11 +249,11 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
         {
             "stage": "plan",
             "state": plan_state,
-            "reason": "current"
-            if plan_state == "current"
-            else ("plan.stale.source_changed" if document_state != "current" else "plan.missing"),
+            "reason": plan_reason,
+            **plan_details,
         },
     ]
+
 
 
 __all__ = [

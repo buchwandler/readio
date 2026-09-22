@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import TextIO
+from typing import Any, TextIO
 
 from typing_extensions import Self
 
@@ -87,6 +87,51 @@ class TerminalProgress:
         self._finish_line()
         text = name if detail is None else f"{name} {detail}"
         self._write(text + "…", newline=True)
+
+    def synthesis_event(self, event: Any) -> None:
+        """Render concise persistent-project synthesis lifecycle events."""
+        if not self._enabled:
+            return
+        kind = getattr(event, "kind", "")
+        details = getattr(event, "details", {}) or {}
+        self._finish_line()
+        if kind == "profile_resolved":
+            target = details.get("target", {})
+            self._write(
+                f"Project: {details.get('project', '-')}\n"
+                f"Source:  {details.get('source', '-')} [{details.get('source_format', '-')}]\n"
+                f"Plan:    {details.get('plan_id', '-')} {details.get('selected_units', 0)} units\n"
+                "Synthesis\n"
+                f"  Engine:   {details.get('engine', '-')} {details.get('engine_version') or ''}\n"
+                f"  Model:    {target.get('id', '-')}\n"
+                f"  Voice:    {target.get('voice', '-')}\n"
+                f"  Language: {target.get('language', '-')}\n"
+                f"  Profile:  {details.get('profile_id', '-')}\n",
+                newline=True,
+            )
+        elif kind == "cache_scanned":
+            self._write(
+                f"Cache: {details.get('reused', 0)} reusable, {details.get('rendered', 0)} to render",
+                newline=True,
+            )
+        elif kind == "engine_open_started":
+            self._write("Loading synthesis model...", newline=True)
+        elif kind == "unit_started":
+            unit = getattr(event, "unit_id", "-")
+            index = (getattr(event, "completed", 0) or 0) + 1
+            total = getattr(event, "total", 0) or 0
+            segment_ids = ",".join(details.get("segment_ids", ()))
+            preview = getattr(event, "text", None) or ""
+            self._write(
+                f"[{index}/{total}] {unit} {segment_ids} {preview!r}",
+                newline=True,
+            )
+        elif kind == "complete":
+            self._write(
+                f"Synthesis complete: {details.get('reused', 0)} reused, "
+                f"{details.get('rendered', 0)} rendered",
+                newline=True,
+            )
 
     def render_started(self) -> None:
         if self._started_at is None:

@@ -116,10 +116,17 @@ class Project:
         return PlanIndex.from_dict(read_json(self.paths["plan_index"]))
 
     def document(self) -> InputDocument:
+        metadata = read_json(self.paths["document_metadata"])
+        input_format = metadata.get("input_format", self.manifest.source_format)
+        document_format = metadata.get("document_format")
+        if document_format is None:
+            # Legacy snapshots were normalized to text except for SSMD, which
+            # must remain available to the semantic SSMD bridge.
+            document_format = "ssmd" if input_format == "ssmd" else "text"
         return InputDocument(
             text=self.paths["document_text"].read_text(encoding="utf-8"),
             source_path=self.paths["source"],
-            format="text",
+            format=document_format,
         )
 
 
@@ -235,6 +242,7 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
                 "source_sha256": source_sha,
                 "document_sha256": sha256_bytes(document_text.encode("utf-8")),
                 "input_format": input_format,
+                "document_format": "ssmd" if input_format == "ssmd" else "text",
                 "source_path": f"../{source_relative.as_posix()}",
             },
         )

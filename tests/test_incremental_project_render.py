@@ -49,6 +49,46 @@ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
     assert project_status(project)["stages"][-1]["state"] == "current"
 
 
+def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatch):
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "book.txt"
+    source.write_text("Alpha.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    plan_project(project, cfg)
+    render_project(project, cfg)
+    project.paths["source"].write_text("Changed.", encoding="utf-8")
+
+    status = project_status(project)
+    stages = {row["stage"]: row for row in status["stages"]}
+    assert stages["plan"]["reason"] == "plan.stale.source_changed"
+    assert stages["composition"]["blocked_by"] == "synthesis"
+    assert stages["output"]["blocked_by"] == "composition"
+    assert status["next_actions"] == [
+        {"stage": "plan", "command": "readio plan", "reason": "plan.stale.source_changed"}
+    ]
+
+
+def test_status_rejects_trace_profile_mismatch(tmp_path, monkeypatch):
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "book.txt"
+    source.write_text("Alpha.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    plan_project(project, cfg)
+    render_project(project, cfg)
+    trace = __import__("json").loads(project.paths["synthesis_trace"].read_text(encoding="utf-8"))
+    trace["profile"]["profile_id"] = "sha256:wrong"
+    project.paths["synthesis_trace"].write_text(__import__("json").dumps(trace), encoding="utf-8")
+
+    status = project_status(project)
+    stages = {row["stage"]: row for row in status["stages"]}
+    assert stages["synthesis"]["reason"] == "synthesis.trace.profile_mismatch"
+    assert stages["composition"]["blocked_by"] == "synthesis"
+
+
 def test_chapter_scope_replacement_preserves_other_scope(tmp_path):
     source = tmp_path / "book.txt"
     source.write_text("Base.", encoding="utf-8")

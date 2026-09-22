@@ -452,3 +452,28 @@ def test_render_json_reports_stable_envelope(monkeypatch, capsys, tmp_path: Path
     assert result["ok"] is True
     assert result["duration_ms"] == 1000
     assert result["path"] == str(output)
+
+
+def test_project_commands_share_progress_option():
+    synth = build_parser().parse_args(["synth", "--progress"])
+    preview = build_parser().parse_args(["preview", "--no-progress"])
+    assert synth.progress is True
+    assert preview.progress is False
+
+
+def test_status_discovers_project_from_nested_directory(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "episode.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = __import__("readio.project", fromlist=["init_project"]).init_project(
+        source, tmp_path / "episode.readio"
+    )
+    nested = project.root / "nested" / "deeper"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    args = build_parser().parse_args(["status"])
+
+    assert cli._cmd_status(args) == 0
+    output = capsys.readouterr().out
+    assert "Readio project:" in output
+    assert str(project.root) in output
+    assert "readio plan" in output

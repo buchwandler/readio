@@ -39,4 +39,30 @@ incremental high-level build command.
 
 The plan index can contain multiple independent scopes such as chapters. Each
 scope points to a real Utterplan artifact; an `*.utterplan.json` file is never
+
 used as a custom collection manifest.
+## Status cockpit
+
+Run `readio status` from the project root or any nested directory. It validates the source, normalized document, every indexed plan artifact, the active synthesis profile/trace, composition, and output. Stale upstream stages block downstream stages; the terminal view prints the first command to run, while `--json` also exposes `issues` and `next_actions`.
+
+Typical recovery is:
+
+```text
+PLAN         stale   plan.stale.document_format_mismatch
+SYNTHESIS    stale   synthesis.stale.plan_changed blocked by plan
+COMPOSITION  stale   composition.stale.synthesis_changed blocked by synthesis
+OUTPUT       stale   output.stale.composition_changed blocked by composition
+
+Next:
+  readio plan
+```
+
+Project document metadata keeps editable `input_format` separate from semantic `document_format`. SSMD remains SSMD through project planning; legacy metadata without `document_format` infers SSMD only when its input format is SSMD.
+
+## Synthesis observability
+
+`readio synth` resolves and reports the project, source, plan, profile, engine/model/voice, cache reuse, and unit progress before loading an engine. `readio preview` uses the same progress events. Progress and logs use stderr; `--json` keeps stdout as one final JSON object containing `scope`, `plan_id`, `profile`, `selection`, and `cache`.
+
+Use `--no-progress` for quiet automation or `--progress` to force progress. Repeat the existing global verbosity flag (`-v` or `-vv`) for INFO or bounded backend/runtime diagnostics. Diagnostics identify decisions, paths, counts, timings, and cache keys; raw tensors, waveforms, and embeddings are never dumped.
+
+A complete cache hit emits no engine-open phase and does not load the model. Active `synthesis/profile.json` and `synthesis/trace.json` are the persisted status truth; changing content or profile invalidates only affected synthesis keys.
