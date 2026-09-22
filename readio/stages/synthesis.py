@@ -170,11 +170,10 @@ def _resolve_profile(
     document = project.document()
     if document.format == "ssmd" or project.manifest.source_format == "ssmd":
         from ..ssmd import document_voice_bindings
+
         if document.format != "ssmd":
             document = replace(document, format="ssmd")
-        local_bindings = document_voice_bindings(document.text).get(
-            cfg.ssmd.voice_provider, {}
-        )
+        local_bindings = document_voice_bindings(document.text).get(cfg.ssmd.voice_provider, {})
         merged_bindings = {**local_bindings, **dict(request.voice_bindings)}
         request = replace(
             request,
@@ -198,11 +197,7 @@ def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEve
 
 def _unit_preview(plan: Any, unit: Any) -> str | None:
     texts = getattr(plan, "texts", {})
-    spoken = (
-        texts.get("spoken", "")
-        if isinstance(texts, Mapping)
-        else getattr(texts, "spoken", "")
-    )
+    spoken = texts.get("spoken", "") if isinstance(texts, Mapping) else getattr(texts, "spoken", "")
     start = int(getattr(unit, "spoken_start", 0))
     end = int(getattr(unit, "spoken_end", start))
     text = " ".join(str(spoken[start:end]).split())
@@ -235,7 +230,7 @@ def _render_missing(
     on_event: Callable[[SynthesisEvent], None] | None = None,
     scope_id: str = "document",
     started_at: float | None = None,
- ) -> dict[int, Mapping[str, Any]]:
+) -> dict[int, Mapping[str, Any]]:
     if not stale:
         return {}
     cache_dir = project.root / "synthesis" / "cache"
@@ -267,75 +262,103 @@ def _render_missing(
                 ),
             )
             by_index = {int(unit.index): unit for unit in plan.units}
-            for completed, unit in enumerate(stale, 1):
-                _emit(
-                    on_event,
-                    SynthesisEvent(
-                        "unit_started",
-                        scope_id=scope_id,
-                        unit_id=unit.id,
-                        unit_index=int(unit.index),
-                        completed=completed - 1,
-                        total=total,
-                        text=_unit_preview(plan, unit),
-                        details={"segment_ids": list(unit.segment_ids)},
-                    ),
-                )
-                render_started = time.monotonic()
-                result = next(iter(prepared.render(indices=(int(unit.index),))))
-                descriptor = getattr(result, "descriptor", None)
-                index = int(
-                    getattr(
-                        result,
-                        "index",
-                        getattr(
-                            result,
-                            "unit_index",
-                            getattr(descriptor, "index", -1),
+            render_indices = tuple(int(unit.index) for unit in stale)
+            render_iter = iter(prepared.render(indices=render_indices))
+            try:
+                for completed, unit in enumerate(stale, 1):
+                    expected_index = int(unit.index)
+                    _emit(
+                        on_event,
+                        SynthesisEvent(
+                            "unit_started",
+                            scope_id=scope_id,
+                            unit_id=unit.id,
+                            unit_index=expected_index,
+                            completed=completed - 1,
+                            total=total,
+                            text=_unit_preview(plan, unit),
+                            details={"segment_ids": list(unit.segment_ids)},
                         ),
                     )
-                )
-                if index < 0:
-                    metadata = getattr(result, "metadata", {}) or {}
-                    index = int(metadata.get("unit_index", metadata.get("index", -1)))
-                if index not in by_index:
-                    raise ValueError(f"engine returned an unknown plan unit index: {index}")
-                rendered_unit = by_index[index]
-                key = unit_synthesis_key(rendered_unit.content_hash, profile.profile_id)
-                cache_path = cache_dir / f"{_safe_key(key)}.wav"
-                temporary = cache_path.with_name(f".tmp-{secrets.token_hex(8)}.wav")
-                try:
-                    sf.write(temporary, result.audio, int(result.sample_rate), subtype="PCM_16")
-                    checked = _valid_audio(temporary)
-                    if checked is None:
-                        raise ValueError(f"engine produced invalid audio for {rendered_unit.id}")
-                    os.replace(temporary, cache_path)
-                finally:
-                    temporary.unlink(missing_ok=True)
-                result_details = _result_details(result)
-                details_by_index[index] = result_details
-                _emit(
-                    on_event,
-                    SynthesisEvent(
-                        "unit_finished",
-                        scope_id=scope_id,
-                        unit_id=rendered_unit.id,
-                        unit_index=index,
-                        completed=completed,
-                        total=total,
-                        text=_unit_preview(plan, rendered_unit),
-                        details={
-                            **result_details,
-                            "segment_ids": list(rendered_unit.segment_ids),
-                            "render_ms": round((time.monotonic() - render_started) * 1000, 3),
-                        },
-                    ),
-                )
-                release = getattr(result, "release_audio", None)
-                if release is not None:
-                    release()
+                    render_started = time.monotonic()
+                    try:
+                        result = next(render_iter)
+                    except StopIteration as exc:
+                        raise ValueError(
+                            f"engine stopped rendering before plan unit {unit.id} "
+                            f"(index {expected_index})"
+                        ) from exc
+                    try:
+                        descriptor = getattr(result, "descriptor", None)
+                        index = int(
+                            getattr(
+                                result,
+                                "index",
+                                getattr(
+                                    result,
+                                    "unit_index",
+                                    getattr(descriptor, "index", -1),
+                                ),
+                            )
+                        )
+                        if index < 0:
+                            metadata = getattr(result, "metadata", {}) or {}
+                            index = int(metadata.get("unit_index", metadata.get("index", -1)))
+                        if index != expected_index:
+                            raise ValueError(
+                                "engine returned plan unit index "
+                                f"{index}; expected {expected_index}"
+                            )
+                        rendered_unit = by_index[index]
+                        key = unit_synthesis_key(rendered_unit.content_hash, profile.profile_id)
+                        cache_path = cache_dir / f"{_safe_key(key)}.wav"
+                        temporary = cache_path.with_name(f".tmp-{secrets.token_hex(8)}.wav")
+                        try:
+                            sf.write(
+                                temporary,
+                                result.audio,
+                                int(result.sample_rate),
+                                subtype="PCM_16",
+                            )
+                            checked = _valid_audio(temporary)
+                            if checked is None:
+                                raise ValueError(
+                                    f"engine produced invalid audio for {rendered_unit.id}"
+                                )
+                            os.replace(temporary, cache_path)
+                        finally:
+                            temporary.unlink(missing_ok=True)
+                        result_details = _result_details(result)
+                        details_by_index[index] = result_details
+                        _emit(
+                            on_event,
+                            SynthesisEvent(
+                                "unit_finished",
+                                scope_id=scope_id,
+                                unit_id=rendered_unit.id,
+                                unit_index=index,
+                                completed=completed,
+                                total=total,
+                                text=_unit_preview(plan, rendered_unit),
+                                details={
+                                    **result_details,
+                                    "segment_ids": list(rendered_unit.segment_ids),
+                                    "render_ms": round(
+                                        (time.monotonic() - render_started) * 1000,
+                                        3,
+                                    ),
+                                },
+                            ),
+                        )
+                    finally:
+                        release = getattr(result, "release_audio", None)
+                        if callable(release):
+                            release()
+            finally:
+                close = getattr(render_iter, "close", None)
+                if callable(close):
+                    close()
     return details_by_index
-
 
 
 def synthesize_project(
@@ -475,7 +498,11 @@ def synthesize_project(
                 "units": [
                     {
                         **artifact.to_dict(project.root),
-                        **({"diagnostics": dict(render_details.get(artifact.unit_index, {}))} if artifact.unit_index in render_details else {}),
+                        **(
+                            {"diagnostics": dict(render_details.get(artifact.unit_index, {}))}
+                            if artifact.unit_index in render_details
+                            else {}
+                        ),
                     }
                     for artifact in sorted(cached.values(), key=lambda item: item.unit_index)
                 ],

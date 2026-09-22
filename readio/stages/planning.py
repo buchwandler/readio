@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from utterplan import CURRENT_SCHEMA_VERSION, UtterancePlan
 
 from ..document import InputDocument
 from ..markdown import markdown_to_speech
@@ -29,12 +32,20 @@ class ResolvedSemanticPlanning:
     compiled: CompiledSemanticPlan
 
 
+class PlanSchemaMismatchError(ValueError):
+    """A persisted Readio semantic plan is not the supported Utterplan schema."""
+
+    def __init__(self, stored: object) -> None:
+        self.stored = stored
+        super().__init__(
+            f"Utterplan schema {stored!r} is not supported; expected {CURRENT_SCHEMA_VERSION}"
+        )
+
+
 def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSemanticPlanning:
     prepared = prepare_input_document(document)
     planner_document_format = "ssmd" if prepared.format == "ssmd" else "plain"
-    policy = PlanningPolicy.from_semantic_config(
-        cfg, document_format=planner_document_format
-    )
+    policy = PlanningPolicy.from_semantic_config(cfg, document_format=planner_document_format)
     compiled = compile_semantic_plan(prepared, planning=policy)
     return ResolvedSemanticPlanning(prepared, policy, compiled)
 
@@ -141,11 +152,20 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
     return resolved.compiled
 
 
-def load_scope_plan(project: Project, scope: PlanScope | None = None) -> Any:
-    from utterplan import UtterancePlan
+def load_utterplan_v2(path: Path) -> UtterancePlan:
+    """Load a Readio semantic plan without invoking Utterplan migration."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("format") != "utterplan":
+        raise ValueError("semantic plan artifact is not an Utterplan document")
+    stored = data.get("schema_version")
+    if stored != CURRENT_SCHEMA_VERSION:
+        raise PlanSchemaMismatchError(stored)
+    return UtterancePlan.from_dict(data)
 
+
+def load_scope_plan(project: Project, scope: PlanScope | None = None) -> UtterancePlan:
     scope = scope or project.load_plan_index().scopes[0]
-    return UtterancePlan.load(project.root / "plan" / scope.path)
+    return load_utterplan_v2(project.root / "plan" / scope.path)
 
 
 def _plan_artifact_status(project: Project, document_format: str) -> dict[str, Any]:
@@ -174,8 +194,18 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                     "reason": "plan.artifact.hash_mismatch",
                     "details": {"scope_id": scope.id},
                 }
-            from utterplan import UtterancePlan
-            plan = UtterancePlan.load(path)
+            plan = load_utterplan_v2(path)
+        except PlanSchemaMismatchError as exc:
+            return {
+                "state": "stale",
+                "reason": "plan.artifact.schema_mismatch",
+                "details": {
+                    "scope_id": scope.id,
+                    "stored": exc.stored,
+                    "required": CURRENT_SCHEMA_VERSION,
+                    "action": "run readio plan",
+                },
+            }
         except (OSError, UnicodeError, ValueError, TypeError, KeyError):
             return {
                 "state": "stale",
@@ -209,7 +239,11 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
     source_state = "current" if source_exists else "stale"
     document_state = "stale"
     document_format = project.manifest.source_format
-    if paths["document_metadata"].is_file() and paths["document_text"].is_file() and source_sha is not None:
+    if (
+        paths["document_metadata"].is_file()
+        and paths["document_text"].is_file()
+        and source_sha is not None
+    ):
         try:
             metadata = __import__("json").loads(
                 paths["document_metadata"].read_text(encoding="utf-8")
@@ -218,11 +252,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
             document_format = metadata.get("document_format") or (
                 "ssmd" if input_format == "ssmd" else "text"
             )
-            document_state = (
-                "current"
-                if metadata.get("source_sha256") == source_sha
-                else "stale"
-            )
+            document_state = "current" if metadata.get("source_sha256") == source_sha else "stale"
         except (OSError, UnicodeError, ValueError):
             document_state = "stale"
     if not paths["plan_index"].is_file():
@@ -255,10 +285,11 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
     ]
 
 
-
 __all__ = [
+    "PlanSchemaMismatchError",
     "ResolvedSemanticPlanning",
     "load_scope_plan",
+    "load_utterplan_v2",
     "plan_document",
     "plan_project",
     "plan_project_scope",

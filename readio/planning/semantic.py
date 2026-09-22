@@ -55,19 +55,7 @@ class SemanticPlanningService:
         Returns:
             Immutable UtterancePlan with plan_id and provenance.
         """
-        from dataclasses import fields
-
-        from utterplan import PlannerConfig
-
-        config_dict = policy.to_planner_config(engine_config)
-        planner_kwargs = {
-            item.name: config_dict[item.name]
-            for item in fields(PlannerConfig)
-            if item.name in config_dict and config_dict[item.name] is not None
-        }
-        planner_kwargs.setdefault("language", policy.language)
-        planner_config = PlannerConfig(**planner_kwargs)
-        # Create planner
+        planner_config = policy.to_planner_config(engine_config)
         planner = UtterancePlanner(planner_config)
 
         # Compile the plan

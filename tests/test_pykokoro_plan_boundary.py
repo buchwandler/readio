@@ -25,6 +25,7 @@ def _options() -> dict[str, object]:
         "speed": 1.15,
         "lexicons": ("gold",),
         "model_source": "auto",
+        "spacy": "lg",
     }
 
 

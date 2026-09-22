@@ -53,15 +53,18 @@ def compile_semantic_plan(
     Args:
         document: The prepared input document.
         planning: Planning policy (language, unit, pause mode, etc.).
-        engine_config: Engine-specific planner configuration.
 
     Returns:
         A ``CompiledSemanticPlan`` with the plan, plan_id, and sha256.
     """
     from .semantic import SemanticPlanningService
 
+    if engine_config is not None:
+        raise ValueError(
+            "engine-specific planner configuration is not accepted by Readio semantic planning"
+        )
     service = SemanticPlanningService()
-    plan = service.compile_from_document(document, planning, engine_config)
+    plan = service.compile_from_document(document, planning)
     # Compute identity after the compiler has materialized UtterPlan identity.
     plan = plan.with_identity()
     plan_id = plan.plan_id or ""

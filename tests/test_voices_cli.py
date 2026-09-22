@@ -12,12 +12,33 @@ from readio.voices import VoiceCatalogEntry, build_voice_catalog
 
 def real_en_us_catalog() -> tuple[VoiceCatalogEntry, ...]:
     voices = (
-        "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore",
-        "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky", "am_adam",
-        "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
-        "am_puck", "am_santa", "af_ameliaearhart", "af_libritts5338",
-        "am_libritts1272", "am_libritts6241", "am_vincentprice",
+        "af_alloy",
+        "af_aoede",
+        "af_bella",
+        "af_heart",
+        "af_jessica",
+        "af_kore",
+        "af_nicole",
+        "af_nova",
+        "af_river",
+        "af_sarah",
+        "af_sky",
+        "am_adam",
+        "am_echo",
+        "am_eric",
+        "am_fenrir",
+        "am_liam",
+        "am_michael",
+        "am_onyx",
+        "am_puck",
+        "am_santa",
+        "af_ameliaearhart",
+        "af_libritts5338",
+        "am_libritts1272",
+        "am_libritts6241",
+        "am_vincentprice",
     )
+
     def make_model(model_id: str, model_voices: tuple[str, ...]) -> ModelInfo:
         return ModelInfo(
             id=model_id,
@@ -38,11 +59,14 @@ def real_en_us_catalog() -> tuple[VoiceCatalogEntry, ...]:
                 for voice in model_voices
             ),
         )
+
     models = (
         make_model("v1.0", voices),
         make_model("v1.1-zh", ("af_maple", "af_sol")),
     )
     return build_voice_catalog(models).voices
+
+
 def config(tmp_path: Path) -> ReadioConfig:
     return ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "out"),
@@ -105,9 +129,7 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     assert shown["voice"]["model"] == "de-model"
 
 
-def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(
-    monkeypatch, capsys
-    ):
+def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(monkeypatch, capsys):
     entries = real_en_us_catalog()
     monkeypatch.setattr(
         cli,
@@ -134,8 +156,12 @@ def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(
         assert cli._cmd_voices(args) == 0
         shown = json.loads(capsys.readouterr().out)["voice"]
         assert (shown["selector"], shown["id"], shown["model"]) == (
-            "en_us-ko-4", "af_heart", "v1.0"
+            "en_us-ko-4",
+            "af_heart",
+            "v1.0",
         )
+
+
 def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
     piper_entry = VoiceCatalogEntry(

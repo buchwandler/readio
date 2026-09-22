@@ -112,40 +112,32 @@ class TestSemanticPlanIdentityAcousticInvariant:
     speaker, output format, etc. must not change the plan identity.
     """
 
-    def test_identity_stable_across_engine_config_variations(self) -> None:
-        """Different engine configs don't change identity if semantic inputs are same."""
+    def test_engine_config_cannot_override_semantics(self) -> None:
+        """Engine-specific planner configuration is rejected explicitly."""
+        import pytest
+
         doc = _make_document("Hello world, this is a test.")
-        policy = _make_policy()
-
-        plan1 = compile_semantic_plan(doc, planning=policy, engine_config=None)
-        plan2 = compile_semantic_plan(doc, planning=policy, engine_config={"voice": "different"})
-
-        # The identity should be the same because the text and policy are the same
-        # Note: This depends on the engine_config not affecting the UtterancePlan identity
-        # If engine_config affects the plan, this test should be adjusted
-        assert plan1.plan_id == plan2.plan_id
+        with pytest.raises(ValueError, match="engine-specific planner configuration"):
+            compile_semantic_plan(
+                doc, planning=_make_policy(), engine_config={"voice": "different"}
+            )
 
 
-def test_semantic_compiler_preserves_full_planner_config() -> None:
-    from utterplan.config import LinguisticsConfig, PauseConfig, SSMDConfig
+def test_semantic_compiler_uses_typed_planner_config() -> None:
+    from utterplan.config import SSMDConfig
 
-    policy = _make_policy()
-    result = compile_semantic_plan(
-        _make_document("Hello world"),
-        planning=policy,
-        engine_config={
-            "pauses": PauseConfig(sentence=1.25),
-            "linguistics": LinguisticsConfig(use_spacy=False, spacy_model_size="lg"),
-            "ssmd": SSMDConfig(unknown_header="ignore"),
-            "overlap_mode": "strict",
-            "language_aliases": {"en": "en-us"},
-            "diagnostics": False,
-        },
+    policy = _make_policy(
+        spacy_policy="off",
+        pause_mode="manual",
+        ssmd=SSMDConfig(unknown_header="ignore"),
+        overlap_mode="strict",
+        language_aliases={"en": "en-us"},
+        diagnostics=False,
     )
-
+    result = compile_semantic_plan(_make_document("Hello world"), planning=policy)
     config = result.plan.semantic_dict()["config"]
-    assert config["pauses"]["sentence"] == 1.25
-    assert config["linguistics"]["spacy_model_size"] == "lg"
+    assert config["pauses"]["mode"] == "manual"
+    assert config["linguistics"]["use_spacy"] is False
     assert config["ssmd"]["unknown_header"] == "ignore"
     assert config["overlap_mode"] == "strict"
     assert config["language_aliases"] == {"en": "en-us"}

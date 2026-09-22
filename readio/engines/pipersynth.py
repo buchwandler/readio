@@ -35,6 +35,11 @@ PIPER_RENDER_OPTIONS = frozenset(
 )
 
 
+def _plan_renderer_options(options: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep only acoustic options when rendering a frozen semantic plan."""
+    return {key: value for key, value in options.items() if key in PIPER_RENDER_OPTIONS}
+
+
 def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> SynthesisTarget:
     """Project PiperSynth metadata into Readio's neutral target type."""
     speaker_map = dict(getattr(metadata, "speaker_id_map", {}) or {})
@@ -75,7 +80,7 @@ class PiperSynthEngineSession:
         options: Mapping[str, Any],
     ) -> AbstractContextManager[Any]:
         """Prepare renderer units from an existing UtterancePlan."""
-        return self._pipeline.prepare_plan(plan, **dict(options))
+        return self._pipeline.prepare_plan(plan, **_plan_renderer_options(options))
 
     def to_audio_job(
         self,
@@ -84,7 +89,7 @@ class PiperSynthEngineSession:
         options: Mapping[str, Any],
     ) -> AudioJob:
         """Create an AudioJob from an existing UtterancePlan."""
-        return self._pipeline.to_audio_job(plan, **dict(options))
+        return self._pipeline.to_audio_job(plan, **_plan_renderer_options(options))
 
 
 class PiperSynthEngineAdapter:

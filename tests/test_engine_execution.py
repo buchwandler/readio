@@ -153,6 +153,7 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
 
         def __init__(self):
             self.resolve_calls = 0
+            self.planner_config_calls = 0
             self.open_calls = 0
             self.discover_calls = 0
             self.received_plan = None
@@ -182,7 +183,7 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
             )
 
         def planner_config(self, selection, planning):
-            return None
+            self.planner_config_calls += 1
 
         def open(self, selection):
             self.open_calls += 1
@@ -213,6 +214,7 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
     assert resolved.plan.render.render_id
     assert adapter.resolve_calls == 1
     assert adapter.discover_calls == 0
+    assert adapter.planner_config_calls == 0
 
     class Sink:
         def __init__(self):

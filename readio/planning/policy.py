@@ -1,23 +1,34 @@
-"""Planning policy for Readio semantic planning.
-
-This module provides the PlanningPolicy class that resolves
-document and configuration settings into a PlannerConfig.
-"""
+"""Engine-neutral Utterplan v2 planning policy for Readio."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from utterplan import LinguisticsConfig, PauseConfig, PlannerConfig, SSMDConfig
+
+
+def _linguistics_from_spacy_policy(policy: str | None) -> LinguisticsConfig:
+    """Translate Readio's spaCy policy into Utterplan v2 settings."""
+    selected = policy or "auto"
+    if selected == "off":
+        return LinguisticsConfig(use_spacy=False, require_spacy=False)
+    if selected == "auto":
+        return LinguisticsConfig(use_spacy=True, require_spacy=False)
+    if selected in {"sm", "md", "lg", "trf"}:
+        return LinguisticsConfig(
+            use_spacy=True,
+            spacy_model_size=selected,
+            require_spacy=True,
+        )
+    raise ValueError(
+        f"unsupported Readio spaCy policy {selected!r}; expected one of: auto, off, sm, md, lg, trf"
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class PlanningPolicy:
-    """Policy for semantic planning that combines engine requirements with Readio config.
-
-    This class resolves language, unit, SSMD parsing, pause policy,
-    linguistics, language aliases, and semantic directives into
-    a configuration suitable for UtterancePlanner.
-    """
+    """Readio's semantic policy, independent of a synthesis engine."""
 
     language: str = "en-us"
     unit: Literal["paragraph", "sentence"] = "paragraph"
@@ -26,84 +37,46 @@ class PlanningPolicy:
     ssmd_provider: str | None = None
     ssmd_voice_bindings: dict[str, str] = field(default_factory=dict)
     pause_mode: str = "auto"
-    spacy_policy: str | None = None
+    spacy_policy: str | None = "auto"
     language_aliases: dict[str, str] = field(default_factory=dict)
     language_detection: str | None = None
     detect_languages: tuple[str, ...] = ()
-
-    pauses: Any | None = None
-    linguistics: Any | None = None
-    ssmd: Any | None = None
-    overlap_mode: str = "snap"
+    ssmd: SSMDConfig = field(default_factory=SSMDConfig)
+    overlap_mode: Literal["snap", "strict"] = "snap"
     diagnostics: bool = True
 
-    def to_planner_config(self, engine_config: Any = None) -> dict[str, Any]:
-        """Convert to a planner configuration dict.
-
-        Args:
-            engine_config: Engine-specific planner configuration to merge.
-
-        Returns:
-            Combined planner configuration.
-        """
-        config: dict[str, Any] = {
-            "language": self.language,
-            "unit": self.unit,
-            "text_preparation": self.text_preparation,
-            "document_format": self.document_format,
-            "pause_mode": self.pause_mode,
-            "overlap_mode": self.overlap_mode,
-            "diagnostics": self.diagnostics,
-        }
-        for key in ("pauses", "linguistics", "ssmd"):
-            value = getattr(self, key)
-            if value is not None:
-                config[key] = value
-
-        if self.ssmd_provider is not None:
-            config["ssmd_provider"] = self.ssmd_provider
-        if self.ssmd_voice_bindings:
-            config["ssmd_voice_bindings"] = self.ssmd_voice_bindings
-        if self.spacy_policy is not None:
-            config["spacy"] = self.spacy_policy
-        if self.language_aliases:
-            config["language_aliases"] = self.language_aliases
-        if self.language_detection is not None:
-            config["language_detection"] = self.language_detection
-            config["detect_languages"] = self.detect_languages
-
+    def to_planner_config(self, engine_config: Any = None) -> PlannerConfig:
+        """Build the complete Utterplan v2 planner configuration."""
         if engine_config is not None:
-            if isinstance(engine_config, dict):
-                values = dict(engine_config)
-            else:
-                values = {
-                    key: getattr(engine_config, key)
-                    for key in getattr(engine_config, "__dataclass_fields__", {})
-                    if getattr(engine_config, key, None) is not None
-                }
-            from dataclasses import fields
-
-            from utterplan import PlannerConfig
-
-            semantic_keys = {item.name for item in fields(PlannerConfig)}
-            config.update({key: value for key, value in values.items() if key in semantic_keys})
-
-        return config
+            raise ValueError(
+                "engine-specific planner configuration is not accepted by Readio semantic planning"
+            )
+        return PlannerConfig(
+            language=self.language,
+            document_format=self.document_format,
+            text_preparation=self.text_preparation,
+            unit=self.unit,
+            pauses=PauseConfig(mode=self.pause_mode),
+            linguistics=_linguistics_from_spacy_policy(self.spacy_policy),
+            ssmd=self.ssmd,
+            overlap_mode=self.overlap_mode,
+            language_aliases=dict(self.language_aliases),
+            diagnostics=self.diagnostics,
+        )
 
     @classmethod
     def from_semantic_config(cls, cfg: Any, *, document_format: str = "plain") -> PlanningPolicy:
-        """Create semantic policy without resolving an engine or voice."""
+        """Create the engine-free policy from Readio configuration."""
         reader = getattr(cfg, "reader", cfg)
         ssmd = getattr(cfg, "ssmd", None)
-        language = getattr(reader, "lang", "en-us")
         return cls(
-            language=language,
+            language=getattr(reader, "lang", "en-us"),
             unit=getattr(reader, "unit", "sentence"),
             text_preparation=getattr(reader, "text_preparation", "identity"),
             document_format=document_format,
             ssmd_provider=getattr(ssmd, "voice_provider", None),
             pause_mode=getattr(reader, "pause_mode", "auto"),
-            spacy_policy=getattr(reader, "spacy", None),
+            spacy_policy=getattr(reader, "spacy", "auto"),
             language_aliases=dict(getattr(cfg, "language_aliases", {}) or {}),
             language_detection=getattr(reader, "language_detection", None),
             detect_languages=tuple(getattr(reader, "detect_languages", None) or ()),
@@ -115,4 +88,4 @@ class PlanningPolicy:
         return cls.from_semantic_config(cfg)
 
 
-__all__ = ["PlanningPolicy"]
+__all__ = ["PlanningPolicy", "_linguistics_from_spacy_policy"]

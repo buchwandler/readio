@@ -66,19 +66,16 @@ def test_project_ssmd_plan_preserves_semantics_and_metadata(tmp_path):
     assert "<div" not in spoken_text
     assert "</div>" not in spoken_text
     assert all(value not in spoken_text for value in ("180ms", "450ms", "200ms", "600ms"))
-    assert any(
-        boundary["seconds"] == 0.6 for boundary in plan.to_dict()["boundaries"]
-    )
+    assert any(boundary["seconds"] == 0.6 for boundary in plan.to_dict()["boundaries"])
     assert {
-        segment["directives"]["voice"]["reference"]
-        for segment in plan.to_dict()["segments"]
+        segment["directives"]["voice"]["reference"] for segment in plan.to_dict()["segments"]
     } == {"narrator", "guest"}
     assert compiled.plan_id == plan.plan_id
 
 
 def test_project_document_legacy_metadata_infers_semantic_format(tmp_path):
     source = tmp_path / "episode.ssmd"
-    source.write_text("<div voice=\"narrator\">Hello.</div>", encoding="utf-8")
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
     metadata = json.loads(project.paths["document_metadata"].read_text(encoding="utf-8"))
     metadata.pop("document_format")
@@ -94,17 +91,20 @@ def test_wrong_semantic_plan_format_is_stale_with_actionable_reason(tmp_path):
     plan_project(project, ReadioConfig())
     plan_path = project.root / "plan" / "document.utterplan.json"
     from utterplan import UtterancePlan
+
     plan = UtterancePlan.load(plan_path)
     plan.config["document_format"] = "plain"
     plan = plan.with_identity()
     plan_path.write_text(plan.to_json(), encoding="utf-8")
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
     import hashlib
+
     index["scopes"][0]["plan_id"] = plan.plan_id
     index["scopes"][0]["sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
     project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
 
     from readio.stages.planning import semantic_status
+
     row = semantic_status(project)[-1]
     assert row["state"] == "stale"
     assert row["reason"] == "plan.stale.document_format_mismatch"

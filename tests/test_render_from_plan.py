@@ -171,9 +171,7 @@ def test_normal_render_uses_plan_pipeline_config(
 
     assert expected.synthesis.spacy == "lg"
     assert expected.synthesis.short_sentence == "wrap"
-    assert used.tokenizer_config is not None
-    assert used.tokenizer_config.use_spacy is True
-    assert used.tokenizer_config.spacy_model_size == "lg"
+    assert used.tokenizer_config is None
     assert used.short_sentence_config is not None
     assert used.short_sentence_config.resolve_mode == "wrap"
 

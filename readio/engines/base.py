@@ -7,7 +7,7 @@ engines can implement it without pretending to be each other.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -48,6 +48,29 @@ class EngineSelection:
     refresh: bool = False
 
 
+class RenderedUnit(Protocol):
+    """Minimum result contract for one prepared render unit."""
+
+    audio: Any
+    sample_rate: int
+
+    def release_audio(self) -> None:
+        """Release the consumed audio buffer; repeated calls are safe."""
+        ...
+
+
+class PreparedUnitRenderer(Protocol):
+    """Single-pass renderer for prepared utterance-plan units."""
+
+    def render(
+        self,
+        *,
+        indices: Iterable[int] | None = None,
+    ) -> Iterator[RenderedUnit]:
+        """Yield selected units in order while exposing one result at a time."""
+        ...
+
+
 class EngineSession(Protocol):
     """The rendering part of an engine session consumed by Readio."""
 
@@ -56,8 +79,15 @@ class EngineSession(Protocol):
         plan: UtterancePlan,
         *,
         options: Mapping[str, Any],
-    ) -> AbstractContextManager[Any]:
-        """Prepare renderer units from an existing UtterancePlan."""
+    ) -> AbstractContextManager[PreparedUnitRenderer]:
+        """Prepare renderer units from an existing UtterancePlan.
+
+        A prepared renderer may be single-pass. Readio must call ``render()``
+        at most once per prepared object and consume or copy yielded audio
+        before advancing or closing the iterator. Readio explicitly calls
+        idempotent ``release_audio()`` after consuming each result; engines may
+        also release results automatically when the iterator advances or closes.
+        """
         ...
 
     def to_audio_job(
@@ -122,4 +152,6 @@ __all__ = [
     "EngineCapabilities",
     "EngineSelection",
     "EngineSession",
+    "PreparedUnitRenderer",
+    "RenderedUnit",
 ]

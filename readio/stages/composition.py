@@ -191,7 +191,9 @@ def compose_project(
                 "schema_version": 1,
                 "composition_id": identity["composition_id"],
                 "synthesis_trace_sha256": hash_file(project.paths["synthesis_trace"]),
-                "synthesis_profile_id": read_json(project.paths["synthesis_profile"]).get("profile_id"),
+                "synthesis_profile_id": read_json(project.paths["synthesis_profile"]).get(
+                    "profile_id"
+                ),
                 "audiojob_sha256": hash_file(audiojob_path),
                 "master_sha256": master_sha,
                 "timeline_sha256": hash_file(project.paths["composition_timeline"]),

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from utterplan import CURRENT_SCHEMA_VERSION
+
 from . import __version__
 from .config import (
     ReadioConfig,
@@ -34,6 +36,13 @@ from .formats import (
 from .markdown import markdown_to_speech
 from .models import ModelDiscoveryError, get_model_info, language_matches
 from .voices import resolve_voice_selector
+
+SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 2
+if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
+    raise RuntimeError(
+        "Readio supports Utterplan schema v2; "
+        f"installed Utterplan reports schema {CURRENT_SCHEMA_VERSION}"
+    )
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -1849,7 +1858,6 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             "rate": candidate.speed,
             "speed": candidate.speed,
             "pause_mode": candidate.pause_mode,
-            "spacy": candidate.spacy,
             "short_sentence": candidate.short_sentence,
             "allow_experimental": candidate.allow_experimental,
             "ssmd_voice_bindings": dict(request.voice_bindings),
@@ -1937,10 +1945,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             detect_languages=tuple(candidate.detect_languages or ()),
         )
         try:
-            planner_config = adapter.planner_config(selection, policy)
-            semantic = compile_semantic_plan(
-                effective_doc, planning=policy, engine_config=planner_config
-            )
+            semantic = compile_semantic_plan(effective_doc, planning=policy)
             semantic_plan_ref = SemanticPlanRef(
                 format="utterplan",
                 schema_version=semantic.plan.schema_version,
@@ -2245,7 +2250,7 @@ class SemanticPlanRef:
     """Reference to a persisted UtterancePlan."""
 
     format: str = "utterplan"
-    schema_version: int = 1
+    schema_version: int = CURRENT_SCHEMA_VERSION
     plan_id: str = ""
     sha256: str = ""
     path: str | None = None

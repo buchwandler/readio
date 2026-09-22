@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from readio.config import default_config
+from readio.config import ReaderSettings, ReadioConfig
 from readio.project import init_project
 from readio.selection import resolve_unit_selection
 from readio.stages.planning import load_scope_plan, plan_project
@@ -12,7 +12,7 @@ def _plan(tmp_path):
         "One sentence. Two sentence.\n\nThree sentence. Four sentence.", encoding="utf-8"
     )
     project = init_project(source, tmp_path / "book.readio")
-    plan_project(project, default_config())
+    plan_project(project, ReadioConfig(reader=ReaderSettings(spacy="off")))
     return load_scope_plan(project)
 
 

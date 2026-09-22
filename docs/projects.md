@@ -41,6 +41,7 @@ The plan index can contain multiple independent scopes such as chapters. Each
 scope points to a real Utterplan artifact; an `*.utterplan.json` file is never
 
 used as a custom collection manifest.
+
 ## Status cockpit
 
 Run `readio status` from the project root or any nested directory. It validates the source, normalized document, every indexed plan artifact, the active synthesis profile/trace, composition, and output. Stale upstream stages block downstream stages; the terminal view prints the first command to run, while `--json` also exposes `issues` and `next_actions`.

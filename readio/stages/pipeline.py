@@ -50,10 +50,22 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
         profile_id = profile.get("profile_id")
         trace_profile = trace.get("profile", {})
         if not isinstance(trace_profile, dict) or trace_profile.get("profile_id") != profile_id:
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.trace.profile_mismatch"}
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.trace.profile_mismatch",
+            }
         plans = trace.get("plans", [])
-        if not plans or plans[0].get("plan_id") != plan.plan_id or plans[0].get("plan_sha256") != hash_file(plan_path):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.trace.plan_mismatch"}
+        if (
+            not plans
+            or plans[0].get("plan_id") != plan.plan_id
+            or plans[0].get("plan_sha256") != hash_file(plan_path)
+        ):
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.trace.plan_mismatch",
+            }
         units = {str(item.get("unit_id")): item for item in trace.get("units", [])}
         reusable = 0
         for unit in plan.units:
@@ -61,7 +73,10 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             expected_key = unit_synthesis_key(unit.content_hash, str(profile_id))
             if item is None:
                 continue
-            if item.get("content_hash") != unit.content_hash or item.get("synthesis_key") != expected_key:
+            if (
+                item.get("content_hash") != unit.content_hash
+                or item.get("synthesis_key") != expected_key
+            ):
                 continue
             path = project.path(str(item.get("path", "")))
             expected_audio = item.get("audio_sha256")
@@ -148,7 +163,11 @@ def project_status(project: Project) -> dict[str, Any]:
                         "reason": "composition.stale.synthesis_changed",
                     }
             except (OSError, ValueError, KeyError):
-                composition = {"stage": "composition", "state": "stale", "reason": "composition.invalid"}
+                composition = {
+                    "stage": "composition",
+                    "state": "stale",
+                    "reason": "composition.invalid",
+                }
     if composition["state"] != "current":
         output = {
             "stage": "output",
@@ -175,7 +194,11 @@ def project_status(project: Project) -> dict[str, Any]:
                         "format": state.get("audio_format"),
                     }
                 else:
-                    output = {"stage": "output", "state": "stale", "reason": "output.stale.composition_changed"}
+                    output = {
+                        "stage": "output",
+                        "state": "stale",
+                        "reason": "output.stale.composition_changed",
+                    }
             except (OSError, KeyError, ValueError):
                 output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
     stages = [*rows, synthesis, composition, output]
@@ -190,7 +213,13 @@ def project_status(project: Project) -> dict[str, Any]:
     for row in stages:
         if row["stage"] in {"source", "document"} or row["state"] == "current":
             continue
-        next_actions.append({"stage": row["stage"], "command": commands.get(row["stage"], "readio status"), "reason": row["reason"]})
+        next_actions.append(
+            {
+                "stage": row["stage"],
+                "command": commands.get(row["stage"], "readio status"),
+                "reason": row["reason"],
+            }
+        )
     return {
         "project": str(project.root),
         "name": project.manifest.name,
@@ -199,6 +228,7 @@ def project_status(project: Project) -> dict[str, Any]:
         "issues": issues,
         "next_actions": next_actions[:1],
     }
+
 
 def render_project(
     project: Project,

@@ -16,6 +16,18 @@ python -m pip install -e ".[gpu]"
 
 PyKokoro may download model and voice assets on first use. Spotify publishing requires the separately installed `save-to-spotify` executable and its authenticated session. Readio never reads Spotify credential files.
 
+### Optional spaCy linguistic planning
+
+Install the optional Utterplan spaCy support when local grammatical annotations are desired:
+
+```bash
+python -m pip install "readio[spacy]"
+```
+
+Install a compatible local spaCy language model separately. Readio never downloads models implicitly. The default `reader.spacy = "auto"` tries the best locally installed model and falls back to Utterplan's analyzer when none is available. The explicit `sm`, `md`, `lg`, and `trf` settings require the selected local model tier and fail if it is unavailable. `off` disables spaCy analysis.
+
+`readio plan` stores token annotations and linguistic provenance in the Utterplan v2 artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected backend's local frontend because they do not consume a persisted semantic plan.
+
 ## Playback
 
 ```bash

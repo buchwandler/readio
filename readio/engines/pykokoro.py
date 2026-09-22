@@ -39,6 +39,7 @@ _PYKOKORO_PLAN_OWNED_OPTIONS = frozenset(
         "document_format",
         "text_preparation",
         "pause_mode",
+        "spacy",
         "pause_weak",
         "pause_clause",
         "pause_sentence",

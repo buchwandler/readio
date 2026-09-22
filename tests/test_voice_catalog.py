@@ -82,8 +82,7 @@ def test_catalog_consumes_packaged_onnxvoice_en_us_registry() -> None:
     v1_0_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.0")
     v1_1_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.1-zh")
     details = lambda voices: tuple(
-        VoiceMetadata(voice, "unknown", "en", "en-US", "American English")
-        for voice in voices
+        VoiceMetadata(voice, "unknown", "en", "en-US", "American English") for voice in voices
     )
     catalog = build_voice_catalog(
         (
@@ -103,6 +102,8 @@ def test_catalog_consumes_packaged_onnxvoice_en_us_registry() -> None:
     ] == list(expected)
     german = next(entry for entry in catalog.voices if entry.id == "df_anna")
     assert (german.selector, german.model, german.id) == ("de-ko-1", "de-anna", "df_anna")
+
+
 def test_catalog_projects_authoritative_identities_and_display_orders(monkeypatch) -> None:
     identities = {
         ("v1.0", "af_a"): identity("en_us-ko-1", "en_us", 1, "v1.0", "af_a"),
