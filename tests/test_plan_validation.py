@@ -16,6 +16,7 @@ from dataclasses import replace
 import pytest
 
 from readio import plan as plan_module
+from readio.api import Readio
 from readio.config import LanguageSettings, ReadioConfig
 from readio.document import InputDocument
 from readio.models import ModelInfo
@@ -249,7 +250,7 @@ class TestInputSourceKind:
         from readio.cli import _build_plan_request, build_parser
 
         args = build_parser().parse_args(["render", "Hello world"])
-        request = _build_plan_request(args, ReadioConfig())
+        request = _build_plan_request(args, Readio(ReadioConfig()))
         assert request.input.source_kind == "literal"
 
     def test_cli_stdin_reports_stdin(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -262,7 +263,7 @@ class TestInputSourceKind:
             sys, "stdin", SimpleNamespace(isatty=lambda: False, read=lambda: "stdin text")
         )
         args = build_parser().parse_args(["render"])
-        request = _build_plan_request(args, ReadioConfig())
+        request = _build_plan_request(args, Readio(ReadioConfig()))
         assert request.input.source_kind == "stdin"
 
     def test_cli_file_reports_file(self, tmp_path) -> None:
@@ -271,7 +272,7 @@ class TestInputSourceKind:
         source = tmp_path / "note.txt"
         source.write_text("Hello world.", encoding="utf-8")
         args = build_parser().parse_args(["render", str(source)])
-        request = _build_plan_request(args, ReadioConfig())
+        request = _build_plan_request(args, Readio(ReadioConfig()))
         assert request.input.source_kind == "file"
 
 
