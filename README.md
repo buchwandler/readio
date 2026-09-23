@@ -28,6 +28,10 @@ Install a compatible local spaCy language model separately. Readio never downloa
 
 `readio plan` stores token annotations and linguistic provenance in the Utterplan v2 artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected backend's local frontend because they do not consume a persisted semantic plan.
 
+## Python API
+
+Use `readio.api` from Python applications for typed synchronous speech, project, catalog, configuration, and diagnostics services. Start with the [Python API guide](docs/api.md) and executable [planning example](examples/python_api.py).
+
 ## Playback
 
 ```bash

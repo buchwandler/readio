@@ -31,7 +31,7 @@ spacy = ['utterplan[spacy]>=0.1.4,<0.2']
 all = ['pykokoro[playback]>=0.9.11,<0.10', 'pipersynth>=0.1.3,<0.2', 'utterplan[spacy]>=0.1.4,<0.2']
 cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu>=1.17"]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 readio = "readio.cli:main"
@@ -42,7 +42,7 @@ include = ["readio*"]
 exclude = ["tests*", "skill*"]
 
 [tool.setuptools.package-data]
-readio = ["resources/templates/*.ssmd"]
+readio = ["resources/templates/*.ssmd", "py.typed"]
 
 [tool.setuptools_scm]
 fallback_version = "0+unknown"

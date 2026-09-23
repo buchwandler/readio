@@ -188,6 +188,7 @@ class PiperSynthEngineAdapter:
             )
 
         raw_options = dict(getattr(request, "options", {}) or {})
+        raw_options.update(dict(getattr(request, "engine_options", {}) or {}))
         speed = raw_options.pop("speed", None)
         rate = raw_options.pop("rate", None)
         if speed is not None and rate is not None and speed != rate:

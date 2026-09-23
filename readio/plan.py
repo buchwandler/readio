@@ -33,6 +33,7 @@ from .formats import (
     format_suffix,
     resolve_audio_format,
 )
+from .jsonutil import JsonValue
 from .markdown import markdown_to_speech
 from .models import ModelDiscoveryError, get_model_info, language_matches
 from .voices import resolve_voice_selector
@@ -194,7 +195,7 @@ class SynthesisRequest:
     offline: bool = False
     refresh: bool = False
     engine: str | None = None
-
+    engine_options: Mapping[str, JsonValue] = field(default_factory=dict)
 
 @dataclass(frozen=True, slots=True)
 class InputRequest:
@@ -214,6 +215,17 @@ class OutputRequest:
     requested_format: str | None = None
     requested_path: Path | None = None
     force: bool = False
+    bitrate: str | None = None
+
+
+
+@dataclass(frozen=True, slots=True)
+class CompositionOptions:
+    target_lufs: float | None = None
+    true_peak_ceiling_dbtp: float = -1.0
+    peak_policy: Literal["reduce_gain", "error"] = "reduce_gain"
+    clip_policy: Literal["clamp", "warn", "error"] = "clamp"
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +239,9 @@ class PlanRequest:
     voice_bindings: Mapping[str, str] = field(default_factory=dict)
     project_voice_bindings: Mapping[str, str] = field(default_factory=dict)
     scope_voice_bindings: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    composition: CompositionOptions = field(default_factory=CompositionOptions)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -1884,6 +1899,19 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             "detect_languages": candidate.detect_languages,
         }
         options.update({key: value for key, value in optional_options.items() if value is not None})
+        engine_options = dict(request.synthesis.engine_options)
+        unsupported_options = sorted(
+            set(engine_options) - adapter.capabilities().option_names
+        )
+        for name in unsupported_options:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="engine_option_unsupported",
+                    severity="error",
+                    message=f"Engine {engine_id!r} does not support option {name!r}.",
+                    field=f"synthesis.engine_options.{name}",
+                )
+            )
         engine_request = EngineRequest(
             engine=engine_id,
             target_id=candidate.model or candidate.voice,
@@ -1893,6 +1921,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             options=options,
             offline=request.synthesis.offline,
             refresh=request.synthesis.refresh,
+            engine_options=engine_options,
         )
         try:
             selection, engine_diags = adapter.resolve(engine_request)
@@ -2486,6 +2515,7 @@ __all__ = [
     "ORIGIN_MODEL_DEFAULT",
     "ORIGIN_PYKOKORO_AUTO",
     "ORIGIN_READIO_DEFAULT",
+    "CompositionOptions",
     "EnvironmentPlan",
     "EnvironmentPlanV2",
     "InputPlan",

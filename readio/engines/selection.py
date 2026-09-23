@@ -27,6 +27,7 @@ class EngineRequest:
     options: Mapping[str, Any] = field(default_factory=dict)
     offline: bool = False
     refresh: bool = False
+    engine_options: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

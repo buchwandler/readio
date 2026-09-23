@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from readio import cli
+from readio.api.catalog import CatalogService
 from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
 from readio.models import ModelInfo, VoiceMetadata
 from readio.voices import VoiceCatalogEntry, build_voice_catalog
@@ -97,16 +98,29 @@ def catalog_entry() -> VoiceCatalogEntry:
     )
 
 
-def patch_catalog(monkeypatch) -> None:
-    monkeypatch.setattr(
-        cli,
-        "discover_voice_catalog",
-        lambda **_: (
-            (catalog_entry(),),
-            SimpleNamespace(registry_source="cache", cache_fallback=False),
-        ),
-    )
+def _patch_voice_listing(monkeypatch, entries, *, registry_source="fixture", calls=None) -> None:
+    def listing(self, query=None, *, discovery=None):
+        if calls is not None:
+            calls.append(query)
+        metadata = {
+            "source": registry_source,
+            "registry_source": registry_source,
+            "cache_fallback": False,
+            "offline": bool(discovery and discovery.offline),
+            "refreshed": bool(discovery and discovery.refresh),
+        }
+        return SimpleNamespace(
+            items=entries,
+            discovery=SimpleNamespace(
+                to_dict=lambda: metadata, cache_fallback=False
+            ),
+        )
 
+    monkeypatch.setattr(CatalogService, "voices_listing", listing)
+
+
+def patch_catalog(monkeypatch) -> None:
+    _patch_voice_listing(monkeypatch, (catalog_entry(),), registry_source="cache")
 
 def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
@@ -127,15 +141,12 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     shown = json.loads(capsys.readouterr().out)
     assert shown["voice"]["selector"] == "de-ko-3"
     assert shown["voice"]["model"] == "de-model"
+    assert shown["registry"]["source"] == "cache"
 
 
 def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(monkeypatch, capsys):
     entries = real_en_us_catalog()
-    monkeypatch.setattr(
-        cli,
-        "discover_voice_catalog",
-        lambda **_: (entries, SimpleNamespace(registry_source="packaged", cache_fallback=False)),
-    )
+    _patch_voice_listing(monkeypatch, entries, registry_source="packaged")
     args = cli.build_parser().parse_args(
         ["voices", "list", "--engine", "kokoro", "--lang", "en-us", "--json"]
     )
@@ -180,14 +191,7 @@ def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys)
         runtime_available=True,
         engine="piper",
     )
-    monkeypatch.setattr(
-        cli,
-        "discover_voice_catalog",
-        lambda **kwargs: (
-            (piper_entry,),
-            SimpleNamespace(registry_source="engine-adapters", cache_fallback=False),
-        ),
-    )
+    _patch_voice_listing(monkeypatch, (piper_entry,), registry_source="engine-adapters")
     args = cli.build_parser().parse_args(["voices", "list", "--engine", "pipersynth", "--json"])
     assert cli._cmd_voices(args) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -200,8 +204,10 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     saved = []
     monkeypatch.setattr(cli, "load_config", lambda: cfg)
     monkeypatch.setattr(
-        cli, "save_config", lambda updated: saved.append(updated) or Path("config.toml")
+        "readio.config.save_config",
+        lambda updated: saved.append(updated) or Path("config.toml"),
     )
+    monkeypatch.setattr("readio.api.roles.resolve_voice_selector", lambda *args, **kwargs: None)
 
     assert (
         cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"]))
@@ -259,21 +265,19 @@ def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
         engine="piper",
     )
     calls = []
+    _patch_voice_listing(
+        monkeypatch,
+        (piper_entry,),
+        registry_source="engine-adapters",
+        calls=calls,
+    )
 
-    def discover(**kwargs):
-        calls.append(kwargs)
-        return (
-            (piper_entry,),
-            SimpleNamespace(registry_source="engine-adapters", cache_fallback=False),
-        )
-
-    monkeypatch.setattr(cli, "discover_voice_catalog", discover)
     alias_args = cli.build_parser().parse_args(
         ["voices", "list", "--model", "piper", "--json"]
     )
     assert cli._cmd_voices(alias_args) == 0
     alias_payload = json.loads(capsys.readouterr().out)
-    assert calls[-1]["engine"] == "piper"
+    assert calls[-1].engine == "piper"
     assert alias_payload["filters"]["engine"] == "piper"
     assert alias_payload["filters"]["model"] is None
     assert alias_payload["voices"][0]["id"] == "de_DE-thorsten-medium"
@@ -291,7 +295,7 @@ def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
     )
     assert cli._cmd_voices(target_args) == 0
     target_payload = json.loads(capsys.readouterr().out)
-    assert calls[-1]["engine"] == "piper"
+    assert calls[-1].engine == "piper"
     assert target_payload["filters"]["engine"] == "piper"
     assert target_payload["filters"]["model"] == "de_DE-thorsten-medium"
     assert target_payload["voices"][0]["id"] == "de_DE-thorsten-medium"

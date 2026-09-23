@@ -42,6 +42,7 @@ class CatalogRequest:
     language: str | None = None
     offline: bool = False
     refresh: bool = False
+    preference: str = "auto"
 
 
 @dataclass(frozen=True, slots=True)

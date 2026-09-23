@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from readio import cli
+from readio.api.projects import ProjectService
+from readio.api.roles import RoleService
 from readio.cli import build_parser
 from readio.config import ReadioConfig
 from readio.project import init_project
@@ -16,10 +18,16 @@ from readio.project import init_project
 
 def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, capsys) -> None:
     requested = []
-    project = SimpleNamespace(root=tmp_path, manifest=SimpleNamespace(name="episode"))
-    monkeypatch.setattr(cli, "load_project", lambda path: requested.append(path) or project)
+    result = SimpleNamespace(
+        scopes=(),
+        to_dict=lambda: {"project": str(tmp_path), "scopes": []},
+    )
     monkeypatch.setattr(cli, "load_config", ReadioConfig)
-    monkeypatch.setattr(cli, "plan_project", lambda project, cfg: SimpleNamespace(scopes=()))
+    monkeypatch.setattr(
+        ProjectService,
+        "plan",
+        lambda self, project: requested.append(project) or result,
+    )
 
     args = build_parser().parse_args(["plan", "--json"])
     assert args.func(args) == 0
@@ -84,21 +92,21 @@ def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, 
 
 
 def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, capsys) -> None:
-    project = SimpleNamespace(root=tmp_path)
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
     calls = {}
-    monkeypatch.setattr(cli, "load_project", lambda path: project)
     monkeypatch.setattr(cli, "load_config", ReadioConfig)
 
-    def bind(*args, **kwargs):
-        calls["args"] = args
-        calls["kwargs"] = kwargs
-        return {
-            "project": str(tmp_path),
-            "role": "narrator",
-            "stored_voice": "en-us/sarah",
-        }
+    def bind(self, project_path, role, voice, *, provider=None, discovery):
+        calls["project"] = project_path
+        calls["role"] = role
+        calls["voice"] = voice
+        calls["provider"] = provider
+        calls["discovery"] = discovery
+        return SimpleNamespace(role=role, project_binding=voice)
 
-    monkeypatch.setattr(cli, "bind_project_role", bind)
+    monkeypatch.setattr(RoleService, "bind_project", bind)
     args = build_parser().parse_args(
         [
             "plan",
@@ -108,42 +116,66 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
             "--provider",
             "kokoro",
             "--project",
-            str(tmp_path),
+            str(project.root),
             "--offline",
             "--json",
         ]
     )
     assert args.func(args) == 0
 
-    assert calls["args"][2:4] == ("narrator", "en-us/sarah")
-    assert calls["kwargs"] == {
-        "provider": "kokoro",
-        "offline": True,
-        "refresh": False,
-    }
+    assert calls["project"] == project.root
+    assert calls["role"] == "narrator"
+    assert calls["voice"] == "en-us/sarah"
+    assert calls["provider"] == "kokoro"
+    assert calls["discovery"].offline is True
+    assert calls["discovery"].refresh is False
     assert json.loads(capsys.readouterr().out)["stored_voice"] == "en-us/sarah"
 
 
 def test_plan_unbind_forwards_project_and_provider(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
     calls = {}
-    monkeypatch.setattr(cli, "load_project", lambda path: SimpleNamespace(root=tmp_path))
+    inspect_count = 0
     monkeypatch.setattr(cli, "load_config", ReadioConfig)
 
-    def unbind(*args, **kwargs):
-        calls["args"] = args
-        calls["kwargs"] = kwargs
-        return {"role": "narrator", "removed_voice": "af_heart", "effective_voice": None}
+    def inspect(self, project_path, *, provider=None):
+        nonlocal inspect_count
+        inspect_count += 1
+        role = SimpleNamespace(
+            role="narrator",
+            project_binding="af_heart" if inspect_count == 1 else None,
+            effective_voice="af_heart" if inspect_count == 1 else None,
+            origin="project",
+        )
+        return SimpleNamespace(roles=(role,), unresolved=())
 
-    monkeypatch.setattr(cli, "unbind_project_role", unbind)
+    def unbind(self, project_path, role, *, provider=None):
+        calls["project"] = project_path
+        calls["role"] = role
+        calls["provider"] = provider
+
+    monkeypatch.setattr(RoleService, "inspect_project", inspect)
+    monkeypatch.setattr(RoleService, "unbind_project", unbind)
     args = build_parser().parse_args(
-        ["plan", "unbind", "narrator", "--project", str(tmp_path), "--provider", "kokoro", "--json"]
+        [
+            "plan",
+            "unbind",
+            "narrator",
+            "--project",
+            str(project.root),
+            "--provider",
+            "kokoro",
+            "--json",
+        ]
     )
     assert args.func(args) == 0
 
-    assert calls["args"][2] == "narrator"
-    assert calls["kwargs"] == {"provider": "kokoro"}
+    assert calls["project"] == project.root
+    assert calls["role"] == "narrator"
+    assert calls["provider"] == "kokoro"
     assert json.loads(capsys.readouterr().out)["removed_voice"] == "af_heart"
-
 
 def test_render_dry_run_still_resolves_one_shot_text(capsys) -> None:
     args = build_parser().parse_args(["render", "Hello world", "--dry-run"])

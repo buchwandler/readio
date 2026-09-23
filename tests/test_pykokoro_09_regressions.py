@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from readio import cli
+from readio.api.catalog import CatalogService
 from readio.config import LanguageSettings
 from readio.models import (
     ModelDiscoveryError,
@@ -86,10 +87,22 @@ def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> No
         experimental=False,
         runtime_available=True,
     )
+    registry = {
+        "source": "cache",
+        "registry_source": "cache",
+        "cache_fallback": False,
+        "offline": False,
+        "refreshed": False,
+    }
     monkeypatch.setattr(
-        cli,
-        "discover_voice_catalog",
-        lambda **kwargs: ((entry,), SimpleNamespace(registry_source="cache", cache_fallback=False)),
+        CatalogService,
+        "voices_listing",
+        lambda self, *args, **kwargs: SimpleNamespace(
+            items=(entry,),
+            discovery=SimpleNamespace(
+                to_dict=lambda: registry, cache_fallback=False
+            ),
+        ),
     )
     args = cli.build_parser().parse_args(["voices", "list", "--model", MODEL.id, "--json"])
     assert cli._cmd_voices(args) == 0

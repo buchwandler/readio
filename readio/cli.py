@@ -3,17 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import shutil
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .audio import PlaybackSink, RenderProgressCallback, RenderSummary
-from .audiobook import AudiobookChapter, init_audiobook_project, inspect_epub
+from . import api as public_api
+from .audio import RenderSummary
 from .config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
@@ -22,96 +21,27 @@ from .config import (
     SPACY_POLICIES,
     LanguageSettings,
     ReadioConfig,
-    bind_voice_role,
-    config_path,
-    default_config,
-    language_profile,
     load_config,
     normalize_language_key,
-    save_config,
-    set_config_value,
-    unbind_voice_role,
-    validate_config,
     with_overrides,
 )
-from .document import InputDocument, document_from_file, document_from_stdin, document_from_text
-from .errors import ManifestError, ReadioError, RenderError
+from .errors import ReadioError, RenderError
 from .formats import (
     SUPPORTED_AUDIO_FORMATS,
     AudioFormat,
-    audio_format_diagnostics,
     ensure_audio_format_available,
     normalize_audio_output_path,
     resolve_audio_format,
 )
-from .ingest import list_ingest, new_ingest
 from .jsonutil import json_value as _json_value
-from .lexicons import (
-    LexiconCatalogEntry,
-    discover_lexicon_catalog,
-    filter_lexicon_catalog,
-    find_lexicon_entries,
-)
 from .logging_config import MAX_VERBOSITY, configure_logging
-from .manifest import (
-    MANIFEST_SCHEMA,
-    RENDER_MANIFEST_SCHEMA_V2,
-    build_render_manifest_v2,
-    manifest_path_for,
-    write_render_manifest,
-)
-from .models import ModelDiscoveryError, discover_model_info, get_model_info
+from .manifest import MANIFEST_SCHEMA, RENDER_MANIFEST_SCHEMA_V2
+from .models import ModelDiscoveryError
 from .paths import resolve_render_output
-from .plan import (
-    InputRequest,
-    OutputRequest,
-    PlanRequest,
-    SynthesisRequest,
-    format_plan_human,
-    resolve_execution_v2,
-)
+from .plan import format_plan_human
 from .progress import TerminalProgress
-from .project import init_project, load_project
-from .project_roles import bind_project_role, inspect_project_roles, unbind_project_role
-from .reader import (
-    SelectionError,
-    render_from_plan,
-    render_live,
-    render_text,
-    speak_live,
-)
-from .spotify import (
-    SpotifyError,
-    SpotifyUnavailableError,
-)
-from .spotify import (
-    version as spotify_version,
-)
-from .ssmd import analyze_ssmd, preflight_ssmd
-from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
-from .stages.composition import compose_project
-from .stages.export import export_project
-from .stages.pipeline import preview_project, project_status, render_project
-from .stages.planning import plan_project
-from .stages.synthesis import synthesize_project
-from .synthesis import resolve_synthesis
-from .templates import (
-    add_template,
-    list_templates,
-    packaged_template_names,
-    remove_template,
-    reset_template,
-    seed_templates,
-    show_template,
-    template_path,
-)
-from .voices import (
-    VoiceCatalogEntry,
-    discover_voice_catalog,
-    filter_voice_catalog,
-    find_voice_entries,
-    resolve_voice_selector,
-)
+from .reader import SelectionError
+from .spotify import SpotifyError, SpotifyUnavailableError
 from .wave import atomic_audio_path, create_audio_sink
 
 logger = logging.getLogger(__name__)
@@ -340,11 +270,6 @@ def _build_progress(args: argparse.Namespace) -> TerminalProgress:
     )
 
 
-def _progress_kwargs(progress: TerminalProgress) -> dict[str, object]:
-    if not progress.enabled:
-        return {}
-    return {"on_progress": progress.update, "on_phase": progress.phase}
-
 
 def _progress_source_label(args: argparse.Namespace) -> str:
     if getattr(args, "file", None) is not None:
@@ -360,6 +285,50 @@ def _resolved_config(args: argparse.Namespace) -> ReadioConfig:
         device=getattr(args, "device", None),
     )
 
+
+
+def _api_for(args: argparse.Namespace | None = None) -> public_api.Readio:
+    return public_api.Readio(config=_resolved_config(args) if args is not None else load_config())
+
+
+def _api_progress_handler(progress: TerminalProgress) -> public_api.EventHandler | None:
+    if not progress.enabled:
+        return None
+
+    from types import SimpleNamespace
+
+    def handle(event: public_api.ReadioEvent) -> None:
+        if event.kind == "stage.started":
+            label = event.message or (event.stage or "Working").replace("_", " ").title()
+            progress.phase(label)
+        elif event.kind == "progress" and event.stage == "synthesis":
+            progress.synthesis_event(
+                SimpleNamespace(
+                    kind=event.message,
+                    details=event.details,
+                    completed=event.completed,
+                    total=event.total,
+                    unit_id=event.unit_id,
+                    text=event.details.get("text"),
+                )
+            )
+        elif event.kind == "progress" and event.stage == "composition":
+            if event.message in {"compose_started", "compose_completed"}:
+                progress.composition_event(
+                    SimpleNamespace(
+                        kind=event.message,
+                        completed_items=event.completed,
+                        total_items=event.total,
+                        target_sample_rate=event.sample_rate or 0,
+                        output_frames=event.sample_count,
+                        completed_audio_seconds=event.audio_seconds,
+                        total_audio_seconds=event.total_audio_seconds,
+                        details=event.details,
+                    )
+                )
+            else:
+                progress.phase(event.message or "Composing")
+    return handle
 
 _KNOWN_DOCUMENT_SUFFIXES = frozenset({".txt", ".ssmd", ".md", ".markdown", ".mdown", ".mkd"})
 
@@ -412,17 +381,17 @@ def _normalize_positional_input(args: argparse.Namespace) -> None:
         )
 
 
-def _read_input(args: argparse.Namespace, cfg: ReadioConfig) -> InputDocument:
+def _read_input(args: argparse.Namespace, cfg: ReadioConfig) -> public_api.Document:
     if getattr(args, "file", None) is not None and getattr(args, "text", None):
         raise ValueError("provide either positional text/path or --file, not both")
     if args.file is not None:
-        return document_from_file(args.file, input_format=args.input_format)
+        return public_api.document_from_file(args.file, input_format=args.input_format)
     input_format = args.input_format if args.input_format != "auto" else "text"
     if args.text:
-        return document_from_text(" ".join(args.text), input_format=input_format)
+        return public_api.document_from_text(" ".join(args.text), input_format=input_format)
     if sys.stdin.isatty():
         raise ValueError("provide text, --file PATH, or pipe text on stdin")
-    return document_from_stdin(sys.stdin.read(), input_format=input_format)
+    return public_api.document_from_text(sys.stdin.read(), input_format=input_format)
 
 
 def _validate_live(args: argparse.Namespace) -> None:
@@ -440,14 +409,13 @@ def _validate_live(args: argparse.Namespace) -> None:
 
 def _reject_piper_live(args: argparse.Namespace, cfg: ReadioConfig) -> None:
     """Reject Piper live mode until an engine-neutral streaming contract exists."""
-    from .engines.registry import normalize_engine_id
-
     engine = getattr(args, "engine", None) or cfg.reader.engine
-    if normalize_engine_id(engine) == "piper":
+    if str(engine).casefold() == "piper":
         raise ValueError(
             "Live streaming is not yet supported by the Piper engine path. "
             "Use bounded input or omit --live."
         )
+
 
 
 def _prompt_for_missing_voices(
@@ -456,6 +424,10 @@ def _prompt_for_missing_voices(
     synthesis: object | None = None,
 ) -> dict[str, str]:
     provider = result.provider
+    unresolved = getattr(result, "unresolved_voice_references", None)
+    if unresolved is None:
+        names = set(result.unresolved_references)
+        unresolved = tuple(item for item in result.voice_references if item.reference in names)
     resolved_model = getattr(synthesis, "resolved_model", None)
     available = (
         tuple(resolved_model.voices)
@@ -463,18 +435,18 @@ def _prompt_for_missing_voices(
         else tuple(cfg.voices[provider].ids)
     )
     print(
-        f"SSMD uses {len(result.unresolved_voice_references)} unconfigured voice references "
+        f"SSMD uses {len(unresolved)} unconfigured voice references "
         f"for provider {provider!r}:"
     )
     print()
-    for use in result.unresolved_voice_references:
+    for use in unresolved:
         print(f"  {use.reference} ({use.count} uses)")
     print()
     print("Available voices:")
     for index, voice in enumerate(available, start=1):
         print(f"  {index}. {voice}")
     bindings: dict[str, str] = {}
-    for use in result.unresolved_voice_references:
+    for use in unresolved:
         while True:
             choice = input(f"Voice for {use.reference} [enter number or voice ID]: ").strip()
             if choice.isdigit() and 1 <= int(choice) <= len(available):
@@ -491,150 +463,35 @@ def _prompt_for_missing_voices(
     return bindings
 
 
-def _prepared_input(
-    args: argparse.Namespace,
-    cfg: ReadioConfig,
-) -> tuple[InputDocument, dict[str, str]]:
-    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
-    document = _read_input(args, cfg)
-    if document.format != "ssmd":
-        return document, bindings
-    result = analyze_ssmd(
-        document.text,
-        cfg,
-        source_path=document.source_path,
-        additional_bindings=bindings,
-        synthesis=getattr(args, "_resolved_synthesis", None),
-    )
-    if result.unresolved_voice_references and getattr(args, "resolve_voices", False):
-        if getattr(args, "json", False) or not sys.stdin.isatty():
-            raise ValueError(
-                "--resolve-voices requires an interactive terminal; "
-                "provide --voice-bind ROLE=VOICE_ID instead"
-            )
-        bindings.update(
-            _prompt_for_missing_voices(result, cfg, getattr(args, "_resolved_synthesis", None))
-        )
-    preflight_ssmd(
-        document.text,
-        cfg,
-        source_path=document.source_path,
-        additional_bindings=bindings,
-        synthesis=getattr(args, "_resolved_synthesis", None),
-    )
-    return document, bindings
-
-
 def _cmd_speak(args: argparse.Namespace) -> int:
+    app = _api_for(args)
     if args.live:
         _normalize_positional_input(args)
-        cfg = _resolved_config(args)
-        _reject_piper_live(args, cfg)
-        args._resolved_synthesis = resolve_synthesis(cfg, args)
+        _reject_piper_live(args, app.config)
         _validate_live(args)
-        speak_live(sys.stdin, cfg, unit=args.unit, synthesis=args._resolved_synthesis)
+        app.speech.speak_live(
+            sys.stdin,
+            synthesis=_synthesis_request_from_args(args, default_language=app.config.reader.lang),
+            unit=args.unit,
+        )
         return 0
 
-    cfg = _resolved_config(args)
-    _reject_piper_live(args, cfg)
-    request = _build_plan_request(args, cfg, operation="speak", allow_interactive=True)
-    resolved = resolve_execution_v2(cfg, request)
-    if not resolved.plan.ok:
-        raise RenderError("speak plan is not executable")
-    with PlaybackSink(cfg.reader) as sink:
-        render_from_plan(
-            resolved,
-            resolved.document,
-            sink,
-            selector=request.input.selector,
-        )
-        sink.finish()
+    _reject_piper_live(args, app.config)
+    request = _build_plan_request(args, app, operation="speak", allow_interactive=True)
+    progress = _build_progress(args)
+    with progress:
+        app.speech.speak(request, on_event=_api_progress_handler(progress))
     return 0
 
 
-def _render_audio(
+
+def _synthesis_request_from_args(
     args: argparse.Namespace,
-    path: Path,
     *,
-    audio_format: AudioFormat,
-    cfg: ReadioConfig | None = None,
-    document: InputDocument | None = None,
-    bindings: Mapping[str, str] | None = None,
-    on_progress: RenderProgressCallback | None = None,
-    on_phase: Callable[[str], None] | None = None,
-) -> RenderSummary:
-    cfg = cfg or getattr(args, "_prepared_cfg", None) or _resolved_config(args)
-    document = document or getattr(args, "_prepared_document", None)
-    if bindings is None:
-        bindings = getattr(args, "_prepared_bindings", None)
-    with create_audio_sink(path, audio_format) as sink:
-        if args.live:
-            summary = render_live(
-                sys.stdin,
-                cfg,
-                sink,
-                unit=args.unit,
-                synthesis=getattr(args, "_resolved_synthesis", None),
-                on_progress=on_progress,
-            )
-        else:
-            document = document or _prepared_input(args, cfg)[0]
-            summary = render_text(
-                document,
-                cfg,
-                sink,
-                selector=args.select,
-                unit=args.unit,
-                synthesis=getattr(args, "_resolved_synthesis", None),
-                ssmd_voice_bindings=bindings or {},
-                on_progress=on_progress,
-            )
-        if on_phase is not None:
-            on_phase(f"Finalizing {audio_format.upper()}")
-    if summary.sample_count <= 0:
-        raise RenderError("render produced no audio")
-    return summary
-
-
-def _build_plan_request(
-    args: argparse.Namespace,
-    cfg: ReadioConfig,
-    *,
-    operation: str = "render",
-    allow_interactive: bool = False,
-) -> PlanRequest:
-    """Build a PlanRequest from CLI args.
-
-    ``allow_interactive`` permits ``--resolve-voices`` prompting before the
-    request is constructed (normal render only).  ``readio plan`` and
-    ``render --dry-run`` stay deterministic and reject the flag.
-    """
-    _normalize_positional_input(args)
-    document = _read_input(args, cfg)
-    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
-
-    if getattr(args, "resolve_voices", False):
-        if not allow_interactive:
-            raise ValueError(
-                "--resolve-voices is not available during plan/dry-run; "
-                "use --voice-bind ROLE=VOICE_ID or persistent role configuration"
-            )
-        if getattr(args, "json", False) or not sys.stdin.isatty():
-            raise ValueError(
-                "--resolve-voices requires an interactive terminal; "
-                "provide --voice-bind ROLE=VOICE_ID instead"
-            )
-        result = analyze_ssmd(
-            document.text,
-            cfg,
-            source_path=document.source_path,
-            additional_bindings=bindings or None,
-        )
-        if result.unresolved_voice_references:
-            bindings.update(_prompt_for_missing_voices(result, cfg))
-
-    synthesis = SynthesisRequest(
-        language=getattr(args, "lang", None),
+    default_language: str | None = None,
+ ) -> public_api.SynthesisRequest:
+    return public_api.SynthesisRequest(
+        language=getattr(args, "lang", None) or default_language,
         engine=getattr(args, "engine", None),
         model=getattr(args, "model", None),
         model_source=getattr(args, "model_source", None),
@@ -662,16 +519,52 @@ def _build_plan_request(
         refresh=bool(getattr(args, "refresh", False)),
     )
 
-    output = OutputRequest(
+
+def _build_plan_request(
+    args: argparse.Namespace,
+    app: public_api.Readio,
+    *,
+    operation: str = "render",
+    allow_interactive: bool = False,
+) -> public_api.PlanRequest:
+    """Build a PlanRequest from CLI args.
+
+    ``allow_interactive`` permits ``--resolve-voices`` prompting before the
+    request is constructed (normal render only).  ``readio plan`` and
+    ``render --dry-run`` stay deterministic and reject the flag.
+    """
+    cfg = app.config
+    _normalize_positional_input(args)
+    document = _read_input(args, cfg)
+    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
+
+    if getattr(args, "resolve_voices", False):
+        if not allow_interactive:
+            raise ValueError(
+                "--resolve-voices is not available during plan/dry-run; "
+                "use --voice-bind ROLE=VOICE_ID or persistent role configuration"
+            )
+        if getattr(args, "json", False) or not sys.stdin.isatty():
+            raise ValueError(
+                "--resolve-voices requires an interactive terminal; "
+                "provide --voice-bind ROLE=VOICE_ID instead"
+            )
+        result = app.ssmd.analyze(document, bindings=bindings or None)
+        if result.unresolved_references:
+            bindings.update(_prompt_for_missing_voices(result, cfg))
+
+    synthesis = _synthesis_request_from_args(args)
+
+    output = public_api.OutputRequest(
         mode="file" if operation == "render" else "playback",
         requested_format=getattr(args, "format", None),
         requested_path=getattr(args, "output", None),
         force=bool(getattr(args, "force", False)),
     )
 
-    return PlanRequest(
+    return public_api.PlanRequest(
         operation=operation,  # type: ignore[arg-type]
-        input=InputRequest(
+        input=public_api.InputRequest(
             document=document,
             requested_format=getattr(args, "input_format", "auto"),
             selector=getattr(args, "select", "all"),
@@ -689,188 +582,157 @@ def _build_plan_request(
     )
 
 
-def _project_synthesis_request(args: argparse.Namespace, project: object) -> PlanRequest:
-    bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
-    reader = _resolved_config(args).reader
-    synthesis = SynthesisRequest(
-        language=getattr(args, "lang", None) or reader.lang,
-        engine=getattr(args, "engine", None),
-        model=getattr(args, "model", None),
-        model_source=getattr(args, "model_source", None),
-        quality=getattr(args, "quality", None),
-        voice=getattr(args, "voice", None),
-        speaker=getattr(args, "speaker", None),
-        spacy=getattr(args, "spacy", None),
-        short_sentence=getattr(args, "short_sentence", None),
-        language_detection=getattr(args, "language_detection", None),
-        detect_languages=tuple(getattr(args, "detect_languages", None) or ()) or None,
-        speed=getattr(args, "speed", None),
-        pause_mode=getattr(args, "pause_mode", None),
-        unit=getattr(args, "unit", None),
-        offline=bool(getattr(args, "offline", False)),
-        refresh=bool(getattr(args, "refresh", False)),
-    )
-    return PlanRequest(
-        operation="render",
-        input=InputRequest(
-            document=project.load_document_scope(project.document_scopes()[0]),
+def _project_synthesis_request(args: argparse.Namespace) -> public_api.SynthesisRequest:
+    config = _resolved_config(args)
+    return _synthesis_request_from_args(args, default_language=config.reader.lang)
+
+def _project_build_request(args: argparse.Namespace) -> public_api.ProjectBuildRequest:
+    return public_api.ProjectBuildRequest(
+        target="export",
+        selection=getattr(args, "select", "all"),
+        voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
+        synthesis=_project_synthesis_request(args),
+        composition=public_api.CompositionOptions(
+            target_lufs=getattr(args, "target_lufs", None)
         ),
-        synthesis=synthesis,
-        output=OutputRequest(mode="file", requested_format="wav", force=True),
-        voice_bindings=bindings,
+        export=public_api.ExportOptions(format=getattr(args, "format", None) or "wav"),
     )
+
+
 
 
 def _cmd_synth(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    cfg = _resolved_config(args)
+    app = _api_for(args)
+    project = args.project or Path.cwd()
     progress = _build_progress(args)
-    result = synthesize_project(
-        project,
-        cfg,
-        request=_project_synthesis_request(args, project),
-        selector=args.select,
-        activate=True,
-        on_event=progress.synthesis_event,
-    )
-    profile = result["profile"]
-    selection = result["selection"]
-    selected_count = (
-        sum(len(scope.unit_indices) for scope in selection.scopes)
-        if hasattr(selection, "scopes")
-        else len(selection.unit_indices)
-    )
-    target = profile.payload.get("target", {})
-    payload = {
-        "ok": True,
-        "project": str(project.root),
-        "scope": result.get("scope", "document"),
-        "plan_id": result.get("plan_id"),
-        "profile": {
-            "profile_id": profile.profile_id,
-            "source": target.get("metadata", {}).get("source"),
-            "quality": target.get("metadata", {}).get("quality"),
-            "engine": profile.payload.get("engine"),
-            "engine_version": profile.payload.get("engine_version"),
-            "model": target.get("id"),
-            "voice": target.get("voice"),
-            "language": target.get("language"),
-        },
-        "selection": {
-            "selector": args.select,
-            "selected": selected_count,
-        },
-        "cache": {
-            "reused": result["reused"],
-            "rendered": result["rendered"],
-        },
-        "profile_id": profile.profile_id,
-        "reused": result["reused"],
-        "rendered": result["rendered"],
-        "selected": selected_count,
-    }
+    with progress:
+        result = app.projects.synthesize(
+            project,
+            _project_synthesis_request(args),
+            selection=args.select,
+            voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
+            activate=True,
+            on_event=_api_progress_handler(progress),
+        )
     if getattr(args, "json", False):
-        print(json.dumps(payload, ensure_ascii=False))
+        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
     else:
-        print(f"Synthesis profile: {payload['profile_id']}")
-        print(f"Synthesis cache: {payload['reused']} reused, {payload['rendered']} rendered")
-    progress.close()
+        print(f"Synthesis profile: {result.profile_id}")
+        print(f"Synthesis cache: {result.reused} reused, {result.rendered} rendered")
     return 0
+
 
 
 def _cmd_compose(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    with _build_progress(args) as progress:
-        result = compose_project(
-            project,
-            target_lufs=args.target_lufs,
-            true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
-            peak_policy=args.peak_policy,
-            clip_policy=args.clip_policy,
-            on_progress=progress.composition_event if progress.enabled else None,
-            on_phase=progress.phase if progress.enabled else None,
+    app = _api_for(args)
+    progress = _build_progress(args)
+    with progress:
+        result = app.projects.compose(
+            args.project or Path.cwd(),
+            public_api.CompositionOptions(
+                target_lufs=args.target_lufs,
+                true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
+                peak_policy=args.peak_policy,
+                clip_policy=args.clip_policy,
+            ),
+            on_event=_api_progress_handler(progress),
         )
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "composition_id": result.composition_id,
+                    "master": str(result.master_path) if result.master_path is not None else None,
+                    "frames": result.frames,
+                    "items": result.items,
+                },
+                ensure_ascii=False,
+            )
+        )
     else:
-        print(f"Composition: {result['composition_id']}")
-        print(f"Master: {result['master']}")
+        print(f"Composition: {result.composition_id}")
+        if result.master_path is not None:
+            print(f"Master: {result.master_path}")
     return 0
+
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    result = export_project(
-        project, audio_format=args.format, bitrate=args.bitrate, output=args.output
+    result = _api_for(args).projects.export(
+        args.project or Path.cwd(),
+        public_api.ExportOptions(format=args.format, bitrate=args.bitrate, output=args.output),
     )
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
     else:
-        print(result["path"])
+        print(result.output_path)
     return 0
+
 
 
 def _cmd_preview(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    cfg = _resolved_config(args)
-    with _build_progress(args) as progress:
-        result = preview_project(
-            project,
-            cfg,
-            request=_project_synthesis_request(args, project),
-            selector=args.select,
-            output=args.output,
-            activate=args.activate,
-            on_event=progress.synthesis_event,
-            on_composition_progress=progress.composition_event if progress.enabled else None,
-            on_phase=progress.phase if progress.enabled else None,
+    app = _api_for(args)
+    progress = _build_progress(args)
+    request = public_api.PreviewRequest(
+        selection=args.select,
+        voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
+        synthesis=_project_synthesis_request(args),
+        composition=public_api.CompositionOptions(target_lufs=args.target_lufs),
+        output=args.output,
+        activate=args.activate,
+    )
+    with progress:
+        result = app.projects.preview(
+            args.project or Path.cwd(),
+            request,
+            on_event=_api_progress_handler(progress),
         )
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
     else:
         print(
-            f"Preview: {result['items']} units, {result['rendered']} synthesized, {result['reused']} reused"
+            f"Preview: {result.items} units, {result.rendered} synthesized, "
+            f"{result.reused} reused"
         )
-        if result["output"] is not None:
-            print(result["output"])
+        if result.output_path is not None:
+            print(result.output_path)
     return 0
+
 
 
 def _cmd_project_render(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    cfg = _resolved_config(args)
-    with _build_progress(args) as progress:
-        result = render_project(
-            project,
-            cfg,
-            audio_format=args.format,
-            args=args,
-            target_lufs=args.target_lufs,
-            on_synthesis_event=progress.synthesis_event,
-            on_composition_progress=progress.composition_event if progress.enabled else None,
-            on_phase=progress.phase if progress.enabled else None,
+    app = _api_for(args)
+    progress = _build_progress(args)
+    request = _project_build_request(args)
+    with progress:
+        result = app.projects.build(
+            getattr(args, "project", None) or Path.cwd(),
+            request,
+            on_event=_api_progress_handler(progress),
         )
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
+        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
     else:
-        for operation in result["operations"]:
-            print(f"{operation['stage']}: {operation['action']}")
+        for operation in result.operations:
+            print(f"{operation.stage}: {operation.action}")
     return 0
+
 
 
 def _cmd_project(args: argparse.Namespace) -> int:
     if args.project_command != "init":
         raise ValueError(f"unknown project command: {args.project_command}")
-    project = init_project(args.source, args.output)
-    result = {"ok": True, "project": str(project.root), "project_id": project.manifest.project_id}
+    project = _api_for(args).projects.create(args.source, output=args.output)
     if getattr(args, "json", False):
-        print(json.dumps(result, ensure_ascii=False))
+        print(json.dumps({"ok": True, **project.to_dict()}, ensure_ascii=False))
     else:
         print(project.root)
     return 0
 
 
-def _audiobook_chapter_json(chapter: AudiobookChapter) -> dict[str, object]:
+
+def _audiobook_chapter_json(chapter: public_api.AudiobookChapter) -> dict[str, object]:
     return {
         "number": chapter.number,
         "source_id": chapter.source_id,
@@ -879,12 +741,12 @@ def _audiobook_chapter_json(chapter: AudiobookChapter) -> dict[str, object]:
         "parent_id": chapter.parent_id,
         "level": chapter.level,
         "char_count": chapter.char_count,
-        "diagnostics": [dict(item) for item in chapter.diagnostics],
+        "diagnostics": [item.to_dict() for item in chapter.diagnostics],
     }
 
 
 def _cmd_audiobook_chapters(args: argparse.Namespace) -> int:
-    inspection = inspect_epub(args.source)
+    inspection = _api_for(args).audiobooks.inspect(args.source)
     result = {
         "ok": True,
         "source": str(inspection.source),
@@ -907,113 +769,111 @@ def _cmd_audiobook_chapters(args: argparse.Namespace) -> int:
     return 0
 
 
+
 def _cmd_audiobook_init(args: argparse.Namespace) -> int:
-    project = init_audiobook_project(args.source, args.output, args.chapters)
-    scopes = project.document_scopes()
-    result = {
+    app = _api_for(args)
+    result = app.audiobooks.create_project_result(
+        args.source, chapters=args.chapters, output=args.output
+    )
+    project = result.project
+    payload = {
         "ok": True,
         "project": str(project.root),
-        "source": str(Path(args.source).expanduser().resolve()),
-        "selected_chapters": len(scopes),
+        "source": str(result.source),
+        "selected_chapters": result.selected_chapters,
         "chapters": [
             {
-                "number": scope.source_number,
-                "scope_id": scope.id,
-                "title": scope.title,
+                "number": chapter.number,
+                "scope_id": chapter.scope_id,
+                "title": chapter.title,
             }
-            for scope in scopes
+            for chapter in result.chapters
         ],
     }
     if getattr(args, "json", False):
-        print(json.dumps(result, ensure_ascii=False))
+        print(json.dumps(payload, ensure_ascii=False))
     else:
         print(f"Project: {project.root}")
-        print(f"Source:  {result['source']}")
-        print(f"Selected chapters: {len(scopes)}")
+        print(f"Source:  {result.source}")
+        print(f"Selected chapters: {result.selected_chapters}")
         print()
-        for scope in scopes:
-            indentation = "  " * max(0, (scope.level or 1) - 1)
-            print(f"  {scope.source_number:>2} {indentation}{scope.title}")
+        for chapter in result.chapters:
+            indentation = "  " * max(0, chapter.level - 1)
+            print(f"  {chapter.number:>2} {indentation}{chapter.title}")
     return 0
 
 
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
-    project = load_project(getattr(args, "project", None))
-    result = project_status(project)
+    app = _api_for(args)
+    project = app.projects.open(getattr(args, "project", None))
+    result = app.projects.status(project)
     if getattr(args, "json", False):
-        print(json.dumps(result, default=str, ensure_ascii=False))
+        print(json.dumps(result.to_dict(), ensure_ascii=False))
     else:
-        print(f"Readio project: {result.get('name', project.root.name)}")
-        print(f"Root: {project.root}")
-        source = result.get("source", {})
-        print(f"Source: {source.get('path', '-')}  [{source.get('format', '-')}]\n")
-        for row in result["stages"]:
-            details = ""
-            if "reusable" in row:
-                details = f" ({row['reusable']}/{row['total']} units reusable)"
-            if row.get("blocked_by"):
-                details += f" blocked by {row['blocked_by']}"
-            print(f"{row['stage'].upper():<12} {row['state']:<7} {row['reason']}{details}")
+        print(f"Readio project: {result.project.name}")
+        print(f"Root: {result.project.root}")
+        print(f"Source format: {result.project.source_format}\n")
+        for row in result.stages:
+            reusable = row.details.get("reusable")
+            total = row.details.get("total")
+            details = f" ({reusable}/{total} units reusable)" if reusable is not None else ""
+            if row.blocked_by:
+                details += f" blocked by {row.blocked_by}"
+            print(f"{row.stage.upper():<12} {row.state:<7} {row.reason}{details}")
         print()
-        if result.get("next_actions"):
+        if result.next_actions:
+            stage = result.next_actions[0].stage
+            commands = {
+                "plan": "readio plan build",
+                "synthesis": "readio synth",
+                "composition": "readio compose",
+                "export": "readio export",
+            }
             print("Next:")
-            print(f"  {result['next_actions'][0]['command']}")
+            print(f"  {commands[stage]}")
         else:
             print("Project is fully built.")
     return 0
 
 
+
 def _cmd_plan_build(args: argparse.Namespace) -> int:
-    project = load_project(getattr(args, "project", None) or Path.cwd())
-    planning = plan_project(project, _resolved_config(args))
-    scope_rows = [
-        {
-            "scope_id": item.scope.id,
-            "title": item.scope.title,
-            "path": str(Path("plan") / item.scope.path),
-            "plan_id": item.compiled.plan_id,
-            "sha256": item.scope.sha256,
-            "units": len(item.compiled.plan.units),
-        }
-        for item in planning.scopes
-    ]
-    result = {
+    app = _api_for(args)
+    project_path = getattr(args, "project", None) or Path.cwd()
+    result = app.projects.plan(project_path)
+    scope_rows = [item.to_dict() for item in result.scopes]
+    payload = {
         "ok": True,
-        "format": "readio.semantic-plan",
-        "project": str(project.root),
-        "scopes": scope_rows,
-        "units": sum(item["units"] for item in scope_rows),
+        **result.to_dict(),
+        "units": sum(item.units or 0 for item in result.scopes),
     }
-    if len(scope_rows) == 1:
-        result.update(scope_rows[0])
     if getattr(args, "json", False):
-        print(json.dumps(result, ensure_ascii=False))
+        print(json.dumps(payload, ensure_ascii=False))
     elif len(scope_rows) == 1:
-        item = planning.scopes[0]
-        print(f"Semantic plan: {item.compiled.plan_id}")
-        print(f"Path: {project.root / 'plan' / item.scope.path}")
-        print(f"Units: {len(item.compiled.plan.units)}")
+        item = result.scopes[0]
+        print(f"Semantic plan: {item.plan_id}")
+        print(f"Units: {item.units or 0}")
     else:
         print(f"Semantic plans: {len(scope_rows)} scopes")
-        for item in scope_rows:
-            print(f"{item['scope_id']}: {item['plan_id']} ({item['units']} units)")
+        for item in result.scopes:
+            print(f"{item.scope_id}: {item.plan_id} ({item.units or 0} units)")
     return 0
 
 
+
 def _cmd_plan_roles(args: argparse.Namespace) -> int:
-    project = load_project(getattr(args, "project", None) or Path.cwd())
-    inspection = inspect_project_roles(
-        project, _resolved_config(args), provider=getattr(args, "provider", None)
+    app = _api_for(args)
+    project = app.projects.open(getattr(args, "project", None) or Path.cwd())
+    inspection = app.roles.inspect_project(
+        project, provider=getattr(args, "provider", None)
     )
-    result = {
-        "ok": True,
-        "project": str(project.root),
-        **inspection.to_dict(),
-    }
+    result = {"ok": True, "project": str(project.root), **inspection.to_dict()}
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False))
         return 0
-    print(f"Project:  {project.manifest.name}")
+    print(f"Project:  {project.name}")
     print(f"Provider: {inspection.provider}")
     print(f"SSMD roles: {len(inspection.roles)}")
     print()
@@ -1034,6 +894,7 @@ def _cmd_plan_roles(args: argparse.Namespace) -> int:
     return 0
 
 
+
 def _project_role_source(role: Any) -> str:
     if role.status == "mixed" and role.document_bindings:
         return "document"
@@ -1043,20 +904,33 @@ def _project_role_source(role: Any) -> str:
 
 
 def _cmd_plan_bind(args: argparse.Namespace) -> int:
-    result = bind_project_role(
-        load_project(args.project or Path.cwd()),
-        _resolved_config(args),
+    app = _api_for(args)
+    project = args.project or Path.cwd()
+    result = app.roles.bind_project(
+        project,
         args.role,
         args.voice,
         provider=args.provider,
-        offline=bool(args.offline),
-        refresh=bool(args.refresh),
+        discovery=public_api.DiscoveryOptions(
+            offline=bool(args.offline), refresh=bool(args.refresh)
+        ),
     )
+    project_ref = app.projects.open(project)
     if getattr(args, "json", False):
-        print(json.dumps(result, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "project": str(project_ref.root),
+                    "role": result.role,
+                    "stored_voice": result.project_binding,
+                },
+                ensure_ascii=False,
+            )
+        )
     else:
-        print(f"Project: {Path(result['project']).name}")
-        print(f"{result['role']} -> {result['stored_voice']}")
+        print(f"Project: {project_ref.root.name}")
+        print(f"{result.role} -> {result.project_binding}")
         print("Source: project")
         print()
         print("Semantic plan unchanged.")
@@ -1064,13 +938,23 @@ def _cmd_plan_bind(args: argparse.Namespace) -> int:
     return 0
 
 
+
 def _cmd_plan_unbind(args: argparse.Namespace) -> int:
-    result = unbind_project_role(
-        load_project(args.project or Path.cwd()),
-        _resolved_config(args),
-        args.role,
-        provider=args.provider,
-    )
+    app = _api_for(args)
+    project = args.project or Path.cwd()
+    before = app.roles.inspect_project(project, provider=args.provider)
+    removed = next((item for item in before.roles if item.role == args.role), None)
+    app.roles.unbind_project(project, args.role, provider=args.provider)
+    after = app.roles.inspect_project(project, provider=args.provider)
+    effective = next((item for item in after.roles if item.role == args.role), None)
+    result = {
+        "ok": True,
+        "project": str(app.projects.open(project).root),
+        "role": args.role,
+        "removed_voice": removed.project_binding if removed is not None else None,
+        "effective_voice": effective.effective_voice if effective is not None else None,
+        "origin": effective.origin if effective is not None else None,
+    }
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False))
     else:
@@ -1088,10 +972,11 @@ def _cmd_plan_unbind(args: argparse.Namespace) -> int:
     return 0
 
 
+
 def _render_cli_live(args: argparse.Namespace, cfg: ReadioConfig) -> int:
     """Live streaming keeps the incremental stdin path."""
     _validate_live(args)
-    args._resolved_synthesis = resolve_synthesis(cfg, args)
+    app = public_api.Readio(config=cfg)
     audio_format = resolve_audio_format(requested=args.format, output=args.output)
     output = resolve_render_output(
         cfg,
@@ -1105,19 +990,23 @@ def _render_cli_live(args: argparse.Namespace, cfg: ReadioConfig) -> int:
     with progress:
         progress.phase("Preparing", _progress_source_label(args))
         output.parent.mkdir(parents=True, exist_ok=True)
-        args._prepared_cfg = cfg
-        progress.phase("Loading TTS")
-        progress_kwargs = _progress_kwargs(progress)
-        with atomic_audio_path(output, force=args.force) as temporary:
-            summary = _render_audio(
-                args,
-                temporary,
-                audio_format=audio_format,
-                **progress_kwargs,
+        with atomic_audio_path(output, force=args.force) as temporary, create_audio_sink(
+            temporary, audio_format
+        ) as sink:
+            result = app.speech.render_live(
+                sys.stdin,
+                sink,
+                synthesis=_synthesis_request_from_args(
+                    args, default_language=cfg.reader.lang
+                ),
+                unit=args.unit,
+                on_event=_api_progress_handler(progress),
             )
-        progress.complete(summary)
-    _emit_render_result(args, output, audio_format, summary)
+        progress.complete(result.summary)
+    _emit_render_result(args, output, audio_format, result.summary)
     return 0
+
+
 
 
 def _emit_render_result(
@@ -1158,177 +1047,195 @@ def _emit_render_result(
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
-    """Render one-shot text or orchestrate a persistent project."""
+    """Render bounded input or orchestrate a persistent project."""
     positional = tuple(getattr(args, "text", ()) or ())
-    if not args.live and len(positional) == 1 and getattr(args, "file", None) is None:
-        candidate = Path(positional[0]).expanduser()
-        if candidate.is_dir() and (candidate / "project.json").is_file():
-            project = load_project(candidate)
-            cfg = _resolved_config(args)
-            with _build_progress(args) as progress:
-                result = render_project(
-                    project,
-                    cfg,
-                    audio_format=args.format or "wav",
-                    args=args,
-                    target_lufs=getattr(args, "target_lufs", None),
-                    on_synthesis_event=progress.synthesis_event,
-                    on_composition_progress=progress.composition_event
-                    if progress.enabled
-                    else None,
-                    on_phase=progress.phase if progress.enabled else None,
-                )
-            if getattr(args, "json", False):
-                print(json.dumps({"ok": True, **result}, default=str, ensure_ascii=False))
-            else:
-                for operation in result["operations"]:
-                    print(f"{operation['stage']}: {operation['action']}")
-            return 0
     if args.live and getattr(args, "manifest", False):
         raise ValueError(
             "--manifest is not available with --live because live rendering "
             "does not execute a bounded ReadioPlan"
         )
-    cfg = _resolved_config(args)
+    app = _api_for(args)
+    if not args.live and len(positional) == 1 and getattr(args, "file", None) is None:
+        candidate = Path(positional[0]).expanduser()
+        project = app.projects.find(candidate) if candidate.is_dir() else None
+        if project is not None:
+            progress = _build_progress(args)
+            with progress:
+                result = app.projects.build(
+                    project,
+                    _project_build_request(args),
+                    on_event=_api_progress_handler(progress),
+                )
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
+            else:
+                for operation in result.operations:
+                    print(f"{operation.stage}: {operation.action}")
+            return 0
+    cfg = app.config
     _reject_piper_live(args, cfg)
-
     if args.live:
         return _render_cli_live(args, cfg)
 
     dry_run = bool(getattr(args, "dry_run", False))
-    request = _build_plan_request(args, cfg, operation="render", allow_interactive=not dry_run)
-    resolved = resolve_execution_v2(cfg, request)
-    plan = resolved.plan
-
-    if dry_run or not plan.ok:
-        # A rejected plan is the structured render failure; no TTS is loaded.
+    request = _build_plan_request(args, app, operation="render", allow_interactive=not dry_run)
+    if dry_run:
+        plan = app.speech.plan(request)
         if getattr(args, "json", False):
             print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
         else:
             print(format_plan_human(plan))
         return 0 if plan.ok else 1
 
-    document = resolved.document
-    output = plan.output.path
-    audio_format = plan.output.format
-    if output is None or audio_format is None:
-        raise RenderError("plan did not resolve a concrete output path or format")
-    ensure_audio_format_available(audio_format)
     progress = _build_progress(args)
     with progress:
         progress.phase("Planning", _progress_source_label(args))
-        progress.phase("Loading TTS")
-        progress_kwargs = _progress_kwargs(progress)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with (
-            atomic_audio_path(output, force=plan.output.force) as temporary,
-            create_audio_sink(temporary, audio_format) as sink,
-        ):
-            summary = render_from_plan(
-                resolved,
-                document,
-                sink,
-                selector=request.input.selector,
-                **progress_kwargs,
-            )
-        progress.complete(summary)
-    manifest_path: Path | None = None
-    if getattr(args, "manifest", False):
-        manifest_path = manifest_path_for(output)
         try:
-            manifest = build_render_manifest_v2(
-                plan_v2=plan,
-                summary=summary,
-                output=output,
+            result = app.speech.render(
+                request,
+                on_event=_api_progress_handler(progress),
+                write_manifest=bool(getattr(args, "manifest", False)),
             )
-            write_render_manifest(manifest_path, manifest)
-        except (OSError, TypeError, ValueError) as exc:
-            raise ManifestError(
-                f"rendered audio to {output} but could not write manifest {manifest_path}: {exc}",
-                audio_path=output,
-                manifest_path=manifest_path,
-            ) from exc
+        except (public_api.ExecutionError, public_api.OutputError) as error:
+            if "diagnostics" not in error.details:
+                raise
+            plan = app.speech.plan(request)
+            if getattr(args, "json", False):
+                print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
+            else:
+                print(format_plan_human(plan))
+            return 1
+        progress.complete(result.summary)
+
+    output = result.output_path
+    audio_format = result.plan.output.format if result.plan is not None else None
+    if output is None or audio_format is None:
+        raise RenderError("render result did not include an output path and audio format")
     _emit_render_result(
         args,
         output,
         audio_format,
-        summary,
-        manifest_path=manifest_path,
+        result.summary,
+        manifest_path=result.manifest_path,
         manifest_schema=RENDER_MANIFEST_SCHEMA_V2,
     )
     return 0
 
 
+
+
 def _cmd_ssmd(args: argparse.Namespace) -> int:
-    cfg = load_config()
+    app = _api_for()
+    cfg = app.config
     if args.ssmd_command == "bind":
-        provider = args.provider or cfg.ssmd.voice_provider
-        bindings = _parse_voice_bindings(args.voice_bind)
-        target = materialize_voice_bindings(
+        result = app.ssmd.materialize_bindings(
             args.file,
-            bindings,
-            provider=provider,
+            _parse_voice_bindings(args.voice_bind),
+            provider=args.provider,
             output=args.output,
             in_place=args.in_place,
         )
-        print(target)
+        print(result.output_path)
         return 0
-    document = document_from_file(args.file)
+
     bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
-    args._resolved_synthesis = resolve_synthesis(cfg, args)
-    analysis = analyze_ssmd(
-        document.text,
-        cfg,
-        source_path=document.source_path,
-        additional_bindings=bindings,
-        synthesis=args._resolved_synthesis,
+    synthesis = _synthesis_request_from_args(
+        args, default_language=cfg.reader.lang
     )
-    if analysis.unresolved_voice_references and args.resolve_voices:
+    result = app.ssmd.check(
+        args.file,
+        synthesis=synthesis,
+        bindings=bindings,
+        roundtrip=bool(args.roundtrip),
+    )
+    if result.analysis.unresolved_references and args.resolve_voices:
         if args.json or not sys.stdin.isatty():
             raise ValueError(
                 "--resolve-voices requires an interactive terminal; "
                 "provide --voice-bind ROLE=VOICE_ID instead"
             )
-        bindings.update(_prompt_for_missing_voices(analysis, cfg, args._resolved_synthesis))
-    consumer = preflight_ssmd(
-        document.text,
-        cfg,
-        source_path=document.source_path,
-        additional_bindings=bindings,
-        synthesis=args._resolved_synthesis,
-    )
-    result: dict[str, object] = {
-        "ok": consumer.ok,
-        "source": str(document.source_path),
-        "provider": consumer.provider,
-        "consumer": {
-            "ok": consumer.ok,
-            "unresolved": list(consumer.unresolved_references),
-            "references": [
-                {"name": item.reference, "count": item.count, "lines": list(item.lines)}
-                for item in consumer.voice_references
-            ],
-            "diagnostics": [item.to_dict() for item in consumer.diagnostics],
-        },
-        "bindings": {
-            "document": dict(consumer.document_bindings),
-            "defaults": dict(consumer.default_bindings),
-        },
-        "roundtrip": None,
+        bindings.update(_prompt_for_missing_voices(result.analysis, cfg, synthesis))
+        result = app.ssmd.check(
+            args.file,
+            synthesis=synthesis,
+            bindings=bindings,
+            roundtrip=bool(args.roundtrip),
+        )
+    analysis = result.analysis
+    if analysis.unresolved_references:
+        unresolved = set(analysis.unresolved_references)
+        references = tuple(
+            item
+            for item in analysis.voice_references
+            if item.reference in unresolved
+        )
+        available = tuple(
+            cfg.voices[analysis.provider].ids
+            if analysis.provider in cfg.voices
+            else ()
+        )
+        reference = references[0].reference
+        header_template = {
+            "voice_bindings": {
+                analysis.provider: {item.reference: None for item in references}
+            }
+        }
+        message = (
+            f"cannot resolve {len(references)} SSMD voice reference"
+            f"{'s' if len(references) != 1 else ''} for provider {analysis.provider!r}\n"
+            + "\n".join(
+                f"  {item.reference} ({item.count} uses)" for item in references
+            )
+            + "\n\nAdd document-local bindings:\n  voice_bindings:\n"
+            + f"    {analysis.provider}:\n"
+            + "".join(
+                f"      {item.reference}: <voice-id>\n" for item in references
+            )
+            + "\nRun `readio voices list` to inspect available voices."
+        )
+        raise public_api.VoiceResolutionError(
+            message,
+            provider=analysis.provider,
+            reference=reference,
+            references=references,
+            available_voices=available,
+            header_template=header_template,
+            source_path=result.source_path,
+        )
+    consumer = {
+        "ok": analysis.ok,
+        "unresolved": list(analysis.unresolved_references),
+        "references": [
+            {"name": item.reference, "count": item.count, "lines": list(item.lines)}
+            for item in analysis.voice_references
+        ],
+        "diagnostics": [item.to_dict() for item in analysis.diagnostics],
     }
-    if args.roundtrip:
-        result["roundtrip"] = _json_value(roundtrip_check(document.source_path, cfg))
+    payload = {
+        "ok": result.ok,
+        "source": str(result.source_path),
+        "provider": analysis.provider,
+        "consumer": consumer,
+        "bindings": {
+            "document": dict(analysis.document_bindings),
+            "defaults": dict(analysis.default_bindings),
+        },
+        "roundtrip": result.roundtrip,
+    }
     if args.json:
-        print(json.dumps(result, ensure_ascii=False))
+        print(json.dumps(payload, ensure_ascii=False))
     else:
-        print(f"Source: {document.source_path}")
-        print(f"Provider: {consumer.provider}")
-        print(f"Document bindings: {dict(consumer.document_bindings)}")
-        print(f"Readio defaults: {dict(consumer.default_bindings)}")
-        print("Consumer: OK")
+        print(f"Source: {result.source_path}")
+        print(f"Provider: {analysis.provider}")
+        print(f"Document bindings: {dict(analysis.document_bindings)}")
+        print(f"Readio defaults: {dict(analysis.default_bindings)}")
+        print("Consumer: OK" if consumer["ok"] else "Consumer: FAILED")
         if args.roundtrip:
-            print("Roundtrip: OK")
+            print("Roundtrip: OK" if (result.roundtrip or {}).get("ok") else "Roundtrip: FAILED")
     return 0
+
+
+
 
 
 def _language_settings_payload(settings: LanguageSettings | None) -> dict[str, object] | None:
@@ -1356,23 +1263,23 @@ def _print_language_settings(settings: LanguageSettings) -> None:
 
 
 def _cmd_defaults(args: argparse.Namespace) -> int:
-    cfg = load_config()
+    app = _api_for()
+    config = app.configuration
+    profiles = config.language_profiles()
     language = normalize_language_key(args.language) if getattr(args, "language", None) else None
     if getattr(args, "offline", False) and getattr(args, "refresh", False):
-        raise ModelDiscoveryError(
-            "--offline and --refresh cannot be combined", code="pykokoro.invalid_options"
-        )
+        raise ValueError("--offline and --refresh cannot be combined")
     if args.defaults_command == "list":
-        profiles = [
+        items = [
             {"language": key, **(_language_settings_payload(value) or {})}
-            for key, value in sorted(cfg.languages.items())
+            for key, value in profiles.items()
         ]
-        payload = {"ok": True, "defaults": profiles}
+        payload = {"ok": True, "defaults": items}
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
         else:
             print("LANG  MODEL        VOICE     QUALITY  LEXICA  SOURCE")
-            for item in profiles:
+            for item in items:
                 print(
                     f"{item['language']:<5} {item['model'] or '-'!s: <12} "
                     f"{item['voice'] or '-'!s: <9} {item['quality'] or '-'!s: <8} "
@@ -1381,13 +1288,20 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
         return 0
 
     if args.defaults_command == "show":
-        matched, settings = language_profile(cfg, language)
-        fallback = "exact" if matched == language else "base" if matched else None
+        assert language is not None
+        settings = config.language_profile(language)
+        matched = (
+            language
+            if language in profiles
+            else language.split("-", 1)[0]
+            if language.split("-", 1)[0] in profiles
+            else None
+        )
         payload = {
             "ok": True,
             "language": language,
             "matched_key": matched,
-            "match": fallback,
+            "match": "exact" if matched == language else "base" if matched else None,
             "profile": _language_settings_payload(settings),
         }
         if args.json:
@@ -1402,38 +1316,22 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
         return 0
 
     if args.defaults_command == "reset":
-        if language not in cfg.languages:
-            raise ValueError(f"No persisted language default for '{language}'.")
-        languages = dict(cfg.languages)
-        del languages[language]
-        updated = replace(cfg, schema=2, languages=languages)
-        path = save_config(updated)
-        payload = {"ok": True, "language": language, "reset": True, "path": str(path)}
+        assert language is not None
+        config.reset_language_profile(language)
+        payload = {
+            "ok": True,
+            "language": language,
+            "reset": True,
+            "path": str(config.path()),
+        }
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
         else:
             print(f"Removed language default: {language}")
         return 0
 
-    existing = cfg.languages.get(language, LanguageSettings())
-    model_id = args.model if args.model is not None else existing.model
-    source = args.model_source if args.model_source is not None else existing.source
-    quality = args.quality if args.quality is not None else existing.quality
-    voice = args.voice if args.voice is not None else existing.voice
-    selector_resolution = resolve_voice_selector(
-        voice,
-        language=language,
-        model=model_id,
-        source=source,
-        offline=args.offline,
-        refresh=args.refresh,
-        preference=source or "auto",
-    )
-    if selector_resolution is not None and selector_resolution.selector is not None:
-        language = selector_resolution.language or language
-        model_id = selector_resolution.model
-        source = selector_resolution.source
-        voice = selector_resolution.voice
+    assert language is not None
+    existing = profiles.get(language, LanguageSettings())
     if args.lexicons is not None:
         lexicons = tuple(args.lexicons)
     elif args.no_lexicons:
@@ -1442,51 +1340,36 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
         lexicons = None
     else:
         lexicons = existing.lexicons
-    g2p_fallback = args.g2p_fallback if args.g2p_fallback is not None else existing.g2p_fallback
-    lexicon_data_policy = (
-        args.lexicon_data_policy
-        if args.lexicon_data_policy is not None
-        else existing.lexicon_data_policy
-    )
-    allow_experimental = existing.allow_experimental or args.allow_experimental
-    model = None
-    if model_id is not None:
-        model, _ = get_model_info(
-            model_id,
-            offline=args.offline,
-            refresh=args.refresh,
-            preference=source or "auto",
-        )
-        source = source or model.source
-        voice = voice or model.default_voice
-        if quality is None and model.qualities:
-            quality = "fp32" if "fp32" in model.qualities else model.qualities[0]
-    settings = LanguageSettings(
-        model=model_id,
-        source=source,
-        quality=quality,
-        voice=voice,
+    settings = replace(
+        existing,
+        model=args.model if args.model is not None else existing.model,
+        source=args.model_source if args.model_source is not None else existing.source,
+        quality=args.quality if args.quality is not None else existing.quality,
+        voice=args.voice if args.voice is not None else existing.voice,
         lexicons=lexicons,
-        g2p_fallback=g2p_fallback,
-        lexicon_data_policy=lexicon_data_policy,
-        allow_experimental=allow_experimental,
+        g2p_fallback=args.g2p_fallback if args.g2p_fallback is not None else existing.g2p_fallback,
+        lexicon_data_policy=(
+            args.lexicon_data_policy
+            if args.lexicon_data_policy is not None
+            else existing.lexicon_data_policy
+        ),
+        allow_experimental=existing.allow_experimental or args.allow_experimental,
     )
-    if model is not None:
-        from .models import validate_language_settings
-
-        validate_language_settings(language, settings, model)
-    else:
-        # Readio's structural validator still runs without network discovery.
-        validate_config(replace(cfg, schema=2, languages={**cfg.languages, language: settings}))
-    languages = dict(cfg.languages)
-    languages[language] = settings
-    updated = replace(cfg, schema=2, languages=languages)
-    path = save_config(updated)
+    settings = config.set_language_profile(
+        language,
+        settings,
+        validate_runtime=True,
+        discovery=public_api.DiscoveryOptions(
+            offline=bool(args.offline),
+            refresh=bool(args.refresh),
+            preference=settings.source or "auto",
+        ),
+    )
     payload = {
         "ok": True,
         "language": language,
         "profile": _language_settings_payload(settings),
-        "path": str(path),
+        "path": str(config.path()),
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
@@ -1496,42 +1379,52 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
     return 0
 
 
+
 def _lexicons_label(lexicons: tuple[str, ...] | None) -> str:
     if lexicons is None:
         return "unknown"
     return ", ".join(lexicons) or "-"
 
+def _model_cli_dict(model: public_api.ModelInfo) -> dict[str, object]:
+    payload = dict(model.to_dict())
+    payload["lexicons_known"] = model.lexicons is not None
+    return payload
 
-def _model_registry_payload(result: object, *, offline: bool) -> dict[str, object]:
-    actual_offline = bool(getattr(result, "offline", offline))
-    return {
-        "source": result.registry_source,
-        "registry_source": result.registry_source,
-        "cache_fallback": bool(result.cache_fallback),
-        "offline": actual_offline,
-        "refreshed": bool(getattr(result, "refreshed", False)),
-    }
+
+def _voice_cli_dict(entry: public_api.VoiceInfo) -> dict[str, object]:
+    payload = dict(entry.to_dict())
+    payload["number"] = entry.slot
+    payload["backend"] = entry.engine
+    payload["selector_status"] = "assigned" if entry.selector else "unassigned"
+    return payload
 
 
 def _cmd_models(args: argparse.Namespace) -> int:
+    app = _api_for()
+    discovery = public_api.DiscoveryOptions(
+        offline=bool(args.offline),
+        refresh=bool(args.refresh),
+        preference=args.preference,
+    )
     if args.models_command == "list":
-        models, discovery = discover_model_info(
-            language=args.language,
-            status=args.status,
-            offline=args.offline,
-            refresh=args.refresh,
-            preference=args.preference,
+        listing = app.catalog.models_listing(
+            public_api.ModelQuery(language=args.language, status=args.status),
+            discovery=discovery,
         )
+        models = listing.items
         payload = {
             "ok": True,
-            "registry": _model_registry_payload(discovery, offline=args.offline),
-            "models": [model.to_dict() for model in models],
+            "registry": listing.discovery.to_dict(),
+            "models": [_model_cli_dict(model) for model in models],
         }
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
             return 0
-        if discovery.cache_fallback:
-            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
+        if listing.discovery.cache_fallback:
+            print(
+                "Warning: remote registry unavailable; using cached registry.",
+                file=sys.stderr,
+            )
         if not models:
             print("No models matched.")
             return 0
@@ -1550,20 +1443,21 @@ def _cmd_models(args: argparse.Namespace) -> int:
             )
         return 0
 
-    model, discovery = get_model_info(
-        args.model_id,
-        offline=args.offline,
-        refresh=args.refresh,
-        preference=args.preference,
-    )
+    listing = app.catalog.model_listing(args.model_id, discovery=discovery)
+    model = listing.items[0]
     payload = {
         "ok": True,
-        "registry": _model_registry_payload(discovery, offline=args.offline),
-        "model": model.to_dict(),
+        "registry": listing.discovery.to_dict(),
+        "model": _model_cli_dict(model),
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
         return 0
+    if listing.discovery.cache_fallback:
+        print(
+            "Warning: remote registry unavailable; using cached registry.",
+            file=sys.stderr,
+        )
     print(f"Model:          {model.id}")
     print(f"ID:              {model.id}")
     print(f"Source:          {model.source}")
@@ -1592,11 +1486,12 @@ def _cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
-def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
-    print(f"Selector:       {entry.selector}")
+
+def _voice_entry_human(entry: public_api.VoiceInfo) -> None:
+    print(f"Selector:       {entry.selector or '-'}")
     print(f"Engine:         {entry.engine}")
     print(f"Slot:           {entry.slot if entry.slot is not None else '-'}")
-    print(f"Selector status: {entry.selector_status}")
+    print(f"Selector status: {entry.status}")
     print(f"Qualified ID:   {entry.qualified_id}")
     print(f"Voice:          {entry.id}")
     print(f"Gender:         {entry.gender}")
@@ -1615,7 +1510,8 @@ def _voice_entry_human(entry: VoiceCatalogEntry) -> None:
     )
 
 
-def _lexicon_entry_human(entry: LexiconCatalogEntry) -> None:
+
+def _lexicon_entry_human(entry: public_api.LexiconInfo) -> None:
     print(f"Selector:       {entry.selector}")
     print(f"Engine:         {entry.engine}")
     print(f"Language:       {entry.language}")
@@ -1635,36 +1531,42 @@ def _lexicon_entry_human(entry: LexiconCatalogEntry) -> None:
         print(f"Asset metadata: {entry.asset_id}")
 
 
+
+
 def _cmd_lexicons(args: argparse.Namespace) -> int:
     language = getattr(args, "lang", None) or getattr(args, "language", None)
-    entries, discovery = discover_lexicon_catalog(
-        language=language,
-        model=args.model,
-        engine=args.engine,
-        offline=args.offline,
-        refresh=args.refresh,
+    app = _api_for()
+    query = public_api.LexiconQuery(
+        language=language, model=args.model, engine=args.engine
+    )
+    discovery = public_api.DiscoveryOptions(
+        offline=bool(args.offline),
+        refresh=bool(args.refresh),
         preference=args.preference,
     )
+    filters = {"language": language, "model": args.model, "engine": args.engine}
     if args.lexicons_command == "list":
-        lexicons = filter_lexicon_catalog(
-            entries, language=language, model=args.model, engine=args.engine
-        )
+        listing = app.catalog.lexicons_listing(query, discovery=discovery)
+        entries = listing.items
         payload = {
             "ok": True,
-            "filters": {"language": language, "model": args.model, "engine": args.engine},
-            "registry": _model_registry_payload(discovery, offline=args.offline),
-            "lexicons": [entry.to_dict() for entry in lexicons],
+            "filters": filters,
+            "registry": listing.discovery.to_dict(),
+            "lexicons": [entry.to_dict() for entry in entries],
         }
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
             return 0
-        if discovery.cache_fallback:
-            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
-        print(f"Lexicons: {len(lexicons)}")
+        if listing.discovery.cache_fallback:
+            print(
+                "Warning: remote registry unavailable; using cached registry.",
+                file=sys.stderr,
+            )
+        print(f"Lexicons: {len(entries)}")
         print()
         print("LEXICON  LOCALE  ASSET           ENGINE    MODELS  DEFAULT  DATA")
         print("-------  ------  --------------  --------  ------  -------  ---------")
-        for entry in lexicons:
+        for entry in entries:
             models = ",".join(entry.models) or "-"
             installed = "available" if entry.installed is not False else "missing"
             print(
@@ -1673,9 +1575,11 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
             )
         return 0
 
-    matches = find_lexicon_entries(args.selector, entries)
-    matches = filter_lexicon_catalog(
-        matches, language=language, model=args.model, engine=args.engine
+    listing = app.catalog.lexicons_listing(query, discovery=discovery)
+    matches = tuple(
+        item
+        for item in listing.items
+        if item.selector == args.selector or item.asset_id == args.selector
     )
     if not matches:
         raise ValueError(
@@ -1683,15 +1587,17 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
             f"Run `readio lexicons list --lang {language or 'en'}` to inspect selectors."
         )
     if len(matches) > 1:
-        alternatives = ", ".join(f"{item.selector}/{item.locale}/{item.engine}" for item in matches)
+        alternatives = ", ".join(
+            f"{item.selector}/{item.locale}/{item.engine}" for item in matches
+        )
         raise ValueError(
             f"Lexicon {args.selector!r} is ambiguous; use --lang or --engine: {alternatives}"
         )
     entry = matches[0]
     payload = {
         "ok": True,
-        "filters": {"language": language, "model": args.model, "engine": args.engine},
-        "registry": _model_registry_payload(discovery, offline=args.offline),
+        "filters": filters,
+        "registry": listing.discovery.to_dict(),
         "lexicon": entry.to_dict(),
     }
     if args.json:
@@ -1701,64 +1607,66 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
     return 0
 
 
-def _normalize_voice_list_filters(
-    *, engine: str | None, model: str | None
- ) -> tuple[str | None, str | None]:
-    from .engines.registry import CANONICAL_ENGINE_IDS, normalize_engine_id
 
+def _normalize_voice_list_filters(
+    *,
+    engine: str | None,
+    model: str | None,
+    available_engines: set[str] | None = None,
+) -> tuple[str | None, str | None]:
+    aliases = {"kokoro": "pykokoro", "pipersynth": "piper"}
+    available = available_engines or {"piper", "pykokoro"}
     if engine is not None:
-        return normalize_engine_id(engine), model
+        return aliases.get(engine.casefold(), engine), model
     if model is not None:
-        alias = normalize_engine_id(model)
-        if alias in CANONICAL_ENGINE_IDS:
-            return alias, None
+        canonical = aliases.get(model.casefold(), model.casefold())
+        if canonical in available:
+            return canonical, None
     return None, model
+
 
 
 def _cmd_voices(args: argparse.Namespace) -> int:
     if hasattr(args, "roles_command"):
         return _cmd_roles(args)
     language = getattr(args, "lang", None) or getattr(args, "language", None)
-    from .engines.registry import normalize_engine_id
-
-    if args.voices_command == "list":
-        canonical_engine, model_filter = _normalize_voice_list_filters(
-            engine=args.engine, model=args.model
-        )
-    else:
-        canonical_engine = normalize_engine_id(args.engine) if args.engine else None
-        model_filter = None
-    entries, discovery = discover_voice_catalog(
-        offline=args.offline,
-        refresh=args.refresh,
+    app = _api_for()
+    discovery = public_api.DiscoveryOptions(
+        offline=bool(args.offline),
+        refresh=bool(args.refresh),
         preference=args.preference,
-        engine=canonical_engine,
-        language=language,
     )
     if args.voices_command == "list":
-        voices = filter_voice_catalog(
-            entries,
-            language=language,
-            gender=args.gender,
-            model=model_filter,
-            engine=canonical_engine,
+        available_engines = {item.id.casefold() for item in app.catalog.engines()}
+        engine, model = _normalize_voice_list_filters(
+            engine=args.engine, model=args.model, available_engines=available_engines
         )
+        listing = app.catalog.voices_listing(
+            public_api.VoiceQuery(
+                language=language, gender=args.gender, model=model, engine=engine
+            ),
+            discovery=discovery,
+        )
+        voices = listing.items
         payload = {
             "ok": True,
-            "registry": _model_registry_payload(discovery, offline=args.offline),
+            "registry": listing.discovery.to_dict(),
             "filters": {
                 "language": language,
                 "gender": args.gender,
-                "model": model_filter,
-                "engine": canonical_engine,
+                "model": model,
+                "engine": engine,
             },
-            "voices": [entry.to_dict() for entry in voices],
+            "voices": [_voice_cli_dict(entry) for entry in voices],
         }
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
             return 0
-        if getattr(discovery, "cache_fallback", False):
-            print("Warning: remote registry unavailable; using cached registry.", file=sys.stderr)
+        if listing.discovery.cache_fallback:
+            print(
+                "Warning: remote registry unavailable; using cached registry.",
+                file=sys.stderr,
+            )
         print(f"Voices: {len(voices)}")
         print()
         print(
@@ -1776,23 +1684,43 @@ def _cmd_voices(args: argparse.Namespace) -> int:
             )
         return 0
 
-    entry_matches = find_voice_entries(args.selector, entries)
-    if not entry_matches:
+    listing = app.catalog.voices_listing(
+        public_api.VoiceQuery(language=language, engine=args.engine),
+        discovery=discovery,
+    )
+    selector = args.selector.casefold()
+    normalized_selector = selector.replace("_", "-")
+    matches = tuple(
+        entry
+        for entry in listing.items
+        if (
+            selector in {entry.id.casefold(), entry.qualified_id.casefold()}
+            or (
+                entry.selector is not None
+                and normalized_selector
+                in {
+                    entry.selector.casefold(),
+                    entry.selector.casefold().replace("_", "-"),
+                }
+            )
+        )
+    )
+    if not matches:
         raise ModelDiscoveryError(
             f"Unknown voice {args.selector!r}. Run `readio voices list` to inspect available voices.",
             code="readio.voice_selector_not_found",
         )
-    if len(entry_matches) > 1:
-        selectors = ", ".join(entry.selector for entry in entry_matches)
+    if len(matches) > 1:
+        selectors = ", ".join(entry.selector or "" for entry in matches)
         raise ModelDiscoveryError(
             f"Voice {args.selector!r} exists in multiple catalog entries; use one of: {selectors}",
             code="readio.voice_selector_ambiguous",
         )
-    entry = entry_matches[0]
+    entry = matches[0]
     payload = {
         "ok": True,
-        "registry": _model_registry_payload(discovery, offline=args.offline),
-        "voice": entry.to_dict(),
+        "registry": listing.discovery.to_dict(),
+        "voice": _voice_cli_dict(entry),
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
@@ -1801,19 +1729,19 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     return 0
 
 
+
 def _cmd_roles(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    provider = args.provider or cfg.ssmd.voice_provider
-    settings = cfg.voices.get(provider)
-    if settings is None:
-        raise ValueError(f"voice provider {provider!r} is not configured")
+    app = _api_for()
+    provider = args.provider or app.config.ssmd.voice_provider
     if getattr(args, "legacy_roles", False):
         print(
             "Warning: `readio voices roles|bind|unbind` is deprecated; use `readio roles`.",
             file=sys.stderr,
         )
     if args.roles_command == "list":
-        result = {"ok": True, "provider": provider, "roles": dict(settings.roles)}
+        bindings = app.roles.list_global(provider=provider)
+        roles = {item.role: item.voice for item in bindings}
+        result = {"ok": True, "provider": provider, "roles": roles}
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
         else:
@@ -1821,34 +1749,33 @@ def _cmd_roles(args: argparse.Namespace) -> int:
             print()
             print("ROLE        VOICE")
             print("----------  ------------")
-            for role, voice in sorted(settings.roles.items()):
+            for role, voice in roles.items():
                 print(f"{role:<11} {voice}")
         return 0
     if args.roles_command == "bind":
-        voice_id = args.voice_id
-        selector_resolution = resolve_voice_selector(
-            voice_id, language=None, model=None, source=None
+        binding = app.roles.bind_global(
+            args.role, args.voice_id, provider=provider
         )
-        if selector_resolution is not None and selector_resolution.selector is not None:
-            voice_id = selector_resolution.voice
-        updated = bind_voice_role(cfg, args.role, voice_id, provider)
-        path = save_config(updated)
         result = {
             "ok": True,
             "provider": provider,
-            "role": args.role,
-            "voice": voice_id,
-            "path": path,
+            "role": binding.role,
+            "voice": binding.voice,
+            "path": app.configuration.path(),
         }
         if args.json:
             print(json.dumps(_json_value(result), ensure_ascii=False))
         else:
-            print(f"{args.role} -> {voice_id} ({provider})")
+            print(f"{binding.role} -> {binding.voice} ({provider})")
         return 0
     if args.roles_command == "unbind":
-        updated = unbind_voice_role(cfg, args.role, provider)
-        path = save_config(updated)
-        result = {"ok": True, "provider": provider, "role": args.role, "path": path}
+        app.roles.unbind_global(args.role, provider=provider)
+        result = {
+            "ok": True,
+            "provider": provider,
+            "role": args.role,
+            "path": app.configuration.path(),
+        }
         if args.json:
             print(json.dumps(_json_value(result), ensure_ascii=False))
         else:
@@ -1857,348 +1784,150 @@ def _cmd_roles(args: argparse.Namespace) -> int:
     raise AssertionError("unreachable")
 
 
+
 def _cmd_config(args: argparse.Namespace) -> int:
-    path = config_path()
+    app = _api_for()
+    config = app.configuration
+    path = config.path()
     if args.config_command == "path":
         print(path)
         return 0
     if args.config_command == "show":
-        print(json.dumps(_json_value(load_config(path)), indent=2, ensure_ascii=False))
+        print(json.dumps(_json_value(config.load(path)), indent=2, ensure_ascii=False))
         return 0
     if args.config_command == "init":
-        if path.exists() and not args.force:
-            raise ValueError(f"config already exists: {path}; use --force to replace it")
-        cfg = default_config()
-        save_config(cfg, path)
+        cfg = config.defaults()
+        config.save(cfg, path=path, overwrite=args.force)
         cfg.paths.templates.mkdir(parents=True, exist_ok=True)
         cfg.paths.ingest.mkdir(parents=True, exist_ok=True)
         cfg.paths.output.mkdir(parents=True, exist_ok=True)
-        seed_templates(cfg.paths.templates, overwrite=False)
+        app.templates.seed()
         print(path)
         return 0
     if args.config_command == "validate":
-        cfg = load_config(path)
-        validate_config(cfg)
+        cfg = config.validate(config.load(path))
         print(json.dumps({"ok": True, "paths": _json_value(cfg.paths)}, ensure_ascii=False))
         return 0
     if args.config_command == "set":
-        cfg = set_config_value(load_config(path), args.key, args.value)
-        save_config(cfg, path)
+        config.set_value(args.key, args.value, path=path)
         print(path)
         return 0
     raise AssertionError("unreachable")
 
 
-def _validate_template(path: Path, cfg: ReadioConfig, *, roundtrip: bool) -> dict[str, object]:
-    try:
-        document = document_from_file(path)
-        consumer = preflight_ssmd(document.text, cfg, source_path=path)
-        result: dict[str, object] = {
-            "name": path.stem,
-            "source": str(path),
-            "ok": consumer.ok,
-            "provider": consumer.provider,
-            "consumer": {
+
+def _template_validation_json(
+    result: public_api.TemplateValidationResult,
+) -> dict[str, object]:
+    consumer = result.consumer
+    payload: dict[str, object] = {
+        "name": result.name,
+        "source": str(result.source_path),
+        "ok": result.ok,
+        "provider": consumer.provider if consumer is not None else None,
+        "consumer": (
+            {
                 "ok": consumer.ok,
                 "unresolved": list(consumer.unresolved_references),
                 "diagnostics": [item.to_dict() for item in consumer.diagnostics],
-            },
-            "bindings": {
+            }
+            if consumer is not None
+            else None
+        ),
+        "bindings": (
+            {
                 "document": dict(consumer.document_bindings),
                 "defaults": dict(consumer.default_bindings),
-            },
-            "roundtrip": None,
-        }
-        if roundtrip:
-            result["roundtrip"] = _json_value(roundtrip_check(path, cfg))
-        return result
-    except ReadioError as exc:
-        return {
-            "name": path.stem,
-            "source": str(path),
-            "ok": False,
-            "error": _error_payload(exc),
-            "roundtrip": None,
-        }
-
+            }
+            if consumer is not None
+            else None
+        ),
+        "roundtrip": result.roundtrip,
+    }
+    if result.error is not None:
+        payload["error"] = result.error.to_dict()
+    return payload
 
 def _cmd_template(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    directory = cfg.paths.templates
+    app = _api_for()
+    templates = app.templates
     if args.template_command == "validate":
         if args.all:
-            names = list_templates(directory)
+            names = [item.name for item in templates.list()]
         elif args.name is not None:
             names = [Path(args.name).stem]
         else:
             raise ValueError("template validate requires NAME or --all")
         results = [
-            _validate_template(template_path(directory, name), cfg, roundtrip=args.roundtrip)
-            for name in names
+            templates.validate(name, roundtrip=args.roundtrip) for name in names
         ]
-        result = {"ok": all(item["ok"] for item in results), "templates": results}
+        payload = {
+            "ok": all(item.ok for item in results),
+            "templates": [_template_validation_json(item) for item in results],
+        }
         if args.json:
-            print(json.dumps(result, ensure_ascii=False))
+            print(json.dumps(payload, ensure_ascii=False))
         else:
             for item in results:
-                status = "OK" if item["ok"] else "FAILED"
-                print(f"{item['name']}: {status}")
-        return 0 if result["ok"] else 2
+                status = "OK" if item.ok else "FAILED"
+                print(f"{item.name}: {status}")
+        return 0 if payload["ok"] else 2
 
     if args.template_command == "path":
-        print(template_path(directory, args.name) if args.name else directory)
+        print(templates.path(args.name) if args.name else templates.directory())
     elif args.template_command == "list":
-        for name in list_templates(directory):
-            print(name)
+        for item in templates.list():
+            print(item.name)
     elif args.template_command == "show":
-        print(show_template(directory, args.name), end="")
+        print(templates.show(args.name), end="")
     elif args.template_command == "add":
         source = Path(args.file) if args.file else None
         content = sys.stdin.read() if source is None and not sys.stdin.isatty() else None
-        print(add_template(directory, args.name, source, content=content, force=args.force))
+        print(templates.add(args.name, source=source, content=content, force=args.force))
     elif args.template_command == "remove":
-        remove_template(directory, args.name)
+        templates.remove(args.name)
     elif args.template_command == "reset":
         if args.all:
-            for name in packaged_template_names():
-                reset_template(directory, name)
+            templates.reset(all=True)
         else:
             if args.name is None:
                 raise ValueError("template reset requires NAME or --all")
-            reset_template(directory, args.name)
+            templates.reset(args.name)
     elif args.template_command == "use":
-        target = new_ingest(
-            cfg.paths.ingest,
-            name=args.name,
-            template_directory=directory,
-            template=args.name_template,
-        )
+        target = app.ingest.create(name=args.name, template=args.name_template)
         print(target)
     return 0
 
 
+
 def _cmd_ingest(args: argparse.Namespace) -> int:
-    cfg = load_config()
+    ingest = _api_for().ingest
     if args.ingest_command == "path":
-        print(cfg.paths.ingest)
+        print(ingest.directory())
     elif args.ingest_command == "new":
-        target = new_ingest(
-            cfg.paths.ingest,
-            name=args.name,
-            template_directory=cfg.paths.templates,
-            template=args.template,
-        )
+        target = ingest.create(name=args.name, template=args.template)
         print(target)
     elif args.ingest_command == "list":
-        for path in list_ingest(cfg.paths.ingest):
+        for path in ingest.list():
             print(path.name)
     return 0
 
 
-def _model_diagnostics(cfg: ReadioConfig) -> dict[str, object]:
-    diagnostics: dict[str, object] = {
-        "ok": False,
-        "registry_source": None,
-        "cache_fallback": False,
-        "offline": True,
-        "refreshed": False,
-        "count": 0,
-        "registry_cache": {"available": False},
-        "language_defaults": {},
-    }
-    try:
-        # Doctor is local-only. Validate each configured profile against the distribution
-        # it names instead of one auto-selected representation.
-        preferences = {
-            settings.source if settings.source in {"github", "huggingface"} else "auto"
-            for settings in cfg.languages.values()
-            if settings.model is not None
-        } or {"auto"}
-        discoveries: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
-        for preference in sorted(preferences):
-            models, result = discover_model_info(offline=True, preference=preference)
-            discoveries[preference] = (
-                {model.id: model for model in models},
-                {
-                    "source": result.registry_source,
-                    "cache_fallback": bool(result.cache_fallback),
-                },
-            )
-        default_models, provenance = discoveries["auto"]
-        diagnostics.update(
-            ok=True,
-            registry_source=provenance["source"],
-            cache_fallback=provenance["cache_fallback"],
-            count=len(default_models),
-            registry_cache={
-                "available": True,
-                "source": provenance["source"],
-                "cache_fallback": provenance["cache_fallback"],
-                "offline": True,
-            },
-        )
-        from .models import validate_language_settings
-
-        defaults: dict[str, object] = {}
-        for language, settings in cfg.languages.items():
-            item: dict[str, object] = {
-                **(_language_settings_payload(settings) or {}),
-                "valid": True,
-            }
-            if settings.model is not None:
-                preference = (
-                    settings.source if settings.source in {"github", "huggingface"} else "auto"
-                )
-                by_id = discoveries[preference][0]
-                model = by_id.get(settings.model)
-                if model is None:
-                    item.update(
-                        valid=False,
-                        error=f"unknown cached model '{settings.model}' for {preference}",
-                    )
-                else:
-                    try:
-                        validate_language_settings(language, settings, model)
-                    except ModelDiscoveryError as exc:
-                        item.update(valid=False, error=str(exc), error_code=exc.code)
-            defaults[language] = item
-        diagnostics["language_defaults"] = defaults
-    except ModelDiscoveryError as exc:
-        diagnostics.update(
-            error=str(exc),
-            error_code=exc.code,
-            installed_version=exc.installed_version,
-            distribution_version=exc.distribution_version,
-            module_version=exc.module_version,
-            module_path=exc.module_path,
-        )
-        diagnostics["language_defaults"] = {
-            language: {**(_language_settings_payload(settings) or {}), "valid": None}
-            for language, settings in cfg.languages.items()
-        }
-    except (ValueError, OSError) as exc:
-        diagnostics.update(error=str(exc), error_code="pykokoro.registry_unavailable")
-        diagnostics["language_defaults"] = {
-            language: {**(_language_settings_payload(settings) or {}), "valid": None}
-            for language, settings in cfg.languages.items()
-        }
-    return diagnostics
-
-
 def _cmd_doctor(args: argparse.Namespace | None) -> int:
-    cfg = load_config()
-    provider = cfg.ssmd.voice_provider
-    settings = cfg.voices.get(provider)
-    from .models import pykokoro_diagnostics
-
-    pykokoro_check = pykokoro_diagnostics()
-    pykokoro_check["version"] = pykokoro_check.get("module_version")
-    pykokoro_check["discovery_api"] = (
-        pykokoro_check.get("symbols", {}).get("discover_models") == "ok"
-    )
-    try:
-        import ssmd
-
-        ssmd_module = getattr(ssmd, "__version__", "installed")
-    except (ImportError, OSError) as exc:  # pragma: no cover - environment dependent
-        ssmd_module = f"ERROR: {exc}"
-    try:
-        import sounddevice as sd
-
-        sounddevice_check = getattr(sd, "__version__", "installed")
-    except (ImportError, OSError) as exc:  # pragma: no cover - environment dependent
-        sounddevice_check = f"ERROR: {exc}"
-    try:
-        import soundfile as sf
-
-        soundfile_check = getattr(sf, "__libsndfile_version__", "installed")
-    except (ImportError, OSError) as exc:  # pragma: no cover - environment dependent
-        soundfile_check = f"ERROR: {exc}"
-    try:
-        preflight_ssmd('<div voice="narrator">health check.</div>', cfg)
-        consumer_preflight = "ok"
-    except (ReadioError, ImportError, OSError, TypeError, ValueError) as exc:
-        consumer_preflight = f"ERROR: {exc}"
-    try:
-        template_names = list_templates(cfg.paths.templates)
-    except ValueError:
-        template_names = []
-
-    upstream_path = shutil.which("save-to-spotify")
-    upstream: dict[str, object] = {
-        "path": upstream_path or "not found",
-        "version": None,
-        "commit": None,
-        "probe_error": None,
-    }
-    if upstream_path is not None:
-        try:
-            detected = spotify_version()
-            upstream.update(version=detected.version, commit=detected.commit)
-        except SpotifyError as exc:
-            upstream["probe_error"] = str(exc)
-
-    result = {
-        "readio": __version__,
-        "config": {"path": str(config_path()), "exists": config_path().exists()},
-        "paths": {
-            name: {"path": str(path), "exists": path.exists()}
-            for name, path in {
-                "templates": cfg.paths.templates,
-                "ingest": cfg.paths.ingest,
-                "output": cfg.paths.output,
-            }.items()
-        },
-        "pykokoro": pykokoro_check,
-        "models": _model_diagnostics(cfg),
-        "ssmd": {
-            "python_api": "ok" if not ssmd_module.startswith("ERROR:") else ssmd_module,
-            "module_version": ssmd_module,
-            "consumer_preflight": consumer_preflight,
-            "executable": shutil.which("ssmd") or "not found",
-            "voice_provider": provider,
-        },
-        "voices": {
-            "provider": provider,
-            "configured_ids": len(settings.ids) if settings else 0,
-            "roles": dict(settings.roles) if settings else {},
-            "invalid_roles": [
-                role for role, voice in settings.roles.items() if voice not in settings.ids
-            ]
-            if settings
-            else [],
-        },
-        "sounddevice": sounddevice_check,
-        "soundfile": soundfile_check,
-        "audio_formats": audio_format_diagnostics(),
-        "save-to-spotify": upstream,
-        "templates": {"count": len(template_names), "names": template_names},
-    }
-    json_mode = args is None or getattr(args, "json", False)
-    if json_mode:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print(f"Readio {__version__}")
-        print(f"Config: {result['config']['path']}")
-        print(
-            f"PyKokoro: {result['pykokoro']['version'] or 'unavailable'} "
-            f"(required {result['pykokoro']['required']}; "
-            f"discovery API: {'yes' if result['pykokoro']['discovery_api'] else 'no'})"
-        )
-        registry = result["models"]["registry_cache"]
-        if registry["available"]:
-            print(
-                "PyKokoro model registry: "
-                f"{registry.get('source', 'available')} "
-                f"(cache fallback: {'yes' if registry.get('cache_fallback') else 'no'})"
-            )
-        else:
-            print("PyKokoro model registry: unavailable offline")
-        print(
-            f"save-to-spotify: {upstream['path']} ({upstream['version'] or 'version unavailable'})"
-        )
-        print(f"Audio formats: {', '.join(audio_format_diagnostics())}")
+    report = _api_for(args).diagnostics.run()
+    if args is None or getattr(args, "json", False):
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+    print(f"Readio {report.readio_version}")
+    print(f"Config: {report.config_path} ({'exists' if report.config_exists else 'missing'})")
+    for engine in report.engines:
+        version = f" {engine.version}" if engine.version else ""
+        print(f"Engine {engine.id}: {engine.status}{version}")
+    available = [item.id for item in report.audio_formats if item.available]
+    print(f"Audio formats: {', '.join(available)}")
     return 0
+
+
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -259,10 +259,16 @@ class TestPiperAdapterBehavior:
                     "pause_mode": "auto",
                     "lexicons": None,
                 },
+                engine_options={"noise_w_scale": 0.25},
             )
         )
         assert diagnostics == ()
-        assert selection.options == {"length_scale": 0.5, "speed": 2.0, "noise_scale": 0.5}
+        assert selection.options == {
+            "length_scale": 0.5,
+            "speed": 2.0,
+            "noise_scale": 0.5,
+            "noise_w_scale": 0.25,
+        }
         assert "spacy" not in selection.options
         assert "pause_mode" not in selection.options
 

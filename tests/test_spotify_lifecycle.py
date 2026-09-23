@@ -1,198 +1,164 @@
+from __future__ import annotations
+
+import io
 import json
 from pathlib import Path
 
-import pytest
-
 from readio import cli, spotify_cli
-from readio.audio import RenderSummary
-from readio.config import PathSettings, ReadioConfig
-from readio.spotify import SpotifyReadinessResult, SpotifyUploadResult
+from readio.api import Readio, RenderResult, RenderSummary
+from readio.api.integrations.spotify import (
+    SpotifyPublishResult,
+    SpotifyReadinessResult,
+)
+from readio.config import ReadioConfig
 
 
-def _configure(monkeypatch, tmp_path: Path) -> None:
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
-    monkeypatch.setattr(cli, "ensure_audio_format_available", lambda audio_format: None)
-
-
-def test_publish_cleans_temporary_audio_after_upload(monkeypatch, tmp_path: Path):
-    _configure(monkeypatch, tmp_path)
-    uploaded_paths: list[Path] = []
-
-    def render(args, path, *, audio_format, **kwargs):
-        assert audio_format == "mp3"
-        path.write_bytes(b"mp3")
-        return RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
-
-    def upload(path, **kwargs):
-        assert path.exists()
-        uploaded_paths.append(path)
-        return SpotifyUploadResult("spotify:episode:1", "UPLOADING")
-
-    monkeypatch.setattr(cli, "_render_audio", render)
-    monkeypatch.setattr(spotify_cli, "upload_episode", upload)
-    args = cli.build_parser().parse_args(
-        ["spotify", "publish", "text", "--title", "Episode", "--format", "mp3"]
+def _result(
+    *,
+    audio_path: Path | None = None,
+    audio_format: str = "wav",
+) -> SpotifyPublishResult:
+    return SpotifyPublishResult(
+        episode_uri="spotify:episode:1",
+        upload_status="UPLOADING",
+        readiness=SpotifyReadinessResult("spotify:episode:1", "READY"),
+        audio_path=audio_path,
+        audio_format=audio_format,
+        timeline_published=False,
     )
 
-    assert spotify_cli.cmd_spotify_publish(args) == 0
-    assert len(uploaded_paths) == 1
-    assert not uploaded_paths[0].exists()
 
+def test_publish_cli_builds_public_request_and_delegates(monkeypatch, tmp_path: Path, capsys) -> None:
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    output = tmp_path / "published.mp3"
+    app = Readio(ReadioConfig())
+    seen = {}
 
-def test_publish_keeps_persistent_audio_and_waits(monkeypatch, tmp_path: Path):
-    _configure(monkeypatch, tmp_path)
-    output = tmp_path / "episode.wav"
-    calls: list[tuple[str, str | None]] = []
+    class Service:
+        def __init__(self, passed_app):
+            assert passed_app is app
 
-    monkeypatch.setattr(
-        cli,
-        "_render_audio",
-        lambda args, path, *, audio_format, **kwargs: (
-            path.write_bytes(b"wav") and RenderSummary(24000, 24000, 1)
-        ),
-    )
+        def publish(self, request, *, on_event=None):
+            seen["request"] = request
+            seen["handler"] = on_event
+            return _result(
+                audio_path=output,
+                audio_format=request.render.output.requested_format,
+            )
 
-    def upload(path, **kwargs):
-        assert path == output
-        return SpotifyUploadResult("spotify:episode:1", "UPLOADING")
-
-    def wait(uri, *, wait, wait_timeout, api_timeout):
-        calls.append((uri, wait_timeout))
-        return SpotifyReadinessResult(uri, "READY")
-
-    monkeypatch.setattr(spotify_cli, "upload_episode", upload)
-    monkeypatch.setattr(spotify_cli, "episode_status", wait)
+    monkeypatch.setattr(spotify_cli, "Readio", lambda: app)
+    monkeypatch.setattr(spotify_cli, "SpotifyService", Service)
     args = cli.build_parser().parse_args(
         [
             "spotify",
             "publish",
-            "text",
+            str(source),
             "--title",
             "Episode",
             "--output",
             str(output),
-            "--wait",
-            "2m",
+            "--format",
+            "mp3",
+            "--voice",
+            "af_sarah",
+            "--speed",
+            "1.2",
+            "--json",
         ]
     )
 
     assert spotify_cli.cmd_spotify_publish(args) == 0
-    assert output.read_bytes() == b"wav"
-    assert calls == [("spotify:episode:1", "2m")]
+    request = seen["request"]
+    assert request.render.input.document.source_path == source
+    assert request.render.output.requested_path == output
+    assert request.render.output.requested_format == "mp3"
+    assert request.render.synthesis.voice == "af_sarah"
+    assert request.render.synthesis.speed == 1.2
+    assert seen["handler"] is not None
+    assert json.loads(capsys.readouterr().out)["episode_uri"] == "spotify:episode:1"
+    assert not hasattr(spotify_cli, "_cli")
 
 
-def test_upload_never_renders_or_deletes_caller_media(monkeypatch, tmp_path: Path):
+def test_upload_cli_delegates_public_request_without_mutating_audio(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
     media = tmp_path / "recording.m4a"
-    media.write_bytes(b"m4a")
-    monkeypatch.setattr(cli, "_render_audio", lambda *args, **kwargs: pytest.fail("rendered"))
-    monkeypatch.setattr(
-        spotify_cli,
-        "upload_episode",
-        lambda path, **kwargs: SpotifyUploadResult("spotify:episode:2", "PROCESSING"),
-    )
+    media.write_bytes(b"caller audio")
+    app = Readio(ReadioConfig())
+    seen = {}
+
+    class Service:
+        def __init__(self, passed_app):
+            assert passed_app is app
+
+        def upload(self, request):
+            seen["request"] = request
+            return _result(audio_path=request.audio_path, audio_format="m4a")
+
+    monkeypatch.setattr(spotify_cli, "Readio", lambda: app)
+    monkeypatch.setattr(spotify_cli, "SpotifyService", Service)
     args = cli.build_parser().parse_args(
         ["spotify", "upload", str(media), "--title", "Lecture", "--json"]
     )
 
     assert spotify_cli.cmd_spotify_upload(args) == 0
-    assert media.read_bytes() == b"m4a"
+    assert seen["request"].audio_path == media
+    assert media.read_bytes() == b"caller audio"
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audio_format"] == "m4a"
+    assert payload["audio_path"] is None
 
 
-def test_marker_timeline_waits_then_sets_and_cleans_temp(monkeypatch, tmp_path: Path):
-    _configure(monkeypatch, tmp_path)
-    timeline_calls: list[tuple[str, dict[str, object], bool]] = []
-    monkeypatch.setattr(
-        cli,
-        "_render_audio",
-        lambda args, path, *, audio_format, **kwargs: (
-            path.write_bytes(b"wav")
-            and RenderSummary(
-                24000,
-                48000,
-                1,
-                markers=(
-                    {"name": "intro", "sample_offset": 0},
-                    {"name": "topic", "sample_offset": 24000},
-                ),
-            )
+def test_live_cli_renders_through_speech_service_then_public_spotify_api(
+    monkeypatch, capsys
+) -> None:
+    app = Readio(ReadioConfig())
+    app.speech.render_live = lambda lines, sink, **kwargs: RenderResult(
+        plan=None,
+        summary=RenderSummary(
+            sample_rate=24000,
+            sample_count=24000,
+            channels=1,
+            markers=(
+                {"name": "intro", "sample_offset": 0},
+                {"name": "topic", "sample_offset": 12000},
+            ),
         ),
     )
-    monkeypatch.setattr(
-        spotify_cli,
-        "upload_episode",
-        lambda path, **kwargs: SpotifyUploadResult("spotify:episode:3", "PROCESSING"),
-    )
-    monkeypatch.setattr(
-        spotify_cli,
-        "episode_status",
-        lambda uri, **kwargs: SpotifyReadinessResult(uri, "READY"),
-    )
+    monkeypatch.setattr(spotify_cli, "Readio", lambda: app)
+    monkeypatch.setattr(spotify_cli.sys, "stdin", io.StringIO("hello\n"))
+    captured = {}
 
-    def set_timeline(uri, path, **kwargs):
-        timeline_calls.append((uri, json.loads(path.read_text()), path.exists()))
+    class Service:
+        def __init__(self, passed_app):
+            assert passed_app is app
 
-    monkeypatch.setattr(spotify_cli, "set_timeline", set_timeline)
+        def publish_rendered(self, request, summary, *, chapters_from_markers, on_event=None):
+            captured["request"] = request
+            captured["summary"] = summary
+            captured["chapters_from_markers"] = chapters_from_markers
+            return _result()
+
+    monkeypatch.setattr(spotify_cli, "SpotifyService", Service)
     args = cli.build_parser().parse_args(
-        ["spotify", "publish", "text", "--title", "Episode", "--chapters-from-markers", "--json"]
+        ["spotify", "publish", "--live", "--title", "Episode", "--chapters-from-markers", "--json"]
     )
 
     assert spotify_cli.cmd_spotify_publish(args) == 0
-    assert timeline_calls[0][0] == "spotify:episode:3"
-    assert timeline_calls[0][1]["items"][1]["chapter"]["start_time_ms"] == 1000
-    assert timeline_calls[0][2]
+    assert captured["chapters_from_markers"]
+    assert captured["request"].title == "Episode"
+    assert captured["summary"].sample_count == 24000
+    assert json.loads(capsys.readouterr().out)["audio_path"] is None
 
 
-def test_caller_timeline_is_untouched(monkeypatch, tmp_path: Path):
-    media = tmp_path / "recording.mp3"
-    media.write_bytes(b"mp3")
-    timeline = tmp_path / "timeline.json"
-    original = '{"items": [{"chapter": {"title": "One"}}]}'
-    timeline.write_text(original)
-    monkeypatch.setattr(
-        spotify_cli,
-        "upload_episode",
-        lambda path, **kwargs: SpotifyUploadResult("spotify:episode:4", "PROCESSING"),
+def test_spotify_parser_keeps_clean_command_family() -> None:
+    parser = cli.build_parser()
+    assert parser.parse_args(["spotify", "publish", "text", "--title", "Episode"]).spotify_command == "publish"
+    assert (
+        parser.parse_args(["spotify", "upload", "episode.mp3", "--title", "Episode"]).spotify_command
+        == "upload"
     )
-    monkeypatch.setattr(
-        spotify_cli,
-        "episode_status",
-        lambda uri, **kwargs: SpotifyReadinessResult(uri, "READY"),
-    )
-    observed: list[Path] = []
-    monkeypatch.setattr(
-        spotify_cli, "set_timeline", lambda uri, path, **kwargs: observed.append(path)
-    )
-    args = cli.build_parser().parse_args(
-        [
-            "spotify",
-            "upload",
-            str(media),
-            "--title",
-            "Episode",
-            "--timeline",
-            str(timeline),
-        ]
-    )
-
-    assert spotify_cli.cmd_spotify_upload(args) == 0
-    assert observed == [timeline]
-    assert timeline.read_text() == original
-
-
-def test_timeline_modes_are_mutually_exclusive():
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(
-            [
-                "spotify",
-                "publish",
-                "text",
-                "--title",
-                "Episode",
-                "--timeline",
-                "timeline.json",
-                "--chapters-from-markers",
-            ]
-        )
+    assert parser.parse_args(["spotify", "shows"]).spotify_command == "shows"
+    assert parser.parse_args(["spotify", "status", "abc"]).spotify_command == "status"
+    assert parser.parse_args(["spotify", "doctor"]).spotify_command == "doctor"

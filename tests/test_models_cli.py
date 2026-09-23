@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 from readio import cli
+from readio.api.catalog import CatalogService
 from readio.models import ModelInfo
 
 
@@ -24,6 +25,21 @@ def _discovery() -> tuple[tuple[ModelInfo, ...], object]:
         redistribution_allowed=True,
     )
     return (model,), SimpleNamespace(registry_source="fixture", cache_fallback=False)
+def _listing() -> SimpleNamespace:
+    models, _ = _discovery()
+    registry = {
+        "source": "fixture",
+        "registry_source": "fixture",
+        "cache_fallback": False,
+        "offline": False,
+        "refreshed": False,
+    }
+    return SimpleNamespace(
+        items=models,
+        discovery=SimpleNamespace(to_dict=lambda: registry, cache_fallback=False),
+    )
+
+
 
 
 def test_models_parser_supports_discovery_options() -> None:
@@ -36,7 +52,7 @@ def test_models_parser_supports_discovery_options() -> None:
 
 
 def test_models_list_json_uses_runtime_capabilities(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "discover_model_info", lambda **kwargs: _discovery())
+    monkeypatch.setattr(CatalogService, "models_listing", lambda self, *args, **kwargs: _listing())
     args = cli.build_parser().parse_args(["models", "list", "--language", "de", "--json"])
 
     assert cli._cmd_models(args) == 0
@@ -50,7 +66,9 @@ def test_models_list_json_uses_runtime_capabilities(monkeypatch, capsys) -> None
 
 def test_models_show_human_output_includes_lexicon_and_voice(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli, "get_model_info", lambda *args, **kwargs: _discovery()[0][0:1] + (_discovery()[1],)
+        CatalogService,
+        "model_listing",
+        lambda self, *args, **kwargs: _listing(),
     )
     args = cli.build_parser().parse_args(["models", "show", "de-thorsten"])
 

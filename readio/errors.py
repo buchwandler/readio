@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
+
+from .jsonutil import JsonValue
 
 
 class ReadioError(Exception):
     code = "readio.error"
 
-    def __init__(self, message: str, *, source_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        source_path: Path | None = None,
+        details: Mapping[str, JsonValue] | None = None,
+        code: str | None = None,
+    ) -> None:
         super().__init__(message)
+        self.code = code or type(self).code
         self.source_path = source_path
+        self.details = dict(details or {})
 
 
 class InputError(ReadioError):

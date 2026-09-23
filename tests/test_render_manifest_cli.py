@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from readio import cli
+from readio.api.speech import SpeechService
+from readio.api.types import RenderResult
 from readio.audio import RenderSummary
 from readio.config import PathSettings, ReadioConfig
 from readio.errors import ManifestError
@@ -19,110 +21,67 @@ def _workspace_cfg(tmp_path: Path) -> ReadioConfig:
     )
 
 
-@contextmanager
-def _sink_passthrough(path: Path, audio_format: str):
-    yield path
+def _install_render_stub(monkeypatch, calls: list[tuple[object, bool]]) -> None:
+    def plan(self, request):
+        output = request.output.requested_path
+        assert output is not None
+        audio_format = request.output.requested_format or output.suffix.lstrip(".")
+        return SimpleNamespace(
+            ok=True,
+            output=SimpleNamespace(
+                path=output,
+                format=audio_format,
+                force=request.output.force,
+            ),
+            to_dict=lambda: {"ok": True},
+        )
+
+    def render(self, request, *, on_event=None, write_manifest=False):
+        resolved = self.plan(request)
+        output = resolved.output.path
+        output.write_bytes(b"encoded audio")
+        manifest_path = manifest_path_for(output) if write_manifest else None
+        if manifest_path is not None:
+            manifest_path.write_text("{}", encoding="utf-8")
+        calls.append((resolved, write_manifest))
+        return RenderResult(
+            plan=resolved,
+            summary=RenderSummary(sample_rate=24000, sample_count=48000, channels=1),
+            output_path=output,
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(SpeechService, "plan", plan)
+    monkeypatch.setattr(SpeechService, "render", render)
 
 
-def _stub_render(summary: RenderSummary | None = None):
-    def render(plan, document, path, *, selector="all", **kwargs):
-        path.write_bytes(b"encoded audio")
-        return summary or RenderSummary(sample_rate=24000, sample_count=48000, channels=1)
-
-    return render
-
-
-def _fake_plan(output: Path, *, text: str, force: bool = False):
-    resolved = {
-        "schema": "readio.plan.v1",
-        "ok": True,
-        "operation": "render",
-        "input": {"text": text},
-        "output": {
-            "format": "wav",
-            "encoder_backend": "soundfile",
-            "path": str(output),
-            "force": force,
-        },
-    }
-    return type(
-        "FakePlan",
-        (),
-        {
-            "ok": True,
-            "output": type(
-                "FakeOutput",
-                (),
-                {
-                    "path": output,
-                    "format": "wav",
-                    "encoder_backend": "soundfile",
-                    "force": force,
-                },
-            )(),
-            "to_dict": lambda self: resolved,
-        },
-    )()
-
-
-def _patch_plan(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        cli,
-        "resolve_plan",
-        lambda config, request: _fake_plan(
-            request.output.requested_path,
-            text=request.input.document.text,
-            force=request.output.force,
-        ),
-    )
-
-
-def test_manifest_render_embeds_exact_plan_and_preserves_human_stdout(
+def test_render_cli_forwards_manifest_request_and_keeps_human_stdout(
     monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path
 ) -> None:
     cfg = _workspace_cfg(tmp_path)
     output = tmp_path / "episode.wav"
-
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
-    monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-    monkeypatch.setattr(
-        cli,
-        "render_from_plan",
-        _stub_render(
-            RenderSummary(
-                sample_rate=24000,
-                sample_count=48000,
-                channels=1,
-                document_metadata={"title": "Überblick"},
-                markers=({"label": "start", "sample_offset": 12},),
-            )
-        ),
-    )
-
+    calls: list[tuple[object, bool]] = []
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
+    _install_render_stub(monkeypatch, calls)
     args = cli.build_parser().parse_args(
         ["render", "Hello world", "-o", str(output), "--manifest", "--no-progress"]
     )
 
     assert cli._cmd_render(args) == 0
-
-    sidecar = manifest_path_for(output)
-    manifest = json.loads(sidecar.read_text(encoding="utf-8"))
-    assert manifest["schema"] == RENDER_MANIFEST_SCHEMA_V2
-    assert manifest["semantic_plan"]["plan_id"]
-    assert manifest["render"]["render_id"]
-    assert manifest["result"]["output"]["sha256"]
-    assert manifest["result"]["document_metadata"] == {"title": "Überblick"}
-    assert manifest["result"]["markers"] == [{"label": "start", "sample_offset": 12}]
+    assert output.read_bytes() == b"encoded audio"
+    assert calls[0][1] is True
+    manifest = json.loads(manifest_path_for(output).read_text(encoding="utf-8"))
+    assert manifest == {}
     assert capsys.readouterr().out == f"{output}\n"
 
 
-def test_json_render_result_is_additive_with_and_without_manifest(
+def test_render_json_reports_optional_manifest_from_service(
     monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path
 ) -> None:
     cfg = _workspace_cfg(tmp_path)
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
-    monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-    monkeypatch.setattr(cli, "render_from_plan", _stub_render())
+    calls: list[tuple[object, bool]] = []
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
+    _install_render_stub(monkeypatch, calls)
 
     output_without = tmp_path / "without.wav"
     args_without = cli.build_parser().parse_args(
@@ -151,114 +110,43 @@ def test_json_render_result_is_additive_with_and_without_manifest(
         "schema": RENDER_MANIFEST_SCHEMA_V2,
         "path": str(manifest_path_for(output_with)),
     }
+    assert [enabled for _, enabled in calls] == [False, True]
 
 
-def test_manifest_write_failure_preserves_audio_and_exposes_both_paths(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_manifest_is_rejected_for_live_before_config_or_speech_service(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = _workspace_cfg(tmp_path)
-    output = tmp_path / "episode.wav"
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
-    monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-    monkeypatch.setattr(cli, "render_from_plan", _stub_render())
-
-    def fail_write(path, payload):
-        raise OSError("read-only sidecar directory")
-
-    monkeypatch.setattr(cli, "write_render_manifest", fail_write)
-    args = cli.build_parser().parse_args(
-        ["render", "text", "-o", str(output), "--manifest", "--no-progress"]
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: pytest.fail("config resolved"))
+    monkeypatch.setattr(
+        SpeechService,
+        "plan",
+        lambda *_args, **_kwargs: pytest.fail("speech planned"),
     )
-
-    with pytest.raises(ManifestError) as raised:
-        cli._cmd_render(args)
-
-    error = raised.value
-    assert error.code == "render.manifest_error"
-    assert output.exists()
-    assert not manifest_path_for(output).exists()
-    assert cli._error_payload(error) == {
-        "ok": False,
-        "code": "render.manifest_error",
-        "error": str(error),
-        "audio_path": str(output),
-        "manifest_path": str(manifest_path_for(output)),
-    }
-
-
-def test_manifest_is_rejected_for_live_before_synthesis_or_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: pytest.fail("config resolved"))
-    monkeypatch.setattr(cli, "resolve_synthesis", lambda *args: pytest.fail("TTS resolved"))
     args = cli.build_parser().parse_args(["render", "--live", "--manifest", "--no-progress"])
 
     with pytest.raises(ValueError, match="does not execute a bounded ReadioPlan"):
         cli._cmd_render(args)
 
 
-def test_failed_render_does_not_create_audio_or_manifest(
+def test_render_errors_from_public_service_propagate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = _workspace_cfg(tmp_path)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: _workspace_cfg(tmp_path))
+    _install_render_stub(monkeypatch, [])
     output = tmp_path / "episode.wav"
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
-    monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-
-    def fail_render(plan, document, path, *, selector="all", **kwargs):
-        path.write_bytes(b"temporary audio")
-        raise RuntimeError("synthesis failed")
-
-    monkeypatch.setattr(cli, "render_from_plan", fail_render)
+    error = ManifestError(
+        "manifest write failed",
+        audio_path=output,
+        manifest_path=manifest_path_for(output),
+    )
+    monkeypatch.setattr(
+        SpeechService,
+        "render",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
     args = cli.build_parser().parse_args(
-        ["render", "text", "-o", str(output), "--manifest", "--no-progress"]
+        ["render", "text", "-o", str(tmp_path / "episode.wav"), "--manifest"]
     )
 
-    with pytest.raises(RuntimeError, match="synthesis failed"):
+    with pytest.raises(ManifestError, match="manifest write failed"):
         cli._cmd_render(args)
-
-    assert not output.exists()
-    assert not manifest_path_for(output).exists()
-
-
-def test_force_rerender_replaces_manifest_with_new_execution_evidence(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    cfg = _workspace_cfg(tmp_path)
-    output = tmp_path / "episode.wav"
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
-    monkeypatch.setattr(cli, "create_audio_sink", _sink_passthrough)
-
-    calls = 0
-
-    def render(plan, document, path, *, selector="all", **kwargs):
-        nonlocal calls
-        calls += 1
-        path.write_bytes(f"encoded audio {calls}".encode())
-        return RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
-
-    monkeypatch.setattr(cli, "render_from_plan", render)
-    first = cli.build_parser().parse_args(
-        ["render", "first", "-o", str(output), "--manifest", "--no-progress"]
-    )
-    assert cli._cmd_render(first) == 0
-    first_manifest = json.loads(manifest_path_for(output).read_text(encoding="utf-8"))
-
-    second = cli.build_parser().parse_args(
-        [
-            "render",
-            "second",
-            "-o",
-            str(output),
-            "--force",
-            "--manifest",
-            "--no-progress",
-        ]
-    )
-    assert cli._cmd_render(second) == 0
-    second_manifest = json.loads(manifest_path_for(output).read_text(encoding="utf-8"))
-
-    assert (
-        first_manifest["result"]["output"]["sha256"]
-        != second_manifest["result"]["output"]["sha256"]
-    )

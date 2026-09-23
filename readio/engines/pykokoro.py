@@ -204,6 +204,7 @@ class PyKokoroEngineAdapter:
         models, _result = _discover_pykokoro_model_info(
             language=language,
             offline=offline,
+            preference=getattr(request, "preference", "auto"),
             refresh=refresh,
         )
 
@@ -425,6 +426,7 @@ class PyKokoroEngineAdapter:
         speaker = getattr(request, "speaker", None)
         options = dict(getattr(request, "options", {}))
 
+        options.update(dict(getattr(request, "engine_options", {}) or {}))
         selection = EngineSelection(
             engine=engine,
             target_id=getattr(request, "target_id", None) or "default",

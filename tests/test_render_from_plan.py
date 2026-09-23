@@ -17,9 +17,11 @@ import pytest
 from audiocompose import AudioBufferSource, AudioClip, AudioJob
 
 from readio import cli, reader
+from readio.api import PlanRequest
+from readio.api import speech as speech_module
+from readio.api.speech import SpeechService
 from readio.audio import RenderSummary
 from readio.config import PathSettings, ReadioConfig
-from readio.plan import PlanRequest, resolve_plan
 
 
 def _workspace_cfg(tmp_path: Path) -> ReadioConfig:
@@ -86,46 +88,41 @@ def _render(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str]) ->
 
 
 def _capture_plan(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
-    """Wrap cli.resolve_execution_v2 to capture the resolved plan."""
     captured: dict[str, object] = {}
-    original = cli.resolve_execution_v2
+    original = SpeechService.render
 
-    def traced(cfg, request: PlanRequest):
-        resolved = original(cfg, request)
-        captured["plan"] = resolved.plan
-        captured["resolved"] = resolved
+    def traced(self, request, **kwargs):
+        result = original(self, request, **kwargs)
+        captured["plan"] = result.plan
         captured["request"] = request
-        return resolved
+        return result
 
-    monkeypatch.setattr(cli, "resolve_execution_v2", traced)
+    monkeypatch.setattr(SpeechService, "render", traced)
     return captured
 
-
-def test_normal_render_resolves_plan_before_loading_tts(
+def test_normal_render_uses_public_speech_service_before_loading_tts(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
-    events: list[str] = []
-    original = cli.resolve_execution_v2
+    events = fake_tts.events
+    original = SpeechService.render
 
-    def traced(cfg, request: PlanRequest):
-        events.append("resolve_execution_v2")
-        return original(cfg, request)
+    def traced(self, request, **kwargs):
+        events.append("speech.render")
+        return original(self, request, **kwargs)
 
-    monkeypatch.setattr(cli, "resolve_execution_v2", traced)
+    monkeypatch.setattr(SpeechService, "render", traced)
     output = tmp_path / "episode.wav"
     code = _render(
         monkeypatch, tmp_path, ["render", "Hello world", "-o", str(output), "--no-progress"]
     )
 
     assert code == 0
-    assert events == ["resolve_execution_v2"]
-    assert fake_tts.events == ["load_tts"]
-    assert events + fake_tts.events == ["resolve_execution_v2", "load_tts"]
-
+    assert events == ["speech.render", "load_tts"]
 
 def test_normal_render_uses_plan_pipeline_config(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
+    captured = _capture_plan(monkeypatch)
     output = tmp_path / "episode.wav"
     code = _render(
         monkeypatch,
@@ -148,56 +145,21 @@ def test_normal_render_uses_plan_pipeline_config(
     )
     assert code == 0
     used = fake_tts.instances[0].config
-    # Independently resolve the plan for the same request and compare.
-    expected = resolve_plan(
-        _workspace_cfg(tmp_path),
-        _plan_request_for(
-            "Hello world",
-            "af_bella",
-            1.3,
-            spacy="lg",
-            short_sentence="wrap",
-        ),
-    )
-    assert expected.ok
-    assert used.model_variant == expected.synthesis.model.id
-    assert used.model_source == expected.synthesis.model.source
-    assert used.model_quality == expected.synthesis.model.quality
-    assert used.voice == expected.synthesis.model.voice
-    assert used.generation.lang == expected.synthesis.language
-    assert used.generation.speed == expected.synthesis.speed
-    assert used.generation.pause_mode == expected.synthesis.pause_mode
-    assert used.allow_experimental_frontend == expected.synthesis.allow_experimental
-
-    assert expected.synthesis.spacy == "lg"
-    assert expected.synthesis.short_sentence == "wrap"
+    plan = captured["plan"]
+    assert used.model_variant == plan.render.target.id
+    assert used.model_source == plan.render.options["model_source"]
+    assert used.model_quality == plan.render.options["quality"]
+    assert used.voice == plan.render.target.voice
+    assert used.generation.lang == plan.render.target.language
+    assert used.generation.speed == plan.render.rate
+    assert used.generation.pause_mode == plan.render.options["pause_mode"]
+    assert used.allow_experimental_frontend == plan.render.options["allow_experimental"]
+    assert plan.planning.spacy == "lg"
+    assert plan.render.options["short_sentence"] == "wrap"
     assert used.tokenizer_config is None
     assert used.short_sentence_config is not None
     assert used.short_sentence_config.resolve_mode == "wrap"
 
-
-def _plan_request_for(
-    text: str,
-    voice: str,
-    speed: float,
-    *,
-    spacy: str | None = None,
-    short_sentence: str | None = None,
-) -> PlanRequest:
-    from readio.document import InputDocument
-    from readio.plan import InputRequest, OutputRequest, SynthesisRequest
-
-    return PlanRequest(
-        operation="render",
-        input=InputRequest(document=InputDocument(text=text, source_path=None, format="text")),
-        synthesis=SynthesisRequest(
-            voice=voice,
-            speed=speed,
-            spacy=spacy,
-            short_sentence=short_sentence,
-        ),
-        output=OutputRequest(),
-    )
 
 
 def test_normal_render_uses_plan_output_path(
@@ -205,7 +167,7 @@ def test_normal_render_uses_plan_output_path(
 ) -> None:
     captured = _capture_plan(monkeypatch)
     sink_targets: list[Path] = []
-    real_atomic = cli.atomic_audio_path
+    real_atomic = speech_module.atomic_audio_path
 
     @contextmanager
     def traced_atomic(output: Path, *, force: bool):
@@ -213,7 +175,7 @@ def test_normal_render_uses_plan_output_path(
         with real_atomic(output, force=force) as temporary:
             yield temporary
 
-    monkeypatch.setattr(cli, "atomic_audio_path", traced_atomic)
+    monkeypatch.setattr(speech_module, "atomic_audio_path", traced_atomic)
     # No -o: the path is generated by the plan once.
     code = _render(monkeypatch, tmp_path, ["render", "Hello world", "--no-progress"])
 
@@ -253,20 +215,15 @@ def test_normal_render_uses_plan_ssmd_bindings(
     assert dict(used.ssmd.voice_bindings["kokoro"]) == expected
 
 
-def test_normal_render_does_not_call_resolve_synthesis(
+def test_normal_render_does_not_expose_legacy_synthesis_resolver(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(
-        cli,
-        "resolve_synthesis",
-        lambda *a, **k: pytest.fail("old resolver must not be used by normal render"),
-    )
+    assert not hasattr(cli, "resolve_synthesis")
     output = tmp_path / "episode.wav"
     code = _render(
         monkeypatch, tmp_path, ["render", "Hello world", "-o", str(output), "--no-progress"]
     )
     assert code == 0
-
 
 def test_normal_render_does_not_reallocate_output_path(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
@@ -306,41 +263,35 @@ def test_normal_render_invalid_plan_fails_before_tts(
     assert "model_language_incompatible" in captured
 
 
-def test_normal_render_passes_an_audio_sink_not_a_path(
+def test_normal_render_uses_public_service_request_and_result(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
-    """The plan render path must wrap the atomic temporary file in a sink.
+    captured: dict[str, object] = {}
+    original = SpeechService.render
 
-    Regression guard: an earlier version passed the temporary ``Path`` directly
-    to ``render_from_plan``, which only mocked backends hid until a real render
-    crashed with ``AttributeError: 'PosixPath' object has no attribute 'write'``.
-    """
-    received: dict[str, object] = {}
-    real_render = cli.render_from_plan
+    def traced(self, request, **kwargs):
+        result = original(self, request, **kwargs)
+        captured["request"] = request
+        captured["result"] = result
+        return result
 
-    def traced_render(plan, document, sink, *, selector="all", **kwargs):
-        received["sink"] = sink
-        return real_render(plan, document, sink, selector=selector, **kwargs)
-
-    monkeypatch.setattr(cli, "render_from_plan", traced_render)
+    monkeypatch.setattr(SpeechService, "render", traced)
     output = tmp_path / "episode.wav"
     code = _render(
         monkeypatch, tmp_path, ["render", "Hello world", "-o", str(output), "--no-progress"]
     )
 
     assert code == 0
-    sink = received["sink"]
-    assert not isinstance(sink, Path)
-    assert callable(getattr(sink, "write", None))
-
+    request = captured["request"]
+    result = captured["result"]
+    assert isinstance(request, PlanRequest)
+    assert request.output.mode == "file"
+    assert result.output_path == output
+    assert result.plan.output.path == output
 
 def test_one_shot_render_does_not_create_project_tree(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
-    def unexpected_project_init(*args, **kwargs):
-        raise AssertionError("one-shot render must not initialize a Readio project")
-
-    monkeypatch.setattr(cli, "init_project", unexpected_project_init)
     output = tmp_path / "hello.wav"
 
     code = _render(

@@ -39,3 +39,8 @@ Render it to a WAV file:
 ```bash
 readio render --file examples/readio-prosody.ssmd -o readio-prosody.wav
 ```
+
+
+## Python API planning example
+
+[`python_api.py`](python_api.py) creates a typed literal-text request and calls `Readio.speech.plan()`. Run it from the repository root with `python examples/python_api.py`. The example prints the JSON-safe plan and does not load a TTS model or create the requested audio file. Registry discovery follows the configured online/offline policy.

@@ -7,6 +7,7 @@ Readio is a terminal text-to-speech tool. It reads plain text or SSMD documents 
 ```{toctree}
 :maxdepth: 1
 
+api
 changelog
 ```
 

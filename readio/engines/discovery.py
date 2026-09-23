@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .catalog import CatalogRequest, CatalogResult, SynthesisTarget
-from .registry import CANONICAL_ENGINE_IDS, get_engine, normalize_engine_id
+from .registry import CANONICAL_ENGINE_IDS, engine_ids, get_engine, normalize_engine_id
 
 
 def discover_targets(
@@ -12,6 +12,7 @@ def discover_targets(
     language: str | None = None,
     offline: bool = False,
     refresh: bool = False,
+    preference: str = "auto",
 ) -> CatalogResult:
     """Discover synthesis targets through registered engine adapters.
 
@@ -25,12 +26,13 @@ def discover_targets(
         language=language,
         offline=offline,
         refresh=refresh,
+        preference=preference,
     )
     adapters = []
     if canonical is not None:
         adapters.append(get_engine(canonical))
     else:
-        for engine_id in sorted(CANONICAL_ENGINE_IDS):
+        for engine_id in sorted(CANONICAL_ENGINE_IDS | frozenset(engine_ids())):
             try:
                 adapters.append(get_engine(engine_id))
             except (ImportError, ValueError):

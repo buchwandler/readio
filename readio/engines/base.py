@@ -10,10 +10,15 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from audiocompose import AudioJob
 from utterplan import UtterancePlan
+
+if TYPE_CHECKING:
+    from ..plan import PlanDiagnostic
+    from .catalog import CatalogRequest, SynthesisTarget
+    from .selection import EngineRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,8 @@ class EngineCapabilities:
     supports_model_sources: bool = False
     supports_qualities: bool = False
     ssmd_voice_binding_mode: Literal["runtime", "target"] | None = None
+    supports_live: bool = False
+    supports_timestamps: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,16 +159,16 @@ class EngineAdapter(Protocol):
 
     def discover(
         self,
-        request: Any,
-    ) -> Any:
+        request: CatalogRequest,
+    ) -> tuple[SynthesisTarget, ...]:
         """Discover available targets for this engine."""
         ...
 
     def resolve(
         self,
-        request: Any,
-    ) -> tuple[EngineSelection, tuple[Any, ...]]:
-        """Resolve a concrete selection from a request."""
+        request: EngineRequest,
+    ) -> tuple[EngineSelection, tuple[PlanDiagnostic, ...]]:
+        """Resolve and validate a concrete engine selection."""
         ...
 
     def planner_config(

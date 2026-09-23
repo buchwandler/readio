@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from audiocompose import CompositionProgressCallback
 
+from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
+from ..formats import AudioFormat
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, hash_file, read_json
 from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
@@ -17,10 +19,14 @@ from .planning import load_scope_plan, plan_project, semantic_status
 from .synthesis import synthesize_project
 
 
-def _project_request(project: Project, cfg: Any, args: Any = None) -> PlanRequest:
-    reader = cfg.reader
-    engine = getattr(args, "engine", None) if args is not None else None
-    voice = getattr(args, "voice", None) if args is not None else None
+def _project_request(
+    project: Project,
+    cfg: Any,
+    synthesis: SynthesisRequest | None = None,
+    *,
+    voice_bindings: Mapping[str, str] | None = None,
+) -> PlanRequest:
+    effective_synthesis = synthesis or SynthesisRequest(language=cfg.reader.lang)
     return PlanRequest(
         operation="render",
         input=InputRequest(
@@ -28,17 +34,11 @@ def _project_request(project: Project, cfg: Any, args: Any = None) -> PlanReques
             selector="all",
             source_kind="file",
         ),
-        synthesis=SynthesisRequest(
-            language=getattr(args, "lang", None) if args is not None else reader.lang,
-            engine=engine,
-            voice=voice,
-            model=getattr(args, "model", None) if args is not None else None,
-            speed=getattr(args, "speed", None) if args is not None else None,
-            pause_mode=getattr(args, "pause_mode", None) if args is not None else None,
-            unit=getattr(args, "unit", None) if args is not None else None,
-        ),
+        synthesis=effective_synthesis,
         output=OutputRequest(mode="file", requested_format="wav", force=True),
+        voice_bindings=voice_bindings or {},
     )
+
 
 
 def _synthesis_status(project: Project) -> dict[str, Any]:
@@ -353,77 +353,169 @@ def project_status(project: Project) -> dict[str, Any]:
     }
 
 
+def build_project(
+    project: Project,
+    cfg: Any,
+    request: ProjectBuildRequest,
+    *,
+    on_synthesis_event: Callable[[Any], None] | None = None,
+    on_composition_progress: CompositionProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
+    on_stage: Callable[[str, str], None] | None = None,
+ ) -> dict[str, Any]:
+    if request.target not in {"plan", "synthesis", "composition", "export"}:
+        raise ValueError(f"unknown project build target: {request.target}")
+    operations: list[dict[str, Any]] = []
+
+    def report(stage: str, state: str) -> None:
+        if on_stage is not None:
+            on_stage(stage, state)
+
+    status = project_status(project)
+    plan_state = next(row["state"] for row in status["stages"] if row["stage"] == "plan")
+    if plan_state == "current":
+        operations.append({"stage": "plan", "action": "skipped"})
+        report("plan", "skipped")
+    else:
+        report("plan", "started")
+        planned = plan_project(project, cfg)
+        operations.append(
+            {"stage": "plan", "action": "rebuilt", "scopes": len(planned.scopes)}
+        )
+        report("plan", "rebuilt")
+    if request.target == "plan":
+        return {"project": str(project.root), "operations": operations, "output_path": None}
+
+    report("synthesis", "started")
+    synthesis = synthesize_project(
+        project,
+        cfg,
+        request=_project_request(
+            project,
+            cfg,
+            request.synthesis,
+            voice_bindings=request.voice_bindings,
+        ),
+        selector=request.selection if request.target == "synthesis" else "all",
+        activate=True,
+        on_event=on_synthesis_event,
+    )
+    synthesis_action = "rebuilt" if synthesis["rendered"] else "skipped"
+    operations.append(
+        {
+            "stage": "synthesis",
+            "action": synthesis_action,
+            "reused": synthesis["reused"],
+            "rendered": synthesis["rendered"],
+            "profile_id": synthesis["profile"].profile_id,
+        }
+    )
+    report("synthesis", synthesis_action)
+    if request.target == "synthesis":
+        return {"project": str(project.root), "operations": operations, "output_path": None}
+
+    composition_options = request.composition
+    _, identity = build_audio_job(
+        project,
+        target_lufs=composition_options.target_lufs,
+        true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
+        peak_policy=composition_options.peak_policy,
+        clip_policy=composition_options.clip_policy,
+    )
+    state_path = project.paths["composition_state"]
+    state = read_json(state_path) if state_path.is_file() else {}
+    composition_current = (
+        state.get("composition_id") == identity["composition_id"]
+        and project.paths["composition_master"].is_file()
+    )
+    if composition_current:
+        operations.append({"stage": "composition", "action": "skipped"})
+        report("composition", "skipped")
+    else:
+        report("composition", "started")
+        composed = compose_project(
+            project,
+            target_lufs=composition_options.target_lufs,
+            true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
+            peak_policy=composition_options.peak_policy,
+            clip_policy=composition_options.clip_policy,
+            on_progress=on_composition_progress,
+            on_phase=on_phase,
+        )
+        operations.append({"stage": "composition", "action": "rebuilt", **composed})
+        report("composition", "rebuilt")
+    if request.target == "composition":
+        return {"project": str(project.root), "operations": operations, "output_path": None}
+
+    export_options = request.export
+    audio_format = cast(AudioFormat, export_options.format)
+    target = export_options.output or (
+        project.root / "output" / f"{project.manifest.name}.{audio_format}"
+    )
+    if not target.is_absolute():
+        target = project.root / target
+    target_record = (
+        target.relative_to(project.root).as_posix()
+        if target == project.root or project.root in target.parents
+        else str(target)
+    )
+    output_state_path = project.root / "output" / "state.json"
+    output_state = read_json(output_state_path) if output_state_path.is_file() else {}
+    master_sha = hash_file(project.paths["composition_master"])
+    current_output = (
+        output_state.get("audio_format") == audio_format
+        and output_state.get("master_sha256") == master_sha
+        and output_state.get("path", target_record) == target_record
+        and target.is_file()
+        and hash_file(target) == output_state.get("output_sha256")
+    )
+    if current_output:
+        operations.append({"stage": "export", "action": "skipped", "path": target})
+        report("export", "skipped")
+    else:
+        report("export", "started")
+        exported = export_project(
+            project,
+            audio_format=audio_format,
+            bitrate=export_options.bitrate,
+            output=target,
+        )
+        operations.append({"stage": "export", "action": "rebuilt", **exported})
+        report("export", "rebuilt")
+    return {"project": str(project.root), "operations": operations, "output_path": target}
+
+
+
 def render_project(
     project: Project,
     cfg: Any,
     *,
     audio_format: str = "wav",
-    args: Any = None,
     target_lufs: float | None = None,
+    synthesis: SynthesisRequest | None = None,
+    selector: str = "all",
     on_synthesis_event: Callable[[Any], None] | None = None,
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
-    operations: list[dict[str, Any]] = []
-    status = project_status(project)
-    if any(row["stage"] == "plan" and row["state"] != "current" for row in status["stages"]):
-        plan_project(project, cfg)
-        operations.append({"stage": "plan", "action": "rebuilt"})
-    else:
-        operations.append({"stage": "plan", "action": "skipped"})
-    request = _project_request(project, cfg, args)
-    synthesis = synthesize_project(
+    on_stage: Callable[[str, str], None] | None = None,
+ ) -> dict[str, Any]:
+    request = ProjectBuildRequest(
+        target="export",
+        selection=selector,
+        synthesis=synthesis or SynthesisRequest(language=cfg.reader.lang),
+        composition=CompositionOptions(target_lufs=target_lufs),
+        export=ExportOptions(format=audio_format),
+    )
+    return build_project(
         project,
         cfg,
-        request=request,
-        activate=True,
-        on_event=on_synthesis_event,
+        request,
+        on_synthesis_event=on_synthesis_event,
+        on_composition_progress=on_composition_progress,
+        on_phase=on_phase,
+        on_stage=on_stage,
     )
-    operations.append(
-        {
-            "stage": "synthesis",
-            "action": "rebuilt" if synthesis["rendered"] else "skipped",
-            "reused": synthesis["reused"],
-            "rendered": synthesis["rendered"],
-        }
-    )
-    _, identity = build_audio_job(project, target_lufs=target_lufs)
-    state = (
-        read_json(project.paths["composition_state"])
-        if project.paths["composition_state"].is_file()
-        else {}
-    )
-    if (
-        state.get("composition_id") == identity["composition_id"]
-        and project.paths["composition_master"].is_file()
-    ):
-        operations.append({"stage": "composition", "action": "skipped"})
-    else:
-        composed = compose_project(
-            project,
-            target_lufs=target_lufs,
-            on_progress=on_composition_progress,
-            on_phase=on_phase,
-        )
-        operations.append({"stage": "composition", "action": "rebuilt", **composed})
-    output_state = project.root / "output" / "state.json"
-    output_path = project.root / "output" / f"{project.manifest.name}.{audio_format}"
-    expected = {
-        "audio_format": audio_format,
-        "master_sha256": hash_file(project.paths["composition_master"]),
-    }
-    old = read_json(output_state) if output_state.is_file() else {}
-    if (
-        old.get("audio_format") == expected["audio_format"]
-        and old.get("master_sha256") == expected["master_sha256"]
-        and output_path.is_file()
-        and hash_file(output_path) == old.get("output_sha256")
-    ):
-        operations.append({"stage": "export", "action": "skipped", "path": output_path})
-    else:
-        exported = export_project(project, audio_format=audio_format, output=output_path)
-        operations.append({"stage": "export", "action": "rebuilt", **exported})
-    return {"project": str(project.root), "operations": operations}
+
 
 
 def preview_project(
@@ -434,11 +526,12 @@ def preview_project(
     selector: str,
     output: Path | None = None,
     target_lufs: float | None = None,
+    composition: CompositionOptions | None = None,
     activate: bool = False,
     on_event: Any = None,
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
+ ) -> dict[str, Any]:
     synthesis = synthesize_project(
         project,
         cfg,
@@ -466,11 +559,15 @@ def preview_project(
         }
         for scope_id, plan in scoped_plans
     )
+    options = composition or CompositionOptions(target_lufs=target_lufs)
     result = compose_artifacts(
         synthesis["artifacts"],
         plans=scoped_plans,
         scope_metadata=scope_metadata,
-        target_lufs=target_lufs,
+        target_lufs=options.target_lufs,
+        true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
+        peak_policy=options.peak_policy,
+        clip_policy=options.clip_policy,
         composition=synthesis["profile"].payload.get("composition", {}),
         output=output,
         on_progress=on_composition_progress,
@@ -478,7 +575,7 @@ def preview_project(
     )
     return {
         "profile_id": synthesis["profile"].profile_id,
-        "plan_id": synthesis.get("plan_id"),
+        "plan_ids": synthesis["plan_ids"],
         "reused": synthesis["reused"],
         "rendered": synthesis["rendered"],
         "activated": activate,
@@ -486,4 +583,5 @@ def preview_project(
     }
 
 
-__all__ = ["preview_project", "project_status", "render_project"]
+
+__all__ = ["build_project", "preview_project", "project_status", "render_project"]

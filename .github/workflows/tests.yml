@@ -97,6 +97,8 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
+      - name: Public API type-check
+        run: mypy --follow-imports=silent --strict tests/typecheck/public_api_consumer.py
       - name: Compile sources
         run: python -m compileall -q readio
 
@@ -133,6 +135,7 @@ jobs:
 
           distribution_version = importlib.metadata.version("readio")
           assert readio.__version__ == distribution_version
+          assert importlib.resources.files("readio").joinpath("py.typed").is_file()
           assert importlib.resources.files("readio.resources.templates").joinpath(
               "podcast.ssmd"
           ).is_file()

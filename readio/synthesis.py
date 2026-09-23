@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-from argparse import Namespace
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .config import (
     LanguageSettings,
@@ -15,6 +14,7 @@ from .config import (
     normalize_spacy_policy,
 )
 from .models import ModelInfo, get_model_info, validate_language_settings
+from .plan import SynthesisRequest
 from .voices import resolve_voice_selector
 
 logger = logging.getLogger(__name__)
@@ -94,20 +94,22 @@ class ResolvedSynthesis:
 
 
 def _raw_synthesis_selection(
-    cfg: ReadioConfig, args: Namespace
+    cfg: ReadioConfig, request: SynthesisRequest
 ) -> tuple[str, LanguageSettings | None, bool]:
-    cli_language = getattr(args, "lang", None)
+    cli_language = request.language
     language = normalize_language_key(cli_language or cfg.reader.lang)
     _, profile = language_profile(cfg, language)
     return language, profile, cli_language is not None
 
 
-def _discovery_policy(args: Namespace, source: str | None) -> DiscoveryPolicy:
+
+def _discovery_policy(request: SynthesisRequest, source: str | None) -> DiscoveryPolicy:
     return DiscoveryPolicy(
-        offline=bool(getattr(args, "offline", False)),
-        refresh=bool(getattr(args, "refresh", False)),
+        offline=request.offline,
+        refresh=request.refresh,
         preference=source or "auto",
     )
+
 
 
 def _select_preferred_quality(qualities: tuple[str, ...]) -> str | None:
@@ -116,77 +118,123 @@ def _select_preferred_quality(qualities: tuple[str, ...]) -> str | None:
     return "fp32" if "fp32" in qualities else qualities[0]
 
 
-def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> ResolvedSynthesis:
-    """Resolve and validate all reader, profile, and CLI synthesis settings once."""
-    args = args or Namespace()
-    selector_resolution = resolve_voice_selector(
-        getattr(args, "voice", None),
+
+def _legacy_synthesis_request(args: object | None) -> SynthesisRequest:
+    if args is None:
+        return SynthesisRequest()
+
+    lexicons = getattr(args, "lexicons", None)
+    detect_languages = getattr(args, "detect_languages", None)
+    return SynthesisRequest(
         language=getattr(args, "lang", None),
         model=getattr(args, "model", None),
-        source=getattr(args, "model_source", None),
+        model_source=getattr(args, "model_source", None),
+        quality=getattr(args, "quality", None),
+        voice=getattr(args, "voice", None),
+        lexicons=tuple(lexicons) if lexicons is not None else None,
+        speaker=getattr(args, "speaker", None),
+        clear_lexicons=bool(getattr(args, "no_lexicons", False)),
+        auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
+        spacy=getattr(args, "spacy", None),
+        short_sentence=getattr(args, "short_sentence", None),
+        g2p_fallback=getattr(args, "g2p_fallback", None),
+        lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
+        language_detection=getattr(args, "language_detection", None),
+        detect_languages=tuple(detect_languages) if detect_languages is not None else None,
+        allow_experimental=bool(getattr(args, "allow_experimental", False)),
+        speed=getattr(args, "speed", None),
+        pause_mode=getattr(args, "pause_mode", None),
+        unit=getattr(args, "unit", None),
         offline=bool(getattr(args, "offline", False)),
         refresh=bool(getattr(args, "refresh", False)),
-        preference=getattr(args, "model_source", None) or "auto",
         engine=getattr(args, "engine", None),
     )
+
+
+
+def resolve_synthesis(
+    cfg: ReadioConfig, request: SynthesisRequest | object | None = None
+) -> ResolvedSynthesis:
+    """Resolve synthesis settings from a typed request or legacy CLI values."""
+    if isinstance(request, SynthesisRequest):
+        typed_request = request
+    else:
+        typed_request = _legacy_synthesis_request(request)
+    return resolve_synthesis_request(cfg, typed_request)
+
+
+
+def resolve_synthesis_request(
+    cfg: ReadioConfig, request: SynthesisRequest
+) -> ResolvedSynthesis:
+    """Resolve synthesis preferences without CLI-shaped state."""
+    selector_resolution = resolve_voice_selector(
+        request.voice,
+        language=request.language,
+        model=request.model,
+        source=request.model_source,
+        offline=request.offline,
+        refresh=request.refresh,
+        preference=request.model_source or "auto",
+        engine=request.engine,
+    )
     if selector_resolution is not None and selector_resolution.selector is not None:
-        args = Namespace(**vars(args))
-        args.lang = selector_resolution.language
-        args.model = selector_resolution.model
-        args.model_source = selector_resolution.source
-        args.voice = selector_resolution.voice
-        args.engine = selector_resolution.backend
-    language, profile, cli_language = _raw_synthesis_selection(cfg, args)
+        request = replace(
+            request,
+            language=selector_resolution.language,
+            model=selector_resolution.model,
+            model_source=selector_resolution.source,
+            voice=selector_resolution.voice,
+            engine=selector_resolution.backend,
+        )
+    language, profile, cli_language = _raw_synthesis_selection(cfg, request)
 
     logger.info(
         "synthesis.resolve language=%s model=%s",
         language,
-        getattr(args, "model", None) or "profile/default",
+        request.model or "profile/default",
     )
     model = profile.model if profile is not None else None
     source = profile.source if profile is not None else None
     quality = profile.quality if profile is not None else None
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
-    engine = (
-        profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
-    )
+    engine = profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
     allow_experimental = profile.allow_experimental if profile is not None else False
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None
 
-    spacy = normalize_spacy_policy(getattr(args, "spacy", None) or cfg.reader.spacy)
+    spacy = normalize_spacy_policy(request.spacy or cfg.reader.spacy)
     short_sentence = normalize_short_sentence_policy(
-        getattr(args, "short_sentence", None) or cfg.reader.short_sentence
+        request.short_sentence or cfg.reader.short_sentence
     )
-    explicit_model = getattr(args, "model", None)
-    if explicit_model is not None:
-        model = explicit_model
-    if getattr(args, "engine", None) is not None:
-        engine = args.engine
+    if request.model is not None:
+        model = request.model
+    if request.engine is not None:
+        engine = request.engine
     from .backends import get_backend
 
     get_backend(engine)
-    if getattr(args, "model_source", None) is not None:
-        source = args.model_source
-    if getattr(args, "quality", None) is not None:
-        quality = args.quality
-    if getattr(args, "voice", None) is not None:
-        voice = args.voice
-    if getattr(args, "lexicons", None) is not None:
-        lexicons = tuple(args.lexicons)
-    elif getattr(args, "no_lexicons", False):
+    if request.model_source is not None:
+        source = request.model_source
+    if request.quality is not None:
+        quality = request.quality
+    if request.voice is not None:
+        voice = request.voice
+    if request.lexicons is not None:
+        lexicons = tuple(request.lexicons)
+    elif request.clear_lexicons:
         lexicons = ()
-    elif getattr(args, "auto_lexicons", False):
+    elif request.auto_lexicons:
         lexicons = None
-    if getattr(args, "g2p_fallback", None) is not None:
-        g2p_fallback = args.g2p_fallback
-    if getattr(args, "lexicon_data_policy", None) is not None:
-        lexicon_data_policy = args.lexicon_data_policy
-    language_detection = getattr(args, "language_detection", None)
+    if request.g2p_fallback is not None:
+        g2p_fallback = request.g2p_fallback
+    if request.lexicon_data_policy is not None:
+        lexicon_data_policy = request.lexicon_data_policy
+    language_detection = request.language_detection
     detect_languages = (
-        tuple(args.detect_languages)
-        if getattr(args, "detect_languages", None) is not None
+        request.detect_languages
+        if request.detect_languages is not None
         else cfg.reader.detect_languages
     )
     if language_detection is None:
@@ -199,10 +247,8 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
     discovery_cache_fallback = False
     discovery_offline = False
     discovery_refreshed = False
-    # Any effective model, including one loaded from a persisted locale profile, follows
-    # exactly the same public discovery and validation path as an explicit CLI model.
     if model is not None:
-        policy = _discovery_policy(args, source)
+        policy = _discovery_policy(request, source)
         discovery_kwargs: dict[str, object] = {
             "offline": policy.offline,
             "refresh": policy.refresh,
@@ -237,8 +283,6 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         discovery_offline = bool(getattr(result, "offline", policy.offline))
         discovery_refreshed = bool(getattr(result, "refreshed", policy.refresh))
 
-    # A global reader voice is a compatibility default only for the unchanged reader
-    # domain. Language/profile/model overrides must leave voice open for PyKokoro.
     if voice is None and model is None and not cli_language and profile is None:
         voice = cfg.reader.voice
 
@@ -264,21 +308,9 @@ def resolve_synthesis(cfg: ReadioConfig, args: Namespace | None = None) -> Resol
         language_detection=language_detection,
         detect_languages=detect_languages,
         allow_experimental=allow_experimental,
-        speed=float(
-            getattr(args, "speed", None)
-            if getattr(args, "speed", None) is not None
-            else cfg.reader.speed
-        ),
-        pause_mode=(
-            getattr(args, "pause_mode", None)
-            if getattr(args, "pause_mode", None) is not None
-            else cfg.reader.pause_mode
-        ),
-        unit=(
-            getattr(args, "unit", None)
-            if getattr(args, "unit", None) is not None
-            else cfg.reader.unit
-        ),
+        speed=float(request.speed if request.speed is not None else cfg.reader.speed),
+        pause_mode=request.pause_mode or cfg.reader.pause_mode,
+        unit=request.unit or cfg.reader.unit,
         resolved_model=resolved_model,
         model_voices=resolved_model.voices if resolved_model is not None else None,
         model_default_voice=resolved_model.default_voice if resolved_model is not None else None,
@@ -295,4 +327,5 @@ __all__ = [
     "ResolvedModel",
     "ResolvedSynthesis",
     "resolve_synthesis",
+    "resolve_synthesis_request",
 ]

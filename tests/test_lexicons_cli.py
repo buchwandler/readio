@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from readio import cli
-from readio.backends.base import DiscoveryInfo
+from readio.api.catalog import CatalogService
 from readio.lexicons import LexiconCatalogEntry
 
 
@@ -35,12 +36,26 @@ def _entries() -> tuple[LexiconCatalogEntry, ...]:
         ),
     )
 
+def _listing() -> SimpleNamespace:
+    registry = {
+        "source": "fixture",
+        "registry_source": "fixture",
+        "cache_fallback": False,
+        "offline": False,
+        "refreshed": False,
+    }
+    return SimpleNamespace(
+        items=_entries(),
+        discovery=SimpleNamespace(to_dict=lambda: registry, cache_fallback=False),
+    )
+
+
 
 def test_lexicons_list_json_uses_named_selectors(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
-        "discover_lexicon_catalog",
-        lambda **_: (_entries(), DiscoveryInfo(registry_source="fixture")),
+        CatalogService,
+        "lexicons_listing",
+        lambda self, *args, **kwargs: _listing(),
     )
     args = cli.build_parser().parse_args(["lexicons", "list", "--lang", "de", "--json"])
 
@@ -53,9 +68,9 @@ def test_lexicons_list_json_uses_named_selectors(monkeypatch, capsys) -> None:
 
 def test_lexicons_show_human_output_mentions_cli_selector(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
-        "discover_lexicon_catalog",
-        lambda **_: (_entries(), DiscoveryInfo(registry_source="fixture")),
+        CatalogService,
+        "lexicons_listing",
+        lambda self, *args, **kwargs: _listing(),
     )
     args = cli.build_parser().parse_args(["lexicons", "show", "gold", "--language", "de"])
 
