@@ -220,3 +220,78 @@ def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
     assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
     assert "deprecated" in capsys.readouterr().err
+
+
+def test_voice_list_model_engine_aliases_normalize_without_changing_concrete_filters():
+    assert [
+        cli._normalize_voice_list_filters(engine=None, model=model)
+        for model in ("piper", "pipersynth", "pykokoro", "kokoro")
+    ] == [
+        ("piper", None),
+        ("piper", None),
+        ("pykokoro", None),
+        ("pykokoro", None),
+    ]
+    assert cli._normalize_voice_list_filters(engine=None, model="v1.0") == (None, "v1.0")
+    assert cli._normalize_voice_list_filters(
+        engine="pipersynth", model="en_US-amy-medium"
+    ) == ("piper", "en_US-amy-medium")
+
+
+def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
+    monkeypatch, tmp_path, capsys
+ ):
+    monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+    piper_entry = VoiceCatalogEntry(
+        selector="de-pi-9",
+        slot=9,
+        id="de_DE-thorsten-medium",
+        gender="unknown",
+        language="de",
+        locale="de-DE",
+        language_label="German",
+        model="de_DE-thorsten-medium",
+        source="pipersynth",
+        default=False,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+        engine="piper",
+    )
+    calls = []
+
+    def discover(**kwargs):
+        calls.append(kwargs)
+        return (
+            (piper_entry,),
+            SimpleNamespace(registry_source="engine-adapters", cache_fallback=False),
+        )
+
+    monkeypatch.setattr(cli, "discover_voice_catalog", discover)
+    alias_args = cli.build_parser().parse_args(
+        ["voices", "list", "--model", "piper", "--json"]
+    )
+    assert cli._cmd_voices(alias_args) == 0
+    alias_payload = json.loads(capsys.readouterr().out)
+    assert calls[-1]["engine"] == "piper"
+    assert alias_payload["filters"]["engine"] == "piper"
+    assert alias_payload["filters"]["model"] is None
+    assert alias_payload["voices"][0]["id"] == "de_DE-thorsten-medium"
+
+    target_args = cli.build_parser().parse_args(
+        [
+            "voices",
+            "list",
+            "--engine",
+            "piper",
+            "--model",
+            "de_DE-thorsten-medium",
+            "--json",
+        ]
+    )
+    assert cli._cmd_voices(target_args) == 0
+    target_payload = json.loads(capsys.readouterr().out)
+    assert calls[-1]["engine"] == "piper"
+    assert target_payload["filters"]["engine"] == "piper"
+    assert target_payload["filters"]["model"] == "de_DE-thorsten-medium"
+    assert target_payload["voices"][0]["id"] == "de_DE-thorsten-medium"

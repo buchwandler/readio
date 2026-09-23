@@ -23,6 +23,31 @@ readio render PROJECT --format FORMAT
 readio render --file episode.ssmd --format mp3 --dry-run --json
 ```
 
+
+## Project voice provider and routing
+
+`project.json` can select an active provider at `settings.ssmd.voice_provider`. Existing projects without that field infer the provider from a single non-empty `voice_bindings` namespace. Projects with neither an active provider nor project binding namespaces keep the global configuration fallback. Multiple provider namespaces without an active provider are ambiguous and must be resolved explicitly. `readio plan bind` can activate a provider from a stable selector, and `readio plan roles` reports bindings from the effective provider.
+
+With no explicit engine, project synthesis selects the engine associated with that provider. It does not inherit global `reader.engine` or `reader.voice` over an active project provider. `readio synth --engine ENGINE` is a run-local override; it never writes project settings. Use `--voice` for a concrete run-local voice override.
+
+```bash
+readio plan bind narrator en-pi-13
+readio plan roles
+readio synth
+readio synth --engine pykokoro  # one-run override
+```
+
+PyKokoro is runtime-bound and can switch voices in one loaded pipeline. Piper is target-bound. Readio resolves every role to a Piper voice target and validates all targets before model loading, then reuses one session per distinct target. Progress reports each target's load separately. Bindings affect synthesis, not the semantic plan ID.
+
+## Voice catalog filters
+
+For `readio voices list`, registered engine/system names passed as `--model` are shortcuts only when `--engine` is omitted: `piper` and `pipersynth` select Piper, while `pykokoro` and `kokoro` select PyKokoro. The JSON `filters` object reports the effective engine and clears the model field for such shortcuts. Concrete model IDs and Piper target IDs remain model filters.
+
+```bash
+readio voices list --model piper --lang en-us
+readio voices list --engine piper --model en_US-amy-medium
+```
+
 ## EPUB audiobook ingestion
 
 ```text

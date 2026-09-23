@@ -694,11 +694,11 @@ def _project_synthesis_request(args: argparse.Namespace, project: object) -> Pla
     reader = _resolved_config(args).reader
     synthesis = SynthesisRequest(
         language=getattr(args, "lang", None) or reader.lang,
-        engine=getattr(args, "engine", None) or reader.engine,
+        engine=getattr(args, "engine", None),
         model=getattr(args, "model", None),
         model_source=getattr(args, "model_source", None),
         quality=getattr(args, "quality", None),
-        voice=getattr(args, "voice", None) or reader.voice,
+        voice=getattr(args, "voice", None),
         speaker=getattr(args, "speaker", None),
         spacy=getattr(args, "spacy", None),
         short_sentence=getattr(args, "short_sentence", None),
@@ -1701,13 +1701,33 @@ def _cmd_lexicons(args: argparse.Namespace) -> int:
     return 0
 
 
+def _normalize_voice_list_filters(
+    *, engine: str | None, model: str | None
+ ) -> tuple[str | None, str | None]:
+    from .engines.registry import CANONICAL_ENGINE_IDS, normalize_engine_id
+
+    if engine is not None:
+        return normalize_engine_id(engine), model
+    if model is not None:
+        alias = normalize_engine_id(model)
+        if alias in CANONICAL_ENGINE_IDS:
+            return alias, None
+    return None, model
+
+
 def _cmd_voices(args: argparse.Namespace) -> int:
     if hasattr(args, "roles_command"):
         return _cmd_roles(args)
     language = getattr(args, "lang", None) or getattr(args, "language", None)
     from .engines.registry import normalize_engine_id
 
-    canonical_engine = normalize_engine_id(args.engine) if args.engine else None
+    if args.voices_command == "list":
+        canonical_engine, model_filter = _normalize_voice_list_filters(
+            engine=args.engine, model=args.model
+        )
+    else:
+        canonical_engine = normalize_engine_id(args.engine) if args.engine else None
+        model_filter = None
     entries, discovery = discover_voice_catalog(
         offline=args.offline,
         refresh=args.refresh,
@@ -1716,12 +1736,12 @@ def _cmd_voices(args: argparse.Namespace) -> int:
         language=language,
     )
     if args.voices_command == "list":
-        language = getattr(args, "lang", None) or getattr(args, "language", None)
         voices = filter_voice_catalog(
             entries,
             language=language,
             gender=args.gender,
-            model=args.model,
+            model=model_filter,
+            engine=canonical_engine,
         )
         payload = {
             "ok": True,
@@ -1729,7 +1749,7 @@ def _cmd_voices(args: argparse.Namespace) -> int:
             "filters": {
                 "language": language,
                 "gender": args.gender,
-                "model": args.model,
+                "model": model_filter,
                 "engine": canonical_engine,
             },
             "voices": [entry.to_dict() for entry in voices],
@@ -2440,8 +2460,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("female", "male", "neutral", "unknown"),
         help="filter by registry gender metadata",
     )
-    voices_list.add_argument("--model", help="filter by discovered model")
-    voices_list.add_argument("--engine", help="filter by synthesis backend")
+    voices_list.add_argument(
+        "--model",
+        help="filter by concrete model/target; registered engine names are shortcuts when --engine is omitted",
+    )
+    voices_list.add_argument(
+        "--engine",
+        help="filter by synthesis backend or system; takes precedence over engine-name model shortcuts",
+    )
     voices_list.add_argument("--offline", action="store_true")
     voices_list.add_argument("--refresh", action="store_true")
     voices_list.add_argument(

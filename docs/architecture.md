@@ -113,13 +113,22 @@ load a TTS engine.
 
 ## Project voice bindings
 
-Project-local logical-role assignments live in `project.json` at `settings.ssmd.voice_bindings`, keyed by provider and role. `readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective sources without requiring a generated plan index. The shared synthesis request attaches this map as a distinct resolution layer; it is never written into Utterplan or the SSMD source.
+Project-local logical-role assignments live in `project.json` at `settings.ssmd.voice_bindings`, keyed by provider and role. `settings.ssmd.voice_provider` optionally selects the active provider. When it is absent, Readio infers a provider only if exactly one non-empty binding namespace exists. Projects with no project bindings retain the global configuration fallback; multiple namespaces without an active provider are ambiguous. `readio plan roles`, `bind`, `unbind`, and synthesis use the same effective provider. Binding a stable selector stores its canonical voice and activates that selector's provider without modifying global configuration.
+
+`readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective sources without requiring a generated plan index. The shared synthesis request attaches project bindings as a distinct resolution layer; bindings are never written into UtterPlan or the SSMD source.
 
 The binding precedence is `document > invocation CLI > project > global configured role > direct concrete voice`. Document bindings remain authoritative per scope. Concrete project choices affect synthesis only, so changing them does not alter semantic `plan_id` or invalidate plan artifacts.
 
-The active synthesis profile stores provider, sorted project bindings, and a SHA-256 provenance hash under `project_voice_bindings`. This settings record is excluded from the profile identity hash; the resolved effective cast remains part of canonical synthesis identity. Status compares the stored hash with current project settings and reports `synthesis.stale.project_voice_bindings_changed` on mismatch. Plan remains current, synthesis becomes stale, composition and output are blocked downstream, and `readio synth` is the next action. Cached audio is not deleted.
+With no explicit engine, project synthesis selects the engine associated with the effective project provider and does not inherit global `reader.engine` or `reader.voice`. An explicit `readio synth --engine ...` chooses a run-local engine/provider and never mutates project settings.
+
+The synthesis profile records provider, sorted project bindings, and a SHA-256 provenance hash under `project_voice_bindings`. Grouped target-route profiles use the v3 canonical identity with target selections, per-scope bindings, and the project-binding fingerprint. Status compares current project settings with recorded provenance and reports `synthesis.stale.project_voice_bindings_changed` on mismatch. Plan remains current, synthesis becomes stale, composition and output are blocked downstream, and `readio synth` is the next action. Cached audio is not deleted.
 
 
+## Engine voice-binding modes
+
+Engine capabilities declare whether SSMD role bindings are applied at runtime or select acoustic targets. PyKokoro advertises runtime binding, so Readio can pass role-to-voice bindings into one loaded synthesis pipeline. Piper advertises target binding because each selection loads one voice bundle and cannot switch roles inside that session.
+
+For target-bound execution, Readio resolves every speech segment's symbolic role for its document scope, validates all distinct target selections before opening any session, and groups segments by target. It opens one reusable session per distinct target, not one model per segment. The semantic plan remains unchanged and retains symbolic role references. Aggregate v3 synthesis profiles identify the targets, per-scope bindings, and project-binding fingerprint; progress events include target IDs and report target-specific model loading.
 ## End-to-end acceptance scenario
 
 For a multi-sentence document, normal sentence topology produces one reusable

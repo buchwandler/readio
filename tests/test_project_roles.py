@@ -15,9 +15,14 @@ from readio.project_roles import (
     unbind_project_role,
 )
 from readio.project_settings import (
+    ProjectVoiceProviderError,
+    project_voice_binding_providers,
     project_voice_bindings,
     project_voice_bindings_provenance,
+    resolve_project_voice_provider,
     with_project_voice_binding,
+    with_project_voice_provider,
+    without_project_voice_binding,
 )
 
 
@@ -280,7 +285,7 @@ def test_unbind_removes_only_project_override_and_reports_config_fallback(tmp_pa
         ),
     )
 
-    result = unbind_project_role(project, ReadioConfig(), "narrator")
+    result = unbind_project_role(project, ReadioConfig(), "narrator", provider="kokoro")
 
     assert result["removed_voice"] == "af_heart"
     assert result["effective_voice"] == "af_sarah"
@@ -299,3 +304,200 @@ def test_unbind_without_project_override_fails_clearly(tmp_path) -> None:
         unbind_project_role(project, ReadioConfig(), "narrator")
 
     assert missing.value.code == "readio.project_role.binding_missing"
+
+
+
+def test_unique_project_binding_provider_is_inferred(tmp_path) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="piper", role="guest", voice="en_US-amy-medium"
+        ),
+    )
+
+    assert resolve_project_voice_provider(project.manifest, ReadioConfig()) == "piper"
+
+    inspection = inspect_project_roles(project, ReadioConfig())
+    assert inspection.provider == "piper"
+    assert inspection.roles[0].effective_voice == "en_US-amy-medium"
+
+
+def test_project_voice_provider_precedence(tmp_path) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_provider(
+            with_project_voice_binding(
+                manifest, provider="piper", role="guest", voice="en_US-amy-medium"
+            ),
+            "piper",
+        ),
+    )
+
+    assert resolve_project_voice_provider(
+        project.manifest, ReadioConfig(), explicit_provider="kokoro"
+    ) == "kokoro"
+    assert resolve_project_voice_provider(
+        project.manifest, ReadioConfig(), explicit_engine="pykokoro"
+    ) == "kokoro"
+    assert resolve_project_voice_provider(project.manifest, ReadioConfig()) == "piper"
+
+
+def test_multiple_project_binding_providers_without_active_provider_are_ambiguous(
+    tmp_path,
+) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            with_project_voice_binding(
+                manifest, provider="kokoro", role="guest", voice="af_bella"
+            ),
+            provider="piper",
+            role="guest",
+            voice="en_US-amy-medium",
+        ),
+    )
+
+    with pytest.raises(ProjectVoiceProviderError) as ambiguity:
+        resolve_project_voice_provider(project.manifest, ReadioConfig())
+
+    assert ambiguity.value.code == "readio.project_voice_provider_ambiguous"
+    assert ambiguity.value.details == {"providers": ["kokoro", "piper"]}
+
+
+def test_empty_binding_namespace_is_not_inferred(tmp_path) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="guest", voice="af_bella"
+        ),
+    )
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="piper", role="temp", voice="en_US-amy-medium"
+        ),
+    )
+    project = update_project_manifest(
+        project,
+        lambda manifest: without_project_voice_binding(
+            manifest, provider="piper", role="temp"
+        ),
+    )
+
+    assert project_voice_binding_providers(project.manifest) == ("kokoro",)
+    assert resolve_project_voice_provider(project.manifest, ReadioConfig()) == "kokoro"
+
+
+def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
+    tmp_path, monkeypatch
+ ) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="guest", voice="af_bella"
+        ),
+    )
+    monkeypatch.setattr(
+        "readio.project_roles.resolve_voice_selector",
+        lambda voice, **kwargs: SimpleNamespace(
+            requested=voice,
+            selector="en-pi-13",
+            engine="piper",
+            voice="en_US-amy-medium",
+        ),
+    )
+    monkeypatch.setattr(
+        "readio.engines.registry.get_engine",
+        lambda engine: SimpleNamespace(
+            capabilities=lambda: SimpleNamespace(ssmd_provider="piper")
+        ),
+    )
+
+    result = bind_project_role(project, ReadioConfig(), "guest", "en-pi-13")
+    updated = load_project(project.root)
+    ssmd = updated.manifest.settings["ssmd"]
+
+    assert result["provider"] == "piper"
+    assert result["stored_voice"] == "en_US-amy-medium"
+    assert ssmd["voice_provider"] == "piper"
+    assert ssmd["voice_bindings"] == {
+        "kokoro": {"guest": "af_bella"},
+        "piper": {"guest": "en_US-amy-medium"},
+    }
+
+
+def test_project_roles_explicit_provider_overrides_active_provider(tmp_path) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_provider(
+            with_project_voice_binding(
+                manifest, provider="piper", role="guest", voice="en_US-amy-medium"
+            ),
+            "piper",
+        ),
+    )
+
+    inspection = inspect_project_roles(project, ReadioConfig(), provider="kokoro")
+
+    assert inspection.provider == "kokoro"
+    assert inspection.roles[0].effective_voice == "af_bella"
+
+
+def test_unbind_defaults_to_active_provider_and_removes_empty_namespace(tmp_path) -> None:
+    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_provider(
+            with_project_voice_binding(
+                with_project_voice_binding(
+                    manifest, provider="kokoro", role="guest", voice="af_heart"
+                ),
+                provider="piper",
+                role="guest",
+                voice="en_US-amy-medium",
+            ),
+            "piper",
+        ),
+    )
+
+    result = unbind_project_role(project, ReadioConfig(), "guest")
+    ssmd = load_project(project.root).manifest.settings["ssmd"]
+
+    assert result["provider"] == "piper"
+    assert ssmd["voice_provider"] == "piper"
+    assert ssmd["voice_bindings"] == {"kokoro": {"guest": "af_heart"}}
+
+
+def test_bind_checks_document_binding_in_selector_provider(tmp_path, monkeypatch) -> None:
+    text = (
+        "---\nvoice_bindings:\n  piper:\n    guest: en_US-bryce-medium\n---\n"
+        '<div voice="guest">Hello.</div>'
+    )
+    project = _project(tmp_path, text)
+    monkeypatch.setattr(
+        "readio.project_roles.resolve_voice_selector",
+        lambda voice, **kwargs: SimpleNamespace(
+            requested=voice,
+            selector="en-pi-13",
+            engine="piper",
+            voice="en_US-amy-medium",
+        ),
+    )
+    monkeypatch.setattr(
+        "readio.engines.registry.get_engine",
+        lambda engine: SimpleNamespace(
+            capabilities=lambda: SimpleNamespace(ssmd_provider="piper")
+        ),
+    )
+
+    with pytest.raises(ProjectRoleError) as document_bound:
+        bind_project_role(project, ReadioConfig(), "guest", "en-pi-13")
+
+    assert document_bound.value.code == "readio.project_role.document_bound"
+    assert document_bound.value.details["provider"] == "piper"

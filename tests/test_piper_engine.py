@@ -73,6 +73,7 @@ class TestPiperCapabilities:
 
         assert caps.id == "piper"
         assert caps.ssmd_provider == "piper"
+        assert caps.ssmd_voice_binding_mode == "target"
         assert caps.supports_lexicons is False
         assert caps.supports_speakers is True
 

@@ -146,6 +146,7 @@ class PiperSynthEngineAdapter:
         return EngineCapabilities(
             id=self.id,
             ssmd_provider="piper",
+            ssmd_voice_binding_mode="target",
             option_names=PIPER_RENDER_OPTIONS,
             supports_prepared_units=True,
             supports_audio_job=True,

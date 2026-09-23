@@ -27,6 +27,8 @@ def _validate_project_settings(value: Any) -> None:
     if "ssmd" not in settings:
         return
     ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
+    if "voice_provider" in ssmd:
+        _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
     if "voice_bindings" not in ssmd:
         return
     bindings = _require_mapping(

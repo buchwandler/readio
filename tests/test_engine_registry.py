@@ -17,10 +17,12 @@ from readio.engines.registry import (
     ENGINE_ALIASES,
     EngineRegistry,
     default_engine,
+    engine_for_ssmd_provider,
     engine_ids,
     get_engine,
     iter_engines,
     normalize_engine_id,
+    ssmd_provider_for_engine,
 )
 
 # ---------------------------------------------------------------------------
@@ -196,3 +198,25 @@ class TestEngineRegistryClass:
         registry.register(a2)
         ids = {a.id for a in registry.iter_adapters()}
         assert ids == {"a", "b"}
+
+
+class TestEngineProviderHelpers:
+    def test_engine_for_ssmd_provider(self) -> None:
+        assert engine_for_ssmd_provider("kokoro") == "pykokoro"
+        assert engine_for_ssmd_provider("piper") == "piper"
+
+    def test_engine_for_unknown_provider_raises(self) -> None:
+        with pytest.raises(ValueError, match="No synthesis engine is registered"):
+            engine_for_ssmd_provider("unknown")
+
+    def test_ssmd_provider_comes_from_adapter_capabilities(self, monkeypatch) -> None:
+        capabilities = type("Capabilities", (), {"ssmd_provider": "piper"})()
+        adapter = type("MockAdapter", (), {"capabilities": lambda self: capabilities})()
+        requested = []
+        monkeypatch.setattr(
+            "readio.engines.registry.get_engine",
+            lambda engine: requested.append(engine) or adapter,
+        )
+
+        assert ssmd_provider_for_engine("pipersynth") == "piper"
+        assert requested == ["piper"]

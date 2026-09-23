@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 
 from audiocompose import CompositionProgress
 
@@ -255,3 +256,47 @@ def test_composition_broken_stream_disables_progress() -> None:
     assert not progress.enabled
     progress.close()
     assert not progress.enabled
+
+
+def test_target_routing_progress_shows_provider_targets_and_per_target_loads() -> None:
+    stream = io.StringIO()
+    progress = TerminalProgress(stream=stream, enabled=True, tty=False, clock=Clock())
+    progress.synthesis_event(
+        SimpleNamespace(
+            kind="profile_resolved",
+            details={
+                "project": "/tmp/book.readio",
+                "source": "/tmp/book.ssmd",
+                "source_format": "ssmd",
+                "selected_units": 4,
+                "engine": "piper",
+                "engine_version": "1.2.3",
+                "provider": "piper",
+                "routing_mode": "target",
+                "targets": [
+                    {"id": "en_US-amy-medium", "voice": "en_US-amy-medium"},
+                    {"id": "en_US-bryce-medium", "voice": "en_US-bryce-medium"},
+                ],
+                "voice_bindings": [
+                    {"role": "guest", "voice": "en_US-amy-medium"},
+                    {"role": "narrator", "voice": "en_US-bryce-medium"},
+                ],
+                "profile_id": "sha256:profile",
+            },
+        )
+    )
+    progress.synthesis_event(
+        SimpleNamespace(
+            kind="engine_open_started",
+            details={"target_id": "en_US-amy-medium"},
+        )
+    )
+
+    output = stream.getvalue()
+    assert "Provider: piper" in output
+    assert "Voices:   2" in output
+    assert "guest" in output and "en_US-amy-medium" in output
+    assert "narrator" in output and "en_US-bryce-medium" in output
+    assert "Loading synthesis model en_US-amy-medium..." in output
+    assert "  Model:" not in output
+    assert "  Voice:    af_sarah" not in output

@@ -16,10 +16,12 @@ from .registry import (
     ENGINE_ALIASES,
     EngineRegistry,
     default_engine,
+    engine_for_ssmd_provider,
     engine_ids,
     get_engine,
     iter_engines,
     normalize_engine_id,
+    ssmd_provider_for_engine,
 )
 
 __all__ = [
@@ -33,8 +35,10 @@ __all__ = [
     "SynthesisTarget",
     "default_engine",
     "discover_targets",
+    "engine_for_ssmd_provider",
     "engine_ids",
     "get_engine",
     "iter_engines",
     "normalize_engine_id",
+    "ssmd_provider_for_engine",
 ]

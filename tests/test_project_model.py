@@ -148,6 +148,29 @@ def test_project_manifest_rejects_malformed_voice_binding_settings(
     with pytest.raises(ProjectFormatError):
         ProjectManifest.from_dict(payload)
 
+@pytest.mark.parametrize("provider", ["piper", "kokoro"])
+def test_project_manifest_accepts_ssmd_voice_provider(tmp_path, provider: str) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    payload = project.manifest.to_dict()
+    payload["settings"] = {"ssmd": {"voice_provider": provider}}
+    manifest = ProjectManifest.from_dict(payload)
+
+    assert manifest.schema_version == 2
+    assert manifest.settings["ssmd"]["voice_provider"] == provider
+
+
+@pytest.mark.parametrize("provider", ["", 1, None])
+def test_project_manifest_rejects_invalid_ssmd_voice_provider(tmp_path, provider) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    payload = project.manifest.to_dict()
+    payload["settings"] = {"ssmd": {"voice_provider": provider}}
+
+    with pytest.raises(ProjectFormatError, match="voice_provider must be a non-empty string"):
+        ProjectManifest.from_dict(payload)
 
 def test_project_voice_binding_helpers_preserve_unrelated_settings_and_providers(
     tmp_path,

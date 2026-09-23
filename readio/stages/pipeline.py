@@ -19,8 +19,8 @@ from .synthesis import synthesize_project
 
 def _project_request(project: Project, cfg: Any, args: Any = None) -> PlanRequest:
     reader = cfg.reader
-    engine = getattr(args, "engine", None) or reader.engine if args is not None else reader.engine
-    voice = getattr(args, "voice", None) or reader.voice if args is not None else reader.voice
+    engine = getattr(args, "engine", None) if args is not None else None
+    voice = getattr(args, "voice", None) if args is not None else None
     return PlanRequest(
         operation="render",
         input=InputRequest(

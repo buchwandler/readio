@@ -44,6 +44,19 @@ def normalize_engine_id(value: str) -> str:
     return ENGINE_ALIASES.get(value, value)
 
 
+def ssmd_provider_for_engine(engine: str) -> str | None:
+    """Return the SSMD provider advertised by a synthesis engine."""
+    return get_engine(normalize_engine_id(engine)).capabilities().ssmd_provider
+
+
+def engine_for_ssmd_provider(provider: str) -> str:
+    """Return the canonical synthesis engine for an SSMD provider."""
+    try:
+        return ONNXVOICE_SYSTEM_TO_READIO_ENGINE[provider]
+    except KeyError as exc:
+        raise ValueError(f"No synthesis engine is registered for SSMD provider {provider!r}.") from exc
+
+
 # ---------------------------------------------------------------------------
 # EngineRegistry class
 # ---------------------------------------------------------------------------
@@ -174,8 +187,10 @@ __all__ = [
     "READIO_ENGINE_TO_ONNXVOICE_SYSTEM",
     "EngineRegistry",
     "default_engine",
+    "engine_for_ssmd_provider",
     "engine_ids",
     "get_engine",
     "iter_engines",
     "normalize_engine_id",
+    "ssmd_provider_for_engine",
 ]

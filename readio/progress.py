@@ -124,25 +124,46 @@ class TerminalProgress:
         self._finish_line()
         if kind == "profile_resolved":
             target = details.get("target", {})
-            self._write(
-                f"Project: {details.get('project', '-')}\n"
-                f"Source:  {details.get('source', '-')} [{details.get('source_format', '-')}]\n"
-                f"Plan:    {details.get('plan_id', '-')} {details.get('selected_units', 0)} units\n"
-                "Synthesis\n"
-                f"  Engine:   {details.get('engine', '-')} {details.get('engine_version') or ''}\n"
-                f"  Model:    {target.get('id', '-')}\n"
-                f"  Voice:    {target.get('voice', '-')}\n"
-                f"  Language: {target.get('language', '-')}\n"
-                f"  Profile:  {details.get('profile_id', '-')}\n",
-                newline=True,
-            )
+            if details.get("routing_mode") == "target":
+                targets = details.get("targets", ())
+                voice_bindings = details.get("voice_bindings", ())
+                lines = [
+                    f"Project: {details.get('project', '-')}\n",
+                    f"Source:  {details.get('source', '-')} [{details.get('source_format', '-')}]\n",
+                    f"Plan:    {details.get('plan_id', '-')} {details.get('selected_units', 0)} units\n",
+                    "Synthesis\n",
+                    f"  Engine:   {details.get('engine', '-')} {details.get('engine_version') or ''}\n",
+                    f"  Provider: {details.get('provider', '-')}\n",
+                    f"  Voices:   {len(targets)}\n",
+                ]
+                lines.extend(
+                    f"    {item['role']:<12} {item['voice']}\n"
+                    for item in voice_bindings
+                )
+                lines.append(f"  Profile:  {details.get('profile_id', '-')}\n")
+                self._write("".join(lines), newline=True)
+            else:
+                self._write(
+                    f"Project: {details.get('project', '-')}\n"
+                    f"Source:  {details.get('source', '-')} [{details.get('source_format', '-')}]\n"
+                    f"Plan:    {details.get('plan_id', '-')} {details.get('selected_units', 0)} units\n"
+                    "Synthesis\n"
+                    f"  Engine:   {details.get('engine', '-')} {details.get('engine_version') or ''}\n"
+                    f"  Model:    {target.get('id', '-')}\n"
+                    f"  Voice:    {target.get('voice', '-')}\n"
+                    f"  Language: {target.get('language', '-')}\n"
+                    f"  Profile:  {details.get('profile_id', '-')}\n",
+                    newline=True,
+                )
         elif kind == "cache_scanned":
             self._write(
                 f"Cache: {details.get('reused', 0)} reusable, {details.get('rendered', 0)} to render",
                 newline=True,
             )
         elif kind == "engine_open_started":
-            self._write("Loading synthesis model...", newline=True)
+            target_id = details.get("target_id")
+            label = f"Loading synthesis model {target_id}..." if target_id else "Loading synthesis model..."
+            self._write(label, newline=True)
         elif kind == "unit_started":
             unit = getattr(event, "unit_id", "-")
             index = (getattr(event, "completed", 0) or 0) + 1

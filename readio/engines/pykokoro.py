@@ -172,6 +172,7 @@ class PyKokoroEngineAdapter:
         return EngineCapabilities(
             id=self.id,
             ssmd_provider="kokoro",
+            ssmd_voice_binding_mode="runtime",
             option_names=frozenset(
                 {
                     "lexicons",

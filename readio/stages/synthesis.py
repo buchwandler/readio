@@ -16,10 +16,19 @@ from typing import Any
 
 import soundfile as sf
 
+from ..engines.base import EngineSelection
+from ..engines.registry import engine_for_ssmd_provider, get_engine
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
-from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
+from ..project_settings import (
+    project_voice_binding_providers,
+    project_voice_bindings,
+    project_voice_bindings_provenance,
+    project_voice_provider,
+    resolve_project_voice_provider,
+)
 from ..selection import resolve_project_selection, resolve_unit_selection
+from ..ssmd import resolve_voice_references
 from .planning import load_scope_plan
 from .speech_identity import segment_speech_hash, segment_synthesis_key
 
@@ -44,15 +53,25 @@ class SynthesisEvent:
 class SynthesisProfile:
     profile_id: str
     payload: Mapping[str, Any]
+    schema_version: int = 2
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "format": "readio.synthesis-profile",
-            "schema_version": 2,
+            "schema_version": self.schema_version,
             "profile_id": self.profile_id,
             **dict(self.payload),
         }
 
+@dataclass(frozen=True, slots=True)
+class ProjectSynthesisRoute:
+    provider: str
+    engine: str
+    mode: str | None
+    bindings_by_scope: Mapping[str, Mapping[str, str]]
+    selections: Mapping[str, EngineSelection]
+    segment_routes: Mapping[tuple[str, str], str]
+    default_selection: EngineSelection
 
 @dataclass(frozen=True, slots=True)
 class SynthesisArtifact:
@@ -173,6 +192,58 @@ def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
     return SynthesisProfile(synthesis_profile_id(identity_payload), payload)
 
 
+
+def _profile_from_route(
+    adapter: Any, route: ProjectSynthesisRoute, profile: SynthesisProfile
+) -> SynthesisProfile:
+    aggregate = route.mode == "target" or (
+        route.mode == "runtime" and len(route.selections) > 1
+    )
+    if not aggregate:
+        return profile
+
+    identity_method = getattr(adapter, "canonical_synthesis_identity", None)
+    identities = {
+        key: (
+            dict(identity_method(selection))
+            if callable(identity_method)
+            else _fallback_canonical_identity(selection, adapter)
+        )
+        for key, selection in route.selections.items()
+    }
+    canonical: dict[str, Any] = {
+        "engine": route.engine,
+        "engine_version": adapter.version(),
+        "ssmd_provider": route.provider,
+        "routing_mode": route.mode,
+    }
+    binding_record = profile.payload.get("project_voice_bindings")
+    if isinstance(binding_record, Mapping):
+        canonical["project_voice_bindings_sha256"] = binding_record.get("sha256")
+    if route.mode == "target":
+        canonical["targets"] = {key: identities[key] for key in sorted(identities)}
+    else:
+        canonical["selections"] = {key: identities[key] for key in sorted(identities)}
+    canonical["bindings_by_scope"] = {
+        scope_id: dict(sorted(bindings.items()))
+        for scope_id, bindings in sorted(route.bindings_by_scope.items())
+    }
+    identity_payload = {
+        "schema": "readio.synthesis-profile.v3",
+        "canonical": canonical,
+    }
+    payload = {
+        **identity_payload,
+        "composition": profile.payload.get("composition", {}),
+    }
+    if "project_voice_bindings" in profile.payload:
+        payload["project_voice_bindings"] = profile.payload["project_voice_bindings"]
+    return SynthesisProfile(
+        synthesis_profile_id(identity_payload),
+        payload,
+        schema_version=3,
+    )
+
 def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
     if not path.is_file():
         return None
@@ -208,8 +279,6 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
     reader = cfg.reader
     synthesis = SynthesisRequest(
         language=reader.lang,
-        voice=reader.voice,
-        engine=reader.engine,
         speed=reader.speed,
         pause_mode=reader.pause_mode,
         unit=reader.unit,
@@ -228,34 +297,120 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
 
 def _project_request_with_voice_bindings(
     project: Project, cfg: Any, request: PlanRequest
- ) -> PlanRequest:
+) -> PlanRequest:
     document = project.load_document_scope(project.document_scopes()[0])
     if document.format != "ssmd" and project.manifest.source_format == "ssmd":
         document = replace(document, format="ssmd")
+
+    project_has_provider = project_voice_provider(project.manifest) is not None or bool(
+        project_voice_binding_providers(project.manifest)
+    )
+    requested_engine = request.synthesis.engine
+    provider = resolve_project_voice_provider(
+        project.manifest, cfg, explicit_engine=requested_engine
+    )
+    if requested_engine is None and project_has_provider:
+        engine = engine_for_ssmd_provider(provider)
+    else:
+        engine = requested_engine or cfg.reader.engine
+        if engine is not None:
+            provider = resolve_project_voice_provider(project.manifest, cfg, explicit_engine=engine)
+
+    voice = request.synthesis.voice
+    if voice is None and not project_has_provider and requested_engine is None:
+        voice = cfg.reader.voice
+    synthesis = replace(request.synthesis, engine=engine, voice=voice)
+
+    scope_bindings = _project_scope_voice_bindings(project, cfg, provider, request.voice_bindings)
     return replace(
         request,
         input=replace(request.input, document=document),
-        project_voice_bindings=project_voice_bindings(
-            project.manifest, cfg.ssmd.voice_provider
-        ),
+        synthesis=synthesis,
+        project_voice_bindings=project_voice_bindings(project.manifest, provider),
+        scope_voice_bindings=scope_bindings,
     )
+
+def _project_scope_voice_bindings(
+    project: Project,
+    cfg: Any,
+    provider: str,
+    invocation_bindings: Mapping[str, str],
+) -> dict[str, dict[str, str]]:
+    bindings_by_scope: dict[str, dict[str, str]] = {}
+    project_bindings = project_voice_bindings(project.manifest, provider)
+    for scope in project.document_scopes():
+        document = project.load_document_scope(scope)
+        if document.format != "ssmd" and project.manifest.source_format == "ssmd":
+            document = replace(document, format="ssmd")
+        if document.format != "ssmd":
+            bindings_by_scope[scope.id] = {}
+            continue
+        resolved = resolve_voice_references(
+            document.text,
+            cfg,
+            additional_bindings=invocation_bindings,
+            project_bindings=project_bindings,
+            provider=provider,
+        )
+        unresolved = next((item for item in resolved if item.voice is None), None)
+        if unresolved is not None:
+            raise ValueError(
+                f"cannot resolve voice reference {unresolved.reference!r} "
+                f"in project scope {scope.id!r}"
+            )
+        bindings_by_scope[scope.id] = {
+            item.reference: item.voice for item in resolved if item.voice is not None
+        }
+    return bindings_by_scope
+
+
 
 
 def _resolve_profile(
     project: Project, cfg: Any, request: PlanRequest
- ) -> tuple[Any, Any, SynthesisProfile]:
-    request = _project_request_with_voice_bindings(project, cfg, request)
+) -> tuple[Any, Any, SynthesisProfile]:
+    if not request.scope_voice_bindings:
+        request = _project_request_with_voice_bindings(project, cfg, request)
+    requested_engine = request.synthesis.engine or cfg.reader.engine
+    requested_adapter = None
+    if requested_engine is not None:
+        try:
+            requested_adapter = get_engine(requested_engine)
+        except (ImportError, ValueError):
+            pass
+    if (
+        requested_adapter is not None
+        and requested_adapter.capabilities().ssmd_voice_binding_mode == "target"
+        and request.synthesis.voice is None
+    ):
+        seed_voice = next(
+            (
+                voice
+                for bindings in request.scope_voice_bindings.values()
+                for voice in bindings.values()
+            ),
+            None,
+        )
+        if seed_voice is None:
+            raise ValueError(
+                "target-routed synthesis requires a base voice when selected segments "
+                "do not have resolved voice references"
+            )
+        request = replace(
+            request,
+            synthesis=replace(request.synthesis, voice=seed_voice),
+        )
+
     resolved = resolve_execution_v2(cfg, request)
     if not resolved.plan.ok or resolved.selection is None:
         diagnostics = "; ".join(item.message for item in resolved.plan.diagnostics)
         raise ValueError(f"cannot resolve synthesis profile: {diagnostics}")
-    from ..engines.registry import get_engine
-
     adapter = get_engine(resolved.selection.engine)
     profile = _profile_from_selection(adapter, resolved.selection)
-    project_bindings = project_voice_bindings_provenance(
-        cfg.ssmd.voice_provider, request.project_voice_bindings
+    provider = adapter.capabilities().ssmd_provider or resolve_project_voice_provider(
+        project.manifest, cfg, explicit_engine=resolved.selection.engine
     )
+    project_bindings = project_voice_bindings_provenance(provider, request.project_voice_bindings)
     profile = replace(
         profile, payload={**profile.payload, "project_voice_bindings": project_bindings}
     )
@@ -279,6 +434,136 @@ def _segment_preview(segment: Any) -> str:
     text = " ".join(str(getattr(segment, "text", "")).split())
     return text[:117] + "..." if len(text) > 120 else text
 
+
+
+def _segment_voice_reference(segment: Any) -> str | None:
+    directives = getattr(segment, "directives", None)
+    voice = getattr(directives, "voice", None)
+    reference = (
+        voice.get("reference") if isinstance(voice, Mapping) else getattr(voice, "reference", None)
+    )
+    return reference if isinstance(reference, str) and reference else None
+
+
+def _build_project_synthesis_route(
+    project: Project,
+    cfg: Any,
+    request: PlanRequest,
+    adapter: Any,
+    default_selection: EngineSelection,
+    scoped_plans: tuple[tuple[Any, Any], ...],
+    selected_by_scope: Mapping[str, Any],
+) -> ProjectSynthesisRoute:
+    capabilities = adapter.capabilities()
+    provider = capabilities.ssmd_provider or resolve_project_voice_provider(
+        project.manifest, cfg, explicit_engine=default_selection.engine
+    )
+    bindings_by_scope = request.scope_voice_bindings
+    if capabilities.ssmd_voice_binding_mode == "target":
+        segment_routes: dict[tuple[str, str], str] = {}
+        target_languages: dict[str, set[str]] = {}
+        explicit_base_voice = (
+            default_selection.voice if request.synthesis.voice is not None else None
+        )
+        for scope, plan in scoped_plans:
+            scope_id = scope.id
+            selected_ids = set(selected_by_scope[scope_id].segment_ids)
+            scope_bindings = bindings_by_scope.get(scope_id, {})
+            for segment in plan.segments:
+                segment_id = str(segment.id)
+                if segment_id not in selected_ids:
+                    continue
+                reference = _segment_voice_reference(segment)
+                if reference is not None:
+                    target = scope_bindings.get(reference)
+                    if target is None:
+                        raise ValueError(
+                            f"cannot resolve voice reference {reference!r} "
+                            f"in project scope {scope_id!r}"
+                        )
+                else:
+                    target = explicit_base_voice
+                    if target is None:
+                        raise ValueError(
+                            f"selected segment {scope_id}:{segment_id} has no voice reference "
+                            "and no base voice is available"
+                        )
+                segment_routes[(scope_id, segment_id)] = target
+                language = getattr(segment, "language", None) or default_selection.language
+                target_languages.setdefault(target, set()).add(language)
+
+        if not target_languages:
+            raise ValueError("selected segments contain no target voices")
+        selections: dict[str, EngineSelection] = {}
+        options = {
+            key: value
+            for key, value in default_selection.options.items()
+            if key != "ssmd_voice_bindings"
+        }
+        validator = getattr(adapter, "validate_selection", None)
+        metadata_loader = getattr(adapter, "target_metadata", None)
+        for target in sorted(target_languages):
+            selection = replace(
+                default_selection,
+                target_id=target,
+                voice=target,
+                options=options,
+            )
+            if validator is not None:
+                for language in sorted(target_languages[target]):
+                    checked = replace(selection, language=language)
+                    errors = [
+                        item
+                        for item in validator(checked)
+                        if getattr(item, "severity", "error") == "error"
+                    ]
+                    if errors:
+                        raise ValueError("; ".join(item.message for item in errors))
+            if metadata_loader is not None:
+                selection = replace(selection, metadata=dict(metadata_loader(selection)))
+            selections[target] = selection
+        return ProjectSynthesisRoute(
+            provider=provider,
+            engine=default_selection.engine,
+            mode="target",
+            bindings_by_scope=bindings_by_scope,
+            selections=selections,
+            segment_routes=segment_routes,
+            default_selection=default_selection,
+        )
+
+    selections = {}
+    segment_routes = {}
+    for scope, plan in scoped_plans:
+        scope_id = scope.id
+        selected_ids = set(selected_by_scope[scope_id].segment_ids)
+        scope_bindings = dict(bindings_by_scope.get(scope_id, {}))
+        if capabilities.ssmd_voice_binding_mode == "runtime":
+            options = {
+                key: value
+                for key, value in default_selection.options.items()
+                if key != "ssmd_voice_bindings"
+            }
+            if scope_bindings:
+                options["ssmd_voice_bindings"] = scope_bindings
+            route_key = "runtime:" + hashlib.sha256(canonical_json(scope_bindings)).hexdigest()
+            selections.setdefault(route_key, replace(default_selection, options=options))
+        else:
+            route_key = "default"
+            selections.setdefault(route_key, default_selection)
+        for segment in plan.segments:
+            segment_id = str(segment.id)
+            if segment_id in selected_ids:
+                segment_routes[(scope_id, segment_id)] = route_key
+    return ProjectSynthesisRoute(
+        provider=provider,
+        engine=default_selection.engine,
+        mode=capabilities.ssmd_voice_binding_mode,
+        bindings_by_scope=bindings_by_scope,
+        selections=selections,
+        segment_routes=segment_routes,
+        default_selection=default_selection,
+    )
 
 def _result_details(result: Any) -> dict[str, Any]:
     metadata = getattr(result, "metadata", {}) or {}
@@ -498,7 +783,7 @@ def _render_missing(
 def _render_all_missing(
     project: Project,
     adapter: Any,
-    selection: Any,
+    route: ProjectSynthesisRoute,
     work: list[dict[str, Any]],
     profile: SynthesisProfile,
     *,
@@ -508,35 +793,61 @@ def _render_all_missing(
     if not total:
         return {}, None
 
-    _emit(on_event, SynthesisEvent("engine_open_started", total=total))
-    engine_started = time.monotonic()
     details: dict[tuple[str, int], Mapping[str, Any]] = {}
-    with adapter.open(selection) as session:
-        engine_open_ms = round((time.monotonic() - engine_started) * 1000, 3)
+    total_open_ms = 0.0
+    for route_key, selection in route.selections.items():
+        grouped_work = [
+            (
+                scope_work,
+                [item for item in scope_work["stale"] if item["route_key"] == route_key],
+            )
+            for scope_work in work
+        ]
+        grouped_work = [(scope_work, items) for scope_work, items in grouped_work if items]
+        group_total = sum(len(items) for _, items in grouped_work)
+        if not group_total:
+            continue
+
+        target_details = (
+            {"target_id": selection.target_id, "voice": selection.voice}
+            if route.mode == "target"
+            else {}
+        )
         _emit(
             on_event,
             SynthesisEvent(
-                "engine_open_finished",
-                total=total,
-                details={"elapsed_ms": engine_open_ms},
+                "engine_open_started",
+                total=group_total,
+                details=target_details,
             ),
         )
-        for scope_work in work:
-            scope_id = scope_work["scope"].id
-            rendered = _render_missing(
-                project,
-                scope_work["plan"],
-                adapter,
-                selection,
-                scope_work["stale"],
-                profile,
-                on_event=on_event,
-                session=session,
-                scope_id=scope_id,
+        engine_started = time.monotonic()
+        with adapter.open(selection) as session:
+            elapsed_ms = round((time.monotonic() - engine_started) * 1000, 3)
+            total_open_ms += elapsed_ms
+            _emit(
+                on_event,
+                SynthesisEvent(
+                    "engine_open_finished",
+                    total=group_total,
+                    details={"elapsed_ms": elapsed_ms, **target_details},
+                ),
             )
-            details.update({(scope_id, index): value for index, value in rendered.items()})
-    return details, engine_open_ms
-
+            for scope_work, stale in grouped_work:
+                scope_id = scope_work["scope"].id
+                rendered = _render_missing(
+                    project,
+                    scope_work["plan"],
+                    adapter,
+                    selection,
+                    stale,
+                    profile,
+                    on_event=on_event,
+                    session=session,
+                    scope_id=scope_id,
+                )
+                details.update({(scope_id, index): value for index, value in rendered.items()})
+    return details, total_open_ms
 
 def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
     checked = _valid_audio(item["cache_path"])
@@ -590,9 +901,20 @@ def synthesize_project(
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
-        request = _request_for_project(project, cfg, request)
+        request = _project_request_with_voice_bindings(
+            project, cfg, _request_for_project(project, cfg, request)
+        )
         resolved, adapter, profile = _resolve_profile(project, cfg, request)
-
+        route = _build_project_synthesis_route(
+            project,
+            cfg,
+            request,
+            adapter,
+            resolved.selection,
+            scoped_plans,
+            selected_by_scope,
+        )
+        profile = _profile_from_route(adapter, route, profile)
         cache_dir = project.root / "synthesis" / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         work: list[dict[str, Any]] = []
@@ -625,11 +947,15 @@ def synthesize_project(
                 segment_id = str(segment.id)
                 if segment_id not in selected_segment_ids:
                     continue
+                route_key = route.segment_routes.get((scope.id, segment_id))
+                if route_key is None:
+                    raise ValueError(f"no synthesis route for {scope.id}:{segment_id}")
                 unit = units_by_segment[segment_id]
                 speech_hash = segment_speech_hash(plan, segment, profile.payload["canonical"])
                 key = segment_synthesis_key(speech_hash, profile.profile_id)
                 item: dict[str, Any] = {
                     "scope_id": scope.id,
+                    "route_key": route_key,
                     "segment": segment,
                     "segment_id": segment_id,
                     "segment_index": segment_index,
@@ -692,6 +1018,26 @@ def synthesize_project(
                     "profile_id": profile.profile_id,
                     "engine": profile.payload.get("canonical", {}).get("engine"),
                     "engine_version": profile.payload.get("canonical", {}).get("engine_version"),
+                    "provider": route.provider,
+                    "routing_mode": route.mode,
+                    "targets": (
+                        [
+                            {"id": target, "voice": target}
+                            for target in sorted(route.selections)
+                        ]
+                        if route.mode == "target"
+                        else []
+                    ),
+                    "voice_bindings": [
+                        {"role": role, "voice": voice}
+                        for role, voice in sorted(
+                            {
+                                (role, voice)
+                                for bindings in route.bindings_by_scope.values()
+                                for role, voice in bindings.items()
+                            }
+                        )
+                    ],
                     "target": {
                         "id": resolved.selection.target_id,
                         "voice": resolved.selection.voice,
@@ -727,7 +1073,7 @@ def synthesize_project(
         render_details, engine_open_ms = _render_all_missing(
             project,
             adapter,
-            resolved.selection,
+            route,
             work,
             profile,
             on_event=on_event,

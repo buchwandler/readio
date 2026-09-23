@@ -226,6 +226,7 @@ class PlanRequest:
     output: OutputRequest = field(default_factory=OutputRequest)
     voice_bindings: Mapping[str, str] = field(default_factory=dict)
     project_voice_bindings: Mapping[str, str] = field(default_factory=dict)
+    scope_voice_bindings: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1843,6 +1844,11 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             )
         )
 
+    ssmd_provider = (
+        adapter.capabilities().ssmd_provider or cfg.ssmd.voice_provider
+        if adapter is not None
+        else cfg.ssmd.voice_provider
+    )
     if adapter is not None:
         resolve_defaults = getattr(adapter, "resolve_defaults", None)
         if resolve_defaults is not None:
@@ -2002,7 +2008,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         from .ssmd import resolve_voice_references
 
         try:
-            settings = cfg.voices.get(cfg.ssmd.voice_provider)
+            settings = cfg.voices.get(ssmd_provider)
             available = settings.ids if settings is not None else ()
             resolved_refs = resolve_voice_references(
                 effective_doc.text,
@@ -2010,6 +2016,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                 available_voices=available or None,
                 additional_bindings=dict(request.voice_bindings),
                 project_bindings=dict(request.project_voice_bindings),
+                provider=ssmd_provider,
             )
             for item in resolved_refs:
                 if item.voice is None:

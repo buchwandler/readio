@@ -246,3 +246,63 @@ def test_explicit_engine_switch_does_not_inherit_reader_voice() -> None:
     )
     assert candidate.engine == "piper"
     assert candidate.voice is None
+
+
+def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> None:
+    from readio.config import VoiceProviderSettings
+    from readio.document import document_from_text
+    from readio.engines.base import EngineCapabilities, EngineSelection
+    from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
+
+    class FakePiperAdapter:
+        id = "fake-piper"
+
+        def capabilities(self):
+            return EngineCapabilities(id=self.id, ssmd_provider="piper")
+
+        def resolve(self, request):
+            return (
+                EngineSelection(
+                    engine=self.id,
+                    target_id="en_US-amy-medium",
+                    language="en-us",
+                    voice="en_US-amy-medium",
+                    options=dict(request.options),
+                ),
+                (),
+            )
+
+        def version(self):
+            return "test"
+
+    monkeypatch.setitem(_registry._adapters, "fake-piper", FakePiperAdapter())
+    cfg = ReadioConfig(
+        voices={
+            "kokoro": VoiceProviderSettings(
+                ids=("af_sarah",), roles={"guest": "af_sarah"}
+            ),
+            "piper": VoiceProviderSettings(
+                ids=("en_US-amy-medium",), roles={"guest": "af_sarah"}
+            ),
+        }
+    )
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(
+            document=document_from_text(
+                '<div voice="guest">Hello.</div>', input_format="ssmd"
+            )
+        ),
+        synthesis=SynthesisRequest(engine="fake-piper", voice="en_US-amy-medium"),
+        output=OutputRequest(mode="file"),
+        project_voice_bindings={"guest": "en_US-amy-medium"},
+    )
+
+    resolved = resolve_execution_v2(cfg, request)
+
+    assert resolved.plan.ok
+    decision = next(
+        item for item in resolved.plan.decisions if item.field == "ssmd.bindings.guest"
+    )
+    assert decision.value == "en_US-amy-medium"
+    assert decision.origin == "project"

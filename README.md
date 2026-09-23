@@ -86,6 +86,9 @@ Readio v0.2.5 is tested against PyKokoro 0.9.11.
 
 Readio selects synthesis through an explicit engine registry. PyKokoro and Piper are the supported engines; engine identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
 
+For `readio voices list`, a registered engine/system name passed through `--model` is a shortcut when `--engine` is omitted: `piper` and `pipersynth` select Piper, while `pykokoro` and `kokoro` select PyKokoro. Concrete model IDs and Piper voice targets remain `--model` filters; when `--engine` is present, `--model` is always treated as a concrete filter.
+
+
 The canonical engine IDs are `pykokoro` and `piper`. The alias `pipersynth` is accepted as a compatibility alias for `piper`.
 
 ```bash
@@ -102,6 +105,8 @@ Piper voice bundles are discovered through PiperSynth without loading ONNX durin
 
 ```bash
 readio voices list --engine piper --lang de
+readio voices list --model piper --lang de
+readio voices list --engine piper --model de_DE-thorsten-medium --lang de
 readio render --engine piper --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
 readio speak --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt"
 readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest -o article.wav --text "Hallo Welt"
@@ -387,6 +392,19 @@ readio plan
 ```
 
 Resolution precedence is document binding, invocation `--voice-bind`, project binding, global configured role, then direct concrete voice. `readio plan bind` does not rewrite SSMD or change the semantic plan ID. It changes acoustic synthesis settings, so `readio status` leaves planning current and reports synthesis stale; run `readio synth` to refresh it.
+
+A project may persist `settings.ssmd.voice_provider` as its active SSMD provider. If it is absent, Readio infers the provider when there is exactly one non-empty provider binding namespace. Projects with neither an active provider nor project binding namespaces retain the global configuration fallback; multiple namespaces without an active provider are reported as ambiguous. `readio plan roles`, `bind`, `unbind`, and project synthesis use this same effective provider. Binding a stable selector such as `en-pi-13` stores its canonical Piper voice and activates Piper for that project.
+
+Project synthesis defaults its engine from the active provider rather than inheriting global `reader.engine` or `reader.voice`. An explicit `readio synth --engine ...` is a run-local override and does not change project settings. For example:
+
+```bash
+readio plan bind narrator en-pi-13
+readio plan roles
+readio synth
+readio synth --engine pykokoro  # this run only
+```
+
+PyKokoro uses runtime voice bindings and can switch voices within its loaded pipeline. Piper is target-bound: Readio resolves each role to a Piper voice bundle, validates all targets before opening a model, then routes speech segments through one reusable session per distinct target. Multi-target progress shows the role-to-voice map and reports each model load separately. The semantic plan stays symbolic and unchanged by role bindings.
 
 ## Persistent incremental projects
 

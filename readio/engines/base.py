@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from audiocompose import AudioJob
 from utterplan import UtterancePlan
@@ -30,6 +30,7 @@ class EngineCapabilities:
     supports_speakers: bool = False
     supports_model_sources: bool = False
     supports_qualities: bool = False
+    ssmd_voice_binding_mode: Literal["runtime", "target"] | None = None
 
 
 @dataclass(frozen=True, slots=True)

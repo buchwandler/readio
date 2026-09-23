@@ -8,12 +8,15 @@ from typing import Any
 import ssmd as ssmd_api
 
 from .config import ReadioConfig
+from .engines.registry import ssmd_provider_for_engine
 from .errors import ReadioError
 from .models import ModelDiscoveryError
 from .project import Project, update_project_manifest
 from .project_settings import (
     project_voice_bindings,
+    resolve_project_voice_provider,
     with_project_voice_binding,
+    with_project_voice_provider,
     without_project_voice_binding,
 )
 from .ssmd import document_voice_bindings, resolve_voice_references
@@ -102,7 +105,9 @@ def inspect_project_roles(
     provider: str | None = None,
 ) -> ProjectRoleInspection:
     """Discover project SSMD roles and resolve their effective binding layers."""
-    selected_provider = provider or cfg.ssmd.voice_provider
+    selected_provider = resolve_project_voice_provider(
+        project.manifest, cfg, explicit_provider=provider
+    )
     project_bindings = project_voice_bindings(project.manifest, selected_provider)
     config_provider = cfg.voices.get(selected_provider)
     configured_roles = dict(config_provider.roles) if config_provider is not None else {}
@@ -213,19 +218,6 @@ def bind_project_role(
             code="readio.project_role.provider_mismatch",
             details={"provider": provider},
         )
-    available_roles = inspect_project_roles(
-        project, cfg, provider=provider or cfg.ssmd.voice_provider
-    )
-    if role not in {item.role for item in available_roles.roles}:
-        raise ProjectRoleError(
-            f"Unknown SSMD role {role!r}.",
-            code="readio.project_role.unknown",
-            details={
-                "role": role,
-                "available_roles": [item.role for item in available_roles.roles],
-            },
-        )
-
     try:
         selection = resolve_voice_selector(
             requested_voice,
@@ -244,7 +236,11 @@ def bind_project_role(
             details={"requested_voice": requested_voice},
         ) from exc
     assert selection is not None
-    selector_provider = _provider_for_engine(selection.engine) if selection.selector else None
+    selector_provider = (
+        ssmd_provider_for_engine(selection.engine)
+        if selection.selector is not None and selection.engine is not None
+        else None
+    )
     if provider is not None and selector_provider is not None and provider != selector_provider:
         raise ProjectRoleError(
             f"Voice selector {requested_voice!r} belongs to provider {selector_provider!r}, "
@@ -256,10 +252,21 @@ def bind_project_role(
                 "requested_voice": requested_voice,
             },
         )
-    selected_provider = provider or selector_provider or cfg.ssmd.voice_provider
+    selected_provider = provider or selector_provider or resolve_project_voice_provider(
+        project.manifest, cfg
+    )
     stored_voice = selection.voice if selection.selector is not None else requested_voice
 
     inspection = inspect_project_roles(project, cfg, provider=selected_provider)
+    if role not in {item.role for item in inspection.roles}:
+        raise ProjectRoleError(
+            f"Unknown SSMD role {role!r}.",
+            code="readio.project_role.unknown",
+            details={
+                "role": role,
+                "available_roles": [item.role for item in inspection.roles],
+            },
+        )
     selected_role = next(item for item in inspection.roles if item.role == role)
     if selected_role.document_bindings:
         bindings = selected_role.document_bindings
@@ -282,7 +289,7 @@ def bind_project_role(
     updated = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
-            manifest,
+            with_project_voice_provider(manifest, selected_provider),
             provider=selected_provider,
             role=role,
             voice=stored_voice,
@@ -314,7 +321,9 @@ def unbind_project_role(
     provider: str | None = None,
  ) -> dict[str, Any]:
     """Remove only one project-local binding and report the newly exposed value."""
-    selected_provider = provider or cfg.ssmd.voice_provider
+    selected_provider = resolve_project_voice_provider(
+        project.manifest, cfg, explicit_provider=provider
+    )
     if not role.strip():
         raise ProjectRoleError(
             "Role must be a non-empty string.",
@@ -351,8 +360,6 @@ def unbind_project_role(
     }
 
 
-def _provider_for_engine(engine: str | None) -> str | None:
-    return {"pykokoro": "kokoro", "piper": "piper"}.get(engine)
 
 
 

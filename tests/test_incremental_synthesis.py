@@ -13,7 +13,8 @@ from readio.engines.base import EngineCapabilities, EngineSelection
 from readio.engines.registry import _registry
 from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from readio.project import hash_file, init_project, update_project_manifest
-from readio.project_settings import with_project_voice_binding
+from readio.project_model import DocumentIndex, DocumentScope
+from readio.project_settings import with_project_voice_binding, with_project_voice_provider
 from readio.stages.pipeline import project_status
 from readio.stages.planning import plan_project
 from readio.stages.synthesis import synthesis_profile_id, synthesize_project
@@ -175,6 +176,292 @@ class _Adapter:
             yield _Session(self)
 
         return session()
+
+class _TargetResult(_Result):
+    def __init__(self, index: int, segment_id: str):
+        super().__init__(index)
+        self.segment_id = segment_id
+
+
+class _TargetPrepared:
+    def __init__(self, adapter, selection):
+        self.adapter = adapter
+        self.selection = selection
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def render(self, *, segment_ids):
+        target = self.selection.target_id
+        self.adapter.rendered_by_target.setdefault(target, []).extend(segment_ids)
+        for index, segment_id in enumerate(segment_ids):
+            yield _TargetResult(index, segment_id)
+
+
+class _TargetSession:
+    def __init__(self, adapter, selection):
+        self.adapter = adapter
+        self.selection = selection
+
+    def prepare_segments(self, plan, *, options):
+        return _TargetPrepared(self.adapter, self.selection)
+
+
+class _TargetAdapter:
+    id = "fake-target"
+
+    def __init__(self, valid_targets=("voice-g", "voice-h", "voice-n")):
+        self.valid_targets = set(valid_targets)
+        self.open_calls = []
+        self.opened_selections = []
+        self.rendered_by_target = {}
+
+    def version(self):
+        return "fake-target-1"
+
+    def capabilities(self):
+        return EngineCapabilities(
+            id=self.id,
+            ssmd_provider="fake-target-provider",
+            ssmd_voice_binding_mode="target",
+        )
+
+    def resolve(self, request):
+        target = request.target_id or request.voice
+        return (
+            EngineSelection(
+                engine=self.id,
+                target_id=target,
+                language=request.language or "en-us",
+                voice=request.voice or target,
+                speaker=request.speaker,
+                options=dict(request.options),
+                offline=request.offline,
+                refresh=request.refresh,
+            ),
+            (),
+        )
+
+    def validate_selection(self, selection):
+        if selection.target_id not in self.valid_targets:
+            return (
+                SimpleNamespace(
+                    severity="error",
+                    message=f"unknown target {selection.target_id!r}",
+                ),
+            )
+        return ()
+
+    def canonical_synthesis_identity(self, selection):
+        return {
+            "engine": self.id,
+            "engine_version": self.version(),
+            "target_id": selection.target_id,
+            "voice": selection.voice,
+            "options": dict(selection.options),
+        }
+
+    def planner_config(self, selection, planning):
+        return None
+
+    def open(self, selection):
+        self.open_calls.append(selection.target_id)
+        self.opened_selections.append(selection)
+
+        @contextmanager
+        def session():
+            yield _TargetSession(self, selection)
+
+        return session()
+
+
+class _PiperTargetAdapter(_TargetAdapter):
+    id = "piper"
+
+    def capabilities(self):
+        return EngineCapabilities(
+            id=self.id,
+            ssmd_provider="piper",
+            ssmd_voice_binding_mode="target",
+        )
+
+
+def _target_project(tmp_path, monkeypatch, bindings):
+    adapter = _TargetAdapter()
+    monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    cfg = ReadioConfig(
+        reader=ReaderSettings(engine=adapter.id, voice="voice-n", spacy="off")
+    )
+    source = tmp_path / "target-project.ssmd"
+    source.write_text(
+        '<div voice="narrator">N1.</div>\n'
+        '<div voice="guest">G1.</div>\n'
+        '<div voice="narrator">N2.</div>\n'
+        '<div voice="host">H1.</div>',
+        encoding="utf-8",
+    )
+    project = init_project(source, tmp_path / "target-project.readio")
+
+    def update(manifest):
+        manifest = with_project_voice_provider(manifest, "fake-target-provider")
+        for role, voice in bindings.items():
+            manifest = with_project_voice_binding(
+                manifest,
+                provider="fake-target-provider",
+                role=role,
+                voice=voice,
+            )
+        return manifest
+
+    project = update_project_manifest(project, update)
+    plan_project(project, cfg)
+    return project, cfg, adapter
+
+
+def test_target_routing_groups_segments_once_per_voice_target(tmp_path, monkeypatch):
+    bindings = {
+        "narrator": "voice-n",
+        "guest": "voice-g",
+        "host": "voice-h",
+    }
+    project, cfg, adapter = _target_project(tmp_path, monkeypatch, bindings)
+    plan_scope = project.load_plan_index().scopes[0]
+    original_plan_id = plan_scope.plan_id
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(engine=adapter.id),
+    )
+    events = []
+
+    result = synthesize_project(project, cfg, request=request, on_event=events.append)
+
+    from readio.stages.planning import load_scope_plan
+
+    plan = load_scope_plan(project, plan_scope)
+    expected = {}
+    for segment in plan.segments:
+        reference = segment.directives.voice.reference
+        expected.setdefault(bindings[reference], []).append(str(segment.id))
+
+    assert adapter.open_calls == ["voice-g", "voice-h", "voice-n"]
+    assert adapter.rendered_by_target == expected
+    assert result["rendered"] == 4
+    assert result["activated"] is True
+    assert project.load_plan_index().scopes[0].plan_id == original_plan_id
+    assert [
+        event.details["target_id"]
+        for event in events
+        if event.kind == "engine_open_started"
+    ] == ["voice-g", "voice-h", "voice-n"]
+    assert all(artifact.path.is_file() for artifact in result["artifacts"])
+    profile = json.loads(project.paths["synthesis_profile"].read_text(encoding="utf-8"))
+    assert profile["schema_version"] == 3
+    assert profile["schema"] == "readio.synthesis-profile.v3"
+    assert profile["canonical"]["routing_mode"] == "target"
+    assert set(profile["canonical"]["targets"]) == {"voice-g", "voice-h", "voice-n"}
+    assert profile["canonical"]["bindings_by_scope"] == {"document": bindings}
+    assert profile["project_voice_bindings"]["provider"] == "fake-target-provider"
+    assert (
+        profile["canonical"]["project_voice_bindings_sha256"]
+        == profile["project_voice_bindings"]["sha256"]
+    )
+    stages = {item["stage"]: item for item in project_status(project)["stages"]}
+    assert stages["synthesis"]["state"] == "current"
+
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest,
+            provider="fake-target-provider",
+            role="guest",
+            voice="voice-h",
+        ),
+    )
+    stages = {item["stage"]: item for item in project_status(project)["stages"]}
+    assert stages["synthesis"]["reason"] == (
+        "synthesis.stale.project_voice_bindings_changed"
+    )
+
+
+def test_target_routing_validates_all_targets_before_opening_any_session(tmp_path, monkeypatch):
+    project, cfg, adapter = _target_project(
+        tmp_path,
+        monkeypatch,
+        {
+            "narrator": "voice-n",
+            "guest": "voice-invalid",
+            "host": "voice-h",
+        },
+    )
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(engine=adapter.id),
+    )
+
+    with pytest.raises(ValueError, match="unknown target 'voice-invalid'"):
+        synthesize_project(project, cfg, request=request)
+
+    assert adapter.open_calls == []
+
+
+def test_target_routing_fails_unresolved_roles_before_opening_any_session(tmp_path, monkeypatch):
+    project, cfg, adapter = _target_project(
+        tmp_path, monkeypatch, {"narrator": "voice-n", "host": "voice-h"}
+    )
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(engine=adapter.id),
+    )
+
+    with pytest.raises(ValueError, match="cannot resolve voice reference 'guest'"):
+        synthesize_project(project, cfg, request=request)
+
+    assert adapter.open_calls == []
+
+
+def test_project_provider_selects_piper_instead_of_global_engine_or_voice(
+    tmp_path, monkeypatch
+ ):
+    target_voice = "en_US-amy-medium"
+    adapter = _PiperTargetAdapter(valid_targets=(target_voice,))
+    monkeypatch.setitem(_registry._adapters, "piper", adapter)
+    cfg = ReadioConfig(
+        reader=ReaderSettings(engine="pykokoro", voice="af_sarah", spacy="off")
+    )
+    source = tmp_path / "piper-default.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "piper-default.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            with_project_voice_provider(manifest, "piper"),
+            provider="piper",
+            role="narrator",
+            voice=target_voice,
+        ),
+    )
+    plan_project(project, cfg)
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(),
+    )
+
+    result = synthesize_project(project, cfg, request=request)
+
+    assert adapter.open_calls == [target_voice]
+    assert len(adapter.opened_selections) == 1
+    selection = adapter.opened_selections[0]
+    assert selection.engine == "piper"
+    assert selection.voice == target_voice
+    assert selection.voice != "af_sarah"
+    assert result["rendered"] == 1
 
 
 def _request(project):
@@ -561,3 +848,158 @@ def test_synthesis_preview_and_project_render_share_project_voice_bindings(
     pipeline_stage.render_project(project, cfg)
 
     assert observed_bindings[-1] == expected_bindings
+
+
+def test_project_request_uses_project_provider_and_suppresses_global_voice(tmp_path):
+    from readio.stages.synthesis import _project_request_with_voice_bindings
+
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            with_project_voice_provider(manifest, "piper"),
+            provider="piper",
+            role="narrator",
+            voice="en_US-bryce-medium",
+        ),
+    )
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="af_sarah"))
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(),
+    )
+
+    resolved = _project_request_with_voice_bindings(project, cfg, request)
+
+    assert resolved.synthesis.engine == "piper"
+    assert resolved.synthesis.voice is None
+    assert dict(resolved.project_voice_bindings) == {"narrator": "en_US-bryce-medium"}
+    assert resolved.scope_voice_bindings == {
+        "document": {"narrator": "en_US-bryce-medium"}
+    }
+
+
+def test_project_request_engine_override_uses_override_provider_without_mutating_project(
+    tmp_path,
+):
+    from readio.stages.synthesis import _project_request_with_voice_bindings
+
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            with_project_voice_provider(manifest, "piper"),
+            provider="piper",
+            role="narrator",
+            voice="en_US-bryce-medium",
+        ),
+    )
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="af_sarah"))
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(engine="pykokoro"),
+        voice_bindings={"narrator": "af_heart"},
+    )
+
+    resolved = _project_request_with_voice_bindings(project, cfg, request)
+
+    assert resolved.synthesis.engine == "pykokoro"
+    assert resolved.synthesis.voice is None
+    assert dict(resolved.project_voice_bindings) == {}
+    assert resolved.scope_voice_bindings == {"document": {"narrator": "af_heart"}}
+    assert project.manifest.settings["ssmd"]["voice_provider"] == "piper"
+
+
+def test_project_request_preserves_global_defaults_without_project_provider_state(
+    tmp_path, monkeypatch
+):
+    from readio.stages.synthesis import _project_request_with_voice_bindings
+
+    source = tmp_path / "episode.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(project.document_scopes()[0])),
+        SynthesisRequest(),
+    )
+
+    resolved = _project_request_with_voice_bindings(project, cfg, request)
+
+    assert resolved.synthesis.engine == "fake"
+    assert resolved.synthesis.voice == "fake-voice"
+
+
+def test_project_request_resolves_document_bindings_per_scope(tmp_path, monkeypatch):
+    from readio.stages.synthesis import _project_request_with_voice_bindings
+
+    source = tmp_path / "episode.ssmd"
+    source.write_text("Unused.", encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    scopes = (
+        DocumentScope(
+            id="chapter-0001",
+            kind="chapter",
+            path="document/chapters/chapter-0001.ssmd",
+            input_format="ssmd",
+        ),
+        DocumentScope(
+            id="chapter-0002",
+            kind="chapter",
+            path="document/chapters/chapter-0002.ssmd",
+            input_format="ssmd",
+        ),
+    )
+    for scope, voice in zip(scopes, ("af_sarah", "am_michael")):
+        path = project.path(scope.path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"---\nvoice_bindings:\n  kokoro:\n    narrator: {voice}\n---\n"
+            '<div voice="narrator">Hello.</div>',
+            encoding="utf-8",
+        )
+    project.paths["document_index"].write_text(
+        json.dumps(DocumentIndex(scopes=scopes).to_dict()), encoding="utf-8"
+    )
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+    )
+    monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    request = PlanRequest(
+        "render",
+        InputRequest(project.load_document_scope(scopes[0])),
+        SynthesisRequest(engine="fake"),
+    )
+
+    resolved = _project_request_with_voice_bindings(project, cfg, request)
+
+    assert resolved.scope_voice_bindings == {
+        "chapter-0001": {"narrator": "af_sarah"},
+        "chapter-0002": {"narrator": "am_michael"},
+    }
+
+
+def test_pipeline_project_request_does_not_inject_global_engine_or_voice(tmp_path):
+    from readio.stages.pipeline import _project_request
+
+    source = tmp_path / "episode.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    cfg = ReadioConfig(reader=ReaderSettings(engine="pykokoro", voice="af_sarah"))
+
+    request = _project_request(project, cfg)
+
+    assert request.synthesis.engine is None
+    assert request.synthesis.voice is None
