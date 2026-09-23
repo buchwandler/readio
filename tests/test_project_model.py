@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
-from readio.project import init_project, load_project
+from readio.project import init_project, load_project, update_project_manifest
 from readio.project_model import (
     DocumentIndex,
     DocumentScope,
     ProjectFormatError,
     ProjectManifest,
+)
+from readio.project_settings import (
+    project_ssmd_settings,
+    project_voice_bindings,
+    with_project_voice_binding,
+    without_project_voice_binding,
 )
 
 
@@ -112,3 +119,96 @@ def test_schema_two_manifest_points_to_document_index(tmp_path) -> None:
     assert payload["document"] == {"index_path": "document/index.json"}
     assert ProjectManifest.from_dict(payload).to_dict() == payload
     assert project.document_scopes()[0].id == "document"
+
+
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        [],
+        {"ssmd": None},
+        {"ssmd": []},
+        {"ssmd": {"voice_bindings": []}},
+        {"ssmd": {"voice_bindings": {"": {}}}},
+        {"ssmd": {"voice_bindings": {"kokoro": []}}},
+        {"ssmd": {"voice_bindings": {"kokoro": {"": "af_heart"}}}},
+        {"ssmd": {"voice_bindings": {"kokoro": {"narrator": ""}}}},
+    ],
+)
+def test_project_manifest_rejects_malformed_voice_binding_settings(
+    tmp_path, settings
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    payload = project.manifest.to_dict()
+    payload["settings"] = settings
+
+    with pytest.raises(ProjectFormatError):
+        ProjectManifest.from_dict(payload)
+
+
+def test_project_voice_binding_helpers_preserve_unrelated_settings_and_providers(
+    tmp_path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    original_settings = {
+        "custom": {"keep": True},
+        "ssmd": {
+            "custom": "preserved",
+            "voice_bindings": {
+                "kokoro": {"host": "af_sarah"},
+                "piper": {"narrator": "en_US-lessac-medium"},
+            },
+        },
+    }
+    manifest = replace(project.manifest, settings=original_settings)
+
+    changed = with_project_voice_binding(
+        manifest, provider="kokoro", role="narrator", voice="af_heart"
+    )
+    assert manifest.settings == original_settings
+    assert project_voice_bindings(changed, "kokoro") == {
+        "host": "af_sarah",
+        "narrator": "af_heart",
+    }
+    assert project_voice_bindings(changed, "piper") == {
+        "narrator": "en_US-lessac-medium"
+    }
+    ssmd = project_ssmd_settings(changed)
+    ssmd["custom"] = "changed copy"
+    assert changed.settings["ssmd"]["custom"] == "preserved"
+
+    unbound = without_project_voice_binding(
+        changed, provider="kokoro", role="narrator"
+    )
+    assert project_voice_bindings(unbound, "kokoro") == {"host": "af_sarah"}
+    assert project_voice_bindings(unbound, "piper") == {
+        "narrator": "en_US-lessac-medium"
+    }
+    assert unbound.settings["custom"] == {"keep": True}
+    assert unbound.settings["ssmd"]["custom"] == "preserved"
+
+
+def test_update_project_manifest_persists_binding_atomically_under_lock(tmp_path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+
+    updated = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+        operation="bind-voice",
+    )
+
+    assert project_voice_bindings(updated.manifest, "kokoro") == {
+        "narrator": "af_heart"
+    }
+    assert not (project.root / ".lock").exists()
+    persisted = json.loads((project.root / "project.json").read_text(encoding="utf-8"))
+    assert persisted["settings"]["ssmd"]["voice_bindings"]["kokoro"]["narrator"] == "af_heart"

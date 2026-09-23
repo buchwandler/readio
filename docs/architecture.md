@@ -111,6 +111,15 @@ sidecars. Composition currentness is derived from the current layout and policy.
 `compose` and preview can use the cache without a current-plan trace and do not
 load a TTS engine.
 
+## Project voice bindings
+
+Project-local logical-role assignments live in `project.json` at `settings.ssmd.voice_bindings`, keyed by provider and role. `readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective sources without requiring a generated plan index. The shared synthesis request attaches this map as a distinct resolution layer; it is never written into Utterplan or the SSMD source.
+
+The binding precedence is `document > invocation CLI > project > global configured role > direct concrete voice`. Document bindings remain authoritative per scope. Concrete project choices affect synthesis only, so changing them does not alter semantic `plan_id` or invalidate plan artifacts.
+
+The active synthesis profile stores provider, sorted project bindings, and a SHA-256 provenance hash under `project_voice_bindings`. This settings record is excluded from the profile identity hash; the resolved effective cast remains part of canonical synthesis identity. Status compares the stored hash with current project settings and reports `synthesis.stale.project_voice_bindings_changed` on mismatch. Plan remains current, synthesis becomes stale, composition and output are blocked downstream, and `readio synth` is the next action. Cached audio is not deleted.
+
+
 ## End-to-end acceptance scenario
 
 For a multi-sentence document, normal sentence topology produces one reusable

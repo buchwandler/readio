@@ -18,6 +18,7 @@ import soundfile as sf
 
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
+from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
 from ..selection import resolve_project_selection, resolve_unit_selection
 from .planning import load_scope_plan
 from .speech_identity import segment_speech_hash, segment_synthesis_key
@@ -225,22 +226,25 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
     )
 
 
+def _project_request_with_voice_bindings(
+    project: Project, cfg: Any, request: PlanRequest
+ ) -> PlanRequest:
+    document = project.load_document_scope(project.document_scopes()[0])
+    if document.format != "ssmd" and project.manifest.source_format == "ssmd":
+        document = replace(document, format="ssmd")
+    return replace(
+        request,
+        input=replace(request.input, document=document),
+        project_voice_bindings=project_voice_bindings(
+            project.manifest, cfg.ssmd.voice_provider
+        ),
+    )
+
+
 def _resolve_profile(
     project: Project, cfg: Any, request: PlanRequest
-) -> tuple[Any, Any, SynthesisProfile]:
-    document = project.load_document_scope(project.document_scopes()[0])
-    if document.format == "ssmd" or project.manifest.source_format == "ssmd":
-        from ..ssmd import document_voice_bindings
-
-        if document.format != "ssmd":
-            document = replace(document, format="ssmd")
-        local_bindings = document_voice_bindings(document.text).get(cfg.ssmd.voice_provider, {})
-        merged_bindings = {**local_bindings, **dict(request.voice_bindings)}
-        request = replace(
-            request,
-            input=replace(request.input, document=document),
-            voice_bindings=merged_bindings,
-        )
+ ) -> tuple[Any, Any, SynthesisProfile]:
+    request = _project_request_with_voice_bindings(project, cfg, request)
     resolved = resolve_execution_v2(cfg, request)
     if not resolved.plan.ok or resolved.selection is None:
         diagnostics = "; ".join(item.message for item in resolved.plan.diagnostics)
@@ -248,8 +252,14 @@ def _resolve_profile(
     from ..engines.registry import get_engine
 
     adapter = get_engine(resolved.selection.engine)
-    return resolved, adapter, _profile_from_selection(adapter, resolved.selection)
-
+    profile = _profile_from_selection(adapter, resolved.selection)
+    project_bindings = project_voice_bindings_provenance(
+        cfg.ssmd.voice_provider, request.project_voice_bindings
+    )
+    profile = replace(
+        profile, payload={**profile.payload, "project_voice_bindings": project_bindings}
+    )
+    return resolved, adapter, profile
 
 def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEvent) -> None:
     if on_event is not None:

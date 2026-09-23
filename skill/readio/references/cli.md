@@ -33,35 +33,40 @@ readio -vv render input.ssmd -o out.wav
 
 ## Synthesis planning
 
-`readio plan` and `readio render --dry-run` resolve the exact plan a render would execute, without loading TTS. Normal `readio render` resolves the same plan first and executes it — the plan is the execution contract:
+`readio render --dry-run` resolves the exact one-shot plan that a bounded render would execute, without loading TTS. Normal `readio render` resolves the same plan before execution:
 
 ```bash
-readio plan --file input.ssmd --format mp3 --json
-readio render --file input.ssmd --dry-run --json
-readio plan --file input.ssmd -o episode.mp3 --force --json
+readio render --file input.ssmd --format mp3 --dry-run --json
+readio render --file input.ssmd --dry-run
+readio render --file input.ssmd --format mp3
 ```
 
-`--json` emits one `readio.plan.v1` object:
+`--json` emits one `readio.plan.v2` object:
 
-- `ok`: false means rendering would fail now; `diagnostics` carries stable codes such as `model_not_found`, `model_language_incompatible`, `model_runtime_unavailable`, `voice_unavailable`, `quality_unavailable`, `lexicon_unavailable`, `experimental_frontend_disallowed`, `synthesis_incomplete`, `ssmd_unresolved_voice`, `ssmd_voice_unavailable`, `backend_resolution_failed`, `output_format_conflict`, `encoder_unavailable`, and `output_exists` (warning).
-- `synthesis.model`: the concrete model with `status`, `runtime_available`, `languages`, `experimental`, voice/quality rosters.
-- `ssmd.bindings`: every executable reference -> voice mapping with `origin` (`document`, `cli`, `config.voice_role`, `direct`); `ssmd.unresolved` lists unrenderable references.
-- `output`: resolved `format`, `encoder_backend`, `path` (generated paths allocated once, `path_origin: "generated"`), and `force`.
-- `decisions`: the winning source (`origin` + `locator`) for every effective value, including each `ssmd.bindings.<ref>` entry.
-- `environment`: Readio/PyKokoro/SSMD versions and `ffmpeg_available`.
+- `ok` and `diagnostics` show whether rendering can proceed without loading a model.
+- `input`, `planning`, and `semantic_plan` identify source interpretation and semantic planning.
+- `render` records the engine-neutral target and effective synthesis values.
+- `output` records format, encoder, proposed path, path origin, and overwrite intent.
+- `decisions` records winning sources and locators, including `ssmd.bindings.<role>` origins such as `document`, `cli`, `project`, `config.voice_role`, and `direct`.
+- `environment` reports package versions and `ffmpeg_available`.
 
-Exit code is 0 for `ok: true` and 1 for a rejected plan. Planning is deterministic: `--resolve-voices` is rejected by `plan` and `--dry-run` — use `--voice-bind ROLE=VOICE_ID` or persisted `readio roles bind` roles.
+Exit code is 0 for `ok: true` and 1 for a rejected plan. One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=VOICE_ID` for an invocation or persistent project bindings for a reusable cast.
+
+## Persistent project planning
+
+`readio plan` is reserved for Readio projects. With no subcommand it builds the current project's semantic plans. Use `readio plan build [PROJECT]` outside that directory, `readio plan roles [PROJECT]` to inspect logical SSMD roles before planning, and `readio plan bind ROLE VOICE` / `readio plan unbind ROLE` to manage project-local acoustic settings. Role bindings do not modify SSMD or change Utterplan `plan_id`; they follow the precedence document, invocation, project, global configured role, then direct voice. Changing them makes synthesis stale but leaves planning current.
+
 
 ## Durable render manifests
 
 Use `--manifest` on bounded `render` when the audio needs reusable execution evidence:
 
 ```bash
-readio plan --file input.ssmd --format mp3 --json
+readio render --file input.ssmd --format mp3 --dry-run --json
 readio render --file input.ssmd --format mp3 --manifest --json
 ```
 
-The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-manifest.v1`. It embeds the exact executed `readio.plan.v1`, a canonical plan SHA-256, final encoded audio SHA-256 and byte count, runtime audio facts, document metadata, and final marker offsets. The sidecar is written only after audio commit and is replaced on a successful `--force` render.
+The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-manifest.v1`. It embeds the exact executed `readio.plan.v2`, a canonical plan SHA-256, final encoded audio SHA-256 and byte count, runtime audio facts, document metadata, and final marker offsets. The sidecar is written only after audio commit and is replaced on a successful `--force` render.
 
 `--manifest` is rejected with `--live` and does not apply to `speak`, `plan`, dry runs, or publishing. If sidecar writing fails, the committed audio remains and JSON errors use code `render.manifest_error` with `audio_path` and `manifest_path`.
 

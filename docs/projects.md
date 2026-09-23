@@ -4,12 +4,31 @@ A Readio project is a persistent audio build graph recognized by `project.json`.
 The `.readio` suffix is conventional; the manifest is authoritative.
 
 ```bash
-readio project init manuscript.md -o manuscript.readio
-readio plan manuscript.readio
-readio synth manuscript.readio --voice de-ko-01
-readio compose manuscript.readio --progress
-readio export manuscript.readio --format mp3
+readio project init episode.ssmd -o episode.readio
+cd episode.readio
+readio plan roles
+readio plan bind narrator en_us-ko-4
+readio plan                         # build semantic plan
+readio synth
+readio compose --progress
+readio export --format mp3
 ```
+
+## Project-local SSMD role bindings
+
+`readio plan roles` discovers logical SSMD roles from project source before a semantic plan exists and shows each effective voice and its source. Bind or remove a project override with:
+
+```bash
+readio plan bind narrator en_us-ko-4
+readio plan bind host en_us-ko-7
+readio plan unbind narrator
+```
+
+Bindings are stored in `project.json` under `settings.ssmd.voice_bindings`, provider-keyed, and canonicalized to concrete voice IDs. They do not edit SSMD source, mutate user-global `readio roles` settings, or change Utterplan `plan_id`. A document-local SSMD binding remains authoritative; when it exists in any relevant scope, project binding is rejected rather than saved as an ineffective override. Role inspection reports per-scope effective values when document bindings differ between scopes.
+
+Voice resolution follows `document > invocation --voice-bind > project > global config role > direct voice`. A project binding is an acoustic synthesis setting. Changing it leaves the semantic plan current, marks active synthesis stale with `synthesis.stale.project_voice_bindings_changed`, blocks composition and output, and makes `readio synth` the next action. The content-addressed synthesis cache is retained.
+
+Use `readio render --file episode.ssmd --dry-run --json` for one-shot execution planning. `readio plan` is reserved for persistent project build and role management.
 
 ## EPUB audiobook projects
 

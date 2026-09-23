@@ -7,7 +7,7 @@ import json
 import os
 import secrets
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -229,6 +229,21 @@ def load_project(path: Path | str | None = None) -> Project:
     return Project(root, manifest)
 
 
+def update_project_manifest(
+    project: Project,
+    update: Callable[[ProjectManifest], ProjectManifest],
+    *,
+    operation: str = "manifest-update",
+) -> Project:
+    """Atomically update project.json under the project's mutation lock."""
+    with project_lock(project, operation=operation):
+        current = load_project(project.root)
+        manifest = update(current.manifest)
+        atomic_write_json(current.root / "project.json", manifest.to_dict())
+    return load_project(project.root)
+
+
+
 def init_project(source: Path | str, output: Path | str | None = None) -> Project:
     source_path = Path(source).expanduser().resolve()
     if not source_path.is_file():
@@ -324,4 +339,5 @@ __all__ = [
     "project_paths",
     "read_json",
     "sha256_bytes",
+    "update_project_manifest",
 ]

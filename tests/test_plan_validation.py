@@ -248,7 +248,7 @@ class TestInputSourceKind:
     def test_cli_literal_text_reports_literal(self, tmp_path) -> None:
         from readio.cli import _build_plan_request, build_parser
 
-        args = build_parser().parse_args(["plan", "Hello world"])
+        args = build_parser().parse_args(["render", "Hello world"])
         request = _build_plan_request(args, ReadioConfig())
         assert request.input.source_kind == "literal"
 
@@ -261,7 +261,7 @@ class TestInputSourceKind:
         monkeypatch.setattr(
             sys, "stdin", SimpleNamespace(isatty=lambda: False, read=lambda: "stdin text")
         )
-        args = build_parser().parse_args(["plan"])
+        args = build_parser().parse_args(["render"])
         request = _build_plan_request(args, ReadioConfig())
         assert request.input.source_kind == "stdin"
 
@@ -270,7 +270,7 @@ class TestInputSourceKind:
 
         source = tmp_path / "note.txt"
         source.write_text("Hello world.", encoding="utf-8")
-        args = build_parser().parse_args(["plan", str(source)])
+        args = build_parser().parse_args(["render", str(source)])
         request = _build_plan_request(args, ReadioConfig())
         assert request.input.source_kind == "file"
 

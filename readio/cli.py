@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .audio import PlaybackSink, RenderProgressCallback, RenderSummary
@@ -70,7 +71,8 @@ from .plan import (
     resolve_execution_v2,
 )
 from .progress import TerminalProgress
-from .project import find_project, init_project, load_project
+from .project import init_project, load_project
+from .project_roles import bind_project_role, inspect_project_roles, unbind_project_role
 from .reader import (
     SelectionError,
     render_from_plan,
@@ -90,7 +92,7 @@ from .ssmd_authoring import materialize_voice_bindings, roundtrip_check
 from .stages.composition import compose_project
 from .stages.export import export_project
 from .stages.pipeline import preview_project, project_status, render_project
-from .stages.planning import plan_document, plan_project
+from .stages.planning import plan_project
 from .stages.synthesis import synthesize_project
 from .synthesis import resolve_synthesis
 from .templates import (
@@ -961,81 +963,129 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _project_from_args(args: argparse.Namespace) -> object | None:
-    positional = tuple(getattr(args, "text", ()) or ())
-    if getattr(args, "file", None) is not None or len(positional) > 1:
-        return None
-    candidate = Path(positional[0]).expanduser() if positional else Path.cwd()
-    if positional and candidate.exists() and candidate.is_file():
-        return None
-    return load_project(candidate) if find_project(candidate) is not None else None
-
-
-def _cmd_plan(args: argparse.Namespace) -> int:
-    """Create/show a semantic plan for projects and preserve legacy inspection for text."""
-    project = _project_from_args(args)
-    cfg = _resolved_config(args)
-    if project is not None:
-        planning = plan_project(project, cfg)
-        scope_rows = [
-            {
-                "scope_id": item.scope.id,
-                "title": item.scope.title,
-                "path": str(Path("plan") / item.scope.path),
-                "plan_id": item.compiled.plan_id,
-                "sha256": item.scope.sha256,
-                "units": len(item.compiled.plan.units),
-            }
-            for item in planning.scopes
-        ]
-        result = {
-            "ok": True,
-            "format": "readio.semantic-plan",
-            "project": str(project.root),
-            "scopes": scope_rows,
-            "units": sum(item["units"] for item in scope_rows),
+def _cmd_plan_build(args: argparse.Namespace) -> int:
+    project = load_project(getattr(args, "project", None) or Path.cwd())
+    planning = plan_project(project, _resolved_config(args))
+    scope_rows = [
+        {
+            "scope_id": item.scope.id,
+            "title": item.scope.title,
+            "path": str(Path("plan") / item.scope.path),
+            "plan_id": item.compiled.plan_id,
+            "sha256": item.scope.sha256,
+            "units": len(item.compiled.plan.units),
         }
-        if len(scope_rows) == 1:
-            result.update(scope_rows[0])
-        if getattr(args, "json", False):
-            print(json.dumps(result, ensure_ascii=False))
-        elif len(scope_rows) == 1:
-            item = planning.scopes[0]
-            print(f"Semantic plan: {item.compiled.plan_id}")
-            print(f"Path: {project.root / 'plan' / item.scope.path}")
-            print(f"Units: {len(item.compiled.plan.units)}")
-        else:
-            print(f"Semantic plans: {len(scope_rows)} scopes")
-            for item in scope_rows:
-                print(f"{item['scope_id']}: {item['plan_id']} ({item['units']} units)")
-        return 0
-    output = getattr(args, "output", None)
-    positional = tuple(getattr(args, "text", ()) or ())
-    if output is not None and output.name.endswith(".utterplan.json") and len(positional) == 1:
-        document = _read_input(args, cfg)
-        compiled = plan_document(document, cfg, output)
-        result = {
-            "ok": True,
-            "format": "utterplan",
-            "path": str(output),
-            "plan_id": compiled.plan_id,
-            "sha256": compiled.sha256,
-        }
-        if getattr(args, "json", False):
-            print(json.dumps(result, ensure_ascii=False))
-        else:
-            print(f"Semantic plan: {compiled.plan_id}")
-            print(f"Path: {output}")
-        return 0
-    # Legacy resolved execution-plan inspection remains available for ordinary text.
-    request = _build_plan_request(args, cfg, operation="render")
-    resolved = resolve_execution_v2(cfg, request)
-    plan = resolved.plan
+        for item in planning.scopes
+    ]
+    result = {
+        "ok": True,
+        "format": "readio.semantic-plan",
+        "project": str(project.root),
+        "scopes": scope_rows,
+        "units": sum(item["units"] for item in scope_rows),
+    }
+    if len(scope_rows) == 1:
+        result.update(scope_rows[0])
     if getattr(args, "json", False):
-        print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
+        print(json.dumps(result, ensure_ascii=False))
+    elif len(scope_rows) == 1:
+        item = planning.scopes[0]
+        print(f"Semantic plan: {item.compiled.plan_id}")
+        print(f"Path: {project.root / 'plan' / item.scope.path}")
+        print(f"Units: {len(item.compiled.plan.units)}")
     else:
-        print(format_plan_human(plan))
-    return 0 if plan.ok else 1
+        print(f"Semantic plans: {len(scope_rows)} scopes")
+        for item in scope_rows:
+            print(f"{item['scope_id']}: {item['plan_id']} ({item['units']} units)")
+    return 0
+
+
+def _cmd_plan_roles(args: argparse.Namespace) -> int:
+    project = load_project(getattr(args, "project", None) or Path.cwd())
+    inspection = inspect_project_roles(
+        project, _resolved_config(args), provider=getattr(args, "provider", None)
+    )
+    result = {
+        "ok": True,
+        "project": str(project.root),
+        **inspection.to_dict(),
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    print(f"Project:  {project.manifest.name}")
+    print(f"Provider: {inspection.provider}")
+    print(f"SSMD roles: {len(inspection.roles)}")
+    print()
+    print(f"{'ROLE':<12} {'USES':>4}  {'VOICE':<12} SOURCE")
+    print(f"{'-' * 12} {'-' * 4}  {'-' * 12} {'-' * 10}")
+    for role in inspection.roles:
+        voice = role.effective_voice or "-"
+        source = _project_role_source(role)
+        print(f"{role.role:<12} {role.uses:>4}  {voice:<12} {source}")
+    if inspection.unresolved:
+        print()
+        print(f"Unresolved roles: {', '.join(inspection.unresolved)}")
+        print("Choose a voice:")
+        print("  readio voices list --lang en-us")
+        print("Bind them to this project:")
+        for role in inspection.unresolved:
+            print(f"  readio plan bind {role} <voice>")
+    return 0
+
+
+def _project_role_source(role: Any) -> str:
+    if role.status == "mixed" and role.document_bindings:
+        return "document"
+    if role.origin == "config.voice_role":
+        return "config"
+    return role.origin
+
+
+def _cmd_plan_bind(args: argparse.Namespace) -> int:
+    result = bind_project_role(
+        load_project(args.project or Path.cwd()),
+        _resolved_config(args),
+        args.role,
+        args.voice,
+        provider=args.provider,
+        offline=bool(args.offline),
+        refresh=bool(args.refresh),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"Project: {Path(result['project']).name}")
+        print(f"{result['role']} -> {result['stored_voice']}")
+        print("Source: project")
+        print()
+        print("Semantic plan unchanged.")
+        print("Active synthesis must be refreshed if one exists.")
+    return 0
+
+
+def _cmd_plan_unbind(args: argparse.Namespace) -> int:
+    result = unbind_project_role(
+        load_project(args.project or Path.cwd()),
+        _resolved_config(args),
+        args.role,
+        provider=args.provider,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print("Removed project binding:")
+        print(f"  {result['role']} -> {result['removed_voice']}")
+        print()
+        if result["effective_voice"] is None:
+            print(f"Role {result['role']!r} is now unresolved.")
+        else:
+            print("Effective binding is now:")
+            origin = result["origin"]
+            if origin == "config.voice_role":
+                origin = "config"
+            print(f"  {result['role']} -> {result['effective_voice']} ({origin})")
+    return 0
 
 
 def _render_cli_live(args: argparse.Namespace, cfg: ReadioConfig) -> int:
@@ -2176,25 +2226,39 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_cmd = sub.add_parser(
         "plan",
-        help="resolve and display the synthesis plan without loading TTS",
+        help="build a project plan or inspect and bind its SSMD roles",
     )
-    _add_input_options(plan_cmd)
-    _add_synthesis_options(plan_cmd)
-    _add_audio_output_options(plan_cmd)
-    plan_cmd.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        help="proposed output audio path (for format inference only)",
-    )
-    _add_voice_resolution_options(plan_cmd)
-    plan_cmd.add_argument(
-        "--force",
-        action="store_true",
-        help="represent overwrite intent for the proposed output path",
-    )
-    plan_cmd.add_argument("--json", action="store_true", help="emit one JSON plan object")
-    plan_cmd.set_defaults(func=_cmd_plan)
+    plan_cmd.add_argument("--json", action="store_true", help="emit JSON output")
+    plan_cmd.set_defaults(func=_cmd_plan_build, project=None)
+    plan_sub = plan_cmd.add_subparsers(dest="plan_action")
+
+    plan_build = plan_sub.add_parser("build", help="build semantic plans for a project")
+    plan_build.add_argument("project", nargs="?", type=Path)
+    plan_build.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    plan_build.set_defaults(func=_cmd_plan_build)
+
+    plan_roles = plan_sub.add_parser("roles", help="inspect SSMD roles and effective voices")
+    plan_roles.add_argument("project", nargs="?", type=Path)
+    plan_roles.add_argument("--provider", help="voice provider, default from configuration")
+    plan_roles.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    plan_roles.set_defaults(func=_cmd_plan_roles)
+
+    plan_bind = plan_sub.add_parser("bind", help="bind a project role to a provider voice")
+    plan_bind.add_argument("role")
+    plan_bind.add_argument("voice")
+    plan_bind.add_argument("--provider", help="voice provider, default from configuration")
+    plan_bind.add_argument("--project", type=Path)
+    plan_bind.add_argument("--offline", action="store_true", help="use cached discovery metadata only")
+    plan_bind.add_argument("--refresh", action="store_true", help="refresh voice discovery metadata")
+    plan_bind.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    plan_bind.set_defaults(func=_cmd_plan_bind)
+
+    plan_unbind = plan_sub.add_parser("unbind", help="remove a project role voice binding")
+    plan_unbind.add_argument("role")
+    plan_unbind.add_argument("--provider", help="voice provider, default from configuration")
+    plan_unbind.add_argument("--project", type=Path)
+    plan_unbind.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    plan_unbind.set_defaults(func=_cmd_plan_unbind)
     project_cmd = sub.add_parser("project", help="create or maintain a persistent Readio project")
     project_sub = project_cmd.add_subparsers(dest="project_command", required=True)
     project_init = project_sub.add_parser(
@@ -2522,6 +2586,9 @@ def _error_code(exc: Exception) -> str:
 
 def _error_payload(exc: Exception) -> dict[str, object]:
     payload: dict[str, object] = {"ok": False, "code": _error_code(exc), "error": str(exc)}
+    details = getattr(exc, "details", None)
+    if isinstance(details, Mapping):
+        payload.update(details)
     if isinstance(exc, ReadioError) and exc.source_path is not None:
         payload["source"] = str(exc.source_path)
     if isinstance(exc, ModelDiscoveryError) and exc.installed_version is not None:

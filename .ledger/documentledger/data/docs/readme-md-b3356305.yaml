@@ -2,364 +2,963 @@ schema: documentledger.doc_record.v4
 doc_path: README.md
 linked_sources: []
 sections:
-  - section_id: md:section:README.md::readio
-    doc_path: README.md
-    heading_path:
-      - readio
-    heading_slug: readio
-    line_span:
-      - 1
-      - 4
-    section_hash: 0d7410ffb11859fc01674ec988927b3867177b71f0ed795bb5f862877d6503e2
-    summary: readio
-    text: "# readio
+- section_id: md:section:README.md::readio
+  doc_path: README.md
+  heading_path:
+  - readio
+  heading_slug: readio
+  line_span:
+  - 1
+  - 4
+  section_hash: 2928527732b235411cac5ddebc6e08ad91b03c582a879abe2cedf5e16f2e4215
+  summary: readio
+  text: '# readio
 
 
-      `readio` is a terminal text to speech tool. It plays local speech with PyKokoro,
-      renders bounded memory WAV files, and publishes completed audio through the external
-      `save-to-spotify` CLI."
-    links: []
-  - section_id: md:section:README.md::install
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Install
-    heading_slug: install
-    line_span:
-      - 5
-      - 18
-    section_hash: 392dabf0a0ccfbc401a2be07b45a5007dc95c709d60cf0e0a6b62d936dc1b4d4
-    summary: Install
-    text: '## Install
+    `readio` is a terminal text to speech tool. It plays local speech with PyKokoro,
+    renders bounded memory WAV, MP3, M4A, or OGG files, and publishes completed audio
+    through the external `save-to-spotify` CLI.'
+  links: []
+- section_id: md:section:README.md::install
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Install
+  heading_slug: install
+  line_span:
+  - 5
+  - 18
+  section_hash: 392dabf0a0ccfbc401a2be07b45a5007dc95c709d60cf0e0a6b62d936dc1b4d4
+  summary: Install
+  text: '## Install
 
 
-      ```bash
+    ```bash
 
-      python -m pip install -e ".[cpu]"
+    python -m pip install -e ".[cpu]"
 
-      ```
+    ```
 
 
-      For GPU ONNX Runtime:
+    For GPU ONNX Runtime:
 
 
-      ```bash
+    ```bash
 
-      python -m pip install -e ".[gpu]"
+    python -m pip install -e ".[gpu]"
 
-      ```
+    ```
 
 
-      PyKokoro may download model and voice assets on first use. Spotify publishing
-      requires the separately installed `save-to-spotify` executable and its authenticated
-      session. Readio never reads Spotify credential files.'
-    links: []
-  - section_id: md:section:README.md::playback
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Playback
-    heading_slug: playback
-    line_span:
-      - 19
-      - 29
-    section_hash: f01d555a132a5cc068cbb8905cbdda27241d12efde6635eb4fbae3d9e5379331
-    summary: Playback
-    text: '## Playback
+    PyKokoro may download model and voice assets on first use. Spotify publishing
+    requires the separately installed `save-to-spotify` executable and its authenticated
+    session. Readio never reads Spotify credential files.'
+  links: []
+- section_id: md:section:README.md::optional-spacy-linguistic-planning
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Install
+  - Optional spaCy linguistic planning
+  heading_slug: optional-spacy-linguistic-planning
+  line_span:
+  - 19
+  - 30
+  section_hash: 516269ac0a37f6c27cc304b0b4ff84947cb6af8939aeb48f5df2596bc95e472f
+  summary: Optional spaCy linguistic planning
+  text: '### Optional spaCy linguistic planning
 
 
-      ```bash
+    Install the optional Utterplan spaCy support when local grammatical annotations
+    are desired:
 
-      readio speak "Hello from the terminal."
 
-      printf ''%s\n'' "Read this from stdin." | readio speak
+    ```bash
 
-      readio speak --file notes.md
+    python -m pip install "readio[spacy]"
 
-      readio speak --file notes.md --select last-paragraph
+    ```
 
-      readio speak --file notes.md --select paragraph:3
 
-      producer-command | readio speak --live
+    Install a compatible local spaCy language model separately. Readio never downloads
+    models implicitly. The default `reader.spacy = "auto"` tries the best locally
+    installed model and falls back to Utterplan''s analyzer when none is available.
+    The explicit `sm`, `md`, `lg`, and `trf` settings require the selected local model
+    tier and fail if it is unavailable. `off` disables spaCy analysis.
 
-      ```'
-    links: []
-  - section_id: md:section:README.md::configuration
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Configuration
-    heading_slug: configuration
-    line_span:
-      - 30
-      - 46
-    section_hash: ba856ff228302732a1b28d95e1818c4e390ed235d69c587644acc639a62b6603
-    summary: Configuration
-    text: "## Configuration
 
+    `readio plan` stores token annotations and linguistic provenance in the Utterplan
+    v2 artifact. Rendering an existing project plan consumes those stored annotations
+    and does not rerun spaCy when the engine, voice, or acoustic settings change.
+    Direct one-shot commands such as `readio speak` may use the selected backend''s
+    local frontend because they do not consume a persisted semantic plan.'
+  links: []
+- section_id: md:section:README.md::playback
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Playback
+  heading_slug: playback
+  line_span:
+  - 31
+  - 63
+  section_hash: 709832a62e6c1bb1a7d3dd19120fbda4a805d22f52af84964c429f7d6eccd697
+  summary: Playback
+  text: '## Playback
 
-      Initialize one user-owned Readio configuration and its storage:
 
+    ```bash
 
-      ```bash
+    readio speak "Hello from the terminal."
 
-      readio config init
+    printf ''%s\n'' "Read this from stdin." | readio speak
 
-      readio config show
+    readio speak --file notes.md              # parsed as Markdown
 
-      readio config validate
+    readio speak --file notes.md --input-format text  # literal text fallback
 
-      readio config set reader.voice bf_emma
+    readio speak --file notes.md --select last-paragraph
 
-      readio config set voices.kokoro.roles.analyst am_michael
+    readio speak --file notes.md --select paragraph:3
 
-      readio config set ssmd.voice_provider kokoro
+    producer-command | readio speak --live
 
-      ```
+    ```
 
 
-      The default configuration uses `platformdirs` for the config, template, ingest,
-      and output locations. `READIO_CONFIG` overrides the config file path. Existing
-      legacy files containing only `[reader]` continue to load and are upgraded to schema
-      1 when saved.
+    A single existing positional token is also treated as a file path by `speak`,
+    `render`, and `spotify publish`, including `.ssmd` and Markdown files:
 
 
-      The configuration contains reader settings, SSMD defaults, provider-specific voice
-      IDs, and logical role bindings. Templates refer to roles such as `host`, `analyst`,
-      `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`."
-    links: []
-  - section_id: md:section:README.md::templates
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Templates
-    heading_slug: templates
-    line_span:
-      - 47
-      - 68
-    section_hash: cd1aca5801c8aa158ef2906a3c6ea84e9cfa37e4566fee8f5ecf1ffebaf29995
-    summary: Templates
-    text: '## Templates
+    ```bash
 
+    readio speak README.md
 
-      Built-in templates are copied into the user template directory during initialization.
-      They are user-owned and are not overwritten by normal initialization or package
-      upgrades.
+    readio render episode.ssmd -o episode.mp3
 
+    readio spotify publish episode.ssmd --title "Episode"
 
-      ```bash
+    ```
 
-      readio template path
 
-      readio template list
+    For scripts, prefer the explicit `--file PATH` form. A missing path-like token
+    fails instead of being spoken as a filename. Use `--input-format text` to force
+    an existing filename to remain literal text.
 
-      readio template show podcast
 
-      readio template add custom --file custom.ssmd
+    Readio parses `.md`, `.markdown`, `.mdown`, and `.mkd` as Markdown before synthesis.
+    Headings, lists, links, images, code blocks, block quotes, tables, task lists,
+    HTML text, and front matter are projected into speech-friendly text. Ordinary
+    Markdown is isolated from SSMD controls; use `.ssmd` when explicit voices, rate,
+    volume, pitch, breaks, or markers are required.
 
-      readio template remove custom
 
-      readio template reset podcast
+    Markdown can also be supplied explicitly through stdin or literal input:
 
-      readio template reset --all
 
-      ```
+    ```bash
 
+    cat README.md | readio speak --input-format markdown
 
-      Create an agent-editable draft with an automatic filename:
+    readio render --input-format markdown ''# Title'' ''This is **important**.''
 
+    ```
 
-      ```bash
 
-      draft="$(readio template use podcast)"
+    Use `--input-format text` when a Markdown-looking file should be read as literal
+    text.'
+  links: []
+- section_id: md:section:README.md::configuration
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Configuration
+  heading_slug: configuration
+  line_span:
+  - 64
+  - 81
+  section_hash: 44e5334ad0f2bc92c67590db1788fa65d0450b0e224021ecc4881089722d1297
+  summary: Configuration
+  text: '## Configuration
 
-      ```
 
+    Initialize one user-owned Readio configuration and its storage:
 
-      The returned path is under the configured ingest directory. A caller can request
-      a filename with `readio template use podcast --name weekly-review.ssmd`.'
-    links: []
-  - section_id: md:section:README.md::ingest-directory
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Ingest directory
-    heading_slug: ingest-directory
-    line_span:
-      - 69
-      - 82
-    section_hash: e16e277acb138661f89ed6071b03cb3ddef9895a420e41598b212f740ca9446b
-    summary: Ingest directory
-    text: "## Ingest directory
 
+    ```bash
 
-      The ingest directory stores text, Markdown, and SSMD files created for later processing.
+    readio config init
 
+    readio config show
 
-      ```bash
+    readio config validate
 
-      readio ingest path
+    readio config set reader.voice bf_emma
 
-      readio ingest new
+    readio config set voices.kokoro.roles.analyst am_michael
 
-      readio ingest new --name notes.txt
+    readio config set reader.pause_mode auto
 
-      readio ingest new --template podcast --name episode-42.ssmd
+    readio config set ssmd.voice_provider kokoro
 
-      readio ingest list
+    ```
 
-      ```
 
+    The default configuration uses `platformdirs` for the config, template, ingest,
+    and output locations. `READIO_CONFIG` overrides the config file path. Existing
+    legacy files containing only `[reader]` continue to load and are upgraded to schema
+    2 when saved.
 
-      Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`.
-      Explicit names are relative to the ingest directory and path traversal is rejected."
-    links: []
-  - section_id: md:section:README.md::automatic-wav-output
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Automatic WAV output
-    heading_slug: automatic-wav-output
-    line_span:
-      - 83
-      - 94
-    section_hash: 842d0514bd10a711be856f36227e8d689cf4e0dca2865f8b8175874118689bc9
-    summary: Automatic WAV output
-    text: '## Automatic WAV output
 
+    The configuration contains reader settings, SSMD defaults, provider-specific voice
+    IDs, and logical role bindings. Templates refer to roles such as `host`, `analyst`,
+    `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`.'
+  links: []
+- section_id: md:section:README.md::model-discovery-and-language-defaults
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Configuration
+  - Model discovery and language defaults
+  heading_slug: model-discovery-and-language-defaults
+  line_span:
+  - 82
+  - 143
+  section_hash: dd46cb124b331d15eddd42f3318d68b5f2c51a7aa06c4f65e415ca97cfb00613
+  summary: Model discovery and language defaults
+  text: '### Model discovery and language defaults
 
-      The output path is optional:
 
+    PyKokoro >=0.9.11,<0.10 is the runtime contract and owns the model, language,
+    voice, quality, frontend, and named-lexicon catalog. Readio also requires OnnxVoice
+    >=0.1.6,<0.2 for the runtime model and timing integration. Discovery is metadata-only
+    and does not download model weights:
 
-      ```bash
+    Readio v0.2.5 is tested against PyKokoro 0.9.11.
 
-      readio render "Hello from a file."
 
-      readio render --file "$draft"
+    Readio selects synthesis through an explicit engine registry. PyKokoro and Piper
+    are the supported engines; engine identity is recorded separately from distribution
+    provider metadata so future adapters can be added without changing selectors or
+    configuration.
 
-      readio render --file "$draft" -o episode.wav
 
-      ```
+    The canonical engine IDs are `pykokoro` and `piper`. The alias `pipersynth` is
+    accepted as a compatibility alias for `piper`.
 
 
-      Without `-o`, Readio uses the configured output directory. Generated ingest files
-      retain their artifact stem in the WAV name. Other input files receive a new artifact
-      suffix, and literal text uses the `readio` prefix. Automatic names never overwrite
-      an existing file. Explicit output remains atomic and requires `--force` for replacement.'
-    links: []
-  - section_id: md:section:README.md::ssmd-consumption-and-authoring-checks
-    doc_path: README.md
-    heading_path:
-      - readio
-      - SSMD consumption and authoring checks
-    heading_slug: ssmd-consumption-and-authoring-checks
-    line_span:
-      - 95
-      - 108
-    section_hash: 961fef73ec6abf0c487d09e3c47d0311bcf7e4a0a78cdcdc4298c5574e23ae68
-    summary: SSMD consumption and authoring checks
-    text: "## SSMD consumption and authoring checks
+    ```bash
 
+    readio models list --language de --offline
 
-      For `.ssmd` inputs, Readio parses the document through SSMD 0.8.3 and passes a
-      PyKokoro `SSMDRenderConfig` containing only missing Readio role defaults. Document
-      `voice_bindings` remain authoritative. Normal `speak`, `render`, and `spotify`
-      commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip
-      validation.
+    readio models show de-thorsten --offline
 
+    readio voices list --model de-thorsten --json
 
-      Inspect a document before rendering:
+    readio models list --preference huggingface --json
 
+    readio voices list --model de-thorsten --preference github --json
 
-      ```bash
+    readio lexicons list --lang de --offline --json
 
-      readio ssmd check episode.ssmd
+    readio lexicons show crane --lang de --offline --json
 
-      readio ssmd check episode.ssmd --json
+    ```
 
-      readio ssmd check episode.ssmd --roundtrip
 
-      ```
+    Piper voice bundles are discovered through PiperSynth without loading ONNX during
+    planning:
 
 
-      `readio template validate --all` checks shipped or configured templates with the
-      same consumer preflight. Add `--roundtrip` for strict SSMD authoring validation.
-      Unknown logical roles fail before model inference with a Readio diagnostic."
-    links: []
-  - section_id: md:section:README.md::spotify-publishing
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Spotify publishing
-    heading_slug: spotify-publishing
-    line_span:
-      - 109
-      - 116
-    section_hash: 156ae417c3a8da5c53b32ebf545a8433729f20b7338b107d95f70814c1670365
-    summary: Spotify publishing
-    text: '## Spotify publishing
+    ```bash
 
+    readio voices list --engine piper --lang de
 
-      ```bash
+    readio render --engine piper --voice de_DE-thorsten-medium --lang de --dry-run
+    --json --text "Hallo Welt"
 
-      readio spotify --file "$draft" --title "Weekly Review" --wait
+    readio speak --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt"
 
-      ```
+    readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest
+    -o article.wav --text "Hallo Welt"
 
+    readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run
+    --json --text "Hallo Welt"
 
-      Publishing is explicit. Without `--output`, Readio renders to a secure temporary
-      WAV and deletes it after upload or failure. With `--output`, it retains and uploads
-      that file. Readio invokes `save-to-spotify --json` and does not inspect credentials
-      or perform authentication.'
-    links: []
-  - section_id: md:section:README.md::doctor
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Doctor
-    heading_slug: doctor
-    line_span:
-      - 117
-      - 124
-    section_hash: 8734ec18d95b8c9ba683ac000ba77b57df315994d148215b995e1de324ec56d6
-    summary: Doctor
-    text: "## Doctor
+    ```
 
 
-      ```bash
+    Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Piper live mode is
+    not supported yet; use bounded input.
 
-      readio doctor
 
-      ```
+    Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid.
+    Offline metadata requires a cached registry; offline synthesis additionally requires
+    cached model and voice assets.
 
 
-      Doctor is offline. It reports Readio configuration, configured directories and
-      their existence, PyKokoro, SSMD module and executable availability, the selected
-      provider, voice IDs, logical roles, sound dependencies, and `save-to-spotify`.
-      It does not create directories, modify configuration, inspect credentials, or
-      call the network."
-    links: []
-  - section_id: md:section:README.md::agent-skill
-    doc_path: README.md
-    heading_path:
-      - readio
-      - Agent Skill
-    heading_slug: agent-skill
-    line_span:
-      - 125
-      - 127
-    section_hash: 05dd5fe18d1ef9aa9f75fc7ab4e441413240d8f8bbf0a8be415c4468d036d90c
-    summary: Agent Skill
-    text: "## Agent Skill
+    Persist a validated default per language. Language keys are normalized, and locale-specific
+    profiles fall back to their base language:
 
 
-      The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and
-      commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary
-      file management, or manual cleanup for normal podcast workflows."
-    links: []
+    ```bash
+
+    readio defaults set de --model de-thorsten --lexicon crane --offline
+
+    readio defaults show de --json
+
+    readio defaults show de-at --json
+
+    readio render --lang de --file notes.md
+
+    ```
+
+
+    When a model is selected, Readio fills its normalized source, default voice, and
+    preferred quality, then validates language compatibility, voice roster, quality,
+    named lexicons, and experimental frontend permission before saving. `--no-lexicons`
+    selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons`
+    returns to engine language defaults (`lexicons=null`). Repeat `--lexicon` to preserve
+    ordered layered lookup.
+
+    Readio defaults `pause_mode` to `auto`, enabling PyKokoro''s automatic pause analysis.
+    Use `--pause-mode tts` to leave pause timing to the acoustic model or `--pause-mode
+    manual` for explicit boundary pauses. A persisted `reader.pause_mode` remains
+    the default for that installation.
+
+    Named lexicons use engine selectors, not backend asset IDs:
+
+    crane = named selection token
+
+    de-de:crane = language-qualified Lexphon asset resolved downstream
+
+    de-crane = separate acoustic model ID
+
+
+    ````
+
+
+    For reproducible German synthesis:
+
+
+    ```bash
+
+    readio models show de-thorsten
+
+    readio defaults set de --model de-thorsten --lexicon crane --g2p-fallback espeak
+    --lexicon-data-policy auto
+
+    readio render --file article.md --lang de --dry-run --json
+
+    readio render --file article.md --lang de --model de-thorsten --no-lexicons --g2p-fallback
+    espeak --format mp3
+
+    ````
+
+
+    The plan also records optional PyKokoro language detection. SSMD documents may
+    use `language_detection: {mode: auto, languages: [de, en]}`; this routes pronunciation
+    fragments while retaining the selected acoustic language.'
+  links: []
+- section_id: md:section:README.md::templates
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Templates
+  heading_slug: templates
+  line_span:
+  - 144
+  - 165
+  section_hash: cd1aca5801c8aa158ef2906a3c6ea84e9cfa37e4566fee8f5ecf1ffebaf29995
+  summary: Templates
+  text: '## Templates
+
+
+    Built-in templates are copied into the user template directory during initialization.
+    They are user-owned and are not overwritten by normal initialization or package
+    upgrades.
+
+
+    ```bash
+
+    readio template path
+
+    readio template list
+
+    readio template show podcast
+
+    readio template add custom --file custom.ssmd
+
+    readio template remove custom
+
+    readio template reset podcast
+
+    readio template reset --all
+
+    ```
+
+
+    Create an agent-editable draft with an automatic filename:
+
+
+    ```bash
+
+    draft="$(readio template use podcast)"
+
+    ```
+
+
+    The returned path is under the configured ingest directory. A caller can request
+    a filename with `readio template use podcast --name weekly-review.ssmd`.'
+  links: []
+- section_id: md:section:README.md::standalone-llm-authoring-guides
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Standalone LLM authoring guides
+  heading_slug: standalone-llm-authoring-guides
+  line_span:
+  - 166
+  - 173
+  section_hash: 97c155e37dc8d0e4e694c4c2463a259fc6983d40c42cb1d053c91ad2f3b48bbd
+  summary: Standalone LLM authoring guides
+  text: '## Standalone LLM authoring guides
+
+
+    `llm-guides/ssmd/` contains standalone Markdown instructions for generic LLMs.
+    These guides are distinct from the runtime `.ssmd` templates managed by `readio
+    template`.
+
+
+    No Readio or Python installation is needed on the authoring system: choose one
+    guide and attach it with the task and source material. When the harness supports
+    artifacts, ask it to create and return one downloadable `.ssmd` file; otherwise
+    save the raw SSMD response as a file. Rendering and final validation happen later
+    on a system where Readio is installed.
+
+
+    See [`llm-guides/README.md`](llm-guides/README.md) for the catalog and the authoring-to-rendering
+    workflow.'
+  links: []
+- section_id: md:section:README.md::ingest-directory
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Ingest directory
+  heading_slug: ingest-directory
+  line_span:
+  - 174
+  - 187
+  section_hash: e16e277acb138661f89ed6071b03cb3ddef9895a420e41598b212f740ca9446b
+  summary: Ingest directory
+  text: '## Ingest directory
+
+
+    The ingest directory stores text, Markdown, and SSMD files created for later processing.
+
+
+    ```bash
+
+    readio ingest path
+
+    readio ingest new
+
+    readio ingest new --name notes.txt
+
+    readio ingest new --template podcast --name episode-42.ssmd
+
+    readio ingest list
+
+    ```
+
+
+    Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`.
+    Explicit names are relative to the ingest directory and path traversal is rejected.'
+  links: []
+- section_id: md:section:README.md::planning-before-rendering
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Planning before rendering
+  heading_slug: planning-before-rendering
+  line_span:
+  - 188
+  - 256
+  section_hash: 7999b2ff93af9d3a5f229d12d9a220bc3dcc2bc48b55fa77c4fddb5614aafb4a
+  summary: Planning before rendering
+  text: "## Planning before rendering\n\nEvery non-live `readio render` resolves an\
+    \ explicit synthesis plan before TTS work. Use `readio render --dry-run` to inspect\
+    \ the same plan without loading a model; a normal render executes exactly the\
+    \ plan it resolved:\n\n```bash\nreadio render --file episode.ssmd --format mp3\
+    \ --dry-run --json\nreadio render --file episode.ssmd --dry-run          # human\
+    \ output\nreadio render --file episode.ssmd                    # resolves the\
+    \ same plan, then executes it\n```\n\nPlanning, discovery, defaults, and render\
+    \ results are distinct layers:\n\n- **`readio models` / `readio voices` (discovery)**\
+    \ list what the installed engine runtime _could_ provide — model IDs, languages,\
+    \ voices, qualities, lexicons, status.\n- **`readio defaults` (defaults)** persist\
+    \ validated per-language policy that resolution _prefers_.\n- **`readio plan`\
+    \ (project planning)** builds semantic plans for persistent projects and provides\
+    \ `roles`, `bind`, and `unbind` for project-local SSMD cast settings. It does\
+    \ not resolve one-shot engine/model/output choices or load TTS.\n- **`readio render`\
+    \ (render result)** executes the plan; the plan JSON's synthesis, SSMD bindings,\
+    \ and output path are the values actually used. A render that fails planning exits\
+    \ 1 with the plan and its diagnostics instead of loading TTS.\n\n`readio.plan.v2`\
+    \ JSON exposes `schema`, `ok`, `input`, `planning`, `semantic_plan`, `render`\
+    \ (with engine-neutral target), `output` (format, encoder backend, path, path\
+    \ origin, `force`), `environment` (generic package versions), `decisions` (winning\
+    \ source per field), and `diagnostics`:\n\n```json\n{\n  \"schema\": \"readio.plan.v2\"\
+    ,\n  \"ok\": true,\n  \"operation\": \"render\",\n  \"input\": {\n    \"source_path\"\
+    : \"article.md\",\n    \"source_kind\": \"file\",\n    \"requested_format\": \"\
+    markdown\",\n    \"format\": \"markdown\",\n    \"source_sha256\": \"...\",\n\
+    \    \"selector\": \"all\"\n  },\n  \"planning\": { \"language\": \"de\", \"unit\"\
+    : \"sentence\", \"pause_mode\": \"auto\" },\n  \"semantic_plan\": {\n    \"format\"\
+    : \"utterplan\",\n    \"schema_version\": 2,\n    \"plan_id\": \"...\",\n    \"\
+    sha256\": \"...\",\n    \"path\": \"plan/document.utterplan.json\"\n  },\n  \"\
+    render\": {\n    \"engine\": \"piper\",\n    \"target\": { \"id\": \"de_DE-thorsten-medium\"\
+    , \"language\": \"de\", \"voice\": \"thorsten\" },\n    \"rate\": 1.0,\n    \"\
+    options\": {}\n  },\n  \"output\": {\n    \"mode\": \"file\",\n    \"format\"\
+    : \"mp3\",\n    \"encoder_backend\": \"soundfile\",\n    \"path\": \".../article.mp3\"\
+    ,\n    \"path_origin\": \"explicit\",\n    \"force\": false\n  },\n  \"environment\"\
+    : { \"packages\": {}, \"ffmpeg_available\": true },\n  \"decisions\": [\n    {\n\
+    \      \"field\": \"ssmd.bindings.narrator\",\n      \"value\": \"af_heart\",\n\
+    \      \"origin\": \"cli\",\n      \"locator\": \"request.voice_bindings\"\n \
+    \   }\n  ],\n  \"diagnostics\": []\n}\n```\n\nOne-shot planning is deterministic\
+    \ and non-interactive. Use repeatable `--voice-bind ROLE=VOICE_ID` options for\
+    \ invocation-only choices or persist project-local role choices with `readio plan\
+    \ bind`; `--resolve-voices` is rejected by `render --dry-run`."
+  links: []
+- section_id: md:section:README.md::durable-render-manifests
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Durable render manifests
+  heading_slug: durable-render-manifests
+  line_span:
+  - 257
+  - 270
+  section_hash: 82d2475d6b0e1fc506b6435dea28f739d1297252846089fbe8669a1fedf2d9bd
+  summary: Durable render manifests
+  text: '## Durable render manifests
+
+
+    For bounded renders that will be reused, published, compared, or handed to another
+    agent, request an opt-in post-render manifest:
+
+
+    ```bash
+
+    readio render --file episode.ssmd --format mp3 --dry-run --json
+
+    readio render --file episode.ssmd --format mp3 --manifest
+
+    readio render --file episode.ssmd --format mp3 --manifest --json
+
+    ```
+
+
+    A successful render writes the audio and a colocated `<audio>.readio.json` sidecar.
+    The sidecar uses schema `readio.render-manifest.v1` and records the exact executed
+    `readio.plan.v2`, its canonical SHA-256, the semantic plan identity, the final
+    encoded audio hash and byte count, render summary facts, document metadata, and
+    final marker offsets. The plan is pre-execution intent; the manifest is post-execution
+    evidence.
+
+
+    Human stdout remains only the audio path. JSON render output remains one object
+    and adds `manifest` with the sidecar schema and path, or `null` when the flag
+    is absent. `--manifest` is available only for bounded rendering, not `--live`,
+    `speak`, planning, dry runs, or publishing. If sidecar writing fails, Readio preserves
+    the committed audio and returns `render.manifest_error`.'
+  links: []
+- section_id: md:section:README.md::multi-format-audio-output
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Multi-format audio output
+  heading_slug: multi-format-audio-output
+  line_span:
+  - 271
+  - 282
+  section_hash: c1fad5de947fa7aa02fafe973c99610ab5208f23b4347e790f6d6cc84042e9ed
+  summary: Multi-format audio output
+  text: '## Multi-format audio output
+
+
+    The output path is optional and WAV remains the default:
+
+
+    ```bash
+
+    readio render "Hello from a file."
+
+    readio render --file "$draft" -o episode.wav
+
+    readio render "Hello" -o episode.mp3
+
+    readio render --file episode.ssmd --format m4a
+
+    readio render "Hello" --format ogg
+
+    ```'
+  links: []
+- section_id: md:section:README.md::progress
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Progress
+  heading_slug: progress
+  line_span:
+  - 283
+  - 299
+  section_hash: ffafaf5c2db2c93d4f5040cd5facd00899a0bbcc4431ae1d4803dfcad88a13cc
+  summary: Progress
+  text: '## Progress
+
+
+    `render`, `synth`, `preview`, `compose`, project render, and `spotify` report
+    low-noise progress on stderr. It is enabled automatically on an interactive terminal.
+    Use `--progress` to force it or `--no-progress` to suppress it:
+
+
+    ```bash
+
+    readio compose manuscript.readio
+
+    readio compose manuscript.readio --progress
+
+    readio compose manuscript.readio --no-progress
+
+    readio compose manuscript.readio --json --progress
+
+    readio render --file episode.ssmd -o episode.mp3 --progress
+
+    readio spotify publish --file episode.ssmd --title "Episode" --json
+
+    ```
+
+
+    Composition progress shows the current speech segment, active operation, completed
+    and total segments, elapsed time, and an approximate ETA after enough segment
+    work has completed. The ETA covers segment processing only. Assembly, complete-output
+    loudness and true-peak processing, and composition artifact writing are shown
+    as separate final stages.
+
+
+    `--json` keeps stdout to one machine-readable result object. Progress remains
+    on stderr, automatic progress is disabled in JSON mode, and explicit `--progress`
+    remains stderr-only. Verbose mode uses line-oriented stderr output instead of
+    in-place terminal rewriting.'
+  links: []
+- section_id: md:section:README.md::verbose-diagnostics
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Verbose diagnostics
+  heading_slug: verbose-diagnostics
+  line_span:
+  - 300
+  - 314
+  section_hash: 3fd298d508b34e4c62f41afabfcec484d9319bd1e7e7d102d421f42b81ffb533
+  summary: Verbose diagnostics
+  text: '## Verbose diagnostics
+
+
+    Use the global repeatable verbosity option for live operational diagnostics:
+
+
+    ```bash
+
+    readio -v speak "Hello"
+
+    readio -vv render episode.ssmd -o episode.mp3
+
+    readio speak "literal --verbose" --
+
+    ```
+
+
+    `-v` shows timestamped lifecycle records at INFO level. `-vv` enables DEBUG-level
+    Readio and PyKokoro details; additional repetitions are clamped to DEBUG. Verbose
+    records always go to stderr, so ordinary output and `--json` results remain on
+    stdout and stay machine-parseable. `--progress` is a separate user-facing progress
+    control. When verbose mode and progress are combined, progress uses line-oriented
+    stderr records instead of in-place terminal rewriting. Logs can contain paths
+    and model or voice identifiers, so review them before sharing and never treat
+    verbose mode as permission to expose document text, audio, or credentials.
+
+    When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the
+    encoder. Use `--format` when the output path is omitted or to select the automatic
+    filename suffix. An explicit format and suffix must agree. Extensionless output
+    paths receive the selected suffix, and unsupported suffixes fail before synthesis.
+    Automatic names use the configured output directory and never overwrite an existing
+    file. Explicit output remains atomic and requires `--force` for replacement.
+
+
+    M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3
+    and OGG use the installed SoundFile/libsndfile codecs.'
+  links: []
+- section_id: md:section:README.md::ssmd-consumption-and-authoring-checks
+  doc_path: README.md
+  heading_path:
+  - readio
+  - SSMD consumption and authoring checks
+  heading_slug: ssmd-consumption-and-authoring-checks
+  line_span:
+  - 315
+  - 328
+  section_hash: 5e5ce6232f56575d798096538c5fa157edbb0a145686882f4368ffebdd26a078
+  summary: SSMD consumption and authoring checks
+  text: '## SSMD consumption and authoring checks
+
+
+    For `.ssmd` inputs, Readio parses the document through the supported SSMD 0.8.x
+    API and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio
+    role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind`
+    values override configured provider roles, and concrete targets must belong to
+    the active model roster. Normal `speak`, `render`, and `spotify` commands do not
+    invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+
+
+    Inspect a document before rendering:
+
+
+    ```bash
+
+    readio ssmd check episode.ssmd
+
+    readio ssmd check episode.ssmd --json
+
+    readio ssmd check episode.ssmd --roundtrip
+
+    ```
+
+
+    `readio template validate --all` checks shipped or configured templates with the
+    same consumer preflight. Add `--roundtrip` for strict SSMD authoring validation.
+    Unknown logical roles fail before model inference with a Readio diagnostic.'
+  links: []
+- section_id: md:section:README.md::spotify-publishing
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Spotify publishing
+  heading_slug: spotify-publishing
+  line_span:
+  - 329
+  - 344
+  section_hash: 963591b142fefc56fc9389dd1c4dc1248237cea5160f098df44e706af59fb841
+  summary: Spotify publishing
+  text: '## Spotify publishing
+
+
+    Publishing is explicit and uses the clean command family:
+
+
+    ```bash
+
+    readio spotify publish --file "$draft" --title "Weekly Review" --format mp3 --wait
+
+    readio spotify upload recording.m4a --title "Lecture 3" --show-id spotify:show:abc
+    --wait 2m
+
+    readio spotify shows --json
+
+    readio spotify status spotify:episode:abc --wait
+
+    readio spotify doctor --json
+
+    ```
+
+
+    Publish renders and uploads Readio source. Direct upload starts from caller-owned
+    WAV, MP3, M4A, or OGG and never deletes or overwrites it. Without `--output`,
+    generated publish media is temporary and deleted after success or failure; with
+    `--output`, it is retained. `--chapters-from-markers` and caller-owned `--timeline
+    FILE` are mutually exclusive, and either timeline path waits for READY before
+    publishing. `--wait` optionally accepts a duration; `--wait-timeout` is deprecated.
+    `--api-timeout` controls an upstream request separately from readiness waiting.
+
+
+    Readio invokes `save-to-spotify --json`, reports its detected version in diagnostics,
+    and does not inspect credentials, expose tokens, or perform authentication.'
+  links: []
+- section_id: md:section:README.md::doctor
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Doctor
+  heading_slug: doctor
+  line_span:
+  - 345
+  - 352
+  section_hash: 9fc7516e6548489b6e7c39444419521082eba47c04b0523d10fe62ab10fd8099
+  summary: Doctor
+  text: '## Doctor
+
+
+    ```bash
+
+    readio doctor
+
+    ```
+
+
+    Doctor is offline/local by default and supports `readio doctor --json`. It reports
+    Readio configuration, directories, TTS/SSMD dependencies, audio formats, and the
+    upstream `save-to-spotify` path/version probe. It does not authenticate, inspect
+    credentials, or perform Spotify network operations; use `readio spotify doctor`
+    for the explicit external integration check.'
+  links: []
+- section_id: md:section:README.md::agent-skill
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Agent Skill
+  heading_slug: agent-skill
+  line_span:
+  - 353
+  - 356
+  section_hash: 05dd5fe18d1ef9aa9f75fc7ab4e441413240d8f8bbf0a8be415c4468d036d90c
+  summary: Agent Skill
+  text: '## Agent Skill
+
+
+    The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and
+    commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary
+    file management, or manual cleanup for normal podcast workflows.'
+  links: []
+- section_id: md:section:README.md::ssmd-voice-resolution
+  doc_path: README.md
+  heading_path:
+  - readio
+  - SSMD voice resolution
+  heading_slug: ssmd-voice-resolution
+  line_span:
+  - 357
+  - 391
+  section_hash: 86531d4aa9bfaa839fa4117447d69a7b1932c16df9bcda9b2a5d395dc90d9339
+  summary: SSMD voice resolution
+  text: "## SSMD voice resolution\n\nUse document-local bindings when a portable SSMD\
+    \ file should carry its speaker choices:\n\n```yaml\nvoice_bindings:\n  kokoro:\n\
+    \    moderator: af_sarah\n    architect: am_michael\n```\n\nDiscover runnable\
+    \ registry voices and stable selectors with `readio voices list --json` or `readio\
+    \ voices list --lang de`. For Kokoro, a real en-US identity is `en_us-ko-4` ->\
+    \ `af_heart` (Kokoro v1.0); `--lang en-us` filters the inventory, while `en_us-ko-4`\
+    \ is the normalized stable selector. Inspect it with `readio voices show en_us-ko-4\
+    \ --json`. Kokoro selectors use `<lang>-ko-<slot>` and Piper selectors use `<lang>-pi-<slot>`;\
+    \ these identities come from the authoritative voice registry, while canonical\
+    \ engine voice IDs remain visible and accepted. Persist reusable SSMD roles with\
+    \ `readio roles bind ROLE VOICE_ID` and inspect them with `readio roles list`.\
+    \ Selectors are stable short lookup aliases; persisted configuration and SSMD\
+    \ continue to use canonical concrete voice IDs. For deterministic one-run automation,\
+    \ use repeatable options:\nRuntime voice inventories are model-specific. Use `readio\
+    \ voices list --model MODEL --json` for concrete IDs; a configured portable role\
+    \ such as `host` must be bound to a voice supported by the selected model. Readio\
+    \ reports the active model and valid voices before inference when a binding is\
+    \ incompatible.\n\n```bash\nreadio render --file episode.ssmd \\\n  --voice-bind\
+    \ moderator=af_sarah \\\n  --voice-bind architect=am_michael\n```\n\n`--resolve-voices`\
+    \ prompts only when explicitly requested from an interactive TTY. It never persists\
+    \ choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind`\
+    \ instead. Document bindings remain authoritative, and unresolved roles are reported\
+    \ before TTS or external publishing work begins. `readio ssmd bind FILE --voice-bind\
+    \ ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source\
+    \ file; ordinary consumption never edits SSMD.\n\n\nProject-local role choices\
+    \ belong to the project rather than portable SSMD or user-global config:\n\n```bash\n\
+    cd episode.readio\nreadio plan roles\nreadio plan bind narrator en_us-ko-4\nreadio\
+    \ plan unbind narrator\nreadio plan\n```\n\nResolution precedence is document\
+    \ binding, invocation `--voice-bind`, project binding, global configured role,\
+    \ then direct concrete voice. `readio plan bind` does not rewrite SSMD or change\
+    \ the semantic plan ID. It changes acoustic synthesis settings, so `readio status`\
+    \ leaves planning current and reports synthesis stale; run `readio synth` to refresh\
+    \ it."
+  links: []
+- section_id: md:section:README.md::persistent-incremental-projects
+  doc_path: README.md
+  heading_path:
+  - readio
+  - Persistent incremental projects
+  heading_slug: persistent-incremental-projects
+  line_span:
+  - 392
+  - 427
+  section_hash: b6cd77cb388857120221a7f70365ff5448cde3ecfc0053f7426352196d06ccef
+  summary: Persistent incremental projects
+  text: '## Persistent incremental projects
+
+
+    For resumable builds, create a project and use explicit stages:
+
+
+    ```bash
+
+    readio project init manuscript.md -o manuscript.readio
+
+    cd manuscript.readio
+
+    readio plan                         # semantic only; no TTS
+
+    readio preview manuscript.readio --select first:3 --voice de-ko-01 -o preview.wav
+
+    readio synth manuscript.readio --voice de-ko-01
+
+    readio compose manuscript.readio --target-lufs -18
+
+    readio export manuscript.readio --format mp3
+
+    readio status manuscript.readio --json
+
+    readio render manuscript.readio --format mp3  # build stale stages
+
+    ```
+
+
+    For EPUB audiobooks, Readio discovers selectable chapters and persists the chosen
+    chapter Markdown as editable project inputs:
+
+
+    ```bash
+
+    readio audiobook chapters novel.epub
+
+    readio audiobook init novel.epub --chapters 2-20
+
+    cd novel.readio
+
+    readio plan roles
+
+    readio plan
+
+    readio synth --voice en-ko-01
+
+    readio compose
+
+    readio export --format m4a
+
+    # Or build all stale stages with:
+
+    readio render novel.readio --format m4a
+
+    ```
+
+
+    Chapter numbers are the flat, 1-based order reported by `readio audiobook chapters`.
+    Selection is saved during initialization, so later project commands do not need
+    `--chapters`. Edit files under `document/chapters/` to change semantic inputs.
+    Readio replans and resynthesizes only affected content. The copied EPUB is provenance;
+    if it changes, status reports a stale source and the project must be reinitialized
+    rather than silently reimported. EPUB is not a direct render input or a separate
+    build pipeline.
+
+
+    This first EPUB workflow preserves chapter boundaries in the project timeline,
+    but does not implement M4B encoding or embedded container chapter metadata.
+
+
+    See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout,
+    cache identities, status diagnostics, and invalidation matrix.'
+  links: []
 last_fresh_scan_version: 2
 last_fresh_hash: 1790d1c9c40fa7c163d050806d2360a345ee2fb6369b94dca6a91116eb8c7695
-notes:
-  Documentation baseline created in docs/index.md; generated changelog retained
+notes: Documentation baseline created in docs/index.md; generated changelog retained
   and remaining source units are intentionally unlinked. (intentionally unlinked)
-version: 5
+version: 12

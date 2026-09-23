@@ -51,6 +51,8 @@ def resolve_voice_references(
     *,
     available_voices: tuple[str, ...] | None = None,
     additional_bindings: Mapping[str, str] | None = None,
+    project_bindings: Mapping[str, str] | None = None,
+    provider: str | None = None,
 ) -> tuple[ResolvedVoiceReference, ...]:
     """Resolve every SSMD voice reference with origin/locator tracking.
 
@@ -59,11 +61,11 @@ def resolve_voice_references(
     when the document cannot be parsed.
 
     Precedence:
-        document-local binding > invocation binding > configured role > direct voice
+        document-local binding > invocation binding > project binding > configured role > direct voice
     """
-    provider = cfg.ssmd.voice_provider
+    provider = provider or cfg.ssmd.voice_provider
 
-    settings = cfg.voices[provider]
+    settings = cfg.voices.get(provider)
 
     # Parse SSMD to get references
     try:
@@ -75,10 +77,10 @@ def resolve_voice_references(
     # Gather binding sources
     document = document_voice_bindings(text).get(provider, {})
     runtime = dict(additional_bindings or {})
-    configured_roles = settings.roles
-
+    project = dict(project_bindings or {})
+    configured_roles = settings.roles if settings is not None else {}
     if available_voices is None:
-        available_voices = tuple(settings.ids)
+        available_voices = tuple(settings.ids) if settings is not None else ()
 
     results: list[ResolvedVoiceReference] = []
 
@@ -128,6 +130,29 @@ def resolve_voice_references(
                     origin="cli",
                     locator="request.voice_bindings",
                     diagnostic=diag,
+                )
+            )
+            continue
+
+        # Project binding
+        if ref in project:
+            target = project[ref]
+            diagnostic = None
+            if target not in available_voices:
+                diagnostic = Diagnostic(
+                    code="ssmd.voice_unavailable",
+                    severity="error",
+                    message=f"Project binding {ref!r} -> {target!r} is not available "
+                    f"for the active model",
+                    line=line,
+                )
+            results.append(
+                ResolvedVoiceReference(
+                    reference=ref,
+                    voice=target,
+                    origin="project",
+                    locator=f"project.settings.ssmd.voice_bindings.{provider}.{ref}",
+                    diagnostic=diagnostic,
                 )
             )
             continue

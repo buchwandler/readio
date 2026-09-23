@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -11,9 +12,64 @@ from readio.config import ReaderSettings, ReadioConfig
 from readio.engines.base import EngineCapabilities, EngineSelection
 from readio.engines.registry import _registry
 from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
-from readio.project import init_project
+from readio.project import hash_file, init_project, update_project_manifest
+from readio.project_settings import with_project_voice_binding
+from readio.stages.pipeline import project_status
 from readio.stages.planning import plan_project
-from readio.stages.synthesis import synthesize_project
+from readio.stages.synthesis import synthesis_profile_id, synthesize_project
+
+
+def test_project_voice_binding_change_stales_synthesis_without_replanning_or_cache_deletion(
+    tmp_path, monkeypatch
+):
+    adapter = _Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+    )
+    planned = plan_project(project, cfg)
+    plan_id = planned.scopes[0].compiled.plan_id
+    synthesize_project(project, cfg, request=_request(project))
+
+    profile = json.loads(project.paths["synthesis_profile"].read_text(encoding="utf-8"))
+    assert profile["project_voice_bindings"]["provider"] == "kokoro"
+    assert profile["project_voice_bindings"]["bindings"] == {"narrator": "af_heart"}
+    assert profile["project_voice_bindings"]["sha256"].startswith("sha256:")
+    assert profile["profile_id"] == synthesis_profile_id(
+        {"schema": profile["schema"], "canonical": profile["canonical"]}
+    )
+    cache_files = set((project.root / "synthesis" / "cache").glob("*.wav"))
+    assert cache_files
+    before = {row["stage"]: row for row in project_status(project)["stages"]}
+    assert before["synthesis"]["state"] == "current"
+
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_bella"
+        ),
+    )
+    replanned = plan_project(project, cfg)
+    assert replanned.scopes[0].compiled.plan_id == plan_id
+
+    status = project_status(project)
+    stages = {row["stage"]: row for row in status["stages"]}
+    assert stages["plan"]["state"] == "current"
+    assert stages["synthesis"]["reason"] == (
+        "synthesis.stale.project_voice_bindings_changed"
+    )
+    assert stages["composition"]["blocked_by"] == "synthesis"
+    assert stages["output"]["blocked_by"] == "composition"
+    assert status["next_actions"][0]["command"] == "readio synth"
+    assert set((project.root / "synthesis" / "cache").glob("*.wav")) == cache_files
+
 
 
 class _Result:
@@ -292,11 +348,17 @@ def test_project_synthesis_merges_document_voice_bindings_with_explicit_override
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
     source.write_text(
-        "---\nvoice_bindings:\n  kokoro:\n    narrator: af_heart\n    guest: af_bella\n---\n"
-        '<div voice="narrator">Hello.</div>',
+        "---\nvoice_bindings:\n  kokoro:\n    narrator: af_heart\n---\n"
+        '<div voice="narrator">Hello.</div>\n<div voice="guest">Guest.</div>',
         encoding="utf-8",
     )
     project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="guest", voice="am_michael"
+        ),
+    )
     plan_project(project, cfg)
     request = replace(_request(project), voice_bindings={"narrator": "af_sarah"})
     captured = {}
@@ -318,14 +380,13 @@ def test_project_synthesis_merges_document_voice_bindings_with_explicit_override
 
     resolved_request = captured["request"]
     assert resolved_request.input.document.format == "ssmd"
-    assert dict(resolved_request.voice_bindings) == {
-        "narrator": "af_sarah",
-        "guest": "af_bella",
+    assert dict(resolved_request.voice_bindings) == {"narrator": "af_sarah"}
+    assert dict(resolved_request.project_voice_bindings) == {
+        "guest": "am_michael"
     }
 
 
 def test_project_synthesis_forwards_effective_ssmd_voice_binding(tmp_path, monkeypatch):
-    from dataclasses import replace
 
     from readio.stages import synthesis as synthesis_stage
 
@@ -335,12 +396,168 @@ def test_project_synthesis_forwards_effective_ssmd_voice_binding(tmp_path, monke
     source = tmp_path / "episode.ssmd"
     source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+    )
     plan_project(project, cfg)
-    request = replace(_request(project), voice_bindings={"narrator": "af_sarah"})
+    request = _request(project)
 
     resolved, _, _ = synthesis_stage._resolve_profile(project, cfg, request)
 
     assert resolved.selection is not None
     assert resolved.selection.options["ssmd_voice_bindings"] == {
-        "narrator": "af_sarah",
+        "narrator": "af_heart",
     }
+    decision = next(
+        item
+        for item in resolved.plan.decisions
+        if item.field == "ssmd.bindings.narrator"
+    )
+    assert decision.origin == "project"
+    assert decision.locator == "project.settings.ssmd.voice_bindings.kokoro.narrator"
+
+
+def test_project_synthesis_cli_binding_overrides_project_binding(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from readio.stages import synthesis as synthesis_stage
+
+    monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+    )
+    plan_project(project, cfg)
+    request = replace(_request(project), voice_bindings={"narrator": "af_bella"})
+
+    resolved, _, _ = synthesis_stage._resolve_profile(project, cfg, request)
+
+    assert resolved.selection.options["ssmd_voice_bindings"] == {"narrator": "af_bella"}
+    decision = next(
+        item
+        for item in resolved.plan.decisions
+        if item.field == "ssmd.bindings.narrator"
+    )
+    assert decision.origin == "cli"
+
+
+def test_project_synthesis_document_binding_overrides_project_and_cli(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from readio.stages import synthesis as synthesis_stage
+
+    monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "episode.ssmd"
+    source.write_text(
+        "---\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n"
+        '<div voice="narrator">Hello.</div>',
+        encoding="utf-8",
+    )
+    project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+    )
+    plan_project(project, cfg)
+    request = replace(_request(project), voice_bindings={"narrator": "af_bella"})
+
+    resolved, _, _ = synthesis_stage._resolve_profile(project, cfg, request)
+
+    assert resolved.selection.options["ssmd_voice_bindings"] == {
+        "narrator": "am_michael"
+    }
+    decision = next(
+        item
+        for item in resolved.plan.decisions
+        if item.field == "ssmd.bindings.narrator"
+    )
+    assert decision.origin == "document"
+
+
+def test_synthesis_preview_and_project_render_share_project_voice_bindings(
+    tmp_path, monkeypatch
+):
+    from readio.stages import pipeline as pipeline_stage
+
+    monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="narrator", voice="af_heart"
+        ),
+    )
+    plan_project(project, cfg)
+    expected_bindings = {"narrator": "af_heart"}
+
+    initial = synthesize_project(project, cfg, request=_request(project))
+    assert (
+        initial["profile"].payload["canonical"]["options"]["ssmd_voice_bindings"]
+        == expected_bindings
+    )
+
+    original_synthesize = pipeline_stage.synthesize_project
+    observed_bindings = []
+
+    def capture_synthesis(*args, **kwargs):
+        result = original_synthesize(*args, **kwargs)
+        observed_bindings.append(
+            result["profile"].payload["canonical"]["options"]["ssmd_voice_bindings"]
+        )
+        return result
+
+    monkeypatch.setattr(pipeline_stage, "synthesize_project", capture_synthesis)
+    monkeypatch.setattr(
+        pipeline_stage, "compose_artifacts", lambda *args, **kwargs: {}
+    )
+    pipeline_stage.preview_project(
+        project, cfg, request=_request(project), selector="all"
+    )
+    assert observed_bindings[-1] == expected_bindings
+
+    monkeypatch.setattr(
+        pipeline_stage,
+        "build_audio_job",
+        lambda *args, **kwargs: (None, {"composition_id": "ready"}),
+    )
+    master = project.paths["composition_master"]
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"master")
+    composition_state = {
+        "composition_id": "ready",
+        "synthesis_profile_id": initial["profile"].profile_id,
+        "master_sha256": hash_file(master),
+    }
+    project.paths["composition_state"].write_text(
+        json.dumps(composition_state), encoding="utf-8"
+    )
+    output_path = project.root / "output" / f"{project.manifest.name}.wav"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"output")
+    output_state = {
+        "audio_format": "wav",
+        "master_sha256": hash_file(master),
+        "output_sha256": hash_file(output_path),
+    }
+    (project.root / "output" / "state.json").write_text(
+        json.dumps(output_state), encoding="utf-8"
+    )
+
+    pipeline_stage.render_project(project, cfg)
+
+    assert observed_bindings[-1] == expected_bindings

@@ -139,7 +139,7 @@ def test_cli_audiobook_init_plan_and_render_end_to_end(tmp_path, monkeypatch, ca
     assert initialized["selected_chapters"] == 4
 
     with pytest.raises(SystemExit) as plan_exit:
-        cli.main(["plan", str(output), "--json"])
+        cli.main(["plan", "build", str(output), "--json"])
     assert plan_exit.value.code == 0
     planned = json.loads(capsys.readouterr().out)
     assert len(planned["scopes"]) == 4

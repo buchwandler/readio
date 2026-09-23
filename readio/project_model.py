@@ -22,6 +22,30 @@ def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
     return value
 
 
+def _validate_project_settings(value: Any) -> None:
+    settings = _require_mapping(value, "project.settings")
+    if "ssmd" not in settings:
+        return
+    ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
+    if "voice_bindings" not in ssmd:
+        return
+    bindings = _require_mapping(
+        ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings"
+    )
+    for provider, raw_roles in bindings.items():
+        _require_string(provider, "project.settings.ssmd.voice_bindings provider")
+        roles = _require_mapping(
+            raw_roles, f"project.settings.ssmd.voice_bindings.{provider}"
+        )
+        for role, voice in roles.items():
+            _require_string(
+                role, f"project.settings.ssmd.voice_bindings.{provider} role"
+            )
+            _require_string(
+                voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}"
+            )
+
+
 def _require_string(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ProjectFormatError(f"{name} must be a non-empty string")
@@ -227,6 +251,9 @@ class ProjectManifest:
     kind: str = "document"
     schema_version: int = 2
     format: str = "readio.project"
+
+    def __post_init__(self) -> None:
+        _validate_project_settings(self.settings)
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {

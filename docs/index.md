@@ -116,10 +116,10 @@ Readio uses an explicit backend registry. PyKokoro is the implemented backend, w
 
 ## Synthesis planning
 
-Non-live rendering is plan-first: `readio render` resolves one `readio.plan.v1` synthesis plan and then executes exactly that plan. `readio plan` and `readio render --dry-run` display the same plan without loading TTS, so they show precisely what a subsequent render would do:
+Non-live rendering is plan-first: `readio render` resolves one `readio.plan.v2` execution plan and then executes exactly that plan. Use `readio render --dry-run` to display the one-shot plan without loading TTS:
 
 ```bash
-readio plan --file notes.md --lang de --format mp3 --json
+readio render --file notes.md --lang de --format mp3 --dry-run --json
 readio render --file notes.md --dry-run
 ```
 
@@ -127,24 +127,25 @@ Keep the layers separate:
 
 - **Discovery** (`readio models`, `readio voices`, `readio lexicons`) enumerates what registered backends provide.
 - **Defaults** (`readio defaults`) persist validated per-language preferences.
-- **Planning** (`readio plan`, `render --dry-run`, and non-live `speak`) resolves one concrete request, including backend, model, source, quality, voice, lexicons, SSMD cast with per-reference bindings, output format/backend/path, and provenance. Generated output paths are allocated once by the plan and reused by the render.
+- **Planning** (`readio render --dry-run`) resolves one concrete request, including backend, model, source, quality, voice, lexicons, SSMD cast, output format/backend/path, and provenance. Generated output paths are allocated once by the plan and reused by the render.
+- **Project planning** (`readio plan`) builds engine-free semantic Utterplan artifacts and manages project-local SSMD roles. It does not resolve one-shot engine, model, or output choices.
 - **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
 
 Plans preserve the tokenizer tri-state: `lexicons: null` means PyKokoro language defaults, `lexicons: []` means no static lexicon layers, and a non-empty list means ordered named layers. Fallback and lexicon data policy are also carried unchanged into `TokenizerConfig`; SSMD `language_detection` hints are resolved into the plan before execution.
 Plans also preserve `synthesis.spacy` (`auto`, `off`, `sm`, `md`, `lg`, or `trf`) and `synthesis.short_sentence` (`auto`, `off`, `wrap`, `phrase`, or `randomized-phrase`). `auto` leaves backend selection to PyKokoro; explicit spaCy tiers require that exact compatible model, and short-sentence `wrap` avoids carrier-phrase retries when lower latency is preferred.
 
-Planning is deterministic: `--resolve-voices` is rejected during `plan`/`--dry-run` in favor of `--voice-bind ROLE=VOICE_ID` or persisted roles, and `plan` supports `--force` to mirror render output requests.
+One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=VOICE_ID` for an invocation or `readio plan bind ROLE VOICE` for a project setting.
 
 ## Durable render manifests
 
 Use `--manifest` when a bounded render produces an artifact that needs durable, machine-readable evidence:
 
 ```bash
-readio plan --file notes.md --format mp3 --json
+readio render --file notes.md --format mp3 --dry-run --json
 readio render --file notes.md --format mp3 --manifest
 ```
 
-The successful render writes `<audio>.readio.json` beside the audio. Its `readio.render-manifest.v1` payload embeds the exact executed `readio.plan.v1`, a canonical plan digest, the final encoded-file hash and byte count, `RenderSummary` audio facts, document metadata, and assembled marker offsets. Planning describes intended execution; the manifest describes the completed artifact.
+The successful render writes `<audio>.readio.json` beside the audio. Its `readio.render-manifest.v1` payload embeds the exact executed `readio.plan.v2`, a canonical plan digest, the final encoded-file hash and byte count, `RenderSummary` audio facts, document metadata, and assembled marker offsets. Planning describes intended execution; the manifest describes the completed artifact.
 
 The option is explicit and applies only to bounded `render`. It is rejected with `--live` and does not create manifests for `speak`, `plan`, dry runs, or publishing. Human output remains the audio path. JSON output remains one object and adds `manifest` with the sidecar path, or `null` without the option.
 
@@ -275,7 +276,7 @@ pytest
 ruff check .
 ```
 
-The main execution path is `readio/cli.py`. Input normalization is in `readio/document.py`, configuration in `readio/config.py`, synthesis orchestration in `readio/reader.py`, audio sinks in `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
+The main execution path is `readio/cli.py`. Project SSMD role discovery and binding settings live in `readio/project_roles.py` and `readio/project_settings.py`; project synthesis orchestration is in `readio/stages/synthesis.py`. Input normalization is in `readio/document.py`, configuration in `readio/config.py`, audio sinks in `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
 
 ## SSMD voice resolution
 

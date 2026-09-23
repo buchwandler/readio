@@ -4,13 +4,23 @@
 
 ```text
 readio project init SOURCE -o PROJECT
-readio plan PROJECT
+readio plan                         # build current project
+readio plan build [PROJECT]
+readio plan roles [PROJECT]
+readio plan bind ROLE VOICE [--project PROJECT]
+readio plan unbind ROLE [--project PROJECT]
 readio synth PROJECT [--engine ENGINE] [--voice VOICE] [--select SELECTOR]
 readio preview PROJECT --select SELECTOR [--voice VOICE] [-o PREVIEW.wav]
 readio compose PROJECT [--target-lufs FLOAT] [--progress | --no-progress] [--json]
 readio export PROJECT --format {wav,mp3,m4a,ogg}
 readio status PROJECT [--json]
 readio render PROJECT --format FORMAT
+```
+
+`readio plan` manages persistent project semantics and roles. Running it without a subcommand builds the project in the current directory; it does not inspect one-shot text or choose an engine. Use `readio render --dry-run` for one-shot execution planning:
+
+```bash
+readio render --file episode.ssmd --format mp3 --dry-run --json
 ```
 
 ## EPUB audiobook ingestion
@@ -46,7 +56,4 @@ Composition events identify the current speech segment and operation, show compl
 
 With `--json`, stdout remains one JSON document. Explicit progress remains on stderr, and progress callbacks are runtime observations only. They do not enter composition IDs, AudioJob serialization, timelines, or composition state identities.
 
-`plan` is semantic and engine-free for a project or when its output ends in
-`.utterplan.json`. Ordinary text `plan` and `render --dry-run` retain the
-existing resolved execution-plan inspection behavior. Non-project `speak` and
-`render` remain supported.
+`readio plan` is a project command family: `build` creates semantic Utterplan artifacts, `roles` inspects SSMD roles, and `bind` / `unbind` manage project-local acoustic settings. It never selects an engine or loads TTS. Use `readio render --dry-run` to inspect the complete execution plan for one-shot input.

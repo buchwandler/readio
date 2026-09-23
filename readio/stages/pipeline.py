@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,7 @@ from audiocompose import CompositionProgressCallback
 
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, hash_file, read_json
+from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
 from .composition import build_audio_job, compose_artifacts, compose_project
 from .export import export_project
 from .planning import load_scope_plan, plan_project, semantic_status
@@ -75,6 +76,51 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
     canonical = profile.get("canonical")
     if not isinstance(canonical, dict):
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+    binding_record = profile.get("project_voice_bindings")
+    if binding_record is None:
+        legacy_provider = {"pykokoro": "kokoro", "piper": "piper"}.get(
+            str(canonical.get("engine", ""))
+        )
+        legacy_bindings = (
+            project_voice_bindings(project.manifest, legacy_provider)
+            if legacy_provider is not None
+            else {}
+        )
+        if legacy_bindings:
+            current_bindings = project_voice_bindings_provenance(
+                legacy_provider, legacy_bindings
+            )
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.stale.project_voice_bindings_changed",
+                "project_voice_bindings": current_bindings,
+            }
+    else:
+        if not isinstance(binding_record, Mapping):
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+        provider = binding_record.get("provider")
+        stored_bindings = binding_record.get("bindings")
+        stored_hash = binding_record.get("sha256")
+        if (
+            not isinstance(provider, str)
+            or not isinstance(stored_bindings, Mapping)
+            or not isinstance(stored_hash, str)
+        ):
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+        recorded_bindings = project_voice_bindings_provenance(provider, stored_bindings)
+        if recorded_bindings["sha256"] != stored_hash:
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+        current_bindings = project_voice_bindings_provenance(
+            provider, project_voice_bindings(project.manifest, provider)
+        )
+        if current_bindings["sha256"] != stored_hash:
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.stale.project_voice_bindings_changed",
+                "project_voice_bindings": current_bindings,
+            }
 
     current_plans = {scope.id: (scope, plan) for scope, plan in scoped_plans}
     trace_plans = trace.get("plans")
@@ -167,6 +213,7 @@ def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
         "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
         "composition.stale.timing_changed": "Composition timing or presentation changed.",
         "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
+        "synthesis.stale.project_voice_bindings_changed": "Project voice bindings changed after the active synthesis was created.",
         "output.stale.composition_changed": "Output is blocked by stale composition.",
         "source.stale.hash_changed": "EPUB source changed after initialization; reinitialize the audiobook project.",
         "document.index.invalid": "The audiobook document index is invalid.",

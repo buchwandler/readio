@@ -50,7 +50,7 @@ readio doctor --json
 
 ## Plan diagnostics
 
-`readio plan` / `readio render --dry-run` report problems before any TTS model is loaded; a normal render that fails planning prints the same plan and exits 1:
+`readio render --dry-run` reports one-shot problems before any TTS model is loaded; a normal render that fails planning prints the same plan and exits 1:
 
 - **`backend_resolution_failed`**: PyKokoro could not concretize an automatic model selection. Check `readio doctor --json`, then select explicitly with `--model`/`--model-source`.
 - **`model_language_incompatible`**: the selected model does not declare the requested language (for example a German-only model with `--lang en-us`). Pick a model from `readio models list --language LANG --json` or set `--lang` to a language the model declares.
@@ -58,7 +58,8 @@ readio doctor --json
 - **`synthesis_incomplete`**: the plan could not become concrete (missing model/source/quality/voice). Provide `--model` explicitly and retry.
 
 - **Unexpected pronunciation routing:** inspect the plan's `language_detection` and `detect_languages` fields. SSMD `language_detection` hints and CLI detection options route pronunciation fragments while retaining the selected acoustic model language.
-- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve deterministically with repeatable `--voice-bind ROLE=VOICE_ID` values or `readio roles bind ROLE VOICE_ID`; inspect stable selectors with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
+- **`ssmd_unresolved_voice` / `ssmd_voice_unavailable`**: an SSMD voice reference has no binding or its binding is outside the active model roster. Resolve one invocation with repeatable `--voice-bind ROLE=VOICE_ID`, a project with `readio plan bind ROLE VOICE`, or a user-global fallback with `readio roles bind ROLE VOICE_ID`; inspect stable selectors with `readio voices list --model MODEL --json`. Never use `--resolve-voices` in agents, scripts, or JSON mode.
+- **`synthesis.stale.project_voice_bindings_changed`**: the project's effective voice settings differ from those recorded by active synthesis. The semantic plan remains current and cached audio is retained; run `readio synth` to refresh the acoustic output.
 - **`encoder_unavailable` / `output_format_conflict`**: the requested audio format needs an unavailable backend (M4A requires `ffmpeg` on `PATH`) or `--format` disagrees with the output suffix. Choose WAV/MP3/OGG, install FFmpeg, or align format and suffix.
 
 - **Model registry unavailable:** run `readio models list --offline --json` to use the cache. Without a valid cache, run the online command once; discovery never downloads model weights.
@@ -78,7 +79,7 @@ If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, us
 
 ## Render manifest failures
 
-A successful bounded render with `--manifest` writes `<audio>.readio.json` beside the committed audio. Compare the manifest's embedded `readio.plan.v1` and environment before comparing audio bytes when two renders differ:
+A successful bounded render with `--manifest` writes `<audio>.readio.json` beside the committed audio. Compare the manifest's embedded `readio.plan.v2` and environment before comparing audio bytes when two renders differ:
 
 ```bash
 readio render --file episode.ssmd -o episode.mp3 --manifest --json

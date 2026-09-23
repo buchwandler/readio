@@ -102,7 +102,7 @@ Piper voice bundles are discovered through PiperSynth without loading ONNX durin
 
 ```bash
 readio voices list --engine piper --lang de
-readio plan --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt" --json
+readio render --engine piper --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
 readio speak --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt"
 readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest -o article.wav --text "Hallo Welt"
 readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
@@ -135,7 +135,7 @@ For reproducible German synthesis:
 ```bash
 readio models show de-thorsten
 readio defaults set de --model de-thorsten --lexicon crane --g2p-fallback espeak --lexicon-data-policy auto
-readio plan --file article.md --lang de --json
+readio render --file article.md --lang de --dry-run --json
 readio render --file article.md --lang de --model de-thorsten --no-lexicons --g2p-fallback espeak --format mp3
 ````
 
@@ -187,11 +187,11 @@ Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`. E
 
 ## Planning before rendering
 
-Every non-live render resolves one explicit synthesis plan before any TTS work. `readio plan` and `readio render --dry-run` display that plan without loading a model, and a normal `render` executes exactly the plan it resolved — the plan is the execution contract, not a prediction:
+Every non-live `readio render` resolves an explicit synthesis plan before TTS work. Use `readio render --dry-run` to inspect the same plan without loading a model; a normal render executes exactly the plan it resolved:
 
 ```bash
-readio plan --file episode.ssmd --format mp3 --json
-readio render --file episode.ssmd --dry-run          # same plan, human output
+readio render --file episode.ssmd --format mp3 --dry-run --json
+readio render --file episode.ssmd --dry-run          # human output
 readio render --file episode.ssmd                    # resolves the same plan, then executes it
 ```
 
@@ -199,7 +199,7 @@ Planning, discovery, defaults, and render results are distinct layers:
 
 - **`readio models` / `readio voices` (discovery)** list what the installed engine runtime _could_ provide — model IDs, languages, voices, qualities, lexicons, status.
 - **`readio defaults` (defaults)** persist validated per-language policy that resolution _prefers_.
-- **`readio plan` (planning)** resolves one concrete request against config, defaults, CLI options, and the engine's automatic selection: a concrete model, source, quality, voice, SSMD cast, and output allocation, with provenance for every effective value. No TTS model is loaded.
+- **`readio plan` (project planning)** builds semantic plans for persistent projects and provides `roles`, `bind`, and `unbind` for project-local SSMD cast settings. It does not resolve one-shot engine/model/output choices or load TTS.
 - **`readio render` (render result)** executes the plan; the plan JSON's synthesis, SSMD bindings, and output path are the values actually used. A render that fails planning exits 1 with the plan and its diagnostics instead of loading TTS.
 
 `readio.plan.v2` JSON exposes `schema`, `ok`, `input`, `planning`, `semantic_plan`, `render` (with engine-neutral target), `output` (format, encoder backend, path, path origin, `force`), `environment` (generic package versions), `decisions` (winning source per field), and `diagnostics`:
@@ -210,47 +210,55 @@ Planning, discovery, defaults, and render results are distinct layers:
   "ok": true,
   "operation": "render",
   "input": {
+    "source_path": "article.md",
+    "source_kind": "file",
+    "requested_format": "markdown",
+    "format": "markdown",
+    "source_sha256": "...",
+    "selector": "all"
+  },
+  "planning": { "language": "de", "unit": "sentence", "pause_mode": "auto" },
+  "semantic_plan": {
+    "format": "utterplan",
+    "schema_version": 2,
+    "plan_id": "...",
+    "sha256": "...",
+    "path": "plan/document.utterplan.json"
+  },
   "render": {
     "engine": "piper",
-    "target": {
-      "id": "de_DE-thorsten-medium",
-      "language": "de",
-      "voice": "thorsten"
+    "target": { "id": "de_DE-thorsten-medium", "language": "de", "voice": "thorsten" },
     "rate": 1.0,
-    "options": {}
-  "semantic_plan": {
-    "plan_id": "abc123",
-    "sha256": "def456"
+    "options": { "ssmd_voice_bindings": { "narrator": "thorsten" } }
   },
-  "ssmd": { "enabled": false, "bindings": [], "unresolved": [] },
   "output": {
     "mode": "file",
     "format": "mp3",
     "encoder_backend": "soundfile",
-    "path": ".../episode.mp3",
+    "path": ".../article.mp3",
     "path_origin": "explicit",
     "force": false
   },
+  "environment": { "packages": {}, "ffmpeg_available": true },
   "decisions": [
     {
-      "field": "synthesis.model",
-      "value": "de-thorsten",
+      "field": "ssmd.bindings.narrator",
       "origin": "cli",
-      "locator": "request.model"
+      "locator": "request.voice_bindings"
     }
   ],
   "diagnostics": []
 }
 ```
 
-Plans are deterministic and non-interactive: `--resolve-voices` is rejected by `plan` and `--dry-run`; use repeatable `--voice-bind ROLE=VOICE_ID` options or persisted role configuration instead. `plan` accepts `--force` so it can represent every render output request, and an invalid plan (incompatible model/language, unavailable runtime, unresolved SSMD cast, unavailable encoder, non-concrete synthesis) fails before model loading.
+One-shot planning is deterministic and non-interactive. Use repeatable `--voice-bind ROLE=VOICE_ID` options for invocation-only choices or persist project-local role choices with `readio plan bind`; `--resolve-voices` is rejected by `render --dry-run`.
 
 ## Durable render manifests
 
 For bounded renders that will be reused, published, compared, or handed to another agent, request an opt-in post-render manifest:
 
 ```bash
-readio plan --file episode.ssmd --format mp3 --json
+readio render --file episode.ssmd --format mp3 --dry-run --json
 readio render --file episode.ssmd --format mp3 --manifest
 readio render --file episode.ssmd --format mp3 --manifest --json
 ```
@@ -367,13 +375,27 @@ readio render --file episode.ssmd \
 
 `--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind` instead. Document bindings remain authoritative, and unresolved roles are reported before TTS or external publishing work begins. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
 
+
+Project-local role choices belong to the project rather than portable SSMD or user-global config:
+
+```bash
+cd episode.readio
+readio plan roles
+readio plan bind narrator en_us-ko-4
+readio plan unbind narrator
+readio plan
+```
+
+Resolution precedence is document binding, invocation `--voice-bind`, project binding, global configured role, then direct concrete voice. `readio plan bind` does not rewrite SSMD or change the semantic plan ID. It changes acoustic synthesis settings, so `readio status` leaves planning current and reports synthesis stale; run `readio synth` to refresh it.
+
 ## Persistent incremental projects
 
 For resumable builds, create a project and use explicit stages:
 
 ```bash
 readio project init manuscript.md -o manuscript.readio
-readio plan manuscript.readio                 # semantic only; no TTS
+cd manuscript.readio
+readio plan                         # semantic only; no TTS
 readio preview manuscript.readio --select first:3 --voice de-ko-01 -o preview.wav
 readio synth manuscript.readio --voice de-ko-01
 readio compose manuscript.readio --target-lufs -18
@@ -388,6 +410,7 @@ For EPUB audiobooks, Readio discovers selectable chapters and persists the chose
 readio audiobook chapters novel.epub
 readio audiobook init novel.epub --chapters 2-20
 cd novel.readio
+readio plan roles
 readio plan
 readio synth --voice en-ko-01
 readio compose

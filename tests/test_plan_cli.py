@@ -1,233 +1,170 @@
-"""Tests for readio.plan CLI integration."""
+"""Tests for the project plan and role-binding CLI."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from readio import cli
 from readio.cli import build_parser
+from readio.config import ReadioConfig
+from readio.project import init_project
 
 
-class TestPlanCommand:
-    """Test the `readio plan` CLI command."""
+def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, capsys) -> None:
+    requested = []
+    project = SimpleNamespace(root=tmp_path, manifest=SimpleNamespace(name="episode"))
+    monkeypatch.setattr(cli, "load_project", lambda path: requested.append(path) or project)
+    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "plan_project", lambda project, cfg: SimpleNamespace(scopes=()))
 
-    def test_plan_help(self) -> None:
-        parser = build_parser()
-        with pytest.raises(SystemExit) as exc:
-            parser.parse_args(["plan", "--help"])
-        assert exc.value.code == 0
+    args = build_parser().parse_args(["plan", "--json"])
+    assert args.func(args) == 0
 
-    def test_plan_text_input(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["plan", "Hello world"])
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        assert "Planning" in output
-        assert "Semantic plan" in output
-
-    def test_plan_json_output(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["plan", "Hello world", "--json"])
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        data = json.loads(output)
-        assert data["schema"] == "readio.plan.v2"
-        assert data["ok"] is True
-        assert "render" in data
-
-    def test_plan_with_model(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(
-            [
-                "plan",
-                "Hello world",
-                "--lang",
-                "de",
-                "--model",
-                "de-thorsten",
-                "--model-source",
-                "github",
-                "--json",
-            ]
-        )
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        data = json.loads(output)
-        assert data["render"]["target"]["id"] == "de-thorsten"
-
-    def test_plan_with_format(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(
-            [
-                "plan",
-                "Hello world",
-                "--format",
-                "mp3",
-                "--json",
-            ]
-        )
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        data = json.loads(output)
-        assert data["output"]["format"] == "mp3"
+    result = json.loads(capsys.readouterr().out)
+    assert requested == [Path.cwd()]
+    assert result["project"] == str(tmp_path)
+    assert result["scopes"] == []
+def test_plan_help_is_project_scoped(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["plan", "--help"])
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "{build,roles,bind,unbind}" in output
+    for option in ("--engine", "--voice", "--model", "--format", "--output", "--voice-bind"):
+        assert option not in output
 
 
-class TestRenderDryRun:
-    """Test `readio render --dry-run`."""
-
-    def test_render_dry_run_text(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["render", "Hello world", "--dry-run"])
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        assert "Planning" in output
-        assert "Semantic plan" in output
-
-    def test_render_dry_run_json(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["render", "Hello world", "--dry-run", "--json"])
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        data = json.loads(output)
-        assert data["schema"] == "readio.plan.v2"
-        assert data["ok"] is True
-        assert "render" in data
-
-    def test_render_dry_run_with_model(self, capsys) -> None:
-        parser = build_parser()
-        args = parser.parse_args(
-            [
-                "render",
-                "Hello world",
-                "--lang",
-                "de",
-                "--model",
-                "de-thorsten",
-                "--model-source",
-                "github",
-                "--dry-run",
-                "--json",
-            ]
-        )
-        code = args.func(args)
-        assert code == 0
-        output = capsys.readouterr().out
-        data = json.loads(output)
-        assert data["render"]["target"]["id"] == "de-thorsten"
 
 
-class TestPlanDryRunEquivalence:
-    """Test that `readio plan` and `readio render --dry-run` produce equivalent results."""
-
-    def test_plan_and_render_dry_run_match(self, capsys) -> None:
-        """For the same request, plan and render --dry-run should produce the same schema."""
-        parser = build_parser()
-
-        # Run plan
-        plan_args = parser.parse_args(
-            [
-                "plan",
-                "Hello world",
-                "--lang",
-                "de",
-                "--model",
-                "de-thorsten",
-                "--model-source",
-                "github",
-                "--json",
-            ]
-        )
-        plan_args.func(plan_args)
-        plan_output = capsys.readouterr().out
-        plan_data = json.loads(plan_output)
-
-        # Run render --dry-run
-        render_args = parser.parse_args(
-            [
-                "render",
-                "Hello world",
-                "--lang",
-                "de",
-                "--model",
-                "de-thorsten",
-                "--model-source",
-                "github",
-                "--dry-run",
-                "--json",
-            ]
-        )
-        render_args.func(render_args)
-        render_output = capsys.readouterr().out
-        render_data = json.loads(render_output)
-
-        # Schema should match
-        assert plan_data["schema"] == render_data["schema"]
-        assert plan_data["ok"] == render_data["ok"]
-
-        # Synthesis should match
-        assert plan_data["render"]["target"]["id"] == render_data["render"]["target"]["id"]
-        assert plan_data["planning"]["language"] == render_data["planning"]["language"]
+def test_plan_group_exposes_only_project_subcommands() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["plan", "roles", "--provider", "kokoro", "--json"])
+    assert args.plan_action == "roles"
+    assert args.provider == "kokoro"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["plan", "Hello world"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["plan", "build", "--engine", "kokoro"])
 
 
-class TestResolveVoicesRejection:
-    """Planning must stay deterministic: --resolve-voices is rejected."""
+def test_plan_roles_json_reports_project_roles(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    monkeypatch.setattr(cli, "load_config", ReadioConfig)
 
-    def test_plan_rejects_resolve_voices(self, tmp_path) -> None:
-        source = tmp_path / "cast.ssmd"
-        source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
-        parser = build_parser()
-        args = parser.parse_args(["plan", str(source), "--resolve-voices"])
-        with pytest.raises(ValueError, match="not available during plan/dry-run"):
-            args.func(args)
+    args = build_parser().parse_args(["plan", "roles", str(project.root), "--json"])
+    assert args.func(args) == 0
 
-    def test_render_dry_run_rejects_resolve_voices(self, tmp_path) -> None:
-        source = tmp_path / "cast.ssmd"
-        source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
-        parser = build_parser()
-        args = parser.parse_args(["render", str(source), "--dry-run", "--resolve-voices"])
-        with pytest.raises(ValueError, match="not available during plan/dry-run"):
-            args.func(args)
-
-    def test_rejection_mentions_deterministic_remediation(self, tmp_path) -> None:
-        source = tmp_path / "cast.ssmd"
-        source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
-        parser = build_parser()
-        args = parser.parse_args(["plan", str(source), "--resolve-voices"])
-        with pytest.raises(ValueError, match="--voice-bind ROLE=VOICE_ID"):
-            args.func(args)
+    result = json.loads(capsys.readouterr().out)
+    assert result["project"] == str(project.root)
+    assert result["provider"] == "kokoro"
+    assert result["roles"][0]["role"] == "narrator"
+    assert result["roles"][0]["origin"] == "config.voice_role"
 
 
-class TestPlanForceFlag:
-    def test_plan_parser_accepts_force(self) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["plan", "Hello world", "--force"])
-        assert args.force is True
+def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "episode.ssmd"
+    source.write_text('<div voice="unbound">Hello.</div>', encoding="utf-8")
+    project = init_project(source, tmp_path / "episode.readio")
+    monkeypatch.setattr(cli, "load_config", ReadioConfig)
 
-    def test_plan_force_flows_into_output_request(self, tmp_path, capsys) -> None:
-        existing = tmp_path / "episode.wav"
-        existing.write_bytes(b"x")
-        parser = build_parser()
-        args = parser.parse_args(["plan", "Hello world", "-o", str(existing), "--force", "--json"])
-        code = args.func(args)
-        assert code == 0
-        data = json.loads(capsys.readouterr().out)
-        assert data["output"]["force"] is True
-        assert all(d["code"] != "output_exists" for d in data["diagnostics"])
+    args = build_parser().parse_args(["plan", "roles", str(project.root)])
+    assert args.func(args) == 0
 
-    def test_plan_without_force_reports_existing_output(self, tmp_path, capsys) -> None:
-        existing = tmp_path / "episode.wav"
-        existing.write_bytes(b"x")
-        parser = build_parser()
-        args = parser.parse_args(["plan", "Hello world", "-o", str(existing), "--json"])
-        code = args.func(args)
-        assert code == 0
-        data = json.loads(capsys.readouterr().out)
-        assert data["output"]["force"] is False
-        assert any(d["code"] == "output_exists" for d in data["diagnostics"])
+    output = capsys.readouterr().out
+    assert "unbound" in output
+    assert "Unresolved roles: unbound" in output
+    assert "readio voices list --lang en-us" in output
+    assert "readio plan bind unbound <voice>" in output
+
+
+def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, capsys) -> None:
+    project = SimpleNamespace(root=tmp_path)
+    calls = {}
+    monkeypatch.setattr(cli, "load_project", lambda path: project)
+    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+
+    def bind(*args, **kwargs):
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return {
+            "project": str(tmp_path),
+            "role": "narrator",
+            "stored_voice": "en-us/sarah",
+        }
+
+    monkeypatch.setattr(cli, "bind_project_role", bind)
+    args = build_parser().parse_args(
+        [
+            "plan",
+            "bind",
+            "narrator",
+            "en-us/sarah",
+            "--provider",
+            "kokoro",
+            "--project",
+            str(tmp_path),
+            "--offline",
+            "--json",
+        ]
+    )
+    assert args.func(args) == 0
+
+    assert calls["args"][2:4] == ("narrator", "en-us/sarah")
+    assert calls["kwargs"] == {
+        "provider": "kokoro",
+        "offline": True,
+        "refresh": False,
+    }
+    assert json.loads(capsys.readouterr().out)["stored_voice"] == "en-us/sarah"
+
+
+def test_plan_unbind_forwards_project_and_provider(tmp_path, monkeypatch, capsys) -> None:
+    calls = {}
+    monkeypatch.setattr(cli, "load_project", lambda path: SimpleNamespace(root=tmp_path))
+    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+
+    def unbind(*args, **kwargs):
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return {"role": "narrator", "removed_voice": "af_heart", "effective_voice": None}
+
+    monkeypatch.setattr(cli, "unbind_project_role", unbind)
+    args = build_parser().parse_args(
+        ["plan", "unbind", "narrator", "--project", str(tmp_path), "--provider", "kokoro", "--json"]
+    )
+    assert args.func(args) == 0
+
+    assert calls["args"][2] == "narrator"
+    assert calls["kwargs"] == {"provider": "kokoro"}
+    assert json.loads(capsys.readouterr().out)["removed_voice"] == "af_heart"
+
+
+def test_render_dry_run_still_resolves_one_shot_text(capsys) -> None:
+    args = build_parser().parse_args(["render", "Hello world", "--dry-run"])
+    assert args.func(args) == 0
+    output = capsys.readouterr().out
+    assert "Planning" in output
+    assert "Semantic plan" in output
+
+
+def test_render_dry_run_json_still_emits_execution_plan(capsys) -> None:
+    args = build_parser().parse_args(["render", "Hello world", "--dry-run", "--json"])
+    assert args.func(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["schema"] == "readio.plan.v2"
+    assert result["ok"] is True
+    assert "render" in result
+
+
+def test_render_dry_run_rejects_voice_discovery(tmp_path) -> None:
+    source = tmp_path / "cast.ssmd"
+    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    args = build_parser().parse_args(["render", str(source), "--dry-run", "--resolve-voices"])
+    with pytest.raises(ValueError, match="not available during plan/dry-run"):
+        args.func(args)

@@ -47,18 +47,16 @@ Readio uses an explicit synthesis backend registry. PyKokoro is the implemented 
 ## Main production steps
 
 ```text
-choose input -> plan -> review plan -> render -> optionally write manifest -> inspect artifact -> optionally publish
+choose input -> render --dry-run -> review execution plan -> render -> optionally write manifest -> inspect artifact -> optionally publish
 ```
 
-Always run `readio plan` (or `readio render --dry-run`) before rendering to see exactly
-what synthesis values will be used. The plan shows model, voice, language, lexicons,
-SSMD bindings, output format, and provenance — all without loading the TTS model.
+Use `readio render --dry-run` to inspect one-shot synthesis values before rendering. It shows model, voice, language, lexicons, SSMD decisions, output format, and provenance without loading TTS. `readio plan` is reserved for persistent project build and role-management commands.
 
 The PyKokoro 0.9.9+ tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
 
 ```bash
-# Recommended: plan first
-readio plan --file input.ssmd --format mp3 --json
+# Recommended: inspect one-shot plan first
+readio render --file input.ssmd --format mp3 --dry-run --json
 
 # Then render if plan looks correct
 readio render --file input.ssmd --format mp3
@@ -67,13 +65,28 @@ readio render --file input.ssmd --format mp3
 For an artifact that may be reused, published, compared, or handed to another agent, request durable evidence explicitly:
 
 ```bash
-readio plan --file input.ssmd --format mp3 --json
+readio render --file input.ssmd --format mp3 --dry-run --json
 readio render --file input.ssmd --format mp3 --manifest --json
 ```
 
-The bounded render writes `<audio>.readio.json` beside the audio. The `readio.render-manifest.v1` sidecar contains the exact executed `readio.plan.v1`, a canonical plan digest, final encoded-file hash and byte count, audio summary, metadata, and assembled markers. Retain the audio path and manifest path as separate artifacts. `--manifest` is not available for live rendering, `speak`, planning, dry runs, or publishing.
+The bounded render writes `<audio>.readio.json` beside the audio. The `readio.render-manifest.v1` sidecar contains the exact executed `readio.plan.v2`, a canonical plan digest, final encoded-file hash and byte count, audio summary, metadata, and assembled markers. Retain the audio path and manifest path as separate artifacts. `--manifest` is not available for live rendering, `speak`, planning, dry runs, or publishing.
 
 Keep caller-requested output files. Readio owns and removes only generated temporary Spotify media; direct-upload inputs and caller-provided timeline files remain untouched.
+
+## Persistent project roles
+
+Use `readio plan` only for persistent project planning and role settings. Inspect SSMD roles before generating the semantic plan, then bind a reusable project-local voice:
+
+```bash
+readio project init episode.ssmd -o episode.readio
+cd episode.readio
+readio plan roles
+readio plan bind narrator en_us-ko-4
+readio plan
+readio synth
+```
+
+Project bindings are distinct from portable SSMD front matter, user-global `readio roles bind`, and invocation-only `--voice-bind`. Resolution precedence is document, invocation, project, global configured role, then direct voice. Project binding changes do not rewrite source or change Utterplan identity. They make synthesis stale without invalidating the plan; `readio status` reports the change and recommends `readio synth`. Use `readio render --dry-run` for one-shot execution planning.
 
 ## Command references
 

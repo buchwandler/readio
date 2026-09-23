@@ -195,7 +195,7 @@ def test_input_help_describes_positional_files_and_literal_escape(capsys):
     assert "positional file detection" in help_text
 
 
-@pytest.mark.parametrize("command", ["speak", "render", "plan"])
+@pytest.mark.parametrize("command", ["speak", "render"])
 def test_pause_mode_cli_is_unset_when_omitted(command):
     args = build_parser().parse_args([command, "hello"])
     assert args.pause_mode is None
@@ -264,7 +264,7 @@ def test_piper_live_mode_is_rejected(monkeypatch):
 def test_synthesis_parser_exposes_speaker_and_asset_policy():
     args = build_parser().parse_args(
         [
-            "plan",
+            "render",
             "hello",
             "--speaker",
             "narrator",

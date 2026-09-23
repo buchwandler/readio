@@ -8,15 +8,21 @@ readio voices list --json
 readio render --file episode.ssmd --voice-bind moderator=af_sarah
 ```
 
-Document-local bindings are authoritative. Readio supplies only missing configured defaults. Persist reusable mappings with `readio roles bind ROLE VOICE_ID`; inspect them with `readio roles list`. Use `readio voices list --lang LANG` and `readio voices show SELECTOR` to discover and choose stable engine-qualified selectors. Selectors are lookup aliases; persisted SSMD/provider bindings remain canonical concrete voice IDs in this patch.
+Document front-matter bindings are portable and authoritative. User-global defaults use `readio roles bind ROLE VOICE_ID`; project-local acoustic choices use `readio plan bind ROLE VOICE` and are inspected with `readio plan roles`. A project binding never rewrites SSMD or changes Utterplan identity. Invocation-only overrides use repeatable `--voice-bind ROLE=VOICE_ID`. Stable selectors are lookup aliases; project, config, and document settings persist canonical concrete voice IDs.
 
-For the exact effective cast a render will use — including document, invocation, configured-role, and direct bindings resolved against the active model roster, each with its origin — inspect the plan JSON:
+For the effective cast of a one-shot render, inspect `readio render --dry-run`. The plan is resolved against the active model roster and its `decisions` report the origin of each mapping:
 
 ```bash
-readio plan --file episode.ssmd --json
+readio render --file episode.ssmd --dry-run --json
 ```
 
-`ssmd.bindings` lists every executable `reference -> voice` mapping with its `origin`, `ssmd.unresolved` lists references that would block rendering, and the same mappings appear as `ssmd.bindings.<ref>` entries in `decisions`. Preflight (`readio ssmd check`) and rendering derive their bindings from the same resolution, so plan, check, and render always agree.
+Project-role inspection does not require a generated plan index:
+
+```bash
+readio plan roles
+```
+
+The one-shot plan's `decisions` include `ssmd.bindings.<ref>` entries; `readio ssmd check` and rendering use the same central voice resolver.
 
 When a check reports unresolved roles, fix the source/configuration or provide repeatable `--voice-bind ROLE=VOICE_ID` values. `--resolve-voices` is a human-only interactive TTY convenience and must not be used by agents, scripts, JSON commands, or non-TTY processes.
 

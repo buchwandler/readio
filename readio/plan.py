@@ -225,6 +225,7 @@ class PlanRequest:
     synthesis: SynthesisRequest = field(default_factory=SynthesisRequest)
     output: OutputRequest = field(default_factory=OutputRequest)
     voice_bindings: Mapping[str, str] = field(default_factory=dict)
+    project_voice_bindings: Mapping[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1383,6 +1384,7 @@ def _plan_ssmd(
     *,
     model_plan: ModelPlan | None,
     voice_bindings: Mapping[str, str],
+    project_voice_bindings: Mapping[str, str],
 ) -> tuple[SSMDPlan, list[PlanDiagnostic], list[ResolutionDecision]]:
     """Resolve the SSMD cast through the shared ``resolve_voice_references``.
 
@@ -1433,6 +1435,9 @@ def _plan_ssmd(
             cfg,
             available_voices=available_voices,
             additional_bindings=dict(voice_bindings) if voice_bindings else None,
+            project_bindings=(
+                dict(project_voice_bindings) if project_voice_bindings else None
+            ),
         )
     except SSMDInputError as exc:
         diagnostics.append(
@@ -1734,6 +1739,7 @@ def resolve_plan(
         cfg,
         model_plan=model_plan,
         voice_bindings=request.voice_bindings,
+        project_voice_bindings=request.project_voice_bindings,
     )
     all_diagnostics.extend(ssmd_diags)
     all_decisions.extend(ssmd_decisions)
@@ -2003,6 +2009,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                 cfg,
                 available_voices=available or None,
                 additional_bindings=dict(request.voice_bindings),
+                project_bindings=dict(request.project_voice_bindings),
             )
             for item in resolved_refs:
                 if item.voice is None:
