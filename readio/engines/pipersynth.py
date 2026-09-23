@@ -96,7 +96,6 @@ class PiperSynthEngineSession:
         rendered.pop("sentence_silence", None)
         return self._pipeline.prepare_plan_segments(plan, **rendered)
 
-
     def to_audio_job(
         self,
         plan: UtterancePlan,
@@ -129,18 +128,19 @@ class PiperSynthEngineAdapter:
             "options": {
                 key: value
                 for key, value in selection.options.items()
-                if key not in {
+                if key
+                not in {
                     "speed",
                     "rate",
                     "volume",
                     "pitch",
                     "emphasis",
                     "sentence_silence",
-                } and not (key == "length_scale" and "speed" in selection.options)
+                }
+                and not (key == "length_scale" and "speed" in selection.options)
             },
             "metadata": dict(selection.metadata),
         }
-
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(
@@ -343,9 +343,7 @@ class PiperSynthEngineAdapter:
         options = dict(selection.options)
         generation = GenerationConfig(
             speaker=options.get("speaker", selection.speaker),
-            length_scale=(
-                None if "speed" in options else options.get("length_scale")
-            ),
+            length_scale=(None if "speed" in options else options.get("length_scale")),
             noise_scale=options.get("noise_scale"),
             noise_w_scale=options.get("noise_w_scale"),
             normalize_audio=bool(options.get("normalize_audio", True)),

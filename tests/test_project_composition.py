@@ -34,6 +34,7 @@ def test_composition_uses_persisted_audio_and_loudness_only_rebuild(tmp_path, mo
     assert job.items
     assert all("composition" in str(item.source.path) for item in job.items)
 
+
 def test_compose_project_forwards_progress_and_outer_phases(tmp_path, monkeypatch):
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
@@ -50,6 +51,7 @@ def test_compose_project_forwards_progress_and_outer_phases(tmp_path, monkeypatc
     assert events[-1].kind == "compose_completed"
     assert any(event.kind == "operation_started" for event in events) is False
     assert phases == ["Preparing composition", "Writing composition artifacts"]
+
 
 def test_progress_does_not_change_composition_identity_or_audio(tmp_path, monkeypatch):
     adapter = Adapter()
@@ -72,6 +74,7 @@ def test_progress_does_not_change_composition_identity_or_audio(tmp_path, monkey
     assert read_json(project.paths["composition_state"]) == state
     assert events[-1].kind == "compose_completed"
     assert hash_file(project.paths["composition_master"]) == state["master_sha256"]
+
 
 def test_preview_forwards_composition_progress(tmp_path, monkeypatch):
     adapter = Adapter()

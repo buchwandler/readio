@@ -39,6 +39,7 @@ def _project_request(project: Project, cfg: Any, args: Any = None) -> PlanReques
         output=OutputRequest(mode="file", requested_format="wav", force=True),
     )
 
+
 def _synthesis_status(project: Project) -> dict[str, Any]:
     trace_path = project.paths["synthesis_trace"]
     profile_path = project.paths["synthesis_profile"]
@@ -46,9 +47,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.missing"}
     try:
         plan_scopes = project.load_plan_index().scopes
-        scoped_plans = tuple(
-            (scope, load_scope_plan(project, scope)) for scope in plan_scopes
-        )
+        scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
         profile = read_json(profile_path)
     except (OSError, KeyError, TypeError, ValueError):
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.invalid"}
@@ -77,9 +76,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
     if not isinstance(canonical, dict):
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
 
-    current_plans = {
-        scope.id: (scope, plan) for scope, plan in scoped_plans
-    }
+    current_plans = {scope.id: (scope, plan) for scope, plan in scoped_plans}
     trace_plans = trace.get("plans")
     if isinstance(trace_plans, list):
         for recorded in trace_plans:
@@ -144,8 +141,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
         "profile": profile,
         "profile_id": profile_id,
         "plan_ids": [
-            {"scope_id": scope.id, "plan_id": plan.plan_id}
-            for scope, plan in scoped_plans
+            {"scope_id": scope.id, "plan_id": plan.plan_id} for scope, plan in scoped_plans
         ],
     }
     if len(scoped_plans) == 1:
@@ -158,6 +154,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
         "reason": "synthesis.stale.speech_changed",
         **details,
     }
+
 
 def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
     if row["state"] == "current":
@@ -209,13 +206,19 @@ def project_status(project: Project) -> dict[str, Any]:
             try:
                 state = read_json(state_path)
                 identity_payload = state.get("identity_payload", {})
-                loudness = identity_payload.get("loudness", {}) if isinstance(identity_payload, dict) else {}
+                loudness = (
+                    identity_payload.get("loudness", {})
+                    if isinstance(identity_payload, dict)
+                    else {}
+                )
                 _, current_identity = build_audio_job(
                     project,
                     target_lufs=loudness.get("target_lufs"),
                     true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp", -1.0),
                     peak_policy=loudness.get("peak_policy", "reduce_gain"),
-                    clip_policy=identity_payload.get("clip_policy", "clamp") if isinstance(identity_payload, dict) else "clamp",
+                    clip_policy=identity_payload.get("clip_policy", "clamp")
+                    if isinstance(identity_payload, dict)
+                    else "clamp",
                 )
                 profile_id = read_json(project.paths["synthesis_profile"]).get("profile_id")
                 if (
@@ -412,9 +415,7 @@ def preview_project(
             "title": document_scopes[scope_id].title,
             "source_number": document_scopes[scope_id].source_number,
             "plan_id": plan.plan_id,
-            "plan_sha256": hash_file(
-                project.root / "plan" / indexed_plans[scope_id].path
-            ),
+            "plan_sha256": hash_file(project.root / "plan" / indexed_plans[scope_id].path),
         }
         for scope_id, plan in scoped_plans
     )

@@ -34,7 +34,9 @@ def test_canonical_speech_identity_excludes_composition_directives() -> None:
     )
     profile = {"engine": "fake", "voice": "test"}
 
-    assert segment_speech_hash(plan, segment, profile) == segment_speech_hash(plan, changed, profile)
+    assert segment_speech_hash(plan, segment, profile) == segment_speech_hash(
+        plan, changed, profile
+    )
     assert "pause_after" not in segment_speech_payload(plan, changed, profile)
     assert "prosody" not in segment_speech_payload(plan, changed, profile)["synthesis_directives"]
 

@@ -81,6 +81,7 @@ def test_project_ssmd_plan_preserves_semantics_and_metadata(tmp_path):
     } == {"narrator", "guest"}
     assert compiled.scopes[0].compiled.plan_id == plan.plan_id
 
+
 def test_project_document_legacy_metadata_infers_semantic_format(tmp_path):
     source = tmp_path / "episode.ssmd"
     source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
@@ -142,7 +143,9 @@ def _multi_scope_project(tmp_path):
             source_number=3,
         ),
     )
-    for scope, body in zip(scopes, ("# Chapter Two\n\nFirst text.", "# Chapter Three\n\nSecond text.")):
+    for scope, body in zip(
+        scopes, ("# Chapter Two\n\nFirst text.", "# Chapter Three\n\nSecond text.")
+    ):
         path = project.path(scope.path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
@@ -160,10 +163,7 @@ def test_project_planning_plans_all_document_scopes_and_tracks_input_hashes(tmp_
     assert [item.id for item in initial] == ["chapter-0002", "chapter-0003"]
     assert all(item.document_sha256 for item in initial)
     assert all(item.plan_id for item in initial)
-    assert all(
-        load_scope_plan(project, item).schema_version == 2
-        for item in initial
-    )
+    assert all(load_scope_plan(project, item).schema_version == 2 for item in initial)
 
     project.path("document/chapters/chapter-0003.md").write_text(
         "# Chapter Three\n\nUpdated text.", encoding="utf-8"

@@ -17,9 +17,7 @@ def make_audiobook_project(tmp_path: Path, chapters: str = "2-4,5"):
         tmp_path / "book.readio",
         chapters=chapters,
     )
-    cfg = ReadioConfig(
-        reader=ReaderSettings(engine="fake", voice="fake-voice", spacy="off")
-    )
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice", spacy="off"))
     request = PlanRequest(
         "render",
         InputRequest(project.load_document_scope(project.document_scopes()[0])),

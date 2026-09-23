@@ -48,7 +48,9 @@ def _numeric(value: Any, values: Mapping[str, float], default: float) -> float:
     return float(values.get(str(value).strip().lower(), default))
 
 
-def _speech_operations(segment: Any, composition: Mapping[str, Any] | None = None) -> tuple[Any, ...]:
+def _speech_operations(
+    segment: Any, composition: Mapping[str, Any] | None = None
+) -> tuple[Any, ...]:
     composition = composition or {}
     directives = getattr(segment, "directives", None)
     prosody = getattr(directives, "prosody", None)
@@ -78,7 +80,14 @@ def _speech_operations(segment: Any, composition: Mapping[str, Any] | None = Non
         volume_value = composition.get("volume")
     volume = _numeric(
         volume_value,
-        {"silent": -60.0, "x-soft": -12.0, "soft": -6.0, "medium": 0.0, "loud": 6.0, "x-loud": 12.0},
+        {
+            "silent": -60.0,
+            "x-soft": -12.0,
+            "soft": -6.0,
+            "medium": 0.0,
+            "loud": 6.0,
+            "x-loud": 12.0,
+        },
         0.0,
     )
     if volume:
@@ -114,7 +123,9 @@ def _pause_seconds(pause: Any) -> tuple[float, tuple[str, ...]]:
     return float(getattr(pause, "seconds", 0.0)), tuple(getattr(pause, "events", ()) or ())
 
 
-def _cache_entries(project: Project, plan: Any, scope_id: str) -> dict[tuple[str, str], dict[str, Any]]:
+def _cache_entries(
+    project: Project, plan: Any, scope_id: str
+) -> dict[tuple[str, str], dict[str, Any]]:
     profile = read_json(project.paths["synthesis_profile"])
     canonical = profile.get("canonical")
     profile_id = str(profile.get("profile_id", ""))
@@ -142,7 +153,9 @@ def _cache_entries(project: Project, plan: Any, scope_id: str) -> dict[tuple[str
             or sidecar.get("profile_id") != profile_id
             or sidecar.get("audio_sha256") != checked[3]
         ):
-            raise ValueError(f"synthesis sidecar does not match current speech for {scope_id}:{segment.id}")
+            raise ValueError(
+                f"synthesis sidecar does not match current speech for {scope_id}:{segment.id}"
+            )
         entries[(scope_id, str(segment.id))] = {
             "scope_id": scope_id,
             "segment": segment,
@@ -157,6 +170,7 @@ def _cache_entries(project: Project, plan: Any, scope_id: str) -> dict[tuple[str
             "composition": dict(profile.get("composition", {})),
         }
     return entries
+
 
 def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tuple[Any, str]:
     if frames <= 0:
@@ -175,7 +189,9 @@ def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tu
             )
             temporary.replace(path)
         digest = hash_file(path)
-        return AudioFileSource(path, expected_sha256=digest, sample_rate=sample_rate, frames=frames), digest
+        return AudioFileSource(
+            path, expected_sha256=digest, sample_rate=sample_rate, frames=frames
+        ), digest
     audio = np.zeros(frames, dtype=np.float32)
     return AudioBufferSource(audio, sample_rate), hashlib.sha256(audio.tobytes()).hexdigest()
 
@@ -197,6 +213,7 @@ def _build_layout(
     items: list[Any] = []
     layout: list[dict[str, Any]] = []
     seen_events: set[str] = set()
+
     def append_silence(segment: Any, entry: Mapping[str, Any], side: str, pause: Any) -> None:
         seconds, event_ids = _pause_seconds(pause)
         scope_id = str(entry.get("scope_id", "document"))
@@ -326,9 +343,16 @@ def _build_layout(
             clip_policy=clip_policy,
         ),
         producer={"readio": "project"},
-        source={"project_id": project.manifest.project_id if project else None, "composition_id": composition_id(identity_payload)},
+        source={
+            "project_id": project.manifest.project_id if project else None,
+            "composition_id": composition_id(identity_payload),
+        },
     )
-    return job, {"identity_payload": identity_payload, "composition_id": composition_id(identity_payload), "layout": layout}
+    return job, {
+        "identity_payload": identity_payload,
+        "composition_id": composition_id(identity_payload),
+        "layout": layout,
+    }
 
 
 def build_audio_job(
@@ -340,8 +364,7 @@ def build_audio_job(
     clip_policy: str = "clamp",
 ) -> tuple[AudioJob, dict[str, Any]]:
     scoped_plans = tuple(
-        (scope, load_scope_plan(project, scope))
-        for scope in project.load_plan_index().scopes
+        (scope, load_scope_plan(project, scope)) for scope in project.load_plan_index().scopes
     )
     segments = []
     first_entry: dict[str, Any] | None = None
@@ -353,9 +376,7 @@ def build_audio_job(
             {
                 "scope_id": scope.id,
                 "kind": document_scope.kind if document_scope is not None else scope.kind,
-                "title": (
-                    document_scope.title if document_scope is not None else scope.title
-                ),
+                "title": (document_scope.title if document_scope is not None else scope.title),
                 "source_number": (
                     document_scope.source_number if document_scope is not None else None
                 ),
@@ -367,8 +388,7 @@ def build_audio_job(
         if first_entry is None and entries:
             first_entry = next(iter(entries.values()))
         segments.extend(
-            (segment, entries[(scope.id, str(segment.id))])
-            for segment in plan.segments
+            (segment, entries[(scope.id, str(segment.id))]) for segment in plan.segments
         )
     if first_entry is None:
         raise ValueError("project plans contain no composition segments")
@@ -384,7 +404,9 @@ def build_audio_job(
     )
 
 
-def _write_composition_result(project: Project, job: AudioJob, identity: Mapping[str, Any], result: Any) -> dict[str, Any]:
+def _write_composition_result(
+    project: Project, job: AudioJob, identity: Mapping[str, Any], result: Any
+) -> dict[str, Any]:
     audiojob_path = project.paths["composition_audiojob"]
     job.save(audiojob_path)
     master = project.paths["composition_master"]
@@ -392,9 +414,7 @@ def _write_composition_result(project: Project, job: AudioJob, identity: Mapping
     sf.write(temporary, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
     temporary.replace(master)
     chapter_metadata = identity.get("identity_payload", {}).get("chapters", [])
-    item_ranges = {
-        item.item_id: (item.start_sample, item.end_sample) for item in result.items
-    }
+    item_ranges = {item.item_id: (item.start_sample, item.end_sample) for item in result.items}
     layout_items = identity.get("layout", [])
     timeline_chapters = []
     previous_end = 0
@@ -403,8 +423,7 @@ def _write_composition_result(project: Project, job: AudioJob, identity: Mapping
         ranges = [
             item_ranges[layout_item["id"]]
             for layout_item in layout_items
-            if layout_item.get("scope_id") == scope_id
-            and layout_item.get("id") in item_ranges
+            if layout_item.get("scope_id") == scope_id and layout_item.get("id") in item_ranges
         ]
         start_sample = min((start for start, _ in ranges), default=previous_end)
         timeline_chapters.append(
@@ -434,7 +453,12 @@ def _write_composition_result(project: Project, job: AudioJob, identity: Mapping
             for item in result.items
         ],
         "markers": [
-            {"id": marker.id, "sample_offset": marker.sample_offset, "name": marker.name, "item_id": marker.item_id}
+            {
+                "id": marker.id,
+                "sample_offset": marker.sample_offset,
+                "name": marker.name,
+                "item_id": marker.item_id,
+            }
             for marker in result.markers
         ],
     }
@@ -459,13 +483,22 @@ def _write_composition_result(project: Project, job: AudioJob, identity: Mapping
             "sample_rate": result.sample_rate,
             "frames": len(result.audio),
             "loudness": {
-                "integrated_lufs_before": result.loudness.before.integrated_lufs if result.loudness else None,
-                "integrated_lufs_after": result.loudness.after.integrated_lufs if result.loudness else None,
+                "integrated_lufs_before": result.loudness.before.integrated_lufs
+                if result.loudness
+                else None,
+                "integrated_lufs_after": result.loudness.after.integrated_lufs
+                if result.loudness
+                else None,
                 "gain_db": result.loudness.applied_gain_db if result.loudness else 0.0,
             },
         },
     )
-    return {"composition_id": identity["composition_id"], "master": master, "frames": len(result.audio), "items": len(result.items)}
+    return {
+        "composition_id": identity["composition_id"],
+        "master": master,
+        "frames": len(result.audio),
+        "items": len(result.items),
+    }
 
 
 def compose_project(
@@ -513,18 +546,14 @@ def compose_artifacts(
     if not artifact_list:
         raise ValueError("preview selected no synthesized segments")
     plan_pairs = (
-        tuple(plans)
-        if plans is not None
-        else (("document", plan),) if plan is not None else ()
+        tuple(plans) if plans is not None else (("document", plan),) if plan is not None else ()
     )
     if not plan_pairs:
         clips = []
         for artifact in artifact_list:
             scope_id = str(getattr(artifact, "scope_id", "document"))
             segment_id = artifact.segment_id
-            qualified_id = (
-                segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
-            )
+            qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
             metadata = {
                 "kind": "speech",
                 "segment_id": segment_id,
@@ -551,9 +580,7 @@ def compose_artifacts(
             output=OutputPolicy(
                 sample_rate=clips[0].source.sample_rate or 24000,
                 channels=1,
-                loudness=LoudnessPolicy(
-                    target_lufs, true_peak_ceiling_dbtp, peak_policy
-                ),
+                loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
                 clip_policy=clip_policy,
             ),
         )
@@ -601,7 +628,19 @@ def compose_artifacts(
             on_phase("Writing preview artifacts")
         output.parent.mkdir(parents=True, exist_ok=True)
         sf.write(output, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
-    return {"sample_rate": result.sample_rate, "frames": len(result.audio), "items": len(result.items), "output": output, "composition_id": identity["composition_id"]}
+    return {
+        "sample_rate": result.sample_rate,
+        "frames": len(result.audio),
+        "items": len(result.items),
+        "output": output,
+        "composition_id": identity["composition_id"],
+    }
 
 
-__all__ = ["build_audio_job", "compose_artifacts", "compose_project", "composition_id", "seconds_to_frames"]
+__all__ = [
+    "build_audio_job",
+    "compose_artifacts",
+    "compose_project",
+    "composition_id",
+    "seconds_to_frames",
+]

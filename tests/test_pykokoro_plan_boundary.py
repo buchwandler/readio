@@ -13,10 +13,10 @@ class _Pipeline:
         self.prepare_overrides = dict(overrides)
         return object()
 
-
     def prepare_plan_segments(self, plan, **overrides):
         self.segment_overrides = dict(overrides)
         return object()
+
     def to_audio_job_from_plan(self, plan, **overrides):
         self.audio_job_overrides = dict(overrides)
         return object()
@@ -47,7 +47,6 @@ def test_prepare_plan_does_not_forward_plan_owned_options() -> None:
     }
 
 
-
 def test_prepare_segments_does_not_forward_model_speed_or_generation() -> None:
     pipeline = _Pipeline()
     session = PyKokoroEngineSession(pipeline)
@@ -57,6 +56,7 @@ def test_prepare_segments_does_not_forward_model_speed_or_generation() -> None:
         "lexicons": ("gold",),
         "model_source": "auto",
     }
+
 
 def test_to_audio_job_does_not_forward_plan_owned_options() -> None:
     pipeline = _Pipeline()

@@ -22,6 +22,7 @@ def _to_dict(value: Any) -> Any:
         return [_to_dict(item) for item in value]
     return value
 
+
 def _normalized_token_value(token: Any, name: str) -> Any:
     value = getattr(token, name, None)
     if not isinstance(value, str):
@@ -61,6 +62,7 @@ def synthesis_directives(segment: Any) -> dict[str, Any]:
         "pronunciation": _to_dict(getattr(directives, "pronunciation", None)),
     }
 
+
 def _canonical_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
     source = profile.get("canonical", profile)
     if not isinstance(source, Mapping):
@@ -78,11 +80,7 @@ def _canonical_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
         "fade_in",
         "fade_out",
     }
-    result = {
-        str(key): _to_dict(value)
-        for key, value in source.items()
-        if key not in editorial
-    }
+    result = {str(key): _to_dict(value) for key, value in source.items() if key not in editorial}
     options = result.get("options")
     if isinstance(options, Mapping):
         result["options"] = {

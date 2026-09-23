@@ -19,13 +19,8 @@ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, cfg)
     first = render_project(project, cfg, audio_format="wav")
-    trace = __import__("json").loads(
-        project.paths["synthesis_trace"].read_text(encoding="utf-8")
-    )
-    assert all(
-        row["path"].startswith("synthesis/segments/seg-")
-        for row in trace["segments"]
-    )
+    trace = __import__("json").loads(project.paths["synthesis_trace"].read_text(encoding="utf-8"))
+    assert all(row["path"].startswith("synthesis/segments/seg-") for row in trace["segments"])
     assert [row["action"] for row in first["operations"]] == [
         "skipped",
         "rebuilt",
@@ -54,6 +49,7 @@ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
     assert encoded["operations"][2]["action"] == "skipped"
     assert encoded["operations"][3]["action"] == "rebuilt"
     assert project_status(project)["stages"][-1]["state"] == "current"
+
 
 def test_render_project_forwards_composition_progress(tmp_path, monkeypatch):
     adapter = Adapter()

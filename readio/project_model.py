@@ -127,9 +127,7 @@ class DocumentScope:
             id=_require_string(data.get("id"), "document scope.id"),
             kind=_require_string(data.get("kind"), "document scope.kind"),
             path=_require_string(data.get("path"), "document scope.path"),
-            input_format=_require_string(
-                data.get("input_format"), "document scope.input_format"
-            ),
+            input_format=_require_string(data.get("input_format"), "document scope.input_format"),
             **optional_strings,
             **optional_ints,
             diagnostics=tuple(dict(item) for item in diagnostics),
@@ -179,6 +177,7 @@ class DocumentIndex:
             metadata=dict(metadata),
             selection=tuple(selection),
         )
+
 
 @dataclass(frozen=True, slots=True)
 class PlanIndex:
@@ -287,15 +286,11 @@ class ProjectManifest:
             document_metadata_path = _require_string(
                 document.get("metadata_path"), "document.metadata_path"
             )
-            document_text_path = _require_string(
-                document.get("text_path"), "document.text_path"
-            )
+            document_text_path = _require_string(document.get("text_path"), "document.text_path")
             document_index_path = "document/index.json"
             kind = "document"
         else:
-            document_index_path = _require_string(
-                document.get("index_path"), "document.index_path"
-            )
+            document_index_path = _require_string(document.get("index_path"), "document.index_path")
             document_metadata_path = "document/metadata.json"
             document_text_path = "document/document.txt"
             kind = _require_string(data.get("kind"), "kind")

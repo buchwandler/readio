@@ -795,6 +795,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         print(f"Master: {result['master']}")
     return 0
 
+
 def _cmd_export(args: argparse.Namespace) -> int:
     project = load_project(args.project)
     result = export_project(
@@ -886,9 +887,7 @@ def _cmd_audiobook_chapters(args: argparse.Namespace) -> int:
         "ok": True,
         "source": str(inspection.source),
         "metadata": dict(inspection.metadata),
-        "chapters": [
-            _audiobook_chapter_json(chapter) for chapter in inspection.chapters
-        ],
+        "chapters": [_audiobook_chapter_json(chapter) for chapter in inspection.chapters],
     }
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False))
@@ -934,6 +933,7 @@ def _cmd_audiobook_init(args: argparse.Namespace) -> int:
             indentation = "  " * max(0, (scope.level or 1) - 1)
             print(f"  {scope.source_number:>2} {indentation}{scope.title}")
     return 0
+
 
 def _cmd_status(args: argparse.Namespace) -> int:
     project = load_project(getattr(args, "project", None))
@@ -1123,7 +1123,9 @@ def _cmd_render(args: argparse.Namespace) -> int:
                     args=args,
                     target_lufs=getattr(args, "target_lufs", None),
                     on_synthesis_event=progress.synthesis_event,
-                    on_composition_progress=progress.composition_event if progress.enabled else None,
+                    on_composition_progress=progress.composition_event
+                    if progress.enabled
+                    else None,
                     on_phase=progress.phase if progress.enabled else None,
                 )
             if getattr(args, "json", False):
@@ -2205,12 +2207,8 @@ def build_parser() -> argparse.ArgumentParser:
     audiobook_cmd = sub.add_parser(
         "audiobook", help="inspect EPUB chapters and initialize audiobook projects"
     )
-    audiobook_sub = audiobook_cmd.add_subparsers(
-        dest="audiobook_command", required=True
-    )
-    audiobook_chapters = audiobook_sub.add_parser(
-        "chapters", help="list selectable EPUB chapters"
-    )
+    audiobook_sub = audiobook_cmd.add_subparsers(dest="audiobook_command", required=True)
+    audiobook_chapters = audiobook_sub.add_parser("chapters", help="list selectable EPUB chapters")
     audiobook_chapters.add_argument("source", type=Path)
     audiobook_chapters.add_argument("--json", action="store_true")
     audiobook_chapters.set_defaults(func=_cmd_audiobook_chapters)

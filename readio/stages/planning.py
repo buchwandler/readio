@@ -32,17 +32,16 @@ class ResolvedSemanticPlanning:
     compiled: CompiledSemanticPlan
 
 
-
 @dataclass(frozen=True, slots=True)
 class PlannedScope:
     scope: PlanScope
     compiled: CompiledSemanticPlan
 
 
-
 @dataclass(frozen=True, slots=True)
 class ProjectPlanningResult:
     scopes: tuple[PlannedScope, ...]
+
 
 class PlanSchemaMismatchError(ValueError):
     """A persisted Readio semantic plan is not the supported Utterplan schema."""
@@ -138,7 +137,6 @@ def compile_project_scope(
     return PlannedScope(scope=plan_scope, compiled=resolved.compiled)
 
 
-
 def plan_project_scope(
     project: Project,
     cfg: Any,
@@ -182,7 +180,6 @@ def plan_project_scope(
         return planned.compiled
 
 
-
 def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
     """Plan every persisted document scope, then atomically replace the plan index."""
     with project_lock(project, operation="plan"):
@@ -205,6 +202,8 @@ def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
         index = PlanIndex(scopes=tuple(item.scope for item in planned_scopes))
         atomic_write_json(project.paths["plan_index"], index.to_dict())
         return ProjectPlanningResult(scopes=tuple(planned_scopes))
+
+
 def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSemanticPlan:
     resolved = resolve_semantic_planning(cfg, document)
     _write_plan_artifact(output, resolved.compiled)
@@ -226,12 +225,12 @@ def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
     return load_utterplan_v2(project.root / "plan" / scope.path)
 
 
-
 def load_primary_scope_plan(project: Project) -> UtterancePlan:
     scopes = project.load_plan_index().scopes
     if len(scopes) != 1:
         raise ValueError("plan scope is required when a project has multiple scopes")
     return load_scope_plan(project, scopes[0])
+
 
 def _plan_artifact_status(project: Project, document_format: str) -> dict[str, Any]:
     """Validate the indexed plans against the current semantic document."""
@@ -314,10 +313,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
         document_scope = document_scopes.get(scope.id)
         if document_scope is not None and scope.document_sha256 is not None:
             document_path = project.path(document_scope.path)
-            if (
-                not document_path.is_file()
-                or hash_file(document_path) != scope.document_sha256
-            ):
+            if not document_path.is_file() or hash_file(document_path) != scope.document_sha256:
                 return {
                     "state": "stale",
                     "reason": "plan.stale.document_changed",
@@ -361,9 +357,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
         document_details: dict[str, Any] = {}
         try:
             document_index = project.load_document_index()
-            source_numbers = tuple(
-                scope.source_number for scope in document_index.scopes
-            )
+            source_numbers = tuple(scope.source_number for scope in document_index.scopes)
             if (
                 any(number is None or number < 1 for number in source_numbers)
                 or tuple(sorted(set(source_numbers))) != source_numbers

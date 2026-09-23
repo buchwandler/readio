@@ -23,7 +23,10 @@ def test_status_reports_provenance_scope_and_aggregate_cache_freshness(
 
     status = project_status(project)
     stages = {row["stage"]: row for row in status["stages"]}
-    assert all(stages[name]["state"] == "current" for name in ("plan", "synthesis", "composition", "output"))
+    assert all(
+        stages[name]["state"] == "current"
+        for name in ("plan", "synthesis", "composition", "output")
+    )
     assert stages["synthesis"]["scopes"] == len(project.document_scopes())
     assert stages["synthesis"]["required"] == stages["synthesis"]["total"]
 
@@ -41,14 +44,17 @@ def test_status_reports_provenance_scope_and_aggregate_cache_freshness(
     provenance = {row["stage"]: row for row in project_status(project)["stages"]}
     assert provenance["source"]["reason"] == "source.stale.hash_changed"
     assert "reinitialize" in next(
-        issue["message"] for issue in project_status(project)["issues"]
+        issue["message"]
+        for issue in project_status(project)["issues"]
         if issue["stage"] == "source"
     )
 
     project.paths["source"].write_bytes(original_epub)
     changed_scope = project.document_scopes()[2]
     chapter_path = project.path(changed_scope.path)
-    chapter_path.write_text(chapter_path.read_text(encoding="utf-8") + "\nChanged.", encoding="utf-8")
+    chapter_path.write_text(
+        chapter_path.read_text(encoding="utf-8") + "\nChanged.", encoding="utf-8"
+    )
     changed = {row["stage"]: row for row in project_status(project)["stages"]}
     assert changed["plan"]["reason"] == "plan.stale.document_changed"
     assert changed["plan"]["scope_id"] == changed_scope.id

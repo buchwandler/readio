@@ -382,7 +382,6 @@ readio status manuscript.readio --json
 readio render manuscript.readio --format mp3  # build stale stages
 ```
 
-
 For EPUB audiobooks, Readio discovers selectable chapters and persists the chosen chapter Markdown as editable project inputs:
 
 ```bash

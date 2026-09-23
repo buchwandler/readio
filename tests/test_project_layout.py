@@ -24,6 +24,7 @@ def test_init_creates_project_layout_and_is_suffix_independent(tmp_path):
     assert project.document_scopes()[0].path == "document/document.txt"
     assert (root / "document" / "index.json").is_file()
 
+
 def test_malformed_and_traversal_manifests_are_rejected(tmp_path):
     source = tmp_path / "book.txt"
     source.write_text("hello", encoding="utf-8")

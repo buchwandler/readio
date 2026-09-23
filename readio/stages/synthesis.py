@@ -144,9 +144,7 @@ def _fallback_canonical_identity(selection: Any, adapter: Any) -> dict[str, Any]
         "language": selection.language,
         "voice": selection.voice,
         "speaker": selection.speaker,
-        "options": {
-            key: value for key, value in selection.options.items() if key not in editorial
-        },
+        "options": {key: value for key, value in selection.options.items() if key not in editorial},
         "metadata": dict(selection.metadata),
     }
 
@@ -358,9 +356,7 @@ def _render_missing(
             )
         use_segments = callable(getattr(active_session, "prepare_segments", None))
         prepare_method = (
-            active_session.prepare_segments
-            if use_segments
-            else active_session.prepare_plan
+            active_session.prepare_segments if use_segments else active_session.prepare_plan
         )
         _emit(on_event, SynthesisEvent("prepare_started", scope_id=scope_id, total=total))
         prepare_started = time.monotonic()
@@ -396,7 +392,9 @@ def _render_missing(
                             segment_index=item["segment_index"],
                             completed=completed - 1,
                             total=total,
-                            text=_segment_preview(segment) if use_segments else _unit_preview(plan, unit),
+                            text=_segment_preview(segment)
+                            if use_segments
+                            else _unit_preview(plan, unit),
                             details={"segment_ids": [item["segment_id"]]},
                         ),
                     )
@@ -437,11 +435,15 @@ def _render_missing(
                             )
                             if index < 0:
                                 metadata = getattr(result, "metadata", {}) or {}
-                                index = int(metadata.get("segment_index", metadata.get("unit_index", -1)))
+                                index = int(
+                                    metadata.get("segment_index", metadata.get("unit_index", -1))
+                                )
                             expected = item["render_index"] if use_segments else int(unit.index)
                             if index != expected:
                                 kind = "segment" if use_segments else "plan unit"
-                                raise ValueError(f"engine returned {kind} index {index}; expected {expected}")
+                                raise ValueError(
+                                    f"engine returned {kind} index {index}; expected {expected}"
+                                )
                         rate, channels, frames, digest, sidecar = _write_cache_artifact(
                             project, item, result, profile
                         )
@@ -460,11 +462,15 @@ def _render_missing(
                                 segment_index=item["segment_index"],
                                 completed=completed,
                                 total=total,
-                                text=_segment_preview(segment) if use_segments else _unit_preview(plan, unit),
+                                text=_segment_preview(segment)
+                                if use_segments
+                                else _unit_preview(plan, unit),
                                 details={
                                     **details,
                                     "segment_ids": [item["segment_id"]],
-                                    "render_ms": round((time.monotonic() - render_started) * 1000, 3),
+                                    "render_ms": round(
+                                        (time.monotonic() - render_started) * 1000, 3
+                                    ),
                                 },
                             ),
                         )
@@ -518,12 +524,8 @@ def _render_all_missing(
                 session=session,
                 scope_id=scope_id,
             )
-            details.update(
-                {(scope_id, index): value for index, value in rendered.items()}
-            )
+            details.update({(scope_id, index): value for index, value in rendered.items()})
     return details, engine_open_ms
-
-
 
 
 def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
@@ -575,9 +577,7 @@ def synthesize_project(
     started_wall = datetime.now(timezone.utc).isoformat()
     with project_lock(project, operation="synth"):
         plan_scopes = project.load_plan_index().scopes
-        scoped_plans = tuple(
-            (scope, load_scope_plan(project, scope)) for scope in plan_scopes
-        )
+        scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
         request = _request_for_project(project, cfg, request)
@@ -595,9 +595,7 @@ def synthesize_project(
         for scope, plan in scoped_plans:
             scoped_selection = selected_by_scope[scope.id]
             selected_indices = set(scoped_selection.unit_indices)
-            selected_units = [
-                unit for unit in plan.units if int(unit.index) in selected_indices
-            ]
+            selected_units = [unit for unit in plan.units if int(unit.index) in selected_indices]
             selected_units_count += len(selected_units)
             units_by_segment: dict[str, Any] = {}
             for unit in selected_units:
@@ -618,9 +616,7 @@ def synthesize_project(
                 if segment_id not in selected_segment_ids:
                     continue
                 unit = units_by_segment[segment_id]
-                speech_hash = segment_speech_hash(
-                    plan, segment, profile.payload["canonical"]
-                )
+                speech_hash = segment_speech_hash(plan, segment, profile.payload["canonical"])
                 key = segment_synthesis_key(speech_hash, profile.profile_id)
                 item: dict[str, Any] = {
                     "scope_id": scope.id,
@@ -666,8 +662,7 @@ def synthesize_project(
         included_work = [
             item
             for item in work
-            if item["items"]
-            or (selection.description == "all" and not item["plan"].units)
+            if item["items"] or (selection.description == "all" and not item["plan"].units)
         ]
         _emit(
             on_event,
@@ -776,9 +771,7 @@ def synthesize_project(
                     )
                 for unit in scope_work["selected_units"]:
                     unit_items = [
-                        item
-                        for item in scope_work["items"]
-                        if item["unit"].id == unit.id
+                        item for item in scope_work["items"] if item["unit"].id == unit.id
                     ]
                     if len(unit_items) == 1:
                         item = unit_items[0]
@@ -809,9 +802,7 @@ def synthesize_project(
                     {
                         "scope_id": scope_work["scope"].id,
                         "plan_id": scope_work["plan"].plan_id,
-                        "plan_sha256": hash_file(
-                            project.root / "plan" / scope_work["scope"].path
-                        ),
+                        "plan_sha256": hash_file(project.root / "plan" / scope_work["scope"].path),
                     }
                     for scope_work in included_work
                 ],

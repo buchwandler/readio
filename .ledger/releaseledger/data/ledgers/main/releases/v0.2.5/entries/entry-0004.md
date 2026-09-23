@@ -7,16 +7,17 @@ versioning:
 entry_id: entry-0004
 release_version: v0.2.5
 kind: docs
-summary: Documented compose progress flags, stderr separation, approximate ETA scope,
+summary:
+  Documented compose progress flags, stderr separation, approximate ETA scope,
   and final composition phases
 status: accepted
 audience: null
 scopes: []
 source_refs: []
 paths:
-- README.md
-- docs/cli.md
-- docs/projects.md
+  - README.md
+  - docs/cli.md
+  - docs/projects.md
 issues: []
 prs: []
 sources: []

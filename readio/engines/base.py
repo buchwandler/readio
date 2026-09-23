@@ -60,7 +60,6 @@ class RenderedUnit(Protocol):
         ...
 
 
-
 class RenderedSegment(Protocol):
     """Minimum result contract for canonical speech-only segment audio."""
 
@@ -81,6 +80,7 @@ class PreparedSegmentRenderer(Protocol):
     ) -> Iterator[RenderedSegment]:
         """Yield speech-only segment audio in requested plan order."""
         ...
+
 
 class PreparedUnitRenderer(Protocol):
     """Single-pass renderer for prepared utterance-plan units."""
@@ -177,7 +177,6 @@ class EngineAdapter(Protocol):
     ) -> Mapping[str, Any]:
         """Return identity inputs for canonical speech synthesis."""
         ...
-
 
     def open(
         self,

@@ -101,6 +101,7 @@ def test_stream_failure_disables_progress_without_raising():
     progress = TerminalProgress(stream=BrokenStream(), enabled=True, tty=True, clock=Clock())
     progress.update(event(0, 1))
 
+
 def composition_event(
     kind: str,
     *,
@@ -174,7 +175,9 @@ def test_composition_progress_renders_steps_and_eta() -> None:
 def test_composition_tty_shows_operation_resample_and_phases() -> None:
     stream = io.StringIO()
     progress = TerminalProgress(stream=stream, enabled=True, tty=True, clock=Clock())
-    progress.composition_event(composition_event("compose_started", details={"clip_items": 1}, total_seconds=1.0))
+    progress.composition_event(
+        composition_event("compose_started", details={"clip_items": 1}, total_seconds=1.0)
+    )
     progress.composition_event(
         composition_event(
             "operation_started",

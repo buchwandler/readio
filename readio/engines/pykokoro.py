@@ -112,15 +112,12 @@ class PyKokoroEngineSession:
         options: Mapping[str, Any],
     ) -> AbstractContextManager[Any]:
         """Prepare canonical speech-only plan segments."""
-        rendered = _plan_renderer_options(
-            options, allowed_options=self._allowed_renderer_options
-        )
+        rendered = _plan_renderer_options(options, allowed_options=self._allowed_renderer_options)
         rendered.pop("speed", None)
         rendered.pop("rate", None)
         rendered.pop("volume", None)
         rendered.pop("model_speed", None)
         return self._pipeline.prepare_plan_segments(plan, **rendered)
-
 
     def to_audio_job(
         self,
@@ -157,7 +154,8 @@ class PyKokoroEngineAdapter:
             "options": {
                 key: value
                 for key, value in selection.options.items()
-                if key not in {
+                if key
+                not in {
                     "speed",
                     "rate",
                     "volume",
@@ -169,7 +167,6 @@ class PyKokoroEngineAdapter:
             },
             "metadata": dict(selection.metadata),
         }
-
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(

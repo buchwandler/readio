@@ -47,9 +47,7 @@ def test_document_index_rejects_duplicate_scope_ids() -> None:
         input_format="markdown",
     )
     with pytest.raises(ProjectFormatError, match="duplicate scope IDs"):
-        DocumentIndex.from_dict(
-            DocumentIndex(scopes=(scope, scope)).to_dict()
-        )
+        DocumentIndex.from_dict(DocumentIndex(scopes=(scope, scope)).to_dict())
 
 
 def test_schema_one_manifest_and_project_are_read_as_one_document_scope(tmp_path) -> None:
@@ -101,7 +99,6 @@ def test_document_convenience_accessor_rejects_multiple_scopes(tmp_path) -> None
     with pytest.raises(ValueError, match="multiple document scopes"):
         loaded.document()
     assert loaded.load_document_scope(index.scopes[1]).text == "Second."
-
 
 
 def test_schema_two_manifest_points_to_document_index(tmp_path) -> None:

@@ -25,11 +25,11 @@ class ScopedUnitSelection:
     segment_ids: tuple[str, ...]
 
 
-
 @dataclass(frozen=True, slots=True)
 class ProjectUnitSelection:
     scopes: tuple[ScopedUnitSelection, ...]
     description: str
+
 
 def _range(value: str, label: str) -> tuple[int, int]:
     match = re.fullmatch(r"(\d+)(?:-(\d+))?", value)
@@ -70,9 +70,7 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
     units = _ensure_units(plan)
     normalized = (selector or "all").strip().lower()
     if normalized == "all":
-        return _with_segments(
-            plan, tuple(int(unit.index) for unit in units), "all"
-        )
+        return _with_segments(plan, tuple(int(unit.index) for unit in units), "all")
     if normalized in {"last-paragraph", "last:paragraph"}:
         paragraphs = [_paragraphs_for_unit(plan, unit) for unit in units]
         last = max((value for values in paragraphs for value in values), default=0)
@@ -115,11 +113,7 @@ def resolve_unit_selection(plan: Any, selector: str) -> UnitSelection:
     selected: list[int] = []
     by_id = {segment.id: segment for segment in getattr(plan, "segments", ())}
     for unit in units:
-        values = {
-            int(getattr(by_id[sid], kind, 0)) + 1
-            for sid in unit.segment_ids
-            if sid in by_id
-        }
+        values = {int(getattr(by_id[sid], kind, 0)) + 1 for sid in unit.segment_ids if sid in by_id}
         if any(start <= value <= end for value in values):
             selected.append(int(unit.index))
     if not selected:
@@ -135,9 +129,7 @@ def _project_scope_groups(plan: Any, kind: str) -> list[tuple[int, tuple[int, ..
     units = tuple(getattr(plan, "units", ()))
     if not units:
         return []
-    if kind == "sentence" and all(
-        getattr(unit, "kind", "") == "sentence" for unit in units
-    ):
+    if kind == "sentence" and all(getattr(unit, "kind", "") == "sentence" for unit in units):
         return [(int(unit.index), (int(unit.index),)) for unit in units]
 
     segments = {str(segment.id): segment for segment in getattr(plan, "segments", ())}
@@ -159,7 +151,6 @@ def _project_scope_groups(plan: Any, kind: str) -> list[tuple[int, tuple[int, ..
             if unit_index not in members[value]:
                 members[value].append(unit_index)
     return [(value, tuple(members[value])) for value in ordered_values]
-
 
 
 def resolve_project_selection(
@@ -205,15 +196,12 @@ def resolve_project_selection(
             raise SelectionError("the project contains no last paragraph")
         selected_groups = {(groups[-1][0], index) for index in groups[-1][1]}
         selected_entries = [
-            item
-            for item in entries
-            if (item[0], int(item[2].index)) in selected_groups
+            item for item in entries if (item[0], int(item[2].index)) in selected_groups
         ]
         normalized = "last-paragraph"
     elif ":" not in normalized:
         raise SelectionError(
-            "selector must be all, first:N, last:N, paragraph:N[-M], sentence:N[-M], "
-            "or unit:N[-M]"
+            "selector must be all, first:N, last:N, paragraph:N[-M], sentence:N[-M], or unit:N[-M]"
         )
     else:
         kind, raw = normalized.split(":", 1)
@@ -246,9 +234,7 @@ def resolve_project_selection(
                 for unit_index in unit_indices
             }
             selected_entries = [
-                item
-                for item in entries
-                if (item[0], int(item[2].index)) in selected_groups
+                item for item in entries if (item[0], int(item[2].index)) in selected_groups
             ]
         else:
             raise SelectionError(f"unknown selector kind: {kind}")
@@ -278,8 +264,6 @@ def resolve_project_selection(
         ),
         description=normalized,
     )
-
-
 
 
 __all__ = [

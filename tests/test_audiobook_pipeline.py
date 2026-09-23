@@ -17,9 +17,7 @@ from readio.stages.planning import load_scope_plan, plan_project
 from readio.stages.synthesis import synthesize_project
 
 
-def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(
-    tmp_path, monkeypatch
-) -> None:
+def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(tmp_path, monkeypatch) -> None:
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
     project, cfg, request = make_audiobook_project(tmp_path)
@@ -38,9 +36,7 @@ def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(
         scope.scope.id for scope in planning.scopes if scope.compiled.plan.segments
     }
     assert {
-        event.scope_id
-        for event in events
-        if event.kind in {"segment_started", "unit_started"}
+        event.scope_id for event in events if event.kind in {"segment_started", "unit_started"}
     } == rendered_scope_ids
     trace = json.loads(project.paths["synthesis_trace"].read_text(encoding="utf-8"))
     assert trace["schema_version"] == 3
@@ -66,8 +62,7 @@ def test_preview_selects_project_wide_and_render_composes_every_scope(
     project, cfg, request = make_audiobook_project(tmp_path)
     plan_project(project, cfg)
     plan_scopes = tuple(
-        (scope, load_scope_plan(project, scope))
-        for scope in project.load_plan_index().scopes
+        (scope, load_scope_plan(project, scope)) for scope in project.load_plan_index().scopes
     )
     selection = resolve_project_selection(plan_scopes, "first:3")
     expected_segments = sum(len(scope.segment_ids) for scope in selection.scopes)
@@ -84,9 +79,7 @@ def test_preview_selects_project_wide_and_render_composes_every_scope(
 
     assert preview["rendered"] == expected_segments
     assert {
-        event.scope_id
-        for event in events
-        if event.kind in {"segment_started", "unit_started"}
+        event.scope_id for event in events if event.kind in {"segment_started", "unit_started"}
     } == selected_scope_ids
     assert adapter.open_calls == 1
 
@@ -109,19 +102,20 @@ def test_preview_selects_project_wide_and_render_composes_every_scope(
         if item["kind"] == "speech":
             scope_id = item["scope_id"]
             segment_id = item["segment_id"]
-            assert (project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav").is_file()
+            assert (
+                project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
+            ).is_file()
     stages = {row["stage"]: row for row in project_status(project)["stages"]}
-    assert all(stages[name]["state"] == "current" for name in ("plan", "synthesis", "composition", "output"))
+    assert all(
+        stages[name]["state"] == "current"
+        for name in ("plan", "synthesis", "composition", "output")
+    )
 
 
-def test_cli_audiobook_init_plan_and_render_end_to_end(
-    tmp_path, monkeypatch, capsys
-    ) -> None:
+def test_cli_audiobook_init_plan_and_render_end_to_end(tmp_path, monkeypatch, capsys) -> None:
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
-    cfg = ReadioConfig(
-        reader=ReaderSettings(engine="fake", voice="fake-voice", spacy="off")
-    )
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice", spacy="off"))
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "novel.epub"

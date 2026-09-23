@@ -30,9 +30,7 @@ def parse_chapter_selection(spec: str | None, total: int) -> tuple[int, ...]:
         if start < 1 or end < 1:
             raise ValueError("chapter numbers must be positive")
         if end < start:
-            raise ValueError(
-                f"invalid chapter selection {part!r}: range start must be <= end"
-            )
+            raise ValueError(f"invalid chapter selection {part!r}: range start must be <= end")
         if start > total or end > total:
             number = start if start > total else end
             raise ValueError(f"chapter {number} is out of range; EPUB has {total} chapters")

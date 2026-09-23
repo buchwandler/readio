@@ -169,6 +169,7 @@ class Project:
             )
         return self.load_document_scope(scopes[0])
 
+
 @contextmanager
 def project_lock(project: Project, *, operation: str = "mutation") -> Iterator[None]:
     lock_path = project.paths["lock"]

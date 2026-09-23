@@ -27,11 +27,7 @@ def make_epub(path: Path, *, with_navigation: bool = True) -> None:
             file_name=f"chapter{index}.xhtml",
             lang="en",
         )
-        chapter.content = (
-            "<html><head></head><body>"
-            f"<h1>{title}</h1><p>{body}</p>"
-            "</body></html>"
-        )
+        chapter.content = f"<html><head></head><body><h1>{title}</h1><p>{body}</p></body></html>"
         book.add_item(chapter)
         chapters.append(chapter)
     book.add_item(epub.EpubNav())

@@ -467,6 +467,7 @@ def test_project_commands_share_progress_option():
     assert compose_auto.progress is None
     assert preview.progress is False
 
+
 def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_project", lambda project: object())
 
@@ -504,8 +505,13 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, 
     json_args = build_parser().parse_args(["compose", "--json", "--progress"])
     assert cli._cmd_compose(json_args) == 0
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == {"ok": True, "composition_id": "sha256:test", "master": "master.wav"}
+    assert json.loads(captured.out) == {
+        "ok": True,
+        "composition_id": "sha256:test",
+        "master": "master.wav",
+    }
     assert "Composing" in captured.err
+
 
 def test_status_discovers_project_from_nested_directory(tmp_path, monkeypatch, capsys):
     source = tmp_path / "episode.txt"

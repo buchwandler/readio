@@ -241,7 +241,11 @@ class TerminalProgress:
                 seconds = (event.details or {}).get("seconds")
                 if seconds is None:
                     frames = (event.item_metadata or {}).get("frames")
-                    seconds = float(frames) / event.target_sample_rate if frames and event.target_sample_rate else 0.0
+                    seconds = (
+                        float(frames) / event.target_sample_rate
+                        if frames and event.target_sample_rate
+                        else 0.0
+                    )
                 seconds = float(seconds)
                 return f"pause {seconds:.2f} s"
             return "preparing"
@@ -263,7 +267,10 @@ class TerminalProgress:
         if now - self._composition_last_update_at >= 30.0:
             return True
         percent = (
-            min(100, round(self._composition_latest_completed * 100 / self._composition_total_segments))
+            min(
+                100,
+                round(self._composition_latest_completed * 100 / self._composition_total_segments),
+            )
             if self._composition_total_segments
             else 100
         )
@@ -310,8 +317,12 @@ class TerminalProgress:
             self._composition_started_at = now
             details = event.details or {}
             metadata_kinds = details.get("metadata_kinds", {})
-            speech_count = metadata_kinds.get("speech") if isinstance(metadata_kinds, dict) else None
-            self._composition_total_segments = int(speech_count if speech_count is not None else details.get("clip_items", 0))
+            speech_count = (
+                metadata_kinds.get("speech") if isinstance(metadata_kinds, dict) else None
+            )
+            self._composition_total_segments = int(
+                speech_count if speech_count is not None else details.get("clip_items", 0)
+            )
             self._composition_latest_completed = 0
             self._composition_current_segment = "-"
             self._composition_current_step = "preparing"
@@ -365,8 +376,8 @@ class TerminalProgress:
             self._write(text, newline=True)
         self._composition_last_update_at = now
         total = self._composition_total_segments
-        self._composition_last_logged_percent = 100 if total == 0 else min(
-            100, round(self._composition_latest_completed * 100 / total)
+        self._composition_last_logged_percent = (
+            100 if total == 0 else min(100, round(self._composition_latest_completed * 100 / total))
         )
 
     def composition_complete(self, event: CompositionProgress) -> None:
