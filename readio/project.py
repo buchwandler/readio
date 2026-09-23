@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from .document import InputDocument, infer_input_format
-from .project_model import PlanIndex, ProjectFormatError, ProjectManifest
+from .project_model import (
+    DocumentIndex,
+    DocumentScope,
+    PlanIndex,
+    ProjectFormatError,
+    ProjectManifest,
+)
 
 
 class ProjectError(ValueError):
@@ -88,6 +94,7 @@ def project_paths(root: Path) -> dict[str, Path]:
         "source": _safe_relative(root, manifest.source_path),
         "document_text": _safe_relative(root, manifest.document_text_path),
         "document_metadata": _safe_relative(root, manifest.document_metadata_path),
+        "document_index": _safe_relative(root, manifest.document_index_path),
         "plan_index": _safe_relative(root, manifest.plan_index_path),
         "synthesis_profile": _safe_relative(root, manifest.synthesis_profile_path),
         "synthesis_trace": _safe_relative(root, manifest.synthesis_trace_path),
@@ -115,20 +122,52 @@ class Project:
     def load_plan_index(self) -> PlanIndex:
         return PlanIndex.from_dict(read_json(self.paths["plan_index"]))
 
-    def document(self) -> InputDocument:
-        metadata = read_json(self.paths["document_metadata"])
-        input_format = metadata.get("input_format", self.manifest.source_format)
-        document_format = metadata.get("document_format")
-        if document_format is None:
-            # Legacy snapshots were normalized to text except for SSMD, which
-            # must remain available to the semantic SSMD bridge.
-            document_format = "ssmd" if input_format == "ssmd" else "text"
+    def load_document_index(self) -> DocumentIndex:
+        if self.manifest.schema_version == 1:
+            metadata = read_json(self.paths["document_metadata"])
+            input_format = metadata.get("document_format")
+            if input_format is None:
+                source_format = metadata.get("input_format", self.manifest.source_format)
+                input_format = "ssmd" if source_format == "ssmd" else "text"
+            return DocumentIndex(
+                scopes=(
+                    DocumentScope(
+                        id="document",
+                        kind="document",
+                        path=self.manifest.document_text_path,
+                        input_format=input_format,
+                        title=self.manifest.name,
+                        extracted_sha256=metadata.get("document_sha256"),
+                    ),
+                )
+            )
+        return DocumentIndex.from_dict(read_json(self.paths["document_index"]))
+
+    def document_scopes(self) -> tuple[DocumentScope, ...]:
+        return self.load_document_index().scopes
+
+    def load_document_scope(self, scope: DocumentScope) -> InputDocument:
+        indexed = next(
+            (item for item in self.document_scopes() if item.id == scope.id),
+            None,
+        )
+        if indexed is None:
+            raise KeyError(f"document scope is not indexed: {scope.id}")
+        path = self.path(indexed.path)
+        source_path = self.paths["source"] if self.manifest.schema_version == 1 else path
         return InputDocument(
-            text=self.paths["document_text"].read_text(encoding="utf-8"),
-            source_path=self.paths["source"],
-            format=document_format,
+            text=path.read_text(encoding="utf-8"),
+            source_path=source_path,
+            format=indexed.input_format,
         )
 
+    def document(self) -> InputDocument:
+        scopes = self.document_scopes()
+        if len(scopes) != 1:
+            raise ProjectError(
+                "project has multiple document scopes; use load_document_scope(scope)"
+            )
+        return self.load_document_scope(scopes[0])
 
 @contextmanager
 def project_lock(project: Project, *, operation: str = "mutation") -> Iterator[None]:
@@ -177,6 +216,7 @@ def load_project(path: Path | str | None = None) -> Project:
         manifest.document_metadata_path,
         manifest.document_text_path,
         manifest.plan_index_path,
+        manifest.document_index_path,
         manifest.synthesis_profile_path,
         manifest.synthesis_trace_path,
         manifest.composition_audiojob_path,
@@ -245,6 +285,21 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
                 "document_format": "ssmd" if input_format == "ssmd" else "text",
                 "source_path": f"../{source_relative.as_posix()}",
             },
+        )
+        atomic_write_json(
+            temporary / manifest.document_index_path,
+            DocumentIndex(
+                scopes=(
+                    DocumentScope(
+                        id="document",
+                        kind="document",
+                        path=manifest.document_text_path,
+                        input_format=input_format,
+                        title=root.stem,
+                        extracted_sha256=sha256_bytes(document_text.encode("utf-8")),
+                    ),
+                )
+            ).to_dict(),
         )
         atomic_write_json(temporary / "project.json", manifest.to_dict())
         os.replace(temporary, root)

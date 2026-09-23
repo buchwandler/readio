@@ -11,6 +11,31 @@ readio compose manuscript.readio --progress
 readio export manuscript.readio --format mp3
 ```
 
+
+## EPUB audiobook projects
+
+Create a chapter-scoped project with the EPUB-specific ingestion commands, then use the ordinary Readio stages:
+
+```bash
+readio audiobook chapters novel.epub
+readio audiobook init novel.epub --chapters 2-20
+cd novel.readio
+readio plan
+readio synth --voice en-ko-01
+readio compose
+readio export --format m4a
+# Or run the complete incremental pipeline:
+readio render novel.readio --format m4a
+```
+
+Chapter numbers are 1-based and match the flat order printed by `readio audiobook chapters`, including nested navigation entries. The selector accepts `all`, single numbers, inclusive ranges, and comma-separated combinations. Selection order follows the EPUB chapter order, and the selected source numbers and scope IDs are persisted in `document/index.json`.
+
+Each selected chapter is extracted through the public `epub2text` chapter-document API and stored as Markdown under `document/chapters/`. This Markdown is the editable semantic source. `readio plan` builds one plan per indexed scope, while synthesis and composition operate across all scopes in order. Identical speech can share the content-addressed synthesis cache. Composition preserves scope-qualified item IDs, per-chapter part directories, and chapter start samples in `composition/timeline.json`.
+
+The copied EPUB under `source/` records extraction provenance. Changing chapter Markdown does not trigger EPUB extraction and only invalidates affected planning and speech work. Changing the copied EPUB produces `source.stale.hash_changed`; reinitialize the project to use the changed source. Readio will not silently remap chapter numbers or refresh extracted documents. The EPUB is an ingestion format, not a direct `InputDocument` or an audiobook-specific build pipeline.
+
+M4B encoding and embedded container chapter metadata are non-goals of this first version. The project retains chapter boundaries in its timeline so a future generic export capability can use them.
+
 Projects preserve a source snapshot and normalized document, an engine-neutral
 `plan/document.utterplan.json`, `plan/index.json`, synthesis cache/trace,
 bundle-local Audiocompose files, a composed master/timeline, and encoded output.

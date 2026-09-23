@@ -21,6 +21,7 @@ dependencies = [
   "ssmd>=0.8.7,<0.9",
   "onnxvoice>=0.1.8,<0.2",
   "markdown-it-py>=3.0,<5.0",
+  "epub2text>=0.2.8,<0.3",
   "mdit-py-plugins>=0.4,<1.0",
 ]
 [project.optional-dependencies]

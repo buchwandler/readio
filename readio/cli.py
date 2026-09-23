@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import __version__
 from .audio import PlaybackSink, RenderProgressCallback, RenderSummary
+from .audiobook import AudiobookChapter, init_audiobook_project, inspect_epub
 from .config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
@@ -710,7 +711,7 @@ def _project_synthesis_request(args: argparse.Namespace, project: object) -> Pla
     return PlanRequest(
         operation="render",
         input=InputRequest(
-            document=project.document(), selector=getattr(args, "select", "all"), source_kind="file"
+            document=project.load_document_scope(project.document_scopes()[0]),
         ),
         synthesis=synthesis,
         output=OutputRequest(mode="file", requested_format="wav", force=True),
@@ -731,6 +732,12 @@ def _cmd_synth(args: argparse.Namespace) -> int:
         on_event=progress.synthesis_event,
     )
     profile = result["profile"]
+    selection = result["selection"]
+    selected_count = (
+        sum(len(scope.unit_indices) for scope in selection.scopes)
+        if hasattr(selection, "scopes")
+        else len(selection.unit_indices)
+    )
     target = profile.payload.get("target", {})
     payload = {
         "ok": True,
@@ -749,7 +756,7 @@ def _cmd_synth(args: argparse.Namespace) -> int:
         },
         "selection": {
             "selector": args.select,
-            "selected": len(result["selection"].unit_indices),
+            "selected": selected_count,
         },
         "cache": {
             "reused": result["reused"],
@@ -758,7 +765,7 @@ def _cmd_synth(args: argparse.Namespace) -> int:
         "profile_id": profile.profile_id,
         "reused": result["reused"],
         "rendered": result["rendered"],
-        "selected": len(result["selection"].unit_indices),
+        "selected": selected_count,
     }
     if getattr(args, "json", False):
         print(json.dumps(payload, ensure_ascii=False))
@@ -860,6 +867,74 @@ def _cmd_project(args: argparse.Namespace) -> int:
     return 0
 
 
+def _audiobook_chapter_json(chapter: AudiobookChapter) -> dict[str, object]:
+    return {
+        "number": chapter.number,
+        "source_id": chapter.source_id,
+        "title": chapter.title,
+        "href": chapter.href,
+        "parent_id": chapter.parent_id,
+        "level": chapter.level,
+        "char_count": chapter.char_count,
+        "diagnostics": [dict(item) for item in chapter.diagnostics],
+    }
+
+
+def _cmd_audiobook_chapters(args: argparse.Namespace) -> int:
+    inspection = inspect_epub(args.source)
+    result = {
+        "ok": True,
+        "source": str(inspection.source),
+        "metadata": dict(inspection.metadata),
+        "chapters": [
+            _audiobook_chapter_json(chapter) for chapter in inspection.chapters
+        ],
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        metadata = inspection.metadata
+        print(f"Book: {metadata.get('title') or inspection.source.stem}")
+        authors = metadata.get("authors", [])
+        if authors:
+            print(f"Author: {', '.join(authors)}")
+        print(f"Chapters: {len(inspection.chapters)}")
+        print()
+        for chapter in inspection.chapters:
+            indentation = "  " * max(0, chapter.level - 1)
+            print(f"  {chapter.number:>2} {indentation}{chapter.title}")
+    return 0
+
+
+def _cmd_audiobook_init(args: argparse.Namespace) -> int:
+    project = init_audiobook_project(args.source, args.output, args.chapters)
+    scopes = project.document_scopes()
+    result = {
+        "ok": True,
+        "project": str(project.root),
+        "source": str(Path(args.source).expanduser().resolve()),
+        "selected_chapters": len(scopes),
+        "chapters": [
+            {
+                "number": scope.source_number,
+                "scope_id": scope.id,
+                "title": scope.title,
+            }
+            for scope in scopes
+        ],
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"Project: {project.root}")
+        print(f"Source:  {result['source']}")
+        print(f"Selected chapters: {len(scopes)}")
+        print()
+        for scope in scopes:
+            indentation = "  " * max(0, (scope.level or 1) - 1)
+            print(f"  {scope.source_number:>2} {indentation}{scope.title}")
+    return 0
+
 def _cmd_status(args: argparse.Namespace) -> int:
     project = load_project(getattr(args, "project", None))
     result = project_status(project)
@@ -901,22 +976,38 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     project = _project_from_args(args)
     cfg = _resolved_config(args)
     if project is not None:
-        compiled = plan_project(project, cfg)
+        planning = plan_project(project, cfg)
+        scope_rows = [
+            {
+                "scope_id": item.scope.id,
+                "title": item.scope.title,
+                "path": str(Path("plan") / item.scope.path),
+                "plan_id": item.compiled.plan_id,
+                "sha256": item.scope.sha256,
+                "units": len(item.compiled.plan.units),
+            }
+            for item in planning.scopes
+        ]
         result = {
             "ok": True,
             "format": "readio.semantic-plan",
             "project": str(project.root),
-            "path": "plan/document.utterplan.json",
-            "plan_id": compiled.plan_id,
-            "sha256": compiled.sha256,
-            "units": len(compiled.plan.units),
+            "scopes": scope_rows,
+            "units": sum(item["units"] for item in scope_rows),
         }
+        if len(scope_rows) == 1:
+            result.update(scope_rows[0])
         if getattr(args, "json", False):
             print(json.dumps(result, ensure_ascii=False))
+        elif len(scope_rows) == 1:
+            item = planning.scopes[0]
+            print(f"Semantic plan: {item.compiled.plan_id}")
+            print(f"Path: {project.root / 'plan' / item.scope.path}")
+            print(f"Units: {len(item.compiled.plan.units)}")
         else:
-            print(f"Semantic plan: {compiled.plan_id}")
-            print(f"Path: {project.root / 'plan' / 'document.utterplan.json'}")
-            print(f"Units: {len(compiled.plan.units)}")
+            print(f"Semantic plans: {len(scope_rows)} scopes")
+            for item in scope_rows:
+                print(f"{item['scope_id']}: {item['plan_id']} ({item['units']} units)")
         return 0
     output = getattr(args, "output", None)
     positional = tuple(getattr(args, "text", ()) or ())
@@ -2111,6 +2202,26 @@ def build_parser() -> argparse.ArgumentParser:
     project_init.add_argument("-o", "--output", type=Path)
     project_init.add_argument("--json", action="store_true")
     project_cmd.set_defaults(func=_cmd_project)
+    audiobook_cmd = sub.add_parser(
+        "audiobook", help="inspect EPUB chapters and initialize audiobook projects"
+    )
+    audiobook_sub = audiobook_cmd.add_subparsers(
+        dest="audiobook_command", required=True
+    )
+    audiobook_chapters = audiobook_sub.add_parser(
+        "chapters", help="list selectable EPUB chapters"
+    )
+    audiobook_chapters.add_argument("source", type=Path)
+    audiobook_chapters.add_argument("--json", action="store_true")
+    audiobook_chapters.set_defaults(func=_cmd_audiobook_chapters)
+    audiobook_init = audiobook_sub.add_parser(
+        "init", help="initialize a chapter-scoped project from an EPUB"
+    )
+    audiobook_init.add_argument("source", type=Path)
+    audiobook_init.add_argument("--chapters", default="all")
+    audiobook_init.add_argument("-o", "--output", type=Path)
+    audiobook_init.add_argument("--json", action="store_true")
+    audiobook_init.set_defaults(func=_cmd_audiobook_init)
 
     status_cmd = sub.add_parser("status", help="show persistent project stage freshness")
     status_cmd.add_argument("project", nargs="?", type=Path)

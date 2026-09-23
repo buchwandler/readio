@@ -13,6 +13,19 @@ readio status PROJECT [--json]
 readio render PROJECT --format FORMAT
 ```
 
+## EPUB audiobook ingestion
+
+```text
+readio audiobook chapters EPUB [--json]
+readio audiobook init EPUB [--chapters SPEC] [-o PROJECT] [--json]
+```
+
+`chapters` reports flat 1-based chapter numbers, titles, and EPUB metadata. `init` defaults to all chapters and otherwise accepts comma-separated numbers and inclusive ranges such as `2-4,7`. The selected chapter numbers are persisted in the new project, so `plan`, `synth`, `compose`, `export`, `preview`, and `render` use the project selection without an EPUB-specific downstream option.
+
+Initialization copies the EPUB as provenance and writes each selected chapter as editable Markdown under `document/chapters/`. The Markdown is the semantic input. Editing it does not re-extract the EPUB. If the copied EPUB hash changes, status reports `source.stale.hash_changed`; reinitialize from the updated EPUB instead of silently remapping old chapter numbers. EPUB is not accepted as a direct `InputDocument` format and does not use a separate audiobook renderer.
+
+This first EPUB workflow does not implement M4B encoding or embedded container chapter metadata.
+
 ## Persistent project status
 
 `readio status` discovers the project by walking upward from the current directory. Human output shows the project root, source format, each stage state/reason, dependency blocking, and the primary next command. Structured output preserves stable reason codes and includes `issues` plus `next_actions`.

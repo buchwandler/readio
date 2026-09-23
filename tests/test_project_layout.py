@@ -20,6 +20,9 @@ def test_init_creates_project_layout_and_is_suffix_independent(tmp_path):
     assert load_project(root).root == root.resolve()
     assert project.manifest.source_path == "source/book.md"
 
+    assert project.manifest.schema_version == 2
+    assert project.document_scopes()[0].path == "document/document.txt"
+    assert (root / "document" / "index.json").is_file()
 
 def test_malformed_and_traversal_manifests_are_rejected(tmp_path):
     source = tmp_path / "book.txt"

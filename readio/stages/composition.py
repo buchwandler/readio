@@ -114,13 +114,13 @@ def _pause_seconds(pause: Any) -> tuple[float, tuple[str, ...]]:
     return float(getattr(pause, "seconds", 0.0)), tuple(getattr(pause, "events", ()) or ())
 
 
-def _cache_entries(project: Project, plan: Any) -> dict[str, dict[str, Any]]:
+def _cache_entries(project: Project, plan: Any, scope_id: str) -> dict[tuple[str, str], dict[str, Any]]:
     profile = read_json(project.paths["synthesis_profile"])
     canonical = profile.get("canonical")
     profile_id = str(profile.get("profile_id", ""))
     if not isinstance(canonical, dict) or not profile_id:
         raise ValueError("synthesis profile is missing canonical identity")
-    entries: dict[str, dict[str, Any]] = {}
+    entries: dict[tuple[str, str], dict[str, Any]] = {}
     cache_dir = project.root / "synthesis" / "cache"
     for segment in plan.segments:
         speech_hash = segment_speech_hash(plan, segment, canonical)
@@ -129,15 +129,22 @@ def _cache_entries(project: Project, plan: Any) -> dict[str, dict[str, Any]]:
         sidecar_path = cache_dir / f"{key.replace(':', '-')}.json"
         checked = _valid_audio(cache_path)
         if checked is None:
-            raise ValueError(f"synthesis audio is missing or corrupt for {segment.id}")
+            raise ValueError(f"synthesis audio is missing or corrupt for {scope_id}:{segment.id}")
         try:
             sidecar = read_json(sidecar_path)
         except (OSError, ValueError) as exc:
-            raise ValueError(f"synthesis sidecar is missing or corrupt for {segment.id}") from exc
-        if (sidecar.get("speech_hash") != speech_hash or sidecar.get("synthesis_key") != key or
-                sidecar.get("profile_id") != profile_id or sidecar.get("audio_sha256") != checked[3]):
-            raise ValueError(f"synthesis sidecar does not match current speech for {segment.id}")
-        entries[str(segment.id)] = {
+            raise ValueError(
+                f"synthesis sidecar is missing or corrupt for {scope_id}:{segment.id}"
+            ) from exc
+        if (
+            sidecar.get("speech_hash") != speech_hash
+            or sidecar.get("synthesis_key") != key
+            or sidecar.get("profile_id") != profile_id
+            or sidecar.get("audio_sha256") != checked[3]
+        ):
+            raise ValueError(f"synthesis sidecar does not match current speech for {scope_id}:{segment.id}")
+        entries[(scope_id, str(segment.id))] = {
+            "scope_id": scope_id,
             "segment": segment,
             "speech_hash": speech_hash,
             "synthesis_key": key,
@@ -150,7 +157,6 @@ def _cache_entries(project: Project, plan: Any) -> dict[str, dict[str, Any]]:
             "composition": dict(profile.get("composition", {})),
         }
     return entries
-
 
 def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tuple[Any, str]:
     if frames <= 0:
@@ -183,6 +189,7 @@ def _build_layout(
     peak_policy: str,
     clip_policy: str,
     composition: Mapping[str, Any] | None = None,
+    scope_metadata: tuple[Mapping[str, Any], ...] = (),
 ) -> tuple[AudioJob, dict[str, Any]]:
     if not segments:
         raise ValueError("composition selected no synthesized segments")
@@ -190,9 +197,14 @@ def _build_layout(
     items: list[Any] = []
     layout: list[dict[str, Any]] = []
     seen_events: set[str] = set()
-    def append_silence(segment: Any, side: str, pause: Any) -> None:
+    def append_silence(segment: Any, entry: Mapping[str, Any], side: str, pause: Any) -> None:
         seconds, event_ids = _pause_seconds(pause)
-        unique_events = tuple(event_id for event_id in event_ids if event_id not in seen_events)
+        scope_id = str(entry.get("scope_id", "document"))
+        scoped_events = tuple(
+            f"{scope_id}:{event_id}" if scope_id != "document" else event_id
+            for event_id in event_ids
+        )
+        unique_events = tuple(event_id for event_id in scoped_events if event_id not in seen_events)
         if unique_events:
             seen_events.update(unique_events)
         if seconds <= 0 or (event_ids and not unique_events):
@@ -202,37 +214,43 @@ def _build_layout(
             return
         source, silence_hash = _write_silence(project, sample_rate, frames)
         segment_id = str(segment.id)
-        item_id = f"silence-{segment_id}-{side}"
-        items.append(
-            AudioClip(
-                id=item_id,
-                source=source,
-                metadata={
-                    "kind": "silence",
-                    "segment_id": segment_id,
-                    "side": side,
-                    "event_ids": list(unique_events),
-                    "frames": frames,
-                },
-            )
-        )
-        layout.append(
-            {
-                "id": item_id,
-                "kind": "silence",
-                "segment_id": segment_id,
-                "side": side,
-                "frames": frames,
-                "event_ids": list(unique_events),
-                "audio_sha256": silence_hash,
-            }
-        )
+        qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
+        item_id = f"silence-{qualified_id}-{side}"
+        metadata = {
+            "kind": "silence",
+            "segment_id": segment_id,
+            "side": side,
+            "event_ids": list(unique_events),
+            "frames": frames,
+        }
+        if scope_id != "document":
+            metadata["scope_id"] = scope_id
+        items.append(AudioClip(id=item_id, source=source, metadata=metadata))
+        layout_item = {
+            "id": item_id,
+            "kind": "silence",
+            "segment_id": segment_id,
+            "side": side,
+            "frames": frames,
+            "event_ids": list(unique_events),
+            "audio_sha256": silence_hash,
+        }
+        if scope_id != "document":
+            layout_item["scope_id"] = scope_id
+        layout.append(layout_item)
 
     for segment, entry in segments:
+        scope_id = str(entry.get("scope_id", "document"))
         segment_id = str(segment.id)
-        append_silence(segment, "before", getattr(segment, "pause_before", None))
+        qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
+        append_silence(segment, entry, "before", getattr(segment, "pause_before", None))
         operations = _speech_operations(segment, composition or entry.get("composition", {}))
-        part = (project.root / "composition" / "parts" / f"{segment_id}.wav") if project else None
+        if project is None:
+            part = None
+        elif scope_id == "document":
+            part = project.root / "composition" / "parts" / f"{segment_id}.wav"
+        else:
+            part = project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
         source_path = entry["cache_path"]
         if part is not None:
             part.parent.mkdir(parents=True, exist_ok=True)
@@ -247,33 +265,37 @@ def _build_layout(
         else:
             audio, rate = sf.read(source_path, always_2d=False, dtype="float32")
             source = AudioBufferSource(audio, rate)
+        metadata = {
+            "kind": "speech",
+            "segment_id": segment_id,
+            "speech_hash": entry["speech_hash"],
+            "synthesis_key": entry["synthesis_key"],
+            "audio_sha256": entry["audio_sha256"],
+            "operations": _operation_payload(operations),
+        }
+        if scope_id != "document":
+            metadata["scope_id"] = scope_id
         items.append(
             AudioClip(
-                id=segment_id,
+                id=qualified_id,
                 source=source,
                 operations=operations,
-                metadata={
-                    "kind": "speech",
-                    "segment_id": segment_id,
-                    "speech_hash": entry["speech_hash"],
-                    "synthesis_key": entry["synthesis_key"],
-                    "audio_sha256": entry["audio_sha256"],
-                    "operations": _operation_payload(operations),
-                },
+                metadata=metadata,
             )
         )
-        layout.append(
-            {
-                "id": segment_id,
-                "kind": "speech",
-                "segment_id": segment_id,
-                "speech_hash": entry["speech_hash"],
-                "synthesis_key": entry["synthesis_key"],
-                "audio_sha256": entry["audio_sha256"],
-                "operations": _operation_payload(operations),
-            }
-        )
-        append_silence(segment, "after", getattr(segment, "pause_after", None))
+        layout_item = {
+            "id": qualified_id,
+            "kind": "speech",
+            "segment_id": segment_id,
+            "speech_hash": entry["speech_hash"],
+            "synthesis_key": entry["synthesis_key"],
+            "audio_sha256": entry["audio_sha256"],
+            "operations": _operation_payload(operations),
+        }
+        if scope_id != "document":
+            layout_item["scope_id"] = scope_id
+        layout.append(layout_item)
+        append_silence(segment, entry, "after", getattr(segment, "pause_after", None))
     policy_payload = {
         "sample_rate": sample_rate,
         "channels": 1,
@@ -289,6 +311,12 @@ def _build_layout(
         "items": layout,
         **policy_payload,
     }
+    if len(scope_metadata) > 1 or any(item.get("kind") == "chapter" for item in scope_metadata):
+        identity_payload["schema"] = "readio.composition.v3"
+        identity_payload["scopes"] = [dict(item) for item in scope_metadata]
+        identity_payload["chapters"] = [
+            dict(item) for item in scope_metadata if item.get("kind") == "chapter"
+        ]
     job = AudioJob(
         items=tuple(items),
         output=OutputPolicy(
@@ -311,16 +339,48 @@ def build_audio_job(
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
 ) -> tuple[AudioJob, dict[str, Any]]:
-    plan = load_scope_plan(project)
-    entries = _cache_entries(project, plan)
+    scoped_plans = tuple(
+        (scope, load_scope_plan(project, scope))
+        for scope in project.load_plan_index().scopes
+    )
+    segments = []
+    first_entry: dict[str, Any] | None = None
+    document_scopes = {item.id: item for item in project.document_scopes()}
+    scope_metadata = []
+    for scope, plan in scoped_plans:
+        document_scope = document_scopes.get(scope.id)
+        scope_metadata.append(
+            {
+                "scope_id": scope.id,
+                "kind": document_scope.kind if document_scope is not None else scope.kind,
+                "title": (
+                    document_scope.title if document_scope is not None else scope.title
+                ),
+                "source_number": (
+                    document_scope.source_number if document_scope is not None else None
+                ),
+                "plan_id": plan.plan_id,
+                "plan_sha256": hash_file(project.root / "plan" / scope.path),
+            }
+        )
+        entries = _cache_entries(project, plan, scope.id)
+        if first_entry is None and entries:
+            first_entry = next(iter(entries.values()))
+        segments.extend(
+            (segment, entries[(scope.id, str(segment.id))])
+            for segment in plan.segments
+        )
+    if first_entry is None:
+        raise ValueError("project plans contain no composition segments")
     return _build_layout(
         project,
-        [(segment, entries[str(segment.id)]) for segment in plan.segments],
+        segments,
         target_lufs=target_lufs,
         true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
         peak_policy=peak_policy,
         clip_policy=clip_policy,
-        composition=entries[str(plan.segments[0].id)].get("composition", {}),
+        composition=first_entry.get("composition", {}),
+        scope_metadata=tuple(scope_metadata),
     )
 
 
@@ -331,12 +391,38 @@ def _write_composition_result(project: Project, job: AudioJob, identity: Mapping
     temporary = master.with_name(f".{master.name}.tmp")
     sf.write(temporary, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
     temporary.replace(master)
+    chapter_metadata = identity.get("identity_payload", {}).get("chapters", [])
+    item_ranges = {
+        item.item_id: (item.start_sample, item.end_sample) for item in result.items
+    }
+    layout_items = identity.get("layout", [])
+    timeline_chapters = []
+    previous_end = 0
+    for chapter in chapter_metadata:
+        scope_id = str(chapter.get("scope_id", ""))
+        ranges = [
+            item_ranges[layout_item["id"]]
+            for layout_item in layout_items
+            if layout_item.get("scope_id") == scope_id
+            and layout_item.get("id") in item_ranges
+        ]
+        start_sample = min((start for start, _ in ranges), default=previous_end)
+        timeline_chapters.append(
+            {
+                "scope_id": scope_id,
+                "source_number": chapter.get("source_number"),
+                "title": chapter.get("title"),
+                "start_sample": start_sample,
+            }
+        )
+        previous_end = max((end for _, end in ranges), default=previous_end)
     timeline = {
         "format": "readio.composition-timeline",
         "schema_version": 2,
         "sample_rate": result.sample_rate,
         "composition_id": identity["composition_id"],
         "layout": list(identity["layout"]),
+        **({"chapters": timeline_chapters} if timeline_chapters else {}),
         "items": [
             {
                 "id": item.item_id,
@@ -413,6 +499,8 @@ def compose_artifacts(
     *,
     plan: Any | None = None,
     composition: Mapping[str, Any] | None = None,
+    plans: Any | None = None,
+    scope_metadata: tuple[Mapping[str, Any], ...] = (),
     target_lufs: float | None = None,
     true_peak_ceiling_dbtp: float | None = -1.0,
     peak_policy: str = "reduce_gain",
@@ -424,26 +512,79 @@ def compose_artifacts(
     artifact_list = tuple(artifacts)
     if not artifact_list:
         raise ValueError("preview selected no synthesized segments")
-    if plan is None:
-        clips = tuple(
-            AudioClip(
-                id=artifact.segment_id,
-                source=AudioFileSource(
-                    artifact.cache_path,
-                    expected_sha256=artifact.audio_sha256,
-                    sample_rate=artifact.sample_rate,
-                    channels=artifact.channels,
-                    frames=artifact.frames,
-                ),
-                metadata={"kind": "speech", "segment_id": artifact.segment_id, "speech_hash": artifact.speech_hash or artifact.content_hash, "synthesis_key": artifact.synthesis_key},
+    plan_pairs = (
+        tuple(plans)
+        if plans is not None
+        else (("document", plan),) if plan is not None else ()
+    )
+    if not plan_pairs:
+        clips = []
+        for artifact in artifact_list:
+            scope_id = str(getattr(artifact, "scope_id", "document"))
+            segment_id = artifact.segment_id
+            qualified_id = (
+                segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
             )
-            for artifact in artifact_list
+            metadata = {
+                "kind": "speech",
+                "segment_id": segment_id,
+                "speech_hash": artifact.speech_hash or artifact.content_hash,
+                "synthesis_key": artifact.synthesis_key,
+            }
+            if scope_id != "document":
+                metadata["scope_id"] = scope_id
+            clips.append(
+                AudioClip(
+                    id=qualified_id,
+                    source=AudioFileSource(
+                        artifact.cache_path,
+                        expected_sha256=artifact.audio_sha256,
+                        sample_rate=artifact.sample_rate,
+                        channels=artifact.channels,
+                        frames=artifact.frames,
+                    ),
+                    metadata=metadata,
+                )
+            )
+        job = AudioJob(
+            items=tuple(clips),
+            output=OutputPolicy(
+                sample_rate=clips[0].source.sample_rate or 24000,
+                channels=1,
+                loudness=LoudnessPolicy(
+                    target_lufs, true_peak_ceiling_dbtp, peak_policy
+                ),
+                clip_policy=clip_policy,
+            ),
         )
-        job = AudioJob(items=clips, output=OutputPolicy(sample_rate=clips[0].source.sample_rate or 24000, channels=1, loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy), clip_policy=clip_policy))
-        identity = {"composition_id": composition_id({"schema": "readio.composition.v2", "items": [clip.metadata for clip in clips]}), "layout": [dict(clip.metadata) for clip in clips]}
+        identity = {
+            "composition_id": composition_id(
+                {"schema": "readio.composition.v2", "items": [clip.metadata for clip in clips]}
+            ),
+            "layout": [dict(clip.metadata) for clip in clips],
+        }
     else:
-        by_id = {artifact.segment_id: artifact for artifact in artifact_list}
-        segments = [(segment, {"cache_path": by_id[str(segment.id)].cache_path, "audio_sha256": by_id[str(segment.id)].audio_sha256, "sample_rate": by_id[str(segment.id)].sample_rate, "channels": by_id[str(segment.id)].channels, "frames": by_id[str(segment.id)].frames, "speech_hash": by_id[str(segment.id)].speech_hash or by_id[str(segment.id)].content_hash, "synthesis_key": by_id[str(segment.id)].synthesis_key}) for segment in plan.segments if str(segment.id) in by_id]
+        by_id = {
+            (str(getattr(artifact, "scope_id", "document")), artifact.segment_id): artifact
+            for artifact in artifact_list
+        }
+        segments = []
+        for scope_id, scope_plan in plan_pairs:
+            for segment in scope_plan.segments:
+                artifact = by_id.get((str(scope_id), str(segment.id)))
+                if artifact is None:
+                    continue
+                entry = {
+                    "scope_id": str(scope_id),
+                    "cache_path": artifact.cache_path,
+                    "audio_sha256": artifact.audio_sha256,
+                    "sample_rate": artifact.sample_rate,
+                    "channels": artifact.channels,
+                    "frames": artifact.frames,
+                    "speech_hash": artifact.speech_hash or artifact.content_hash,
+                    "synthesis_key": artifact.synthesis_key,
+                }
+                segments.append((segment, entry))
         job, identity = _build_layout(
             None,
             segments,
@@ -452,6 +593,7 @@ def compose_artifacts(
             peak_policy=peak_policy,
             clip_policy=clip_policy,
             composition=composition,
+            scope_metadata=scope_metadata,
         )
     result = Composer().compose(job, on_progress=on_progress)
     if output is not None:

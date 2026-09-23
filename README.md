@@ -382,4 +382,23 @@ readio status manuscript.readio --json
 readio render manuscript.readio --format mp3  # build stale stages
 ```
 
+
+For EPUB audiobooks, Readio discovers selectable chapters and persists the chosen chapter Markdown as editable project inputs:
+
+```bash
+readio audiobook chapters novel.epub
+readio audiobook init novel.epub --chapters 2-20
+cd novel.readio
+readio plan
+readio synth --voice en-ko-01
+readio compose
+readio export --format m4a
+# Or build all stale stages with:
+readio render novel.readio --format m4a
+```
+
+Chapter numbers are the flat, 1-based order reported by `readio audiobook chapters`. Selection is saved during initialization, so later project commands do not need `--chapters`. Edit files under `document/chapters/` to change semantic inputs. Readio replans and resynthesizes only affected content. The copied EPUB is provenance; if it changes, status reports a stale source and the project must be reinitialized rather than silently reimported. EPUB is not a direct render input or a separate build pipeline.
+
+This first EPUB workflow preserves chapter boundaries in the project timeline, but does not implement M4B encoding or embedded container chapter metadata.
+
 See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout, cache identities, status diagnostics, and invalidation matrix.

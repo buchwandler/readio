@@ -8,6 +8,7 @@ import secrets
 import shutil
 import time
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,7 @@ import soundfile as sf
 
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
-from ..selection import resolve_unit_selection
+from ..selection import resolve_project_selection, resolve_unit_selection
 from .planning import load_scope_plan
 from .speech_identity import segment_speech_hash, segment_synthesis_key
 
@@ -59,6 +60,7 @@ class SynthesisArtifact:
     unit_id: str
     unit_index: int
     content_hash: str
+    scope_id: str
     synthesis_key: str
     path: Path
     cache_path: Path
@@ -83,7 +85,7 @@ class SynthesisArtifact:
     def to_dict(self, root: Path) -> dict[str, Any]:
         speech_hash = self.speech_hash or self.content_hash
         data: dict[str, Any] = {
-            "scope_id": "document",
+            "scope_id": self.scope_id,
             "segment_id": self.segment_id,
             "segment_index": self.segment_index,
             "speech_hash": speech_hash,
@@ -215,7 +217,11 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
     )
     return PlanRequest(
         operation="render",
-        input=InputRequest(document=project.document(), selector="all", source_kind="file"),
+        input=InputRequest(
+            document=project.load_document_scope(project.document_scopes()[0]),
+            selector="all",
+            source_kind="file",
+        ),
         synthesis=synthesis,
         output=OutputRequest(mode="file", requested_format="wav", force=True),
     )
@@ -224,7 +230,7 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
 def _resolve_profile(
     project: Project, cfg: Any, request: PlanRequest
 ) -> tuple[Any, Any, SynthesisProfile]:
-    document = project.document()
+    document = project.load_document_scope(project.document_scopes()[0])
     if document.format == "ssmd" or project.manifest.source_format == "ssmd":
         from ..ssmd import document_voice_bindings
 
@@ -326,26 +332,36 @@ def _render_missing(
     profile: SynthesisProfile,
     *,
     on_event: Callable[[SynthesisEvent], None] | None = None,
+    session: Any | None = None,
     scope_id: str = "document",
 ) -> dict[int, Mapping[str, Any]]:
     if not stale:
         return {}
     details_by_index: dict[int, Mapping[str, Any]] = {}
     total = len(stale)
-    _emit(on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=total))
-    engine_started = time.monotonic()
-    with adapter.open(selection) as session:
-        _emit(
-            on_event,
-            SynthesisEvent(
-                "engine_open_finished",
-                scope_id=scope_id,
-                total=total,
-                details={"elapsed_ms": round((time.monotonic() - engine_started) * 1000, 3)},
-            ),
+    if session is None:
+        _emit(on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=total))
+        engine_started = time.monotonic()
+        session_context = adapter.open(selection)
+    else:
+        session_context = nullcontext(session)
+    with session_context as active_session:
+        if session is None:
+            _emit(
+                on_event,
+                SynthesisEvent(
+                    "engine_open_finished",
+                    scope_id=scope_id,
+                    total=total,
+                    details={"elapsed_ms": round((time.monotonic() - engine_started) * 1000, 3)},
+                ),
+            )
+        use_segments = callable(getattr(active_session, "prepare_segments", None))
+        prepare_method = (
+            active_session.prepare_segments
+            if use_segments
+            else active_session.prepare_plan
         )
-        use_segments = callable(getattr(session, "prepare_segments", None))
-        prepare_method = session.prepare_segments if use_segments else session.prepare_plan
         _emit(on_event, SynthesisEvent("prepare_started", scope_id=scope_id, total=total))
         prepare_started = time.monotonic()
         with prepare_method(plan, options=selection.options) as prepared:
@@ -463,6 +479,53 @@ def _render_missing(
     return details_by_index
 
 
+def _render_all_missing(
+    project: Project,
+    adapter: Any,
+    selection: Any,
+    work: list[dict[str, Any]],
+    profile: SynthesisProfile,
+    *,
+    on_event: Callable[[SynthesisEvent], None] | None = None,
+) -> tuple[dict[tuple[str, int], Mapping[str, Any]], float | None]:
+    total = sum(len(item["stale"]) for item in work)
+    if not total:
+        return {}, None
+
+    _emit(on_event, SynthesisEvent("engine_open_started", total=total))
+    engine_started = time.monotonic()
+    details: dict[tuple[str, int], Mapping[str, Any]] = {}
+    with adapter.open(selection) as session:
+        engine_open_ms = round((time.monotonic() - engine_started) * 1000, 3)
+        _emit(
+            on_event,
+            SynthesisEvent(
+                "engine_open_finished",
+                total=total,
+                details={"elapsed_ms": engine_open_ms},
+            ),
+        )
+        for scope_work in work:
+            scope_id = scope_work["scope"].id
+            rendered = _render_missing(
+                project,
+                scope_work["plan"],
+                adapter,
+                selection,
+                scope_work["stale"],
+                profile,
+                on_event=on_event,
+                session=session,
+                scope_id=scope_id,
+            )
+            details.update(
+                {(scope_id, index): value for index, value in rendered.items()}
+            )
+    return details, engine_open_ms
+
+
+
+
 def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
     checked = _valid_audio(item["cache_path"])
     if checked is None:
@@ -482,6 +545,7 @@ def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisA
     return SynthesisArtifact(
         unit_id=item["unit"].id,
         unit_index=int(item["unit"].index),
+        scope_id=item["scope_id"],
         content_hash=item["speech_hash"],
         synthesis_key=item["synthesis_key"],
         path=item["path"],
@@ -506,41 +570,120 @@ def synthesize_project(
     activate: bool = True,
     on_event: Callable[[SynthesisEvent], None] | None = None,
 ) -> dict[str, Any]:
-    """Synthesize selected stale segments, loading the engine only when needed."""
+    """Synthesize selected stale segments across all ordered project scopes."""
     started_at = time.monotonic()
     started_wall = datetime.now(timezone.utc).isoformat()
     with project_lock(project, operation="synth"):
-        plan = load_scope_plan(project)
-        unit_selection = resolve_unit_selection(plan, selector)
+        plan_scopes = project.load_plan_index().scopes
+        scoped_plans = tuple(
+            (scope, load_scope_plan(project, scope)) for scope in plan_scopes
+        )
+        selection = resolve_project_selection(scoped_plans, selector)
+        selected_by_scope = {item.scope_id: item for item in selection.scopes}
         request = _request_for_project(project, cfg, request)
         resolved, adapter, profile = _resolve_profile(project, cfg, request)
-        selected_indices = set(unit_selection.unit_indices)
-        selected_units = [unit for unit in plan.units if int(unit.index) in selected_indices]
-        units_by_segment: dict[str, Any] = {}
-        for unit in selected_units:
-            for segment_id in unit.segment_ids:
-                units_by_segment.setdefault(str(segment_id), unit)
-        segments_by_id = {str(segment.id): segment for segment in plan.segments}
-        selected_segments = [
-            segments_by_id[segment_id]
-            for segment_id in unit_selection.segment_ids
-            if segment_id in segments_by_id
-        ]
-        if not selected_segments:
+
+        cache_dir = project.root / "synthesis" / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        work: list[dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
+        cached: dict[tuple[str, str], SynthesisArtifact] = {}
+        stale: list[dict[str, Any]] = []
+        selected_units_count = 0
+        pending_keys: set[str] = set()
+
+        for scope, plan in scoped_plans:
+            scoped_selection = selected_by_scope[scope.id]
+            selected_indices = set(scoped_selection.unit_indices)
+            selected_units = [
+                unit for unit in plan.units if int(unit.index) in selected_indices
+            ]
+            selected_units_count += len(selected_units)
+            units_by_segment: dict[str, Any] = {}
+            for unit in selected_units:
+                for segment_id in unit.segment_ids:
+                    units_by_segment.setdefault(str(segment_id), unit)
+            selected_segment_ids = set(scoped_selection.segment_ids)
+            scope_work = {
+                "scope": scope,
+                "plan": plan,
+                "selection": scoped_selection,
+                "selected_units": selected_units,
+                "items": [],
+                "cached": {},
+                "stale": [],
+            }
+            for segment_index, segment in enumerate(plan.segments):
+                segment_id = str(segment.id)
+                if segment_id not in selected_segment_ids:
+                    continue
+                unit = units_by_segment[segment_id]
+                speech_hash = segment_speech_hash(
+                    plan, segment, profile.payload["canonical"]
+                )
+                key = segment_synthesis_key(speech_hash, profile.profile_id)
+                item: dict[str, Any] = {
+                    "scope_id": scope.id,
+                    "segment": segment,
+                    "segment_id": segment_id,
+                    "segment_index": segment_index,
+                    "render_index": segment_index,
+                    "unit": unit,
+                    "speech_hash": speech_hash,
+                    "synthesis_key": key,
+                    "profile_id": profile.profile_id,
+                    "cache_path": cache_dir / f"{_safe_key(key)}.wav",
+                    "sidecar_path": cache_dir / f"{_safe_key(key)}.json",
+                    "path": (
+                        project.root
+                        / "synthesis"
+                        / "segments"
+                        / (
+                            f"seg-{segment_index:06d}.wav"
+                            if scope.id == "document"
+                            and scope.kind == "document"
+                            and len(scoped_plans) == 1
+                            else Path(scope.id) / f"seg-{segment_index:06d}.wav"
+                        )
+                    ),
+                }
+                items.append(item)
+                scope_work["items"].append(item)
+                artifact = _artifact_from_item(project, item)
+                key_by_scope = (scope.id, segment_id)
+                if artifact is None:
+                    if key not in pending_keys:
+                        pending_keys.add(key)
+                        stale.append(item)
+                        scope_work["stale"].append(item)
+                else:
+                    cached[key_by_scope] = artifact
+                    scope_work["cached"][segment_id] = artifact
+            work.append(scope_work)
+
+        if not items:
             raise ValueError("selected units contain no readable plan segments")
+        included_work = [
+            item
+            for item in work
+            if item["items"]
+            or (selection.description == "all" and not item["plan"].units)
+        ]
         _emit(
             on_event,
             SynthesisEvent(
                 "profile_resolved",
-                scope_id="document",
-                total=len(selected_segments),
+                total=len(items),
                 details={
                     "project": str(project.root),
                     "source": str(project.manifest.source_path),
                     "source_format": project.manifest.source_format,
-                    "plan_id": plan.plan_id,
-                    "selected_units": len(unit_selection.unit_indices),
-                    "selected_segments": len(selected_segments),
+                    "plans": [
+                        {"scope_id": scope.id, "plan_id": plan.plan_id}
+                        for scope, plan in scoped_plans
+                    ],
+                    "selected_units": selected_units_count,
+                    "selected_segments": len(items),
                     "profile_id": profile.profile_id,
                     "engine": profile.payload.get("canonical", {}).get("engine"),
                     "engine_version": profile.payload.get("canonical", {}).get("engine_version"),
@@ -552,130 +695,127 @@ def synthesize_project(
                 },
             ),
         )
-        cache_dir = project.root / "synthesis" / "cache"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        items: list[dict[str, Any]] = []
-        cached: dict[str, SynthesisArtifact] = {}
-        stale: list[dict[str, Any]] = []
-        for segment_index, segment in enumerate(plan.segments):
-            segment_id = str(segment.id)
-            if segment_id not in unit_selection.segment_ids:
-                continue
-            unit = units_by_segment[segment_id]
-            speech_hash = segment_speech_hash(plan, segment, profile.payload["canonical"])
-            key = segment_synthesis_key(speech_hash, profile.profile_id)
-            cache_path = cache_dir / f"{_safe_key(key)}.wav"
-            sidecar_path = cache_dir / f"{_safe_key(key)}.json"
-            item: dict[str, Any] = {
-                "segment": segment,
-                "segment_id": segment_id,
-                "segment_index": segment_index,
-                "render_index": segment_index,
-                "unit": unit,
-                "speech_hash": speech_hash,
-                "synthesis_key": key,
-                "profile_id": profile.profile_id,
-                "cache_path": cache_path,
-                "sidecar_path": sidecar_path,
-                "path": project.root / "synthesis" / "segments" / f"seg-{segment_index:06d}.wav",
+        per_scope = {
+            scope_work["scope"].id: {
+                "required": len(scope_work["items"]),
+                "reused": len(scope_work["items"]) - len(scope_work["stale"]),
+                "rendered": len(scope_work["stale"]),
             }
-            items.append(item)
-            artifact = _artifact_from_item(project, item)
-            if artifact is None:
-                stale.append(item)
-            else:
-                cached[segment_id] = artifact
+            for scope_work in included_work
+        }
         _emit(
             on_event,
             SynthesisEvent(
                 "cache_scanned",
-                scope_id="document",
-                completed=len(cached),
+                completed=len(items) - len(stale),
                 total=len(items),
                 details={
-                    "reused": len(cached),
+                    "reused": len(items) - len(stale),
                     "rendered": len(stale),
                     "required": len(items),
                     "missing": len(stale),
+                    "scopes": len(included_work),
+                    "per_scope": per_scope,
                 },
             ),
         )
-        render_details = _render_missing(
+        render_details, engine_open_ms = _render_all_missing(
             project,
-            plan,
             adapter,
             resolved.selection,
-            stale,
+            work,
             profile,
             on_event=on_event,
         )
-        for item in stale:
+        for item in items:
+            key_by_scope = (item["scope_id"], item["segment_id"])
+            if key_by_scope in cached:
+                continue
             artifact = _artifact_from_item(project, item)
             if artifact is None:
-                raise ValueError(f"synthesis did not persist valid audio for {item['segment_id']}")
-            cached[item["segment_id"]] = artifact
+                raise ValueError(
+                    f"synthesis did not persist valid audio for {item['scope_id']}:{item['segment_id']}"
+                )
+            cached[key_by_scope] = artifact
+
         if activate:
             _emit(
                 on_event,
                 SynthesisEvent(
                     "activation_started",
-                    scope_id="document",
                     completed=0,
                     total=len(cached),
+                    details={"scopes": len(included_work)},
                 ),
             )
             for artifact in cached.values():
                 _link_or_copy(artifact.cache_path, artifact.path)
             atomic_write_json(project.paths["synthesis_profile"], profile.to_dict())
-            plan_path = project.root / "plan" / "document.utterplan.json"
             segment_rows = []
-            for item in items:
-                artifact = cached[item["segment_id"]]
-                segment_rows.append(
-                    {
-                        **artifact.to_dict(project.root),
-                        "unit_id": item["unit"].id,
-                        "unit_index": int(item["unit"].index),
-                        **(
-                            {"diagnostics": dict(render_details[item["segment_index"]])}
-                            if item["segment_index"] in render_details
-                            else {}
-                        ),
-                    }
-                )
             compatibility_units = []
-            for unit in selected_units:
-                unit_items = [item for item in items if item["unit"].id == unit.id]
-                if len(unit_items) == 1:
-                    compatibility_units.append(
+            for scope_work in included_work:
+                scope_id = scope_work["scope"].id
+                plan = scope_work["plan"]
+                for item in scope_work["items"]:
+                    artifact = cached[(scope_id, item["segment_id"])]
+                    segment_rows.append(
                         {
-                            **cached[unit_items[0]["segment_id"]].to_dict(project.root),
-                            "unit_id": unit.id,
-                            "unit_index": int(unit.index),
-                            "content_hash": unit.content_hash,
+                            **artifact.to_dict(project.root),
+                            "unit_id": item["unit"].id,
+                            "unit_index": int(item["unit"].index),
+                            **(
+                                {
+                                    "diagnostics": dict(
+                                        render_details[(scope_id, item["segment_index"])]
+                                    )
+                                }
+                                if (scope_id, item["segment_index"]) in render_details
+                                else {}
+                            ),
                         }
                     )
+                for unit in scope_work["selected_units"]:
+                    unit_items = [
+                        item
+                        for item in scope_work["items"]
+                        if item["unit"].id == unit.id
+                    ]
+                    if len(unit_items) == 1:
+                        item = unit_items[0]
+                        compatibility_units.append(
+                            {
+                                **cached[(scope_id, item["segment_id"])].to_dict(project.root),
+                                "unit_id": unit.id,
+                                "unit_index": int(unit.index),
+                                "content_hash": unit.content_hash,
+                            }
+                        )
+
             finished_wall = datetime.now(timezone.utc).isoformat()
             trace = {
                 "format": "readio.synthesis-trace",
-                "schema_version": 2,
+                "schema_version": 3,
                 "started_at": started_wall,
                 "finished_at": finished_wall,
-                "engine_open_ms": None,
+                "engine_open_ms": engine_open_ms,
                 "render_ms": round((time.monotonic() - started_at) * 1000, 3),
-                "selected_units": len(selected_units),
+                "selected_units": selected_units_count,
                 "selected_segments": len(items),
-                "reused_segments": len(items) - len(stale),
+                "reused_segments": len(cached) - len(stale),
                 "rendered_segments": len(stale),
                 "diagnostics": {"short_sentence_fallbacks": 0, "timing_failures": 0},
                 "profile": {"profile_id": profile.profile_id, **dict(profile.payload)},
                 "plans": [
                     {
-                        "scope_id": "document",
-                        "plan_id": plan.plan_id,
-                        "plan_sha256": hash_file(plan_path),
+                        "scope_id": scope_work["scope"].id,
+                        "plan_id": scope_work["plan"].plan_id,
+                        "plan_sha256": hash_file(
+                            project.root / "plan" / scope_work["scope"].path
+                        ),
                     }
+                    for scope_work in included_work
                 ],
+                "per_scope": per_scope,
                 "segments": segment_rows,
                 "units": compatibility_units,
             }
@@ -684,33 +824,43 @@ def synthesize_project(
                 on_event,
                 SynthesisEvent(
                     "activation_finished",
-                    scope_id="document",
                     completed=len(cached),
                     total=len(cached),
                     details={"profile_id": profile.profile_id},
                 ),
             )
+
         _emit(
             on_event,
             SynthesisEvent(
                 "complete",
-                scope_id="document",
                 completed=len(items),
                 total=len(items),
                 details={
                     "profile_id": profile.profile_id,
-                    "reused": len(items) - len(stale),
+                    "reused": len(cached) - len(stale),
                     "rendered": len(stale),
                     "activated": activate,
                 },
             ),
         )
+        output_selection = (
+            resolve_unit_selection(scoped_plans[0][1], selector)
+            if len(scoped_plans) == 1
+            else selection
+        )
+        only_scope = included_work[0]["scope"].id if len(included_work) == 1 else None
+        only_plan = included_work[0]["plan"].plan_id if len(included_work) == 1 else None
         return {
             "profile": profile,
-            "selection": unit_selection,
-            "plan_id": plan.plan_id,
-            "scope": "document",
-            "reused": len(items) - len(stale),
+            "selection": output_selection,
+            "plan_id": only_plan,
+            "plan_ids": [
+                {"scope_id": item["scope"].id, "plan_id": item["plan"].plan_id}
+                for item in included_work
+            ],
+            "scope": only_scope,
+            "reused": len(cached) - len(stale),
             "rendered": len(stale),
             "artifacts": tuple(cached.values()),
             "activated": activate,

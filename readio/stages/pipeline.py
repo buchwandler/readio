@@ -22,7 +22,11 @@ def _project_request(project: Project, cfg: Any, args: Any = None) -> PlanReques
     voice = getattr(args, "voice", None) or reader.voice if args is not None else reader.voice
     return PlanRequest(
         operation="render",
-        input=InputRequest(document=project.document(), selector="all", source_kind="file"),
+        input=InputRequest(
+            document=project.load_document_scope(project.document_scopes()[0]),
+            selector="all",
+            source_kind="file",
+        ),
         synthesis=SynthesisRequest(
             language=getattr(args, "lang", None) if args is not None else reader.lang,
             engine=engine,
@@ -35,48 +39,84 @@ def _project_request(project: Project, cfg: Any, args: Any = None) -> PlanReques
         output=OutputRequest(mode="file", requested_format="wav", force=True),
     )
 
-
 def _synthesis_status(project: Project) -> dict[str, Any]:
     trace_path = project.paths["synthesis_trace"]
     profile_path = project.paths["synthesis_profile"]
     if not profile_path.is_file():
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.missing"}
     try:
-        plan = load_scope_plan(project)
+        plan_scopes = project.load_plan_index().scopes
+        scoped_plans = tuple(
+            (scope, load_scope_plan(project, scope)) for scope in plan_scopes
+        )
         profile = read_json(profile_path)
-        trace: dict[str, Any] = {}
-        if trace_path.is_file():
-            try:
-                candidate = read_json(trace_path)
-            except (OSError, ValueError):
-                candidate = {}
-            if isinstance(candidate, dict) and candidate.get("format") == "readio.synthesis-trace":
-                trace = candidate
-        if profile.get("format") != "readio.synthesis-profile":
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        profile_id = str(profile.get("profile_id", ""))
-        trace_profile = trace.get("profile")
-        if trace_profile is not None and (
-            not isinstance(trace_profile, dict) or trace_profile.get("profile_id") != profile_id
-        ):
-            return {
-                "stage": "synthesis",
-                "state": "stale",
-                "reason": "synthesis.trace.profile_mismatch",
-            }
-        canonical = profile.get("canonical")
-        if not isinstance(canonical, dict):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        from .speech_identity import segment_speech_hash, segment_synthesis_key
-        from .synthesis import _valid_audio
+    except (OSError, KeyError, TypeError, ValueError):
+        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.invalid"}
+
+    trace: dict[str, Any] = {}
+    if trace_path.is_file():
+        try:
+            candidate = read_json(trace_path)
+        except (OSError, ValueError):
+            candidate = {}
+        if isinstance(candidate, dict) and candidate.get("format") == "readio.synthesis-trace":
+            trace = candidate
+    if profile.get("format") != "readio.synthesis-profile":
+        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+    profile_id = str(profile.get("profile_id", ""))
+    trace_profile = trace.get("profile")
+    if trace_profile is not None and (
+        not isinstance(trace_profile, dict) or trace_profile.get("profile_id") != profile_id
+    ):
+        return {
+            "stage": "synthesis",
+            "state": "stale",
+            "reason": "synthesis.trace.profile_mismatch",
+        }
+    canonical = profile.get("canonical")
+    if not isinstance(canonical, dict):
+        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+
+    current_plans = {
+        scope.id: (scope, plan) for scope, plan in scoped_plans
+    }
+    trace_plans = trace.get("plans")
+    if isinstance(trace_plans, list):
+        for recorded in trace_plans:
+            if not isinstance(recorded, dict):
+                continue
+            current = current_plans.get(str(recorded.get("scope_id", "")))
+            if current is None:
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.stale.plan_changed",
+                }
+            scope, plan = current
+            current_sha = hash_file(project.root / "plan" / scope.path)
+            if (
+                recorded.get("plan_id") != plan.plan_id
+                or recorded.get("plan_sha256") != current_sha
+            ):
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.stale.plan_changed",
+                    "scope_id": scope.id,
+                }
+
+    from .speech_identity import segment_speech_hash, segment_synthesis_key
+    from .synthesis import _valid_audio
+
+    per_scope: dict[str, dict[str, int]] = {}
+    for scope, plan in scoped_plans:
         reusable = 0
         for segment in plan.segments:
             speech_hash = segment_speech_hash(plan, segment, canonical)
             key = segment_synthesis_key(speech_hash, profile_id)
-            cache_dir = project.root / "synthesis" / "cache"
-            audio_path = cache_dir / f"{key.replace(':', '-')}.wav"
-            sidecar_path = cache_dir / f"{key.replace(':', '-')}.json"
-            checked = _valid_audio(audio_path)
+            cache_path = project.root / "synthesis" / "cache" / f"{key.replace(':', '-')}.wav"
+            sidecar_path = project.root / "synthesis" / "cache" / f"{key.replace(':', '-')}.json"
+            checked = _valid_audio(cache_path)
             if checked is None:
                 continue
             try:
@@ -90,25 +130,34 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                 and sidecar.get("audio_sha256") == checked[3]
             ):
                 reusable += 1
-        details = {
-            "reusable": reusable,
-            "required": len(plan.segments),
-            "missing": len(plan.segments) - reusable,
-            "total": len(plan.segments),
-            "profile": profile,
-            "profile_id": profile_id,
-            "plan_id": plan.plan_id,
-        }
-        if reusable == len(plan.segments):
-            return {"stage": "synthesis", "state": "current", "reason": "current", **details}
-        return {
-            "stage": "synthesis",
-            "state": "stale",
-            "reason": "synthesis.stale.speech_changed",
-            **details,
-        }
-    except (OSError, KeyError, TypeError, ValueError):
-        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.invalid"}
+        per_scope[scope.id] = {"reusable": reusable, "required": len(plan.segments)}
+
+    reusable = sum(item["reusable"] for item in per_scope.values())
+    required = sum(item["required"] for item in per_scope.values())
+    details = {
+        "reusable": reusable,
+        "required": required,
+        "missing": required - reusable,
+        "total": required,
+        "scopes": len(scoped_plans),
+        "per_scope": per_scope,
+        "profile": profile,
+        "profile_id": profile_id,
+        "plan_ids": [
+            {"scope_id": scope.id, "plan_id": plan.plan_id}
+            for scope, plan in scoped_plans
+        ],
+    }
+    if len(scoped_plans) == 1:
+        details["plan_id"] = scoped_plans[0][1].plan_id
+    if reusable == required:
+        return {"stage": "synthesis", "state": "current", "reason": "current", **details}
+    return {
+        "stage": "synthesis",
+        "state": "stale",
+        "reason": "synthesis.stale.speech_changed",
+        **details,
+    }
 
 def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
     if row["state"] == "current":
@@ -122,6 +171,9 @@ def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
         "composition.stale.timing_changed": "Composition timing or presentation changed.",
         "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
         "output.stale.composition_changed": "Output is blocked by stale composition.",
+        "source.stale.hash_changed": "EPUB source changed after initialization; reinitialize the audiobook project.",
+        "document.index.invalid": "The audiobook document index is invalid.",
+        "document.chapter.missing": "An indexed chapter Markdown input is missing.",
     }
     return {
         "code": row["reason"],
@@ -345,9 +397,31 @@ def preview_project(
         activate=activate,
         on_event=on_event,
     )
+    selected_scope_ids = {artifact.scope_id for artifact in synthesis["artifacts"]}
+    scoped_plans = tuple(
+        (scope.id, load_scope_plan(project, scope))
+        for scope in project.load_plan_index().scopes
+        if scope.id in selected_scope_ids
+    )
+    document_scopes = {scope.id: scope for scope in project.document_scopes()}
+    indexed_plans = {scope.id: scope for scope in project.load_plan_index().scopes}
+    scope_metadata = tuple(
+        {
+            "scope_id": scope_id,
+            "kind": document_scopes[scope_id].kind,
+            "title": document_scopes[scope_id].title,
+            "source_number": document_scopes[scope_id].source_number,
+            "plan_id": plan.plan_id,
+            "plan_sha256": hash_file(
+                project.root / "plan" / indexed_plans[scope_id].path
+            ),
+        }
+        for scope_id, plan in scoped_plans
+    )
     result = compose_artifacts(
         synthesis["artifacts"],
-        plan=load_scope_plan(project),
+        plans=scoped_plans,
+        scope_metadata=scope_metadata,
         target_lufs=target_lufs,
         composition=synthesis["profile"].payload.get("composition", {}),
         output=output,
