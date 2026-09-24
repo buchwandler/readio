@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from readio import config as config_internal
+from readio import formats as formats_internal
 from readio.api import PUBLIC_API_VERSION, Readio
 
 
@@ -15,6 +17,14 @@ def test_public_import_surface_and_typing_marker() -> None:
     assert PUBLIC_API_VERSION == 1
     assert "Readio" in readio.api.__all__
     assert "PlanRequest" in readio.api.__all__
+    assert "ConfigurationInitResult" in readio.api.__all__
+    assert "LanguageProfileResolution" in readio.api.__all__
+    assert readio.api.G2P_FALLBACKS == config_internal.G2P_FALLBACKS
+    assert readio.api.LANGUAGE_DETECTION_MODES == config_internal.LANGUAGE_DETECTION_MODES
+    assert readio.api.LEXICON_DATA_POLICIES == config_internal.LEXICON_DATA_POLICIES
+    assert readio.api.SHORT_SENTENCE_POLICIES == config_internal.SHORT_SENTENCE_POLICIES
+    assert readio.api.SPACY_POLICIES == config_internal.SPACY_POLICIES
+    assert readio.api.SUPPORTED_AUDIO_FORMATS == formats_internal.SUPPORTED_AUDIO_FORMATS
     assert importlib.resources.files("readio").joinpath("py.typed").is_file()
 
 

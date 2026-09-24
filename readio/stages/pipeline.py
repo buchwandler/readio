@@ -40,7 +40,6 @@ def _project_request(
     )
 
 
-
 def _synthesis_status(project: Project) -> dict[str, Any]:
     trace_path = project.paths["synthesis_trace"]
     profile_path = project.paths["synthesis_profile"]
@@ -87,9 +86,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             else {}
         )
         if legacy_bindings:
-            current_bindings = project_voice_bindings_provenance(
-                legacy_provider, legacy_bindings
-            )
+            current_bindings = project_voice_bindings_provenance(legacy_provider, legacy_bindings)
             return {
                 "stage": "synthesis",
                 "state": "stale",
@@ -362,7 +359,7 @@ def build_project(
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
     on_stage: Callable[[str, str], None] | None = None,
- ) -> dict[str, Any]:
+) -> dict[str, Any]:
     if request.target not in {"plan", "synthesis", "composition", "export"}:
         raise ValueError(f"unknown project build target: {request.target}")
     operations: list[dict[str, Any]] = []
@@ -379,9 +376,7 @@ def build_project(
     else:
         report("plan", "started")
         planned = plan_project(project, cfg)
-        operations.append(
-            {"stage": "plan", "action": "rebuilt", "scopes": len(planned.scopes)}
-        )
+        operations.append({"stage": "plan", "action": "rebuilt", "scopes": len(planned.scopes)})
         report("plan", "rebuilt")
     if request.target == "plan":
         return {"project": str(project.root), "operations": operations, "output_path": None}
@@ -485,7 +480,6 @@ def build_project(
     return {"project": str(project.root), "operations": operations, "output_path": target}
 
 
-
 def render_project(
     project: Project,
     cfg: Any,
@@ -498,7 +492,7 @@ def render_project(
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
     on_stage: Callable[[str, str], None] | None = None,
- ) -> dict[str, Any]:
+) -> dict[str, Any]:
     request = ProjectBuildRequest(
         target="export",
         selection=selector,
@@ -517,7 +511,6 @@ def render_project(
     )
 
 
-
 def preview_project(
     project: Project,
     cfg: Any,
@@ -531,7 +524,7 @@ def preview_project(
     on_event: Any = None,
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
- ) -> dict[str, Any]:
+) -> dict[str, Any]:
     synthesis = synthesize_project(
         project,
         cfg,
@@ -581,7 +574,6 @@ def preview_project(
         "activated": activate,
         **result,
     }
-
 
 
 __all__ = ["build_project", "preview_project", "project_status", "render_project"]

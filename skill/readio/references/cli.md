@@ -56,7 +56,6 @@ Exit code is 0 for `ok: true` and 1 for a rejected plan. One-shot planning is de
 
 `readio plan` is reserved for Readio projects. With no subcommand it builds the current project's semantic plans. Use `readio plan build [PROJECT]` outside that directory, `readio plan roles [PROJECT]` to inspect logical SSMD roles before planning, and `readio plan bind ROLE VOICE` / `readio plan unbind ROLE` to manage project-local acoustic settings. Role bindings do not modify SSMD or change Utterplan `plan_id`; they follow the precedence document, invocation, project, global configured role, then direct voice. Changing them makes synthesis stale but leaves planning current.
 
-
 ## Durable render manifests
 
 Use `--manifest` on bounded `render` when the audio needs reusable execution evidence:

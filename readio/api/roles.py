@@ -71,7 +71,9 @@ class RoleService:
                 preference=discovery.preference,
             )
             stored_voice = resolved.voice if resolved is not None and resolved.selector else voice
-            selected_engine = resolved.engine if resolved is not None and resolved.selector else None
+            selected_engine = (
+                resolved.engine if resolved is not None and resolved.selector else None
+            )
             if selected_engine is not None:
                 selected_provider = ssmd_provider_for_engine(selected_engine)
                 if selected_provider is not None and selected_provider != provider_id:
@@ -204,9 +206,7 @@ class RoleService:
         try:
             return project_internal.load_project(path)
         except project_internal.ProjectError as error:
-            raise api_errors.ProjectNotFoundError(
-                str(error), code="project.not_found"
-            ) from error
+            raise api_errors.ProjectNotFoundError(str(error), code="project.not_found") from error
 
     def _project_role(self, role) -> ProjectRole:
         return ProjectRole(

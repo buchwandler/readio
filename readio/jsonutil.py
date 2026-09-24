@@ -12,6 +12,7 @@ from pathlib import Path
 JsonScalar = str | int | float | bool | None
 JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
+
 def json_value(value: object) -> object:
     """Convert common Readio values to values accepted by ``json.dumps``."""
     if value is None or isinstance(value, (str, int, float, bool)):

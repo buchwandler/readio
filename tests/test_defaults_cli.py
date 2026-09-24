@@ -12,7 +12,7 @@ from readio.config import LanguageSettings, ReadioConfig
 
 def test_defaults_set_autocompletes_and_saves_profile(monkeypatch, capsys, tmp_path) -> None:
     saved: list[ReadioConfig] = []
-    monkeypatch.setattr(cli, "load_config", lambda: ReadioConfig())
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     monkeypatch.setattr(
         ConfigurationService,
         "path",
@@ -22,7 +22,8 @@ def test_defaults_set_autocompletes_and_saves_profile(monkeypatch, capsys, tmp_p
         ConfigurationService,
         "_resolve_profile",
         lambda self, language, settings, *, discovery: (
-            language, replace(settings, source="github", voice="thorsten", quality="fp32")
+            language,
+            replace(settings, source="github", voice="thorsten", quality="fp32"),
         ),
     )
     monkeypatch.setattr(
@@ -45,7 +46,7 @@ def test_defaults_set_autocompletes_and_saves_profile(monkeypatch, capsys, tmp_p
 
 def test_defaults_show_reports_base_fallback(monkeypatch, capsys) -> None:
     cfg = ReadioConfig(languages={"de": LanguageSettings(model="de-thorsten", voice="thorsten")})
-    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     args = cli.build_parser().parse_args(["defaults", "show", "de-at", "--json"])
 
     assert cli._cmd_defaults(args) == 0

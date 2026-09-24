@@ -13,7 +13,7 @@ from ..errors import ReadioError
 from ..models import ModelDiscoveryError, get_model_info, validate_language_settings
 from ..voices import resolve_voice_selector
 from . import errors as api_errors
-from .types import DiscoveryOptions
+from .types import ConfigurationInitResult, DiscoveryOptions, LanguageProfileResolution
 
 if TYPE_CHECKING:
     from .app import Readio
@@ -86,6 +86,43 @@ class ConfigurationService:
                 source_path=target,
             ) from error
 
+    def initialize(
+        self,
+        *,
+        overwrite: bool = False,
+        seed_templates: bool = True,
+    ) -> ConfigurationInitResult:
+        """Persist default configuration and initialize its storage directories."""
+        try:
+            config = self.defaults()
+            path = self.save(config, overwrite=overwrite)
+            created_directories: list[Path] = []
+            for directory in (config.paths.templates, config.paths.ingest, config.paths.output):
+                existed = directory.exists()
+                directory.mkdir(parents=True, exist_ok=True)
+                if not existed:
+                    created_directories.append(directory)
+
+            seeded_templates: tuple[Path, ...] = ()
+            if seed_templates:
+                from .app import Readio
+
+                seeded_templates = Readio(config=config).templates.seed()
+
+            return ConfigurationInitResult(
+                path=path,
+                created_directories=tuple(created_directories),
+                seeded_templates=seeded_templates,
+            )
+        except ReadioError:
+            raise
+        except Exception as error:
+            raise api_errors.translate_exception(
+                error,
+                error_type=api_errors.OutputError,
+                code="config.initialize_failed",
+            ) from error
+
     def set_value(
         self,
         key: str,
@@ -104,7 +141,11 @@ class ConfigurationService:
         except ReadioError:
             raise
         except Exception as error:
-            error_type = api_errors.OutputError if isinstance(error, OSError) else api_errors.InvalidRequestError
+            error_type = (
+                api_errors.OutputError
+                if isinstance(error, OSError)
+                else api_errors.InvalidRequestError
+            )
             raise api_errors.translate_exception(
                 error,
                 error_type=error_type,
@@ -116,9 +157,26 @@ class ConfigurationService:
         return dict(sorted(self._app.config.languages.items()))
 
     def language_profile(self, language: str) -> LanguageSettings | None:
+        return self.resolve_language_profile(language).settings
+
+    def resolve_language_profile(self, language: str) -> LanguageProfileResolution:
         try:
-            _matched, settings = config_internal.language_profile(self._app.config, language)
-            return settings
+            normalized = config_internal.normalize_language_key(language)
+            matched_key, settings = config_internal.language_profile(self._app.config, normalized)
+            match = (
+                "exact"
+                if matched_key == normalized
+                else "base"
+                if matched_key is not None
+                else None
+            )
+            return LanguageProfileResolution(
+                requested=language,
+                normalized=normalized,
+                matched_key=matched_key,
+                match=match,
+                settings=settings,
+            )
         except Exception as error:
             raise api_errors.translate_exception(
                 error,
@@ -162,7 +220,11 @@ class ConfigurationService:
         except ReadioError:
             raise
         except Exception as error:
-            error_type = api_errors.OutputError if isinstance(error, OSError) else api_errors.InvalidRequestError
+            error_type = (
+                api_errors.OutputError
+                if isinstance(error, OSError)
+                else api_errors.InvalidRequestError
+            )
             raise api_errors.translate_exception(
                 error,
                 error_type=error_type,
@@ -185,7 +247,11 @@ class ConfigurationService:
         except ReadioError:
             raise
         except Exception as error:
-            error_type = api_errors.OutputError if isinstance(error, OSError) else api_errors.InvalidRequestError
+            error_type = (
+                api_errors.OutputError
+                if isinstance(error, OSError)
+                else api_errors.InvalidRequestError
+            )
             raise api_errors.translate_exception(
                 error,
                 error_type=error_type,
@@ -247,5 +313,6 @@ class ConfigurationService:
         resolved = replace(resolved, source=source, voice=voice, quality=quality)
         validated = validate_language_settings(profile_language, resolved, model)
         return profile_language, validated
+
 
 __all__ = ["ConfigurationService"]

@@ -36,7 +36,9 @@ def test_spotify_command_family_routes():
         == "publish"
     )
     assert (
-        parser.parse_args(["spotify", "upload", "episode.mp3", "--title", "Episode"]).spotify_command
+        parser.parse_args(
+            ["spotify", "upload", "episode.mp3", "--title", "Episode"]
+        ).spotify_command
         == "upload"
     )
     assert parser.parse_args(["spotify", "shows"]).spotify_command == "shows"

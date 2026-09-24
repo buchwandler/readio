@@ -98,7 +98,6 @@ class CatalogService:
                 code="catalog.engines_failed",
             ) from error
 
-
     def targets(
         self,
         query: TargetQuery = _DEFAULT_TARGET_QUERY,
@@ -161,9 +160,7 @@ class CatalogService:
             )
             models = tuple(self._model_info(model) for model in discovered)
             if query.engine is not None:
-                return CatalogListing(
-                    models, self._discovery_metadata(raw_discovery, discovery)
-                )
+                return CatalogListing(models, self._discovery_metadata(raw_discovery, discovery))
 
             other_targets = self.targets(
                 TargetQuery(language=query.language, status=query.status),
@@ -227,7 +224,6 @@ class CatalogService:
         except Exception as error:
             raise self._discovery_error(error, "catalog.model_not_found") from error
 
-
     def voices(
         self,
         query: VoiceQuery = _DEFAULT_VOICE_QUERY,
@@ -272,7 +268,9 @@ class CatalogService:
                     raw_discovery = raw_discovery or piper_discovery
             custom_ids = registered_engines()
             for engine_id in custom_ids:
-                if engine_id in CANONICAL_ENGINE_IDS or (engine is not None and engine_id != engine):
+                if engine_id in CANONICAL_ENGINE_IDS or (
+                    engine is not None and engine_id != engine
+                ):
                     continue
                 for target in self.targets(
                     TargetQuery(engine=engine_id, language=query.language),
@@ -293,9 +291,45 @@ class CatalogService:
             and (engine is None or item.engine == engine)
             and (normalized_query is None or self._language_matches(normalized_query, item))
         )
-        return CatalogListing(
-            filtered, self._discovery_metadata(raw_discovery, discovery)
+        return CatalogListing(filtered, self._discovery_metadata(raw_discovery, discovery))
+
+    def voice_listing(
+        self,
+        selector: str,
+        *,
+        query: VoiceQuery = _DEFAULT_VOICE_QUERY,
+        discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
+    ) -> CatalogListing[VoiceInfo]:
+        listing = self.voices_listing(query, discovery=discovery)
+        raw = selector.casefold()
+        normalized = raw.replace("_", "-")
+        matches = tuple(
+            item
+            for item in listing.items
+            if raw in {item.id.casefold(), item.qualified_id.casefold()}
+            or (
+                item.selector is not None
+                and normalized
+                in {item.selector.casefold(), item.selector.casefold().replace("_", "-")}
+            )
         )
+        if not matches:
+            raise api_errors.DiscoveryError(
+                f"Unknown voice {selector!r}.",
+                details={"selector": selector},
+                code="catalog.voice_not_found",
+            )
+        if len(matches) > 1:
+            raise api_errors.DiscoveryError(
+                f"Voice {selector!r} is ambiguous.",
+                details={
+                    "selectors": [item.selector for item in matches],
+                    "qualified_ids": [item.qualified_id for item in matches],
+                },
+                code="catalog.voice_ambiguous",
+            )
+        return CatalogListing(matches, listing.discovery)
+
     def voice(
         self,
         selector: str,
@@ -303,12 +337,11 @@ class CatalogService:
         engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> VoiceInfo:
-        resolution = self.resolve_voice(selector, engine=engine, discovery=discovery)
-        if resolution.catalog_entry is None:
-            raise api_errors.DiscoveryError(
-                f"Voice {selector!r} has no catalog entry.", code="catalog.voice_not_found"
-            )
-        return resolution.catalog_entry
+        return self.voice_listing(
+            selector,
+            query=VoiceQuery(engine=engine),
+            discovery=discovery,
+        ).items[0]
 
     def resolve_voice(
         self,
@@ -332,7 +365,8 @@ class CatalogService:
                 entry = self._voice_info(resolved.catalog_entry) if resolved.catalog_entry else None
                 if entry is None:
                     candidates = self.voices(
-                        VoiceQuery(model=resolved.model, engine=resolved.engine), discovery=discovery
+                        VoiceQuery(model=resolved.model, engine=resolved.engine),
+                        discovery=discovery,
                     )
                     entry = next((item for item in candidates if item.id == resolved.voice), None)
                 return VoiceResolution(
@@ -404,6 +438,36 @@ class CatalogService:
         except Exception as error:
             raise self._discovery_error(error, "catalog.lexicons_failed") from error
 
+    def lexicon_listing(
+        self,
+        selector: str,
+        *,
+        query: LexiconQuery = _DEFAULT_LEXICON_QUERY,
+        discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
+    ) -> CatalogListing[LexiconInfo]:
+        listing = self.lexicons_listing(query, discovery=discovery)
+        matches = tuple(
+            entry
+            for entry in listing.items
+            if entry.selector == selector or entry.asset_id == selector
+        )
+        if not matches:
+            raise api_errors.DiscoveryError(
+                f"Lexicon {selector!r} was not found.",
+                details={"selector": selector},
+                code="catalog.lexicon_not_found",
+            )
+        if len(matches) > 1:
+            raise api_errors.DiscoveryError(
+                f"Lexicon {selector!r} is ambiguous.",
+                details={
+                    "selectors": [entry.selector for entry in matches],
+                    "asset_ids": [entry.asset_id for entry in matches],
+                },
+                code="catalog.lexicon_ambiguous",
+            )
+        return CatalogListing(matches, listing.discovery)
+
     def lexicon(
         self,
         selector: str,
@@ -411,18 +475,8 @@ class CatalogService:
         query: LexiconQuery = _DEFAULT_LEXICON_QUERY,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> LexiconInfo:
-        entries = self.lexicons(query, discovery=discovery)
-        raw_entries = tuple(
-            entry
-            for entry in entries
-            if entry.selector == selector or entry.asset_id == selector
-        )
-        if len(raw_entries) != 1:
-            raise api_errors.DiscoveryError(
-                f"lexicon selector {selector!r} matched {len(raw_entries)} catalog entries",
-                code="catalog.lexicon_not_found",
-            )
-        return raw_entries[0]
+        return self.lexicon_listing(selector, query=query, discovery=discovery).items[0]
+
     def audio_formats(self) -> tuple[AudioFormatInfo, ...]:
         diagnostics = formats_internal.audio_format_diagnostics()
         result = []
@@ -474,7 +528,9 @@ class CatalogService:
         )
 
     def _target_model(self, target: SynthesisTargetInfo) -> ModelInfo:
-        default_voice = str(target.metadata.get("default_voice") or (target.voices[0] if target.voices else ""))
+        default_voice = str(
+            target.metadata.get("default_voice") or (target.voices[0] if target.voices else "")
+        )
         return ModelInfo(
             id=target.id,
             source=str(target.metadata.get("source") or target.engine),
@@ -501,9 +557,17 @@ class CatalogService:
                 ModelVoiceInfo(
                     id=str(item.get("id", "")),
                     gender=str(item.get("gender", "unknown")),
-                    language=str(item.get("language", target.languages[0] if target.languages else "unknown")),
-                    locale=str(item.get("locale", target.languages[0] if target.languages else "unknown")),
-                    language_label=str(item.get("language_label", target.languages[0] if target.languages else "unknown")),
+                    language=str(
+                        item.get("language", target.languages[0] if target.languages else "unknown")
+                    ),
+                    locale=str(
+                        item.get("locale", target.languages[0] if target.languages else "unknown")
+                    ),
+                    language_label=str(
+                        item.get(
+                            "language_label", target.languages[0] if target.languages else "unknown"
+                        )
+                    ),
                 )
                 for item in target.metadata.get("voice_details", ())
                 if isinstance(item, dict)
@@ -551,11 +615,15 @@ class CatalogService:
 
     def _target_voices(self, target: SynthesisTargetInfo) -> tuple[VoiceInfo, ...]:
         details = target.metadata.get("voice_details", ())
-        indexed = {
-            str(item.get("id")): item
-            for item in details
-            if isinstance(item, dict) and item.get("id") is not None
-        } if isinstance(details, (list, tuple)) else {}
+        indexed = (
+            {
+                str(item.get("id")): item
+                for item in details
+                if isinstance(item, dict) and item.get("id") is not None
+            }
+            if isinstance(details, (list, tuple))
+            else {}
+        )
         language = target.languages[0] if target.languages else "unknown"
         return tuple(
             VoiceInfo(
@@ -572,7 +640,9 @@ class CatalogService:
                 experimental=target.status == "experimental",
                 runtime_available=target.runtime_available,
                 distribution_id=target.id,
-                provider=str(target.metadata["provider"]) if target.metadata.get("provider") else None,
+                provider=str(target.metadata["provider"])
+                if target.metadata.get("provider")
+                else None,
                 engine=target.engine,
             )
             for voice in target.voices
@@ -607,14 +677,11 @@ class CatalogService:
         self, raw: object | None, options: DiscoveryOptions
     ) -> CatalogDiscovery:
         return CatalogDiscovery(
-            registry_source=str(
-                getattr(raw, "registry_source", "engine-adapters")
-            ),
+            registry_source=str(getattr(raw, "registry_source", "engine-adapters")),
             cache_fallback=bool(getattr(raw, "cache_fallback", False)),
             offline=bool(getattr(raw, "offline", options.offline)),
             refreshed=bool(getattr(raw, "refreshed", False)),
         )
-
 
     def _discovery_error(self, error: Exception, code: str) -> api_errors.DiscoveryError:
         if isinstance(error, models_internal.ModelDiscoveryError):

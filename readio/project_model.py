@@ -31,21 +31,13 @@ def _validate_project_settings(value: Any) -> None:
         _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
     if "voice_bindings" not in ssmd:
         return
-    bindings = _require_mapping(
-        ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings"
-    )
+    bindings = _require_mapping(ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings")
     for provider, raw_roles in bindings.items():
         _require_string(provider, "project.settings.ssmd.voice_bindings provider")
-        roles = _require_mapping(
-            raw_roles, f"project.settings.ssmd.voice_bindings.{provider}"
-        )
+        roles = _require_mapping(raw_roles, f"project.settings.ssmd.voice_bindings.{provider}")
         for role, voice in roles.items():
-            _require_string(
-                role, f"project.settings.ssmd.voice_bindings.{provider} role"
-            )
-            _require_string(
-                voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}"
-            )
+            _require_string(role, f"project.settings.ssmd.voice_bindings.{provider} role")
+            _require_string(voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}")
 
 
 def _require_string(value: Any, name: str) -> str:

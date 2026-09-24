@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
+
 from readio.api import (
+    DiscoveryError,
     DiscoveryOptions,
     LexiconQuery,
     ModelQuery,
@@ -103,3 +107,50 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
     assert model_listing.discovery.to_dict() == expected_metadata
     assert voice_listing.discovery.to_dict() == expected_metadata
     assert lexicon_listing.discovery.to_dict() == expected_metadata
+
+    voice_show = app.catalog.voice_listing(
+        "DE-KO-1",
+        query=VoiceQuery(language="de", engine="pykokoro"),
+        discovery=options,
+    )
+    lexicon_show = app.catalog.lexicon_listing(
+        "gold",
+        query=LexiconQuery(language="de", engine="pykokoro"),
+        discovery=options,
+    )
+    assert voice_show.items == voice_listing.items
+    assert lexicon_show.items == lexicon_listing.items
+    assert voice_show.discovery.to_dict() == expected_metadata
+    assert lexicon_show.discovery.to_dict() == expected_metadata
+
+    with pytest.raises(DiscoveryError) as error:
+        app.catalog.voice_listing("missing", query=VoiceQuery(engine="pykokoro"), discovery=options)
+    assert error.value.code == "catalog.voice_not_found"
+
+    with pytest.raises(DiscoveryError) as error:
+        app.catalog.lexicon_listing(
+            "missing", query=LexiconQuery(engine="pykokoro"), discovery=options
+        )
+    assert error.value.code == "catalog.lexicon_not_found"
+
+    second_voice = replace(voice, id="fixture-2", model="other-model")
+    monkeypatch.setattr(
+        "readio.api.catalog.discover_voice_catalog",
+        lambda **_: ((voice, second_voice), raw),
+    )
+    with pytest.raises(DiscoveryError) as error:
+        app.catalog.voice_listing("de-ko-1", query=VoiceQuery(engine="pykokoro"), discovery=options)
+    assert error.value.code == "catalog.voice_ambiguous"
+    assert len(error.value.details["qualified_ids"]) == 2
+
+    second_lexicon = replace(lexicon, asset_id="de-de:other")
+    monkeypatch.setattr(
+        "readio.api.catalog.discover_lexicon_catalog",
+        lambda **_: ((lexicon, second_lexicon), raw),
+    )
+    with pytest.raises(DiscoveryError) as error:
+        app.catalog.lexicon_listing(
+            "gold", query=LexiconQuery(engine="pykokoro"), discovery=options
+        )
+    assert error.value.code == "catalog.lexicon_ambiguous"
+    assert len(error.value.details["asset_ids"]) == 2

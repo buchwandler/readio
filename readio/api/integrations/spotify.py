@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
@@ -24,7 +24,7 @@ from ..errors import (
     translate_exception,
 )
 from ..events import EventHandler, ReadioEvent, compose_event_handlers
-from ..types import PlanRequest
+from ..types import OutputRequest, PlanRequest, SynthesisRequest
 
 SpotifyTimeline = Mapping[str, JsonValue]
 
@@ -43,6 +43,25 @@ class SpotifyPublishRequest:
     wait: bool = False
     wait_timeout: str | None = None
     api_timeout: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SpotifyLivePublishRequest:
+    lines: Iterable[str]
+    output: OutputRequest
+    synthesis: SynthesisRequest
+    title: str
+    show_id: str | None = None
+    new_show: str | None = None
+    summary: str | None = None
+    image: Path | None = None
+    language: str | None = None
+    timeline: Path | None = None
+    chapters_from_markers: bool = False
+    wait: bool = False
+    wait_timeout: str | None = None
+    api_timeout: str | None = None
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +353,118 @@ class SpotifyService:
                         code="spotify.temporary_output_cleanup_failed",
                     ) from error
 
+    def publish_live(
+        self,
+        request: SpotifyLivePublishRequest,
+        *,
+        on_event: EventHandler | None = None,
+    ) -> SpotifyPublishResult:
+        self._validate_metadata(request.title, request.show_id, request.new_show)
+        if request.output.mode != "file":
+            raise InvalidRequestError(
+                "Spotify live publishing requires file output",
+                code="spotify.live_output_invalid",
+            )
+        if request.chapters_from_markers and request.timeline is not None:
+            raise InvalidRequestError(
+                "provide either a timeline file or chapters from markers, not both",
+                code="spotify.timeline_conflict",
+            )
+        if request.timeline is not None:
+            self._validate_timeline(request.timeline)
+
+        requested_path = request.output.requested_path
+        if requested_path is not None:
+            requested_path = requested_path.expanduser()
+        try:
+            audio_format = resolve_audio_format(
+                requested=request.output.requested_format, output=requested_path
+            )
+        except Exception as error:
+            raise translate_exception(
+                error,
+                error_type=InvalidRequestError,
+                code="spotify.audio_format_invalid",
+            ) from error
+
+        temporary_path = None
+        output_path = requested_path
+        if output_path is None:
+            try:
+                descriptor, name = tempfile.mkstemp(suffix=format_suffix(audio_format))
+                os.close(descriptor)
+            except OSError as error:
+                raise translate_exception(
+                    error,
+                    error_type=OutputError,
+                    code="spotify.temporary_output_failed",
+                ) from error
+            temporary_path = Path(name)
+            output_path = temporary_path
+
+        render_output = replace(
+            request.output,
+            requested_format=audio_format,
+            requested_path=output_path,
+            force=request.output.force or temporary_path is not None,
+        )
+        self._emit(on_event, "operation.started", "spotify.publish_live")
+        self._emit(
+            on_event,
+            "stage.started",
+            "spotify.publish_live",
+            stage="render",
+            message="Rendering episode audio",
+        )
+        try:
+            rendered = self._app.speech.render_live_to_file(
+                request.lines,
+                render_output,
+                synthesis=request.synthesis,
+                unit=request.unit,
+                on_event=on_event,
+            )
+            if rendered.output_path is None or rendered.audio_format is None:
+                raise OutputError(
+                    "live render did not return file metadata",
+                    code="spotify.live_render_incomplete",
+                )
+            uploaded = self.publish_rendered(
+                SpotifyUploadRequest(
+                    audio_path=rendered.output_path,
+                    title=request.title,
+                    show_id=request.show_id,
+                    new_show=request.new_show,
+                    summary=request.summary,
+                    image=request.image,
+                    language=request.language,
+                    timeline=request.timeline,
+                    wait=request.wait,
+                    wait_timeout=request.wait_timeout,
+                    api_timeout=request.api_timeout,
+                ),
+                rendered.summary,
+                chapters_from_markers=request.chapters_from_markers,
+                on_event=on_event,
+            )
+            self._emit(on_event, "operation.completed", "spotify.publish_live")
+            return replace(
+                uploaded,
+                audio_path=None if temporary_path is not None else rendered.output_path,
+                audio_format=cast(AudioFormat, rendered.audio_format),
+                render_summary=rendered.summary,
+            )
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError as error:
+                    raise translate_exception(
+                        error,
+                        error_type=OutputError,
+                        code="spotify.temporary_output_cleanup_failed",
+                    ) from error
+
     def publish_rendered(
         self,
         request: SpotifyUploadRequest,
@@ -508,6 +639,7 @@ class SpotifyService:
 
 __all__ = [
     "SpotifyDoctorResult",
+    "SpotifyLivePublishRequest",
     "SpotifyPublishRequest",
     "SpotifyPublishResult",
     "SpotifyReadinessResult",

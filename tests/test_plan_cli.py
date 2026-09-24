@@ -22,7 +22,7 @@ def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, c
         scopes=(),
         to_dict=lambda: {"project": str(tmp_path), "scopes": []},
     )
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     monkeypatch.setattr(
         ProjectService,
         "plan",
@@ -36,6 +36,8 @@ def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, c
     assert requested == [Path.cwd()]
     assert result["project"] == str(tmp_path)
     assert result["scopes"] == []
+
+
 def test_plan_help_is_project_scoped(capsys) -> None:
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args(["plan", "--help"])
@@ -44,8 +46,6 @@ def test_plan_help_is_project_scoped(capsys) -> None:
     assert "{build,roles,bind,unbind}" in output
     for option in ("--engine", "--voice", "--model", "--format", "--output", "--voice-bind"):
         assert option not in output
-
-
 
 
 def test_plan_group_exposes_only_project_subcommands() -> None:
@@ -63,7 +63,7 @@ def test_plan_roles_json_reports_project_roles(tmp_path, monkeypatch, capsys) ->
     source = tmp_path / "episode.ssmd"
     source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
     args = build_parser().parse_args(["plan", "roles", str(project.root), "--json"])
     assert args.func(args) == 0
@@ -79,7 +79,7 @@ def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, 
     source = tmp_path / "episode.ssmd"
     source.write_text('<div voice="unbound">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
     args = build_parser().parse_args(["plan", "roles", str(project.root)])
     assert args.func(args) == 0
@@ -96,7 +96,7 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
     source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
     calls = {}
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
     def bind(self, project_path, role, voice, *, provider=None, discovery):
         calls["project"] = project_path
@@ -138,7 +138,7 @@ def test_plan_unbind_forwards_project_and_provider(tmp_path, monkeypatch, capsys
     project = init_project(source, tmp_path / "episode.readio")
     calls = {}
     inspect_count = 0
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
     def inspect(self, project_path, *, provider=None):
         nonlocal inspect_count
@@ -176,6 +176,7 @@ def test_plan_unbind_forwards_project_and_provider(tmp_path, monkeypatch, capsys
     assert calls["role"] == "narrator"
     assert calls["provider"] == "kokoro"
     assert json.loads(capsys.readouterr().out)["removed_voice"] == "af_heart"
+
 
 def test_render_dry_run_still_resolves_one_shot_text(capsys) -> None:
     args = build_parser().parse_args(["render", "Hello world", "--dry-run"])

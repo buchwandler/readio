@@ -14,7 +14,7 @@ def test_ssmd_check_json_reports_consumer_and_bindings(monkeypatch, tmp_path: Pa
     cfg = ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "out")
     )
-    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     args = cli.build_parser().parse_args(["ssmd", "check", str(source), "--json"])
 
     assert cli._cmd_ssmd(args) == 0

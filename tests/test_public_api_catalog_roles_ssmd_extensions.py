@@ -23,7 +23,7 @@ from readio.api import (
 
 def test_public_engine_extension_discovers_plans_and_renders(tmp_path: Path) -> None:
     output = tmp_path / "extension.wav"
-    script = r'''
+    script = r"""
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -115,7 +115,7 @@ assert any(diagnostic.code == "engine_option_unsupported" for diagnostic in bad_
 result = app.speech.render(request)
 assert result.output_path and result.output_path.is_file()
 assert adapter.open_calls == 1
-'''
+"""
     completed = subprocess.run(
         [sys.executable, "-c", script, str(output)],
         cwd=Path(__file__).parents[1],
@@ -173,7 +173,7 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
 def test_ssmd_service_checks_materializes_and_roundtrips(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "input.ssmd"
     source.write_text(
-        '---\nvoice_bindings:\n  kokoro:\n    speaker: missing_voice\n---\n'
+        "---\nvoice_bindings:\n  kokoro:\n    speaker: missing_voice\n---\n"
         '<div voice="speaker">Hello.</div>\n',
         encoding="utf-8",
     )

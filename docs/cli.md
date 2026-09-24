@@ -23,7 +23,6 @@ readio render PROJECT --format FORMAT
 readio render --file episode.ssmd --format mp3 --dry-run --json
 ```
 
-
 ## Project voice provider and routing
 
 `project.json` can select an active provider at `settings.ssmd.voice_provider`. Existing projects without that field infer the provider from a single non-empty `voice_bindings` namespace. Projects with neither an active provider nor project binding namespaces keep the global configuration fallback. Multiple provider namespaces without an active provider are ambiguous and must be resolved explicitly. `readio plan bind` can activate a provider from a stable selector, and `readio plan roles` reports bindings from the effective provider.

@@ -6,11 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 from readio.api import (
     Document,
     ExecutionError,
     InputRequest,
+    InvalidRequestError,
     OutputError,
     OutputRequest,
     PlanRequest,
@@ -171,6 +173,8 @@ def test_render_writes_owned_file_and_manifest(monkeypatch, tmp_path: Path) -> N
     assert result.output_path == output
     assert output.is_file()
     assert result.manifest_path == Path(f"{output}.readio.json")
+    assert result.audio_format == "wav"
+    assert result.manifest_schema == "readio.render-manifest.v2"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["schema"] == "readio.render-manifest.v2"
     assert result.to_dict()["output_path"] == str(output)
@@ -272,3 +276,201 @@ def test_output_collision_has_a_stable_public_error(tmp_path: Path) -> None:
         assert error.code == "output.exists"
     else:
         raise AssertionError("existing output was overwritten")
+
+
+class _FileSink(_Sink):
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path = path
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc_info) -> None:
+        self.close()
+
+    def write(self, audio: np.ndarray, sample_rate: int) -> None:
+        super().write(audio, sample_rate)
+        self.path.write_bytes(b"live audio")
+
+
+def _install_live_file_mocks(monkeypatch, *, supports_live: bool = True, fail: bool = False):
+    from readio.api import speech
+
+    sinks: list[_FileSink] = []
+    monkeypatch.setattr(speech, "resolve_synthesis_request", lambda _cfg, request: request)
+    monkeypatch.setattr(
+        speech,
+        "get_engine",
+        lambda _engine: SimpleNamespace(
+            capabilities=lambda: SimpleNamespace(supports_live=supports_live)
+        ),
+    )
+    monkeypatch.setattr(speech, "ensure_audio_format_available", lambda _format: None)
+
+    def create_sink(path: Path, _audio_format: str) -> _FileSink:
+        sink = _FileSink(path)
+        sinks.append(sink)
+        return sink
+
+    def render_live(lines, _cfg, sink, *, unit, synthesis, on_progress):
+        tuple(lines)
+        sink.write(np.zeros(4, dtype=np.float32), 22050)
+        if fail:
+            raise RuntimeError("live render failed")
+        return RenderSummary(sample_rate=22050, sample_count=4, channels=1)
+
+    monkeypatch.setattr(speech, "create_audio_sink", create_sink)
+    monkeypatch.setattr(speech, "render_live_internal", render_live)
+    return sinks
+
+
+def test_render_live_to_file_creates_requested_output_and_owns_resources(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output = tmp_path / "live.wav"
+    lines = _LineStream()
+    sinks = _install_live_file_mocks(monkeypatch)
+
+    result = Readio(ReadioConfig()).speech.render_live_to_file(
+        lines, OutputRequest(requested_path=output)
+    )
+
+    assert output.read_bytes() == b"live audio"
+    assert result.output_path == output
+    assert result.audio_format == "wav"
+    assert not lines.closed
+    assert sinks[0].closed
+
+
+def test_render_live_to_file_infers_format_from_suffix(monkeypatch, tmp_path: Path) -> None:
+    output = tmp_path / "live.ogg"
+    _install_live_file_mocks(monkeypatch)
+
+    result = Readio(ReadioConfig()).speech.render_live_to_file(
+        iter(["live"]), OutputRequest(requested_path=output)
+    )
+
+    assert result.output_path == output
+    assert result.audio_format == "ogg"
+
+
+def test_render_live_to_file_uses_configured_default_path(monkeypatch, tmp_path: Path) -> None:
+    from readio.config import PathSettings
+
+    _install_live_file_mocks(monkeypatch)
+    config = ReadioConfig(paths=PathSettings(output=tmp_path))
+
+    result = Readio(config).speech.render_live_to_file(iter(["live"]), OutputRequest())
+
+    assert result.output_path is not None
+    assert result.output_path.parent == tmp_path
+    assert result.output_path.suffix == ".wav"
+    assert result.output_path.is_file()
+
+
+def test_render_live_to_file_rejects_format_suffix_conflict(monkeypatch, tmp_path: Path) -> None:
+
+    _install_live_file_mocks(monkeypatch)
+    with pytest.raises(InvalidRequestError, match="conflicts") as error:
+        Readio(ReadioConfig()).speech.render_live_to_file(
+            iter(["live"]),
+            OutputRequest(requested_format="mp3", requested_path=tmp_path / "live.wav"),
+        )
+
+    assert error.value.code == "request.output_format_invalid"
+
+
+def test_render_live_to_file_rejects_playback_output() -> None:
+    with pytest.raises(InvalidRequestError) as error:
+        Readio(ReadioConfig()).speech.render_live_to_file(
+            iter(["live"]), OutputRequest(mode="playback")
+        )
+
+    assert error.value.code == "request.file_output_required"
+
+
+def test_render_live_to_file_reports_unavailable_encoder(monkeypatch, tmp_path: Path) -> None:
+    from readio.api import speech
+
+    _install_live_file_mocks(monkeypatch)
+    monkeypatch.setattr(
+        speech,
+        "ensure_audio_format_available",
+        lambda _format: (_ for _ in ()).throw(RuntimeError("encoder unavailable")),
+    )
+
+    with pytest.raises(OutputError, match="encoder unavailable") as error:
+        Readio(ReadioConfig()).speech.render_live_to_file(
+            iter(["live"]), OutputRequest(requested_path=tmp_path / "live.wav")
+        )
+
+    assert error.value.code == "output.encoder_unavailable"
+
+
+def test_render_live_to_file_rejects_existing_output_without_force(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output = tmp_path / "live.wav"
+    output.write_bytes(b"original")
+    _install_live_file_mocks(monkeypatch)
+
+    with pytest.raises(OutputError, match="already exists") as error:
+        Readio(ReadioConfig()).speech.render_live_to_file(
+            iter(["live"]), OutputRequest(requested_path=output)
+        )
+
+    assert error.value.code == "output.exists"
+    assert output.read_bytes() == b"original"
+
+
+def test_render_live_to_file_force_atomically_replaces_output(monkeypatch, tmp_path: Path) -> None:
+    output = tmp_path / "live.wav"
+    output.write_bytes(b"original")
+    _install_live_file_mocks(monkeypatch)
+
+    result = Readio(ReadioConfig()).speech.render_live_to_file(
+        iter(["live"]), OutputRequest(requested_path=output, force=True)
+    )
+
+    assert result.output_path == output
+    assert output.read_bytes() == b"live audio"
+    assert not tuple(tmp_path.glob(".live.*.wav"))
+
+
+def test_render_live_to_file_failure_keeps_final_output_unchanged(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output = tmp_path / "live.wav"
+    output.write_bytes(b"original")
+    sinks = _install_live_file_mocks(monkeypatch, fail=True)
+
+    with pytest.raises(ExecutionError, match="live render failed"):
+        Readio(ReadioConfig()).speech.render_live_to_file(
+            iter(["live"]), OutputRequest(requested_path=output, force=True)
+        )
+
+    assert output.read_bytes() == b"original"
+    assert not tuple(tmp_path.glob(".live.*.wav"))
+    assert sinks[0].closed
+
+
+def test_live_unsupported_engine_is_rejected_before_synthesis(monkeypatch) -> None:
+    from readio.api import speech
+
+    rendered = False
+
+    def render_live(*_args, **_kwargs):
+        nonlocal rendered
+        rendered = True
+
+    _install_live_file_mocks(monkeypatch, supports_live=False)
+    monkeypatch.setattr(speech, "render_live_internal", render_live)
+
+    with pytest.raises(InvalidRequestError) as error:
+        Readio(ReadioConfig()).speech.render_live(
+            iter(["live"]), _Sink(), synthesis=SynthesisRequest(engine="piper")
+        )
+
+    assert error.value.code == "speech.live_unsupported"
+    assert not rendered

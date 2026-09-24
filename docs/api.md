@@ -2,6 +2,8 @@
 
 `readio.api` is Readio's supported, synchronous Python application boundary. Import application objects and stable request/result types from `readio.api`. Modules outside that namespace are implementation details unless explicitly documented as an extension contract.
 
+Both `readio.cli` and `readio.spotify_cli` are consumers of this application boundary. They may own argument parsing, prompts, terminal progress, human/JSON presentation, and process exit codes, but application and domain operations must go through `readio.api`. A regression test enforces that the CLIs do not import domain implementation modules directly.
+
 The API does not depend on the CLI or TTSForge. It performs no printing, process exit, or implicit logging configuration. Calls block until their operation completes. Long-running services accept an `on_event` callback; GUI and orchestration clients can run a synchronous call in their own worker.
 
 ## Application and configuration
@@ -69,6 +71,8 @@ if plan.ok:
 ```
 
 `document_from_file(path)` constructs an input document from a file. Choose `requested_format="markdown"` or `"ssmd"` when the input format is known, or leave it as `"auto"`. A successful bounded `render()` owns its output file and sink. It returns a typed `RenderResult`; when requested, the colocated render manifest is available as `result.manifest_path`.
+
+`render_live_to_file(lines, output, ...)` consumes the caller-owned iterable without closing it, resolves the output format/path, creates and closes its own file sink, and atomically commits the file. Its `RenderResult` includes `output_path` and `audio_format`. Live support is declared by each adapter's `capabilities().supports_live`; requesting live synthesis from an unsupported engine raises `InvalidRequestError` with code `speech.live_unsupported`.
 
 For playback, call `app.speech.speak(request)`. It creates and closes the playback sink. For live text, `render_live(lines, sink, ...)` consumes but does not close the caller's iterable or sink. `speak_live(lines, ...)` owns playback. `render_to_sink(request, sink)` writes bounded output to a caller-owned `AudioSink` and leaves it open.
 
@@ -147,12 +151,29 @@ from readio.api.integrations.spotify import SpotifyService, SpotifyUploadRequest
 
 app = Readio()
 spotify = SpotifyService(app)
-result = spotify.upload(
-    SpotifyUploadRequest(audio_path=Path("episode.mp3"), title="Episode")
+result = spotify.upload(SpotifyUploadRequest(audio_path=Path("episode.mp3"), title="Episode"))
+```
+
+Live publishing uses `SpotifyService.publish_live()` so the integration owns audio rendering, temporary output, and upload as one operation:
+
+```python
+from readio.api import OutputRequest, Readio, SynthesisRequest
+from readio.api.integrations.spotify import SpotifyLivePublishRequest, SpotifyService
+
+spotify = SpotifyService(Readio())
+result = spotify.publish_live(
+    SpotifyLivePublishRequest(
+        lines=iter(("Hello from a live source.\n",)),
+        output=OutputRequest(requested_format="wav"),
+        synthesis=SynthesisRequest(language="en-us"),
+        title="Episode",
+    )
 )
 ```
 
-The integration delegates to the separately installed `save-to-spotify` executable. `doctor()`, `shows()`, `upload()`, `publish()`, `publish_rendered()`, `status()`, and `set_timeline()` return typed values. Readio does not read Spotify credential files or perform authentication.
+When `requested_path` is omitted, live publishing uses a temporary audio file and removes it after upload or failure. An explicit `OutputRequest.requested_path` is retained. The input iterable stays caller-owned. Unsupported engine capability is reported as `speech.live_unsupported`; live publishing also exposes stable integration errors such as `spotify.live_output_invalid` and `spotify.audio_format_invalid`.
+
+The integration delegates to the separately installed `save-to-spotify` executable. `doctor()`, `shows()`, `upload()`, `publish()`, `publish_live()`, `publish_rendered()`, `status()`, and `set_timeline()` return typed values. Readio does not read Spotify credential files or perform authentication.
 
 ## Errors, events, and serialization
 

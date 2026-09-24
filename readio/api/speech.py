@@ -8,10 +8,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from ..audio import RenderProgress
+from ..engines.registry import get_engine
 from ..errors import ManifestError, ReadioError
 from ..execution import BoundedRenderResult, ResolvedExecutionV2, execute_bounded_v2
-from ..formats import AudioFormat
-from ..manifest import build_render_manifest_v2, manifest_path_for, write_render_manifest
+from ..formats import (
+    AudioFormat,
+    ensure_audio_format_available,
+    normalize_audio_output_path,
+    resolve_audio_format,
+)
+from ..manifest import (
+    RENDER_MANIFEST_SCHEMA_V2,
+    build_render_manifest_v2,
+    manifest_path_for,
+    write_render_manifest,
+)
+from ..paths import resolve_render_output
 from ..plan import resolve_execution_v2, resolve_plan_v2
 from ..reader import render_live as render_live_internal
 from ..synthesis import resolve_synthesis_request
@@ -26,6 +38,7 @@ from .errors import (
 from .events import EventHandler, ReadioEvent, compose_event_handlers
 from .types import (
     Diagnostic,
+    OutputRequest,
     PlanRequest,
     RenderResult,
     ResolvedPlan,
@@ -33,6 +46,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
+    from ..synthesis import ResolvedSynthesis
     from .app import Readio
     from .types import AudioSink
 
@@ -85,9 +99,10 @@ class SpeechService:
         self._notify(handler, ReadioEvent(kind="operation.started", operation="render"))
         try:
             output.parent.mkdir(parents=True, exist_ok=True)
-            with atomic_audio_path(output, force=plan.output.force) as temporary, create_audio_sink(
-                temporary, cast(AudioFormat, audio_format)
-            ) as sink:
+            with (
+                atomic_audio_path(output, force=plan.output.force) as temporary,
+                create_audio_sink(temporary, cast(AudioFormat, audio_format)) as sink,
+            ):
                 execution_result = self._execute(
                     resolved,
                     sink,
@@ -114,7 +129,9 @@ class SpeechService:
         except ReadioError:
             raise
         except Exception as error:
-            error_type = OutputError if isinstance(error, (FileExistsError, OSError)) else ExecutionError
+            error_type = (
+                OutputError if isinstance(error, (FileExistsError, OSError)) else ExecutionError
+            )
             if isinstance(error, FileExistsError):
                 code = "output.exists"
             elif isinstance(error, OSError):
@@ -173,7 +190,130 @@ class SpeechService:
         on_event: EventHandler | None = None,
     ) -> RenderResult:
         """Consume live text without taking ownership of its iterable or sink."""
-        request = synthesis or SynthesisRequest()
+        resolved_synthesis = self._resolve_live_synthesis(synthesis or SynthesisRequest())
+        self._validate_live_capability(resolved_synthesis.engine)
+        return self._render_live_resolved(
+            lines,
+            sink,
+            resolved_synthesis=resolved_synthesis,
+            unit=unit,
+            on_event=on_event,
+        )
+
+    def render_live_to_file(
+        self,
+        lines: Iterable[str],
+        output: OutputRequest,
+        *,
+        synthesis: SynthesisRequest | None = None,
+        unit: str | None = None,
+        on_event: EventHandler | None = None,
+    ) -> RenderResult:
+        """Render live text to a Readio-owned file and sink."""
+        if output.mode != "file":
+            raise InvalidRequestError(
+                "render_live_to_file requires file output",
+                code="request.file_output_required",
+            )
+
+        resolved_synthesis = self._resolve_live_synthesis(synthesis or SynthesisRequest())
+        self._validate_live_capability(resolved_synthesis.engine)
+
+        try:
+            audio_format = resolve_audio_format(
+                requested=output.requested_format,
+                output=output.requested_path,
+            )
+            output_path = resolve_render_output(
+                self._app.config,
+                explicit=output.requested_path,
+                input_path=None,
+                audio_format=audio_format,
+            )
+            output_path = normalize_audio_output_path(output_path, audio_format)
+        except ValueError as error:
+            raise InvalidRequestError(
+                str(error),
+                code="request.output_format_invalid",
+            ) from error
+
+        try:
+            ensure_audio_format_available(audio_format)
+        except Exception as error:
+            raise OutputError(
+                str(error),
+                code="output.encoder_unavailable",
+            ) from error
+
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with (
+                atomic_audio_path(output_path, force=output.force) as temporary,
+                create_audio_sink(temporary, audio_format) as sink,
+            ):
+                result = self._render_live_resolved(
+                    lines,
+                    sink,
+                    resolved_synthesis=resolved_synthesis,
+                    unit=unit,
+                    on_event=on_event,
+                )
+        except (InvalidRequestError, ResolutionError, ExecutionError):
+            raise
+        except FileExistsError as error:
+            raise OutputError(str(error), code="output.exists") from error
+        except OSError as error:
+            raise OutputError(str(error), code="output.write_failed") from error
+        except ReadioError as error:
+            raise ExecutionError(
+                str(error),
+                details={"exception_type": type(error).__name__},
+                code="speech.live_render_failed",
+            ) from error
+        except Exception as error:
+            raise OutputError(
+                str(error),
+                code="output.write_failed",
+            ) from error
+
+        return replace(result, output_path=output_path, audio_format=audio_format)
+
+    def _resolve_live_synthesis(self, synthesis: SynthesisRequest) -> ResolvedSynthesis:
+        try:
+            return resolve_synthesis_request(self._app.config, synthesis)
+        except ReadioError:
+            raise
+        except Exception as error:
+            raise translate_exception(
+                error,
+                error_type=ResolutionError,
+                code="speech.live_resolution_failed",
+            ) from error
+
+    def _validate_live_capability(self, engine: str | None) -> None:
+        engine = engine or self._app.config.reader.engine
+        try:
+            adapter = get_engine(engine)
+        except ValueError as error:
+            raise ResolutionError(
+                str(error),
+                code="speech.engine_unavailable",
+            ) from error
+        if not adapter.capabilities().supports_live:
+            raise InvalidRequestError(
+                f"Live streaming is not supported by engine {engine!r}.",
+                code="speech.live_unsupported",
+            )
+
+    def _render_live_resolved(
+        self,
+        lines: Iterable[str],
+        sink: AudioSink,
+        *,
+        resolved_synthesis: ResolvedSynthesis,
+        unit: str | None,
+        on_event: EventHandler | None,
+    ) -> RenderResult:
         handler = self._handler(on_event)
         self._notify(handler, ReadioEvent(kind="operation.started", operation="render_live"))
 
@@ -187,12 +327,13 @@ class SpeechService:
                     total=event.total_units,
                     sample_count=event.sample_count,
                     sample_rate=event.sample_rate,
-                    audio_seconds=(event.sample_count / event.sample_rate if event.sample_rate else None),
+                    audio_seconds=(
+                        event.sample_count / event.sample_rate if event.sample_rate else None
+                    ),
                 ),
             )
 
         try:
-            resolved_synthesis = resolve_synthesis_request(self._app.config, request)
             summary = render_live_internal(
                 lines,
                 self._app.config,
@@ -293,7 +434,9 @@ class SpeechService:
                     total=event.total_units,
                     sample_count=event.sample_count,
                     sample_rate=event.sample_rate,
-                    audio_seconds=(event.sample_count / event.sample_rate if event.sample_rate else None),
+                    audio_seconds=(
+                        event.sample_count / event.sample_rate if event.sample_rate else None
+                    ),
                 ),
             )
 
@@ -360,7 +503,6 @@ class SpeechService:
             )
         return resolved
 
-
     def _sink_request(self, request: PlanRequest) -> PlanRequest:
         return replace(
             request,
@@ -400,8 +542,7 @@ class SpeechService:
         manifest_path: Path | None = None,
     ) -> RenderResult:
         diagnostics = tuple(
-            Diagnostic.from_plan(item)
-            for item in (plan.diagnostics if plan is not None else ())
+            Diagnostic.from_plan(item) for item in (plan.diagnostics if plan is not None else ())
         )
         return RenderResult(
             plan=plan,
@@ -409,6 +550,10 @@ class SpeechService:
             output_path=output_path,
             manifest_path=manifest_path,
             diagnostics=diagnostics,
+            audio_format=(
+                plan.output.format if plan is not None and output_path is not None else None
+            ),
+            manifest_schema=(RENDER_MANIFEST_SCHEMA_V2 if manifest_path is not None else None),
         )
 
 

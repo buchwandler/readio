@@ -187,6 +187,7 @@ class PyKokoroEngineAdapter:
             ),
             supports_prepared_units=True,
             supports_audio_job=True,
+            supports_live=True,
             supports_lexicons=True,
             supports_speakers=False,
             supports_model_sources=True,

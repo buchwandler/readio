@@ -49,6 +49,8 @@ def _install_render_stub(monkeypatch, calls: list[tuple[object, bool]]) -> None:
             summary=RenderSummary(sample_rate=24000, sample_count=48000, channels=1),
             output_path=output,
             manifest_path=manifest_path,
+            audio_format=resolved.output.format,
+            manifest_schema=RENDER_MANIFEST_SCHEMA_V2 if manifest_path is not None else None,
         )
 
     monkeypatch.setattr(SpeechService, "plan", plan)

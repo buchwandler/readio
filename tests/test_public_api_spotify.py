@@ -16,6 +16,7 @@ from readio.api import (
     Readio,
     RenderResult,
     RenderSummary,
+    SynthesisRequest,
 )
 from readio.api.integrations import spotify as spotify_api
 from readio.spotify import SpotifyCommandError, SpotifyReadinessResult, SpotifyUploadResult
@@ -53,6 +54,7 @@ def test_publish_renders_through_speech_service_and_cleans_temporary_audio(monke
     summary = RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
     rendered_paths = _fake_render(app, monkeypatch, summary)
     uploaded_paths: list[tuple[Path, bytes]] = []
+
     def upload(path: Path, **kwargs):
         uploaded_paths.append((path, path.read_bytes()))
         return SpotifyUploadResult("spotify:episode:1", "UPLOADING")
@@ -73,6 +75,56 @@ def test_publish_renders_through_speech_service_and_cleans_temporary_audio(monke
     assert uploaded_bytes == b"rendered audio"
     assert not uploaded_path.exists()
     assert json.loads(json.dumps(result.to_dict()))["audio_path"] is None
+
+
+def test_publish_live_renders_and_uploads_through_public_services(monkeypatch) -> None:
+    app = Readio()
+    lines = iter(("Episode audio\n",))
+    summary = RenderSummary(
+        sample_rate=24000,
+        sample_count=24000,
+        channels=1,
+        markers=({"name": "intro", "sample_offset": 0},),
+    )
+    render_calls = []
+    uploaded: list[tuple[Path, bytes]] = []
+
+    def render_live(passed_lines, output, **kwargs):
+        assert passed_lines is lines
+        assert tuple(passed_lines) == ("Episode audio\n",)
+        assert output.requested_path is not None
+        output.requested_path.write_bytes(b"rendered live audio")
+        render_calls.append(output)
+        return RenderResult(
+            plan=None,
+            summary=summary,
+            output_path=output.requested_path,
+            audio_format="wav",
+        )
+
+    def upload(path: Path, **kwargs):
+        uploaded.append((path, path.read_bytes()))
+        return SpotifyUploadResult("spotify:episode:live", "UPLOADING")
+
+    monkeypatch.setattr(app.speech, "render_live_to_file", render_live)
+    monkeypatch.setattr(spotify_api._spotify, "upload_episode", upload)
+
+    result = spotify_api.SpotifyService(app).publish_live(
+        spotify_api.SpotifyLivePublishRequest(
+            lines=lines,
+            output=OutputRequest(requested_format="wav"),
+            synthesis=SynthesisRequest(),
+            title="Live episode",
+        )
+    )
+
+    temporary_path = uploaded[0][0]
+    assert render_calls[0].force is True
+    assert uploaded == [(temporary_path, b"rendered live audio")]
+    assert not temporary_path.exists()
+    assert result.episode_uri == "spotify:episode:live"
+    assert result.audio_path is None
+    assert result.render_summary is summary
 
 
 def test_publish_retains_requested_output_waits_and_sets_marker_timeline(
@@ -210,7 +262,9 @@ def test_public_spotify_event_handlers_receive_typed_events(monkeypatch, tmp_pat
 
 
 def test_doctor_shows_and_status_return_public_types(monkeypatch) -> None:
-    monkeypatch.setattr(spotify_api._spotify, "doctor", lambda **kwargs: {"ok": True, "user": "member"})
+    monkeypatch.setattr(
+        spotify_api._spotify, "doctor", lambda **kwargs: {"ok": True, "user": "member"}
+    )
     monkeypatch.setattr(
         spotify_api._spotify,
         "list_shows",
@@ -231,7 +285,6 @@ def test_doctor_shows_and_status_return_public_types(monkeypatch) -> None:
     assert json.loads(json.dumps(doctor.to_dict()))["details"]["ok"]
     assert shows == (spotify_api.SpotifyShow("spotify:show:1", "Show", "en"),)
     assert status.to_dict() == {"episode_uri": "spotify:episode:5", "readiness": "READY"}
-
 
 
 def test_importing_core_api_does_not_import_spotify_integration() -> None:

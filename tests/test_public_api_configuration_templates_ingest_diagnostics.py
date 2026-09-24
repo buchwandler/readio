@@ -12,12 +12,14 @@ from readio import ingest as ingest_internal
 from readio import templates as templates_internal
 from readio.api import (
     AudioFormatDiagnostic,
+    ConfigurationInitResult,
     DependencyDiagnostic,
     DiscoveryOptions,
     DoctorReport,
     EngineDiagnostic,
     InputError,
     InvalidRequestError,
+    LanguageProfileResolution,
     OutputError,
     PathDiagnostic,
     Readio,
@@ -78,15 +80,11 @@ def test_configuration_service_profiles_persist_without_mutating_app_snapshot(
     app, _paths = _app(tmp_path)
     settings = LanguageSettings(model="test-model", voice="test-voice")
 
-    saved = app.configuration.set_language_profile(
-        "DE_at", settings, validate_runtime=False
-    )
+    saved = app.configuration.set_language_profile("DE_at", settings, validate_runtime=False)
 
     assert saved == settings
     second_settings = LanguageSettings(model="french-model")
-    app.configuration.set_language_profile(
-        "fr", second_settings, validate_runtime=False
-    )
+    app.configuration.set_language_profile("fr", second_settings, validate_runtime=False)
     assert app.configuration.language_profiles() == {}
     assert app.configuration.language_profile("de-AT") is None
     persisted = app.configuration.load()
@@ -104,7 +102,9 @@ def test_configuration_service_profiles_persist_without_mutating_app_snapshot(
     assert fresh_app.configuration.load().languages == {}
 
 
-def test_configuration_profile_runtime_resolution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_configuration_profile_runtime_resolution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "config.toml"
     monkeypatch.setenv("READIO_CONFIG", str(config_path))
     app, _paths = _app(tmp_path)
@@ -134,13 +134,9 @@ def test_configuration_profile_runtime_resolution(monkeypatch: pytest.MonkeyPatc
         calls["validated"] = (language, settings, model)
         return settings
 
-    monkeypatch.setattr(
-        "readio.api.configuration.resolve_voice_selector", resolve_selector
-    )
+    monkeypatch.setattr("readio.api.configuration.resolve_voice_selector", resolve_selector)
     monkeypatch.setattr("readio.api.configuration.get_model_info", get_model)
-    monkeypatch.setattr(
-        "readio.api.configuration.validate_language_settings", validate_profile
-    )
+    monkeypatch.setattr("readio.api.configuration.validate_language_settings", validate_profile)
 
     result = app.configuration.set_language_profile(
         "de-DE",
@@ -159,7 +155,6 @@ def test_configuration_profile_runtime_resolution(monkeypatch: pytest.MonkeyPatc
     assert calls["model"][1]["backend"] is None
     assert calls["validated"][0] == "de"
     assert app.configuration.load().languages == {"de": result}
-
 
 
 def test_configuration_service_maps_invalid_values_to_public_errors(tmp_path: Path) -> None:
@@ -188,11 +183,14 @@ def test_template_service_manages_templates_and_rejects_traversal(
     assert {path.stem for path in seeded} == set(templates_internal.packaged_template_names())
     assert app.templates.path("briefing") == paths.templates / "briefing.ssmd"
     assert app.templates.show("briefing")
-    assert all(isinstance(item, TemplateValidationResult) and item.ok for item in (
-        app.templates.validate("briefing"),
-        app.templates.validate("dialogue"),
-        app.templates.validate("podcast"),
-    ))
+    assert all(
+        isinstance(item, TemplateValidationResult) and item.ok
+        for item in (
+            app.templates.validate("briefing"),
+            app.templates.validate("dialogue"),
+            app.templates.validate("podcast"),
+        )
+    )
 
     content = templates_internal.packaged_template("briefing")
     custom = app.templates.add("custom", content=content)
@@ -295,13 +293,9 @@ def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     assert all(isinstance(item, EngineDiagnostic) for item in report.engines)
     assert all(isinstance(item, DependencyDiagnostic) for item in report.dependencies)
     assert {"pykokoro", "piper"} <= {item.id for item in report.engines}
-    assert {"utterplan", "audiocompose", "ssmd"} <= {
-        item.id for item in report.dependencies
-    }
+    assert {"utterplan", "audiocompose", "ssmd"} <= {item.id for item in report.dependencies}
     assert all(isinstance(item, AudioFormatDiagnostic) for item in report.audio_formats)
-    assert {"wav", "mp3", "m4a", "ogg"} == {
-        item.id for item in report.audio_formats
-    }
+    assert {"wav", "mp3", "m4a", "ogg"} == {item.id for item in report.audio_formats}
     assert all(isinstance(item, PathDiagnostic) for item in report.paths)
     serialized = json.loads(json.dumps(report.to_dict()))
     assert serialized["config_path"] == str(config_path)
@@ -310,3 +304,64 @@ def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     assert not paths.ingest.exists()
     assert not paths.output.exists()
     assert not config_path.exists()
+
+
+def test_configuration_language_profile_resolution_reports_match_details() -> None:
+    exact_settings = LanguageSettings(model="exact-model")
+    base_settings = LanguageSettings(model="base-model")
+    config = ReadioConfig(languages={"de-at": exact_settings, "de": base_settings})
+    service = Readio(config).configuration
+
+    exact = service.resolve_language_profile("DE_AT")
+    base = service.resolve_language_profile("de-DE")
+    missing = service.resolve_language_profile("fr-CA")
+
+    assert isinstance(exact, LanguageProfileResolution)
+    assert (exact.requested, exact.normalized, exact.matched_key, exact.match) == (
+        "DE_AT",
+        "de-at",
+        "de-at",
+        "exact",
+    )
+    assert exact.settings == exact_settings
+    assert (base.normalized, base.matched_key, base.match) == ("de-de", "de", "base")
+    assert base.settings == base_settings
+    assert (missing.normalized, missing.matched_key, missing.match, missing.settings) == (
+        "fr-ca",
+        None,
+        None,
+        None,
+    )
+    assert service.language_profile("de-DE") == base_settings
+
+
+def test_configuration_initialize_owns_directories_and_template_seeding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    monkeypatch.setenv("READIO_CONFIG", str(config_path))
+    paths = PathSettings(
+        templates=tmp_path / "templates",
+        ingest=tmp_path / "ingest",
+        output=tmp_path / "output",
+    )
+    config = ReadioConfig(paths=paths)
+    monkeypatch.setattr(config_internal, "default_config", lambda: config)
+    app, _paths = _app(tmp_path)
+
+    result = app.configuration.initialize()
+
+    assert isinstance(result, ConfigurationInitResult)
+    assert result.path == config_path
+    assert result.created_directories == (paths.templates, paths.ingest, paths.output)
+    assert all(path.is_dir() for path in result.created_directories)
+    assert {path.stem for path in result.seeded_templates} == {"briefing", "dialogue", "podcast"}
+    assert config_path.is_file()
+
+    with pytest.raises(OutputError) as error:
+        app.configuration.initialize()
+    assert error.value.code == "config.exists"
+
+    repeated = app.configuration.initialize(overwrite=True, seed_templates=False)
+    assert repeated.created_directories == ()
+    assert repeated.seeded_templates == ()

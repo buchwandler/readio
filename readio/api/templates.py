@@ -27,7 +27,9 @@ class TemplateService:
         try:
             names = templates_internal.list_templates(self.directory())
             return tuple(
-                TemplateInfo(name=name, path=templates_internal.template_path(self.directory(), name))
+                TemplateInfo(
+                    name=name, path=templates_internal.template_path(self.directory(), name)
+                )
                 for name in names
             )
         except ReadioError:
@@ -119,7 +121,11 @@ class TemplateService:
         except ReadioError:
             raise
         except Exception as error:
-            error_type = api_errors.OutputError if isinstance(error, OSError) else api_errors.InvalidRequestError
+            error_type = (
+                api_errors.OutputError
+                if isinstance(error, OSError)
+                else api_errors.InvalidRequestError
+            )
             raise api_errors.translate_exception(
                 error,
                 error_type=error_type,
@@ -148,13 +154,16 @@ class TemplateService:
             )
         try:
             return tuple(
-                templates_internal.reset_template(self.directory(), item)
-                for item in names
+                templates_internal.reset_template(self.directory(), item) for item in names
             )
         except ReadioError:
             raise
         except Exception as error:
-            error_type = api_errors.OutputError if isinstance(error, OSError) else api_errors.InvalidRequestError
+            error_type = (
+                api_errors.OutputError
+                if isinstance(error, OSError)
+                else api_errors.InvalidRequestError
+            )
             raise api_errors.translate_exception(
                 error,
                 error_type=error_type,
@@ -165,9 +174,7 @@ class TemplateService:
         path = self.path(name)
         try:
             analysis = self._app.ssmd.analyze(path)
-            roundtrip_result = (
-                self._app.ssmd.roundtrip_check(path).roundtrip if roundtrip else None
-            )
+            roundtrip_result = self._app.ssmd.roundtrip_check(path).roundtrip if roundtrip else None
             ok = analysis.ok and (
                 roundtrip_result is None or roundtrip_result.get("ok") is not False
             )

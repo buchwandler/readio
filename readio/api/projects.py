@@ -180,7 +180,9 @@ class ProjectService:
         handler = self._handler(on_event)
         operation = "projects.synthesize"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
-        self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="synthesis"))
+        self._notify(
+            handler, ReadioEvent(kind="stage.started", operation=operation, stage="synthesis")
+        )
         raw = self._call(
             lambda: synthesize_project(
                 internal,
@@ -234,7 +236,9 @@ class ProjectService:
         handler = self._handler(on_event)
         operation = "projects.compose"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
-        self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="composition"))
+        self._notify(
+            handler, ReadioEvent(kind="stage.started", operation=operation, stage="composition")
+        )
         raw = self._call(
             lambda: compose_project(
                 internal,
@@ -276,7 +280,9 @@ class ProjectService:
         handler = self._handler(on_event)
         operation = "projects.export"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
-        self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="export"))
+        self._notify(
+            handler, ReadioEvent(kind="stage.started", operation=operation, stage="export")
+        )
         raw = self._call(
             lambda: export_project(
                 internal,
@@ -285,7 +291,9 @@ class ProjectService:
                 output=options.output,
             )
         )
-        self._notify(handler, ReadioEvent(kind="stage.completed", operation=operation, stage="export"))
+        self._notify(
+            handler, ReadioEvent(kind="stage.completed", operation=operation, stage="export")
+        )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
         return ProjectExportResult(
             project=self._ref(internal),
@@ -352,7 +360,9 @@ class ProjectService:
         handler = self._handler(on_event)
         operation = "projects.preview"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
-        self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="synthesis"))
+        self._notify(
+            handler, ReadioEvent(kind="stage.started", operation=operation, stage="synthesis")
+        )
         composition_started = False
         composition_completed = False
 
@@ -401,9 +411,14 @@ class ProjectService:
             )
         )
         if not composition_started:
-            self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="composition"))
+            self._notify(
+                handler, ReadioEvent(kind="stage.started", operation=operation, stage="composition")
+            )
         if not composition_completed:
-            self._notify(handler, ReadioEvent(kind="stage.completed", operation=operation, stage="composition"))
+            self._notify(
+                handler,
+                ReadioEvent(kind="stage.completed", operation=operation, stage="composition"),
+            )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
         return PreviewResult(
             project=self._ref(internal),
@@ -455,9 +470,13 @@ class ProjectService:
             return None
         return lambda event: self._forward_synthesis_event(handler, operation, event)
 
-    def _forward_synthesis_event(self, handler: EventHandler | None, operation: str, event: object) -> None:
+    def _forward_synthesis_event(
+        self, handler: EventHandler | None, operation: str, event: object
+    ) -> None:
         details = getattr(event, "details", {})
-        safe = self._safe_details(details, _STATUS_DETAIL_KEYS | {"engine", "provider", "routing_mode"})
+        safe = self._safe_details(
+            details, _STATUS_DETAIL_KEYS | {"engine", "provider", "routing_mode"}
+        )
         self._notify(
             handler,
             ReadioEvent(
@@ -479,7 +498,9 @@ class ProjectService:
             return None
         return lambda event: self._forward_composition_event(handler, operation, event)
 
-    def _forward_composition_event(self, handler: EventHandler | None, operation: str, event: object) -> None:
+    def _forward_composition_event(
+        self, handler: EventHandler | None, operation: str, event: object
+    ) -> None:
         details = getattr(event, "details", {})
         safe = self._safe_details(
             details,
@@ -529,7 +550,9 @@ class ProjectService:
 
         return phase
 
-    def _build_stage_event(self, handler: EventHandler | None, operation: str, stage: str, state: str) -> None:
+    def _build_stage_event(
+        self, handler: EventHandler | None, operation: str, stage: str, state: str
+    ) -> None:
         if state == "started":
             self._notify(
                 handler,
@@ -551,11 +574,7 @@ class ProjectService:
         values: Mapping[str, object],
         allowed: frozenset[str] = _STATUS_DETAIL_KEYS,
     ) -> Mapping[str, JsonValue]:
-        return {
-            key: json_value(value)
-            for key, value in values.items()
-            if key in allowed
-        }
+        return {key: json_value(value) for key, value in values.items() if key in allowed}
 
     def _plan_ids(self, rows: object) -> tuple[ProjectPlanScope, ...]:
         return tuple(

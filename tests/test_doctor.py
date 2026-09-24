@@ -11,7 +11,7 @@ def test_doctor_reports_ssmd_executable_provider_roles_paths_and_audio_formats(
     cfg = ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
     )
-    monkeypatch.setattr(cli, "load_config", lambda path=None: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     monkeypatch.setattr(
         "readio.config.config_path",
         lambda: tmp_path / "config.toml",
@@ -33,7 +33,7 @@ def test_doctor_reports_ssmd_executable_provider_roles_paths_and_audio_formats(
 def test_doctor_does_not_create_missing_directories(monkeypatch, tmp_path: Path, capsys):
     paths = PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
     cfg = ReadioConfig(paths=paths)
-    monkeypatch.setattr(cli, "load_config", lambda path=None: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     monkeypatch.setattr(
         "readio.config.config_path",
         lambda: tmp_path / "config.toml",

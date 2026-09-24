@@ -63,6 +63,7 @@ class SynthesisProfile:
             **dict(self.payload),
         }
 
+
 @dataclass(frozen=True, slots=True)
 class ProjectSynthesisRoute:
     provider: str
@@ -72,6 +73,7 @@ class ProjectSynthesisRoute:
     selections: Mapping[str, EngineSelection]
     segment_routes: Mapping[tuple[str, str], str]
     default_selection: EngineSelection
+
 
 @dataclass(frozen=True, slots=True)
 class SynthesisArtifact:
@@ -192,13 +194,10 @@ def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
     return SynthesisProfile(synthesis_profile_id(identity_payload), payload)
 
 
-
 def _profile_from_route(
     adapter: Any, route: ProjectSynthesisRoute, profile: SynthesisProfile
 ) -> SynthesisProfile:
-    aggregate = route.mode == "target" or (
-        route.mode == "runtime" and len(route.selections) > 1
-    )
+    aggregate = route.mode == "target" or (route.mode == "runtime" and len(route.selections) > 1)
     if not aggregate:
         return profile
 
@@ -243,6 +242,7 @@ def _profile_from_route(
         payload,
         schema_version=3,
     )
+
 
 def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
     if not path.is_file():
@@ -330,6 +330,7 @@ def _project_request_with_voice_bindings(
         scope_voice_bindings=scope_bindings,
     )
 
+
 def _project_scope_voice_bindings(
     project: Project,
     cfg: Any,
@@ -362,8 +363,6 @@ def _project_scope_voice_bindings(
             item.reference: item.voice for item in resolved if item.voice is not None
         }
     return bindings_by_scope
-
-
 
 
 def _resolve_profile(
@@ -416,6 +415,7 @@ def _resolve_profile(
     )
     return resolved, adapter, profile
 
+
 def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEvent) -> None:
     if on_event is not None:
         on_event(event)
@@ -433,7 +433,6 @@ def _unit_preview(plan: Any, unit: Any) -> str | None:
 def _segment_preview(segment: Any) -> str:
     text = " ".join(str(getattr(segment, "text", "")).split())
     return text[:117] + "..." if len(text) > 120 else text
-
 
 
 def _segment_voice_reference(segment: Any) -> str | None:
@@ -564,6 +563,7 @@ def _build_project_synthesis_route(
         segment_routes=segment_routes,
         default_selection=default_selection,
     )
+
 
 def _result_details(result: Any) -> dict[str, Any]:
     metadata = getattr(result, "metadata", {}) or {}
@@ -849,6 +849,7 @@ def _render_all_missing(
                 details.update({(scope_id, index): value for index, value in rendered.items()})
     return details, total_open_ms
 
+
 def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
     checked = _valid_audio(item["cache_path"])
     if checked is None:
@@ -1021,10 +1022,7 @@ def synthesize_project(
                     "provider": route.provider,
                     "routing_mode": route.mode,
                     "targets": (
-                        [
-                            {"id": target, "voice": target}
-                            for target in sorted(route.selections)
-                        ]
+                        [{"id": target, "voice": target} for target in sorted(route.selections)]
                         if route.mode == "target"
                         else []
                     ),

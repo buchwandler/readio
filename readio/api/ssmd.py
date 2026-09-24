@@ -99,7 +99,6 @@ class SSMDService:
     def roundtrip_check(self, source: Path) -> SSMDCheckResult:
         return self.check(source, roundtrip=True)
 
-
     def _document(self, document: Document | Path) -> InputDocument:
         try:
             if isinstance(document, Path):

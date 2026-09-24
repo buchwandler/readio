@@ -33,7 +33,7 @@ def test_fixture_collects_all_roles_and_runtime_bindings_pass():
 
 
 def test_json_error_contains_complete_voice_diagnostic(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     with pytest.raises(SystemExit) as error:
         cli.main(["ssmd", "check", str(FIXTURE), "--json"])
     assert error.value.code == 2
@@ -51,7 +51,7 @@ def test_json_error_contains_complete_voice_diagnostic(monkeypatch, capsys):
 
 
 def test_human_error_has_yaml_guidance_and_one_prefix(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     with pytest.raises(SystemExit):
         cli.main(["ssmd", "check", str(FIXTURE)])
     output = capsys.readouterr().err
@@ -62,7 +62,7 @@ def test_human_error_has_yaml_guidance_and_one_prefix(monkeypatch, capsys):
 
 
 def test_json_resolve_never_prompts(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "load_config", ReadioConfig)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     monkeypatch.setattr(cli, "input", lambda prompt: pytest.fail("prompted"), raising=False)
     with pytest.raises(SystemExit) as error:
         cli.main(["ssmd", "check", str(FIXTURE), "--json", "--resolve-voices"])
@@ -75,13 +75,9 @@ def test_central_voice_resolution_preserves_project_layer_precedence() -> None:
     cfg = ReadioConfig()
     text = '<div voice="narrator">Hello.</div>'
 
-    project = resolve_voice_references(
-        text, cfg, project_bindings={"narrator": "af_heart"}
-    )[0]
+    project = resolve_voice_references(text, cfg, project_bindings={"narrator": "af_heart"})[0]
     assert (project.voice, project.origin) == ("af_heart", "project")
-    assert project.locator == (
-        "project.settings.ssmd.voice_bindings.kokoro.narrator"
-    )
+    assert project.locator == ("project.settings.ssmd.voice_bindings.kokoro.narrator")
 
     invocation = resolve_voice_references(
         text,

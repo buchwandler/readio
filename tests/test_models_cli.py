@@ -25,6 +25,8 @@ def _discovery() -> tuple[tuple[ModelInfo, ...], object]:
         redistribution_allowed=True,
     )
     return (model,), SimpleNamespace(registry_source="fixture", cache_fallback=False)
+
+
 def _listing() -> SimpleNamespace:
     models, _ = _discovery()
     registry = {
@@ -38,8 +40,6 @@ def _listing() -> SimpleNamespace:
         items=models,
         discovery=SimpleNamespace(to_dict=lambda: registry, cache_fallback=False),
     )
-
-
 
 
 def test_models_parser_supports_discovery_options() -> None:

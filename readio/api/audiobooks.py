@@ -94,16 +94,17 @@ class AudiobookService:
             for scope in project.document_scopes()
         )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
-        return AudiobookProjectResult(
-            project=project_ref, source=source, chapters=selected
-        )
+        return AudiobookProjectResult(project=project_ref, source=source, chapters=selected)
+
     def _resolve_source(self, source: Path) -> Path:
         try:
             return source.expanduser().resolve()
         except Exception as error:
             raise api_errors.translate_exception(error, code="input.invalid_path") from error
 
-    def _inspection(self, inspection: audiobook_internal.AudiobookInspection) -> AudiobookInspection:
+    def _inspection(
+        self, inspection: audiobook_internal.AudiobookInspection
+    ) -> AudiobookInspection:
         chapters = tuple(
             AudiobookChapter(
                 number=chapter.number,

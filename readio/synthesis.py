@@ -102,7 +102,6 @@ def _raw_synthesis_selection(
     return language, profile, cli_language is not None
 
 
-
 def _discovery_policy(request: SynthesisRequest, source: str | None) -> DiscoveryPolicy:
     return DiscoveryPolicy(
         offline=request.offline,
@@ -111,12 +110,10 @@ def _discovery_policy(request: SynthesisRequest, source: str | None) -> Discover
     )
 
 
-
 def _select_preferred_quality(qualities: tuple[str, ...]) -> str | None:
     if not qualities:
         return None
     return "fp32" if "fp32" in qualities else qualities[0]
-
 
 
 def _legacy_synthesis_request(args: object | None) -> SynthesisRequest:
@@ -151,7 +148,6 @@ def _legacy_synthesis_request(args: object | None) -> SynthesisRequest:
     )
 
 
-
 def resolve_synthesis(
     cfg: ReadioConfig, request: SynthesisRequest | object | None = None
 ) -> ResolvedSynthesis:
@@ -163,10 +159,7 @@ def resolve_synthesis(
     return resolve_synthesis_request(cfg, typed_request)
 
 
-
-def resolve_synthesis_request(
-    cfg: ReadioConfig, request: SynthesisRequest
-) -> ResolvedSynthesis:
+def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> ResolvedSynthesis:
     """Resolve synthesis preferences without CLI-shaped state."""
     selector_resolution = resolve_voice_selector(
         request.voice,
@@ -199,7 +192,9 @@ def resolve_synthesis_request(
     quality = profile.quality if profile is not None else None
     voice = profile.voice if profile is not None else None
     lexicons = profile.lexicons if profile is not None else None
-    engine = profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
+    engine = (
+        profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
+    )
     allow_experimental = profile.allow_experimental if profile is not None else False
     g2p_fallback = profile.g2p_fallback if profile is not None else None
     lexicon_data_policy = profile.lexicon_data_policy if profile is not None else None

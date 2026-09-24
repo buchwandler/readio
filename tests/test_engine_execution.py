@@ -278,20 +278,14 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
     monkeypatch.setitem(_registry._adapters, "fake-piper", FakePiperAdapter())
     cfg = ReadioConfig(
         voices={
-            "kokoro": VoiceProviderSettings(
-                ids=("af_sarah",), roles={"guest": "af_sarah"}
-            ),
-            "piper": VoiceProviderSettings(
-                ids=("en_US-amy-medium",), roles={"guest": "af_sarah"}
-            ),
+            "kokoro": VoiceProviderSettings(ids=("af_sarah",), roles={"guest": "af_sarah"}),
+            "piper": VoiceProviderSettings(ids=("en_US-amy-medium",), roles={"guest": "af_sarah"}),
         }
     )
     request = PlanRequest(
         operation="render",
         input=InputRequest(
-            document=document_from_text(
-                '<div voice="guest">Hello.</div>', input_format="ssmd"
-            )
+            document=document_from_text('<div voice="guest">Hello.</div>', input_format="ssmd")
         ),
         synthesis=SynthesisRequest(engine="fake-piper", voice="en_US-amy-medium"),
         output=OutputRequest(mode="file"),
@@ -301,8 +295,6 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
     resolved = resolve_execution_v2(cfg, request)
 
     assert resolved.plan.ok
-    decision = next(
-        item for item in resolved.plan.decisions if item.field == "ssmd.bindings.guest"
-    )
+    decision = next(item for item in resolved.plan.decisions if item.field == "ssmd.bindings.guest")
     assert decision.value == "en_US-amy-medium"
     assert decision.origin == "project"

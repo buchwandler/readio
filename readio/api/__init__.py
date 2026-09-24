@@ -5,8 +5,16 @@ package. Modules outside ``readio.api`` are implementation details unless a
 symbol is deliberately promoted as a public extension contract.
 """
 
-from ..config import default_config
+from ..config import (
+    G2P_FALLBACKS,
+    LANGUAGE_DETECTION_MODES,
+    LEXICON_DATA_POLICIES,
+    SHORT_SENTENCE_POLICIES,
+    SPACY_POLICIES,
+    default_config,
+)
 from ..errors import ManifestError, RenderError, SSMDInputError, VoiceResolutionError
+from ..formats import SUPPORTED_AUDIO_FORMATS
 from .app import Readio
 from .errors import (
     DiscoveryError,
@@ -51,6 +59,7 @@ from .types import (
     CatalogDiscovery,
     CatalogListing,
     CompositionOptions,
+    ConfigurationInitResult,
     DependencyDiagnostic,
     Diagnostic,
     DiscoveryOptions,
@@ -62,6 +71,7 @@ from .types import (
     InputRequest,
     JsonScalar,
     JsonValue,
+    LanguageProfileResolution,
     LanguageSettings,
     LexiconInfo,
     LexiconQuery,
@@ -116,7 +126,13 @@ from .types import (
 PUBLIC_API_VERSION = 1
 
 __all__ = [
+    "G2P_FALLBACKS",
+    "LANGUAGE_DETECTION_MODES",
+    "LEXICON_DATA_POLICIES",
     "PUBLIC_API_VERSION",
+    "SHORT_SENTENCE_POLICIES",
+    "SPACY_POLICIES",
+    "SUPPORTED_AUDIO_FORMATS",
     "AudioFormatDiagnostic",
     "AudioFormatInfo",
     "AudioSink",
@@ -129,6 +145,7 @@ __all__ = [
     "CatalogRequest",
     "CatalogResult",
     "CompositionOptions",
+    "ConfigurationInitResult",
     "DependencyDiagnostic",
     "Diagnostic",
     "DiscoveryError",
@@ -150,6 +167,7 @@ __all__ = [
     "InvalidRequestError",
     "JsonScalar",
     "JsonValue",
+    "LanguageProfileResolution",
     "LanguageSettings",
     "LexiconInfo",
     "LexiconQuery",

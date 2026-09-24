@@ -54,7 +54,9 @@ def engine_for_ssmd_provider(provider: str) -> str:
     try:
         return ONNXVOICE_SYSTEM_TO_READIO_ENGINE[provider]
     except KeyError as exc:
-        raise ValueError(f"No synthesis engine is registered for SSMD provider {provider!r}.") from exc
+        raise ValueError(
+            f"No synthesis engine is registered for SSMD provider {provider!r}."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

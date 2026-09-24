@@ -56,9 +56,7 @@ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
 def test_project_build_returns_typed_incremental_operations(tmp_path: Path, monkeypatch) -> None:
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
-    app = Readio(
-        ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
-    )
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
     source = tmp_path / "book.txt"
     source.write_text("Alpha.\n\nBeta.", encoding="utf-8")
     project = app.projects.create(source, output=tmp_path / "book.readio")
@@ -97,9 +95,7 @@ def test_project_build_returns_typed_incremental_operations(tmp_path: Path, monk
 def test_project_synthesis_target_stops_before_composition(tmp_path: Path, monkeypatch) -> None:
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
-    app = Readio(
-        ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
-    )
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
     source = tmp_path / "book.txt"
     source.write_text("Only synthesize.", encoding="utf-8")
     project = app.projects.create(source, output=tmp_path / "book.readio")
@@ -163,15 +159,10 @@ def test_project_errors_are_translated_to_public_types(tmp_path: Path) -> None:
     assert locked.value.code == "project.locked"
 
 
-
-def test_preview_is_typed_and_does_not_activate_synthesis(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_preview_is_typed_and_does_not_activate_synthesis(tmp_path: Path, monkeypatch) -> None:
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
-    app = Readio(
-        ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
-    )
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
     source = tmp_path / "preview.txt"
     source.write_text("A preview paragraph.", encoding="utf-8")
     project = app.projects.create(source, output=tmp_path / "preview.readio")

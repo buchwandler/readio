@@ -62,6 +62,7 @@ class CatalogListing(Generic[T]):
     items: tuple[T, ...]
     discovery: CatalogDiscovery
 
+
 @dataclass(frozen=True, slots=True)
 class ExportOptions:
     format: str = "wav"
@@ -102,6 +103,30 @@ class RenderResult:
     output_path: Path | None = None
     manifest_path: Path | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+    audio_format: str | None = None
+    manifest_schema: str | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationInitResult:
+    path: Path
+    created_directories: tuple[Path, ...]
+    seeded_templates: tuple[Path, ...]
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageProfileResolution:
+    requested: str
+    normalized: str
+    matched_key: str | None
+    match: Literal["exact", "base"] | None
+    settings: LanguageSettings | None
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -170,7 +195,6 @@ class AudiobookChapter:
         return cast(dict[str, JsonValue], json_value(self))
 
 
-
 @dataclass(frozen=True, slots=True)
 class AudiobookInspection:
     source: Path
@@ -179,8 +203,6 @@ class AudiobookInspection:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
-
-
 
 
 ProjectLike = ProjectRef | Path | str
@@ -233,7 +255,6 @@ class ProjectStatus:
         return cast(dict[str, JsonValue], json_value(self))
 
 
-
 @dataclass(frozen=True, slots=True)
 class StageOperation:
     stage: str
@@ -250,9 +271,9 @@ class ProjectPlanScope:
     plan_id: str
     sha256: str | None = None
     units: int | None = None
+
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +283,6 @@ class ProjectPlanResult:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +299,6 @@ class ProjectSynthesisResult:
         return cast(dict[str, JsonValue], json_value(self))
 
 
-
 @dataclass(frozen=True, slots=True)
 class ProjectCompositionResult:
     project: ProjectRef
@@ -290,7 +309,6 @@ class ProjectCompositionResult:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,7 +335,6 @@ class ProjectBuildResult:
 ProjectTarget = Literal["plan", "synthesis", "composition", "export"]
 
 
-
 @dataclass(frozen=True, slots=True)
 class ProjectBuildRequest:
     target: ProjectTarget = "export"
@@ -328,7 +345,6 @@ class ProjectBuildRequest:
     export: ExportOptions = dataclass_field(default_factory=ExportOptions)
 
 
-
 @dataclass(frozen=True, slots=True)
 class PreviewRequest:
     selection: str = "first:3"
@@ -337,7 +353,6 @@ class PreviewRequest:
     composition: CompositionOptions = dataclass_field(default_factory=CompositionOptions)
     output: Path | None = None
     activate: bool = False
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +371,8 @@ class PreviewResult:
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
+
+
 @dataclass(frozen=True, slots=True)
 class EngineInfo:
     id: str
@@ -631,7 +648,9 @@ class SSMDCheckResult:
 
     @property
     def ok(self) -> bool:
-        return self.analysis.ok and (self.roundtrip is None or self.roundtrip.get("ok") is not False)
+        return self.analysis.ok and (
+            self.roundtrip is None or self.roundtrip.get("ok") is not False
+        )
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -732,6 +751,7 @@ class DoctorReport:
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
 
+
 __all__ = [
     "AudioFormatDiagnostic",
     "AudioFormatInfo",
@@ -741,6 +761,7 @@ __all__ = [
     "AudiobookProjectChapter",
     "AudiobookProjectResult",
     "CompositionOptions",
+    "ConfigurationInitResult",
     "DependencyDiagnostic",
     "Diagnostic",
     "DiscoveryOptions",
@@ -752,6 +773,7 @@ __all__ = [
     "InputRequest",
     "JsonScalar",
     "JsonValue",
+    "LanguageProfileResolution",
     "LanguageSettings",
     "LexiconInfo",
     "LexiconQuery",

@@ -38,17 +38,11 @@ def project_voice_binding_providers(
 ) -> tuple[str, ...]:
     """Return provider namespaces with project-local role bindings."""
     bindings = project_ssmd_settings(manifest).get("voice_bindings", {})
-    providers = (
-        provider
-        for provider, roles in bindings.items()
-        if not non_empty_only or roles
-    )
+    providers = (provider for provider, roles in bindings.items() if not non_empty_only or roles)
     return tuple(sorted(providers))
 
 
-def with_project_voice_provider(
-    manifest: ProjectManifest, provider: str
-) -> ProjectManifest:
+def with_project_voice_provider(manifest: ProjectManifest, provider: str) -> ProjectManifest:
     """Return a manifest with an active project-local SSMD provider."""
     _require_non_empty_string(provider, "provider")
     settings = dict(manifest.settings)
@@ -96,9 +90,7 @@ def project_voice_bindings(manifest: ProjectManifest, provider: str) -> dict[str
     return dict(bindings.get(provider, {}))
 
 
-def project_voice_bindings_provenance(
-    provider: str, bindings: Mapping[str, str]
-) -> dict[str, Any]:
+def project_voice_bindings_provenance(provider: str, bindings: Mapping[str, str]) -> dict[str, Any]:
     """Return stable, non-identity provenance for project voice settings."""
     normalized = dict(sorted(bindings.items()))
     identity = {
@@ -112,8 +104,6 @@ def project_voice_bindings_provenance(
         "bindings": normalized,
         "sha256": f"sha256:{digest}",
     }
-
-
 
 
 def with_project_voice_binding(

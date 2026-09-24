@@ -243,7 +243,6 @@ def update_project_manifest(
     return load_project(project.root)
 
 
-
 def init_project(source: Path | str, output: Path | str | None = None) -> Project:
     source_path = Path(source).expanduser().resolve()
     if not source_path.is_file():

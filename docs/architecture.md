@@ -123,12 +123,12 @@ With no explicit engine, project synthesis selects the engine associated with th
 
 The synthesis profile records provider, sorted project bindings, and a SHA-256 provenance hash under `project_voice_bindings`. Grouped target-route profiles use the v3 canonical identity with target selections, per-scope bindings, and the project-binding fingerprint. Status compares current project settings with recorded provenance and reports `synthesis.stale.project_voice_bindings_changed` on mismatch. Plan remains current, synthesis becomes stale, composition and output are blocked downstream, and `readio synth` is the next action. Cached audio is not deleted.
 
-
 ## Engine voice-binding modes
 
 Engine capabilities declare whether SSMD role bindings are applied at runtime or select acoustic targets. PyKokoro advertises runtime binding, so Readio can pass role-to-voice bindings into one loaded synthesis pipeline. Piper advertises target binding because each selection loads one voice bundle and cannot switch roles inside that session.
 
 For target-bound execution, Readio resolves every speech segment's symbolic role for its document scope, validates all distinct target selections before opening any session, and groups segments by target. It opens one reusable session per distinct target, not one model per segment. The semantic plan remains unchanged and retains symbolic role references. Aggregate v3 synthesis profiles identify the targets, per-scope bindings, and project-binding fingerprint; progress events include target IDs and report target-specific model loading.
+
 ## End-to-end acceptance scenario
 
 For a multi-sentence document, normal sentence topology produces one reusable

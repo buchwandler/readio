@@ -35,9 +35,7 @@ def compose_event_handlers(
 ) -> EventHandler | None:
     """Call the operation handler first, followed by the application handler."""
     handlers = tuple(
-        handler
-        for handler in (operation_handler, application_handler)
-        if handler is not None
+        handler for handler in (operation_handler, application_handler) if handler is not None
     )
     if not handlers:
         return None

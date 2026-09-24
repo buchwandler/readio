@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from .jsonutil import JsonValue
 
@@ -40,12 +41,27 @@ class VoiceResolutionError(SSMDInputError):
         *,
         provider: str,
         reference: str,
-        references: tuple[object, ...] = (),
+        references: tuple[Any, ...] = (),
         available_voices: tuple[str, ...] = (),
-        header_template: dict[str, object] | None = None,
+        header_template: dict[str, JsonValue] | None = None,
         source_path: Path | None = None,
     ) -> None:
-        super().__init__(message, source_path=source_path)
+        reference_details: list[JsonValue] = [
+            {
+                "name": item.reference,
+                "count": item.count,
+                "lines": list(item.lines),
+            }
+            for item in references
+        ]
+        details: dict[str, JsonValue] = {
+            "provider": provider,
+            "reference": reference,
+            "references": reference_details,
+            "available_voices": list(available_voices),
+            "header_template": header_template or {},
+        }
+        super().__init__(message, source_path=source_path, details=details)
         self.provider = provider
         self.reference = reference
         self.references = references

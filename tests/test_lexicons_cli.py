@@ -36,6 +36,7 @@ def _entries() -> tuple[LexiconCatalogEntry, ...]:
         ),
     )
 
+
 def _listing() -> SimpleNamespace:
     registry = {
         "source": "fixture",
@@ -48,7 +49,6 @@ def _listing() -> SimpleNamespace:
         items=_entries(),
         discovery=SimpleNamespace(to_dict=lambda: registry, cache_fallback=False),
     )
-
 
 
 def test_lexicons_list_json_uses_named_selectors(monkeypatch, capsys) -> None:

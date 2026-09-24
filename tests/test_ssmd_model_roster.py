@@ -48,5 +48,3 @@ def test_ssmd_accepts_voice_from_active_model_roster() -> None:
 def test_ssmd_rejects_legacy_voice_for_active_model() -> None:
     with pytest.raises(VoiceResolutionError, match="active model"):
         preflight_ssmd('<div voice="af_sarah">Hallo.</div>', ReadioConfig(), synthesis=SYNTHESIS)
-
-

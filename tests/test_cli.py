@@ -1,15 +1,22 @@
 import json
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from readio import cli
-from readio.api.errors import OutputError
+from readio.api.configuration import ConfigurationService
+from readio.api.errors import InvalidRequestError, OutputError
 from readio.api.events import ReadioEvent
 from readio.api.projects import ProjectService
 from readio.api.speech import SpeechService
-from readio.api.types import ProjectCompositionResult, ProjectRef, RenderResult
+from readio.api.types import (
+    ConfigurationInitResult,
+    ProjectCompositionResult,
+    ProjectRef,
+    RenderResult,
+)
 from readio.audio import RenderSummary
 from readio.cli import _validate_live, build_parser
 from readio.config import PathSettings, ReadioConfig
@@ -24,7 +31,9 @@ def _install_render_stub(monkeypatch, callback):
             output = self._app.config.paths.output / f"{stem}.wav"
         suffix_format = output.suffix.lstrip(".").lower() or "wav"
         audio_format = request.output.requested_format or suffix_format
-        conflict = bool(request.output.requested_format and suffix_format != request.output.requested_format)
+        conflict = bool(
+            request.output.requested_format and suffix_format != request.output.requested_format
+        )
         return SimpleNamespace(
             ok=not conflict,
             output=SimpleNamespace(
@@ -39,7 +48,9 @@ def _install_render_stub(monkeypatch, callback):
                         "code": "output_format_conflict",
                         "message": "requested audio format conflicts with output extension",
                     }
-                ] if conflict else [],
+                ]
+                if conflict
+                else [],
             },
         )
 
@@ -54,19 +65,18 @@ def _install_render_stub(monkeypatch, callback):
                 details={"diagnostics": resolved.to_dict()["diagnostics"]},
             )
         output.parent.mkdir(parents=True, exist_ok=True)
-        summary, manifest_path = callback(
-            request, resolved, output, on_event, write_manifest
-        )
+        summary, manifest_path = callback(request, resolved, output, on_event, write_manifest)
         return RenderResult(
             plan=resolved,
             summary=summary,
             output_path=output,
             manifest_path=manifest_path,
+            audio_format=resolved.output.format,
+            manifest_schema=("readio.render-manifest.v2" if manifest_path is not None else None),
         )
 
     monkeypatch.setattr(SpeechService, "plan", plan)
     monkeypatch.setattr(SpeechService, "render", render)
-
 
 
 def test_single_existing_positional_ssmd_is_normalized_to_file(tmp_path: Path):
@@ -216,6 +226,8 @@ def test_render_resolves_output_with_normalized_positional_path(monkeypatch, tmp
     assert captured[0][0] == source
     assert captured[0][1].parent == tmp_path / "output"
     assert captured[0][1].name == "episode.wav"
+
+
 def test_missing_positional_path_fails_before_synthesis(monkeypatch, tmp_path: Path):
     args = build_parser().parse_args(["render", str(tmp_path / "missing.ssmd")])
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
@@ -227,6 +239,7 @@ def test_missing_positional_path_fails_before_synthesis(monkeypatch, tmp_path: P
 
     with pytest.raises(ValueError, match="looks like a file path"):
         cli._cmd_render(args)
+
 
 def test_input_help_describes_positional_files_and_literal_escape(capsys):
     with pytest.raises(SystemExit):
@@ -291,18 +304,57 @@ def test_input_format_option_and_live_markdown_restriction():
         _validate_live(live)
 
 
-def test_piper_live_mode_is_rejected(monkeypatch):
-    from readio.config import ReadioConfig
+def test_piper_live_mode_is_rejected_by_public_speech_service(monkeypatch):
+    from readio.api.speech import SpeechService
 
-    cfg = ReadioConfig()
-    monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
+    monkeypatch.setattr(
+        SpeechService,
+        "_resolve_live_synthesis",
+        lambda _self, _synthesis: SimpleNamespace(engine="piper"),
+    )
     for command in ("speak", "render"):
         args = build_parser().parse_args([command, "--live", "--engine", "piper"])
-        with pytest.raises(ValueError, match="Live streaming is not yet supported"):
+        with pytest.raises(InvalidRequestError, match="not supported") as error:
             if command == "speak":
                 cli._cmd_speak(args)
             else:
                 cli._cmd_render(args)
+        assert error.value.code == "speech.live_unsupported"
+
+
+def test_live_render_delegates_file_ownership_and_reports_service_metadata(
+    monkeypatch, capsys, tmp_path: Path
+):
+    target = tmp_path / "live.wav"
+    cfg = ReadioConfig(
+        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
+    )
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
+    monkeypatch.setattr(cli.sys, "stdin", StringIO("Hello live\n"))
+    calls = []
+
+    def render_live_to_file(_self, lines, output, *, synthesis=None, unit=None, on_event=None):
+        target.write_bytes(b"wav")
+        calls.append((lines, output, synthesis, unit, on_event))
+        return RenderResult(
+            plan=None,
+            summary=RenderSummary(sample_rate=24000, sample_count=24000, channels=1),
+            output_path=target,
+            audio_format="wav",
+        )
+
+    monkeypatch.setattr(SpeechService, "render_live_to_file", render_live_to_file)
+    args = build_parser().parse_args(["render", "--live", "--json", "--force", "-o", str(target)])
+
+    assert cli._cmd_render(args) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert calls[0][1].requested_path == target
+    assert calls[0][1].force is True
+    assert payload["path"] == str(target)
+    assert payload["format"] == "wav"
+    assert payload["manifest"] is None
 
 
 def test_synthesis_parser_exposes_speaker_and_asset_policy():
@@ -330,7 +382,7 @@ def test_speak_uses_the_public_speech_service(monkeypatch):
         lambda _self, request, *, on_event=None: captured.append(request),
     )
 
-    args = build_parser().parse_args(["speak", "hello"] )
+    args = build_parser().parse_args(["speak", "hello"])
     assert cli._cmd_speak(args) == 0
     assert captured[0].operation == "speak"
     assert captured[0].input.document.text == "hello"
@@ -357,7 +409,6 @@ def test_render_uses_selected_format_and_output_suffix(monkeypatch, tmp_path: Pa
     assert calls[0][0].suffix == ".mp3"
 
 
-
 def test_render_rejects_format_conflict_before_tts_load(monkeypatch, capsys, tmp_path: Path):
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
@@ -371,6 +422,7 @@ def test_render_rejects_format_conflict_before_tts_load(monkeypatch, capsys, tmp
     assert cli._cmd_render(args) == 1
     result = json.loads(capsys.readouterr().out)
     assert result["diagnostics"][0]["code"] == "output_format_conflict"
+
 
 def test_render_progress_flags_and_defaults():
     parser = build_parser()
@@ -404,7 +456,7 @@ def test_progress_enablement_respects_tty_and_json():
 
 def test_forced_render_progress_uses_stderr_and_keeps_path_on_stdout(
     monkeypatch, capsys, tmp_path: Path
- ):
+):
     cfg = ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
     )
@@ -433,6 +485,25 @@ def test_forced_render_progress_uses_stderr_and_keeps_path_on_stdout(
     assert "Planning" in captured.err
     assert "Finalizing" in captured.err
     assert "Rendered 0 units" in captured.err
+
+
+def test_config_init_delegates_initialization_and_preserves_printed_path(
+    monkeypatch, capsys, tmp_path: Path
+):
+    config_path = tmp_path / "config.toml"
+    result = ConfigurationInitResult(path=config_path, created_directories=(), seeded_templates=())
+    calls = []
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
+    monkeypatch.setattr(
+        ConfigurationService,
+        "initialize",
+        lambda _self, *, overwrite=False: calls.append(overwrite) or result,
+    )
+    args = build_parser().parse_args(["config", "init", "--force"])
+
+    assert cli._cmd_config(args) == 0
+    assert calls == [True]
+    assert capsys.readouterr().out == f"{config_path}\n"
 
 
 def test_no_progress_suppresses_render_status(monkeypatch, capsys, tmp_path: Path):
@@ -472,6 +543,7 @@ def test_render_json_reports_stable_envelope(monkeypatch, capsys, tmp_path: Path
     assert result["ok"] is True
     assert result["duration_ms"] == 1000
     assert result["path"] == str(output)
+
 
 def test_project_commands_share_progress_option():
     synth = build_parser().parse_args(["synth", "--progress"])

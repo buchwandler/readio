@@ -111,9 +111,7 @@ def _patch_voice_listing(monkeypatch, entries, *, registry_source="fixture", cal
         }
         return SimpleNamespace(
             items=entries,
-            discovery=SimpleNamespace(
-                to_dict=lambda: metadata, cache_fallback=False
-            ),
+            discovery=SimpleNamespace(to_dict=lambda: metadata, cache_fallback=False),
         )
 
     monkeypatch.setattr(CatalogService, "voices_listing", listing)
@@ -122,8 +120,9 @@ def _patch_voice_listing(monkeypatch, entries, *, registry_source="fixture", cal
 def patch_catalog(monkeypatch) -> None:
     _patch_voice_listing(monkeypatch, (catalog_entry(),), registry_source="cache")
 
+
 def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
     patch_catalog(monkeypatch)
 
     assert (
@@ -174,7 +173,7 @@ def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(mon
 
 
 def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
     piper_entry = VoiceCatalogEntry(
         selector="de-pi-9",
         slot=9,
@@ -202,7 +201,7 @@ def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys)
 def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     cfg = config(tmp_path)
     saved = []
-    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     monkeypatch.setattr(
         "readio.config.save_config",
         lambda updated: saved.append(updated) or Path("config.toml"),
@@ -217,13 +216,13 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     assert "new_voice" in saved[-1].voices["kokoro"].ids
 
     bound = saved[-1]
-    monkeypatch.setattr(cli, "load_config", lambda: bound)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: bound)
     assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "unbind", "moderator"])) == 0
     assert "moderator" not in saved[-1].voices["kokoro"].roles
 
 
 def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
     assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
     assert "deprecated" in capsys.readouterr().err
 
@@ -239,15 +238,16 @@ def test_voice_list_model_engine_aliases_normalize_without_changing_concrete_fil
         ("pykokoro", None),
     ]
     assert cli._normalize_voice_list_filters(engine=None, model="v1.0") == (None, "v1.0")
-    assert cli._normalize_voice_list_filters(
-        engine="pipersynth", model="en_US-amy-medium"
-    ) == ("piper", "en_US-amy-medium")
+    assert cli._normalize_voice_list_filters(engine="pipersynth", model="en_US-amy-medium") == (
+        "piper",
+        "en_US-amy-medium",
+    )
 
 
 def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
     monkeypatch, tmp_path, capsys
- ):
-    monkeypatch.setattr(cli, "load_config", lambda: config(tmp_path))
+):
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
     piper_entry = VoiceCatalogEntry(
         selector="de-pi-9",
         slot=9,
@@ -272,9 +272,7 @@ def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
         calls=calls,
     )
 
-    alias_args = cli.build_parser().parse_args(
-        ["voices", "list", "--model", "piper", "--json"]
-    )
+    alias_args = cli.build_parser().parse_args(["voices", "list", "--model", "piper", "--json"])
     assert cli._cmd_voices(alias_args) == 0
     alias_payload = json.loads(capsys.readouterr().out)
     assert calls[-1].engine == "piper"

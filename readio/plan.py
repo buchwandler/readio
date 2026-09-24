@@ -197,6 +197,7 @@ class SynthesisRequest:
     engine: str | None = None
     engine_options: Mapping[str, JsonValue] = field(default_factory=dict)
 
+
 @dataclass(frozen=True, slots=True)
 class InputRequest:
     """Input document specification."""
@@ -218,14 +219,12 @@ class OutputRequest:
     bitrate: str | None = None
 
 
-
 @dataclass(frozen=True, slots=True)
 class CompositionOptions:
     target_lufs: float | None = None
     true_peak_ceiling_dbtp: float = -1.0
     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain"
     clip_policy: Literal["clamp", "warn", "error"] = "clamp"
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,8 +239,6 @@ class PlanRequest:
     project_voice_bindings: Mapping[str, str] = field(default_factory=dict)
     scope_voice_bindings: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     composition: CompositionOptions = field(default_factory=CompositionOptions)
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -1451,9 +1448,7 @@ def _plan_ssmd(
             cfg,
             available_voices=available_voices,
             additional_bindings=dict(voice_bindings) if voice_bindings else None,
-            project_bindings=(
-                dict(project_voice_bindings) if project_voice_bindings else None
-            ),
+            project_bindings=(dict(project_voice_bindings) if project_voice_bindings else None),
         )
     except SSMDInputError as exc:
         diagnostics.append(
@@ -1900,9 +1895,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         }
         options.update({key: value for key, value in optional_options.items() if value is not None})
         engine_options = dict(request.synthesis.engine_options)
-        unsupported_options = sorted(
-            set(engine_options) - adapter.capabilities().option_names
-        )
+        unsupported_options = sorted(set(engine_options) - adapter.capabilities().option_names)
         for name in unsupported_options:
             diagnostics.append(
                 PlanDiagnostic(

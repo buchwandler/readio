@@ -10,7 +10,7 @@ def test_template_validate_all_json_uses_consumer_preflight(monkeypatch, tmp_pat
     templates = tmp_path / "templates"
     seed_templates(templates)
     cfg = ReadioConfig(paths=PathSettings(templates, tmp_path / "ingest", tmp_path / "output"))
-    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     args = cli.build_parser().parse_args(["template", "validate", "--all", "--json"])
 
     assert cli._cmd_template(args) == 0

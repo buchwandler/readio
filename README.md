@@ -1,6 +1,6 @@
 # readio
 
-`readio` is a terminal text to speech tool. It plays local speech with PyKokoro, renders bounded memory WAV, MP3, M4A, or OGG files, and publishes completed audio through the external `save-to-spotify` CLI.
+`readio` is a terminal text to speech tool. It plays local speech with PyKokoro, renders bounded memory WAV, MP3, M4A, or OGG files, and publishes generated or caller-provided audio through the external `save-to-spotify` CLI.
 
 ## Install
 
@@ -92,7 +92,6 @@ Readio selects synthesis through an explicit engine registry. PyKokoro and Piper
 
 For `readio voices list`, a registered engine/system name passed through `--model` is a shortcut when `--engine` is omitted: `piper` and `pipersynth` select Piper, while `pykokoro` and `kokoro` select PyKokoro. Concrete model IDs and Piper voice targets remain `--model` filters; when `--engine` is present, `--model` is always treated as a concrete filter.
 
-
 The canonical engine IDs are `pykokoro` and `piper`. The alias `pipersynth` is accepted as a compatibility alias for `piper`.
 
 ```bash
@@ -117,7 +116,7 @@ readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest 
 readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
 ```
 
-Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Piper live mode is not supported yet; use bounded input.
+Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Live rendering depends on the selected engine's declared capability. Piper currently does not support live mode; use bounded input.
 
 Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 
@@ -236,7 +235,11 @@ Planning, discovery, defaults, and render results are distinct layers:
   },
   "render": {
     "engine": "piper",
-    "target": { "id": "de_DE-thorsten-medium", "language": "de", "voice": "thorsten" },
+    "target": {
+      "id": "de_DE-thorsten-medium",
+      "language": "de",
+      "voice": "thorsten"
+    },
     "rate": 1.0,
     "options": { "ssmd_voice_bindings": { "narrator": "thorsten" } }
   },
@@ -340,6 +343,7 @@ Publishing is explicit and uses the clean command family:
 
 ```bash
 readio spotify publish --file "$draft" --title "Weekly Review" --format mp3 --wait
+producer-command | readio spotify publish --live --title "Live episode" --format mp3
 readio spotify upload recording.m4a --title "Lecture 3" --show-id spotify:show:abc --wait 2m
 readio spotify shows --json
 readio spotify status spotify:episode:abc --wait
@@ -347,6 +351,8 @@ readio spotify doctor --json
 ```
 
 Publish renders and uploads Readio source. Direct upload starts from caller-owned WAV, MP3, M4A, or OGG and never deletes or overwrites it. Without `--output`, generated publish media is temporary and deleted after success or failure; with `--output`, it is retained. `--chapters-from-markers` and caller-owned `--timeline FILE` are mutually exclusive, and either timeline path waits for READY before publishing. `--wait` optionally accepts a duration; `--wait-timeout` is deprecated. `--api-timeout` controls an upstream request separately from readiness waiting.
+
+`spotify publish --live` reads plain-text stdin and leaves live rendering, engine capability checks, and temporary audio-file ownership to the application services. Without `--output`, generated audio is temporary and removed after success or failure; with `--output`, the file is retained.
 
 Readio invokes `save-to-spotify --json`, reports its detected version in diagnostics, and does not inspect credentials, expose tokens, or perform authentication.
 
@@ -383,7 +389,6 @@ readio render --file episode.ssmd \
 ```
 
 `--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind` instead. Document bindings remain authoritative, and unresolved roles are reported before TTS or external publishing work begins. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
-
 
 Project-local role choices belong to the project rather than portable SSMD or user-global config:
 

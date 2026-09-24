@@ -86,7 +86,6 @@ def register_engine(adapter: EngineAdapter, *, replace: bool = False) -> None:
     _registry.register(adapter)
 
 
-
 def registered_engines() -> tuple[str, ...]:
     """Return registered engine IDs, lazily discovering the built-in adapters."""
     for engine_id in sorted(CANONICAL_ENGINE_IDS):

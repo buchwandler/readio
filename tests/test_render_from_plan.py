@@ -100,6 +100,7 @@ def _capture_plan(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     monkeypatch.setattr(SpeechService, "render", traced)
     return captured
 
+
 def test_normal_render_uses_public_speech_service_before_loading_tts(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
@@ -118,6 +119,7 @@ def test_normal_render_uses_public_speech_service_before_loading_tts(
 
     assert code == 0
     assert events == ["speech.render", "load_tts"]
+
 
 def test_normal_render_uses_plan_pipeline_config(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
@@ -159,7 +161,6 @@ def test_normal_render_uses_plan_pipeline_config(
     assert used.tokenizer_config is None
     assert used.short_sentence_config is not None
     assert used.short_sentence_config.resolve_mode == "wrap"
-
 
 
 def test_normal_render_uses_plan_output_path(
@@ -225,6 +226,7 @@ def test_normal_render_does_not_expose_legacy_synthesis_resolver(
     )
     assert code == 0
 
+
 def test_normal_render_does_not_reallocate_output_path(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path
 ) -> None:
@@ -288,6 +290,7 @@ def test_normal_render_uses_public_service_request_and_result(
     assert request.output.mode == "file"
     assert result.output_path == output
     assert result.plan.output.path == output
+
 
 def test_one_shot_render_does_not_create_project_tree(
     monkeypatch: pytest.MonkeyPatch, fake_tts, tmp_path: Path

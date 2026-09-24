@@ -136,10 +136,7 @@ class TerminalProgress:
                     f"  Provider: {details.get('provider', '-')}\n",
                     f"  Voices:   {len(targets)}\n",
                 ]
-                lines.extend(
-                    f"    {item['role']:<12} {item['voice']}\n"
-                    for item in voice_bindings
-                )
+                lines.extend(f"    {item['role']:<12} {item['voice']}\n" for item in voice_bindings)
                 lines.append(f"  Profile:  {details.get('profile_id', '-')}\n")
                 self._write("".join(lines), newline=True)
             else:
@@ -162,7 +159,11 @@ class TerminalProgress:
             )
         elif kind == "engine_open_started":
             target_id = details.get("target_id")
-            label = f"Loading synthesis model {target_id}..." if target_id else "Loading synthesis model..."
+            label = (
+                f"Loading synthesis model {target_id}..."
+                if target_id
+                else "Loading synthesis model..."
+            )
             self._write(label, newline=True)
         elif kind == "unit_started":
             unit = getattr(event, "unit_id", "-")
@@ -220,7 +221,7 @@ class TerminalProgress:
             text += f"  audio {format_duration(event.sample_count / event.sample_rate)}"
         return text
 
-    def update(self, event: RenderProgress) -> None:
+    def update(self, event: Any) -> None:
         if not self._enabled:
             return
         self._latest_completed = event.completed_units

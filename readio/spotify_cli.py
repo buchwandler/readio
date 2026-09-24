@@ -3,14 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
-import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from . import formats
 from .api import (
+    G2P_FALLBACKS,
+    LANGUAGE_DETECTION_MODES,
+    LEXICON_DATA_POLICIES,
+    SHORT_SENTENCE_POLICIES,
+    SPACY_POLICIES,
+    SUPPORTED_AUDIO_FORMATS,
     Document,
     InputRequest,
     OutputRequest,
@@ -21,22 +25,12 @@ from .api import (
     document_from_text,
 )
 from .api.integrations.spotify import (
+    SpotifyLivePublishRequest,
     SpotifyPublishRequest,
     SpotifyService,
     SpotifyUploadRequest,
 )
-from .audio import RenderProgress
-from .config import (
-    G2P_FALLBACKS,
-    LANGUAGE_DETECTION_MODES,
-    LEXICON_DATA_POLICIES,
-    SHORT_SENTENCE_POLICIES,
-    SPACY_POLICIES,
-)
-from .document import document_from_stdin
-from .formats import format_suffix, normalize_audio_output_path, resolve_audio_format
 from .progress import TerminalProgress
-from .wave import atomic_audio_path, create_audio_sink
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +113,7 @@ def _add_input_options(parser: argparse.ArgumentParser) -> None:
 def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--format",
-        choices=formats.SUPPORTED_AUDIO_FORMATS,
+        choices=SUPPORTED_AUDIO_FORMATS,
         help="audio output format; inferred from --output when possible; default: wav",
     )
 
@@ -146,7 +140,9 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         choices=SHORT_SENTENCE_POLICIES,
     )
     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
-    parser.add_argument("--detect-language", dest="detect_languages", action="append", metavar="LANG")
+    parser.add_argument(
+        "--detect-language", dest="detect_languages", action="append", metavar="LANG"
+    )
     parser.add_argument("--allow-experimental", action="store_true")
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
     parser.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
@@ -215,7 +211,7 @@ def _document(args: argparse.Namespace) -> Document:
         return document_from_text(" ".join(args.text), input_format=input_format)
     if sys.stdin.isatty():
         raise ValueError("provide text, --file PATH, or pipe text on stdin")
-    return document_from_stdin(sys.stdin.read(), input_format=input_format)
+    return document_from_text(sys.stdin.read(), input_format=input_format)
 
 
 def _synthesis_request(args: argparse.Namespace) -> SynthesisRequest:
@@ -270,9 +266,7 @@ def _resolve_interactive_bindings(
         return bindings
     analysis = app.ssmd.check(document, synthesis=synthesis).analysis
     unresolved = tuple(
-        reference
-        for reference in analysis.unresolved_references
-        if reference not in bindings
+        reference for reference in analysis.unresolved_references if reference not in bindings
     )
     if not unresolved:
         return bindings
@@ -359,7 +353,7 @@ def _progress_handler(progress: TerminalProgress):
             progress.phase(event.message)
         elif event.kind == "progress":
             progress.update(
-                RenderProgress(
+                SimpleNamespace(
                     completed_units=event.completed or 0,
                     total_units=event.total,
                     sample_count=event.sample_count or 0,
@@ -395,7 +389,9 @@ def _print_result(result: dict[str, object], *, json_mode: bool) -> None:
         print("Timeline: published")
 
 
-def _live_publish(args: argparse.Namespace, app: Readio, progress: TerminalProgress) -> dict[str, object]:
+def _live_publish(
+    args: argparse.Namespace, app: Readio, progress: TerminalProgress
+) -> dict[str, object]:
     if args.file is not None or args.text:
         raise ValueError("--live reads stdin only; do not combine it with text or --file")
     if args.input_format in ("markdown", "ssmd"):
@@ -406,85 +402,38 @@ def _live_publish(args: argparse.Namespace, app: Readio, progress: TerminalProgr
         raise ValueError("--select is not available with --live")
     if sys.stdin.isatty():
         raise ValueError("--live requires piped stdin")
-    from .engines.registry import normalize_engine_id
 
-    engine = args.engine or app.config.reader.engine
-    if normalize_engine_id(engine) == "piper":
-        raise ValueError(
-            "Live streaming is not yet supported by the Piper engine path. "
-            "Use bounded input or omit --live."
-        )
-
-    synthesis = _synthesis_request(args)
-    audio_format = resolve_audio_format(requested=args.format, output=args.output)
-    formats.ensure_audio_format_available(audio_format)
-    temporary_path = None
-    if args.output is None:
-        descriptor, name = tempfile.mkstemp(suffix=format_suffix(audio_format))
-        os.close(descriptor)
-        temporary_path = Path(name)
-        audio_path = temporary_path
-    else:
-        audio_path = normalize_audio_output_path(args.output.expanduser(), audio_format)
-        audio_path.parent.mkdir(parents=True, exist_ok=True)
-
+    wait, wait_timeout = _wait_arguments(args)
     progress.render_started()
     progress.phase("Preparing", "live input")
     progress.phase("Loading TTS")
-    try:
-        if temporary_path is None:
-            with atomic_audio_path(audio_path, force=args.force) as target, create_audio_sink(
-                target, audio_format
-            ) as sink:
-                rendered = app.speech.render_live(
-                    sys.stdin,
-                    sink,
-                    synthesis=synthesis,
-                    unit=args.unit,
-                    on_event=_progress_handler(progress),
-                )
-        else:
-            with create_audio_sink(audio_path, audio_format) as sink:
-                rendered = app.speech.render_live(
-                    sys.stdin,
-                    sink,
-                    synthesis=synthesis,
-                    unit=args.unit,
-                    on_event=_progress_handler(progress),
-                )
-        upload = SpotifyService(app).publish_rendered(
-            SpotifyUploadRequest(
-                audio_path=audio_path,
-                title=args.title,
-                show_id=args.show_id,
-                new_show=args.new_show,
-                summary=args.summary,
-                image=args.image,
-                language=args.language,
-                timeline=args.timeline,
-                wait=_wait_arguments(args)[0],
-                wait_timeout=_wait_arguments(args)[1],
-                api_timeout=args.api_timeout,
+    result = SpotifyService(app).publish_live(
+        SpotifyLivePublishRequest(
+            lines=sys.stdin,
+            output=OutputRequest(
+                requested_format=args.format,
+                requested_path=args.output,
+                force=args.force,
             ),
-            rendered.summary,
+            synthesis=_synthesis_request(args),
+            title=args.title,
+            show_id=args.show_id,
+            new_show=args.new_show,
+            summary=args.summary,
+            image=args.image,
+            language=args.language,
+            timeline=args.timeline,
             chapters_from_markers=args.chapters_from_markers,
-            on_event=_progress_handler(progress),
-        )
-        if temporary_path is not None:
-            upload = type(upload)(
-                episode_uri=upload.episode_uri,
-                upload_status=upload.upload_status,
-                readiness=upload.readiness,
-                audio_path=None,
-                audio_format=upload.audio_format,
-                timeline_published=upload.timeline_published,
-                render_summary=rendered.summary,
-            )
-        progress.complete(rendered.summary)
-        return _result_payload(upload)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+            wait=wait,
+            wait_timeout=wait_timeout,
+            api_timeout=args.api_timeout,
+            unit=args.unit,
+        ),
+        on_event=_progress_handler(progress),
+    )
+    if result.render_summary is not None:
+        progress.complete(result.render_summary)
+    return _result_payload(result)
 
 
 def cmd_spotify_publish(args: argparse.Namespace) -> int:
@@ -510,7 +459,9 @@ def cmd_spotify_publish(args: argparse.Namespace) -> int:
                 wait_timeout=_wait_arguments(args)[1],
                 api_timeout=args.api_timeout,
             )
-            result_value = SpotifyService(app).publish(request, on_event=_progress_handler(progress))
+            result_value = SpotifyService(app).publish(
+                request, on_event=_progress_handler(progress)
+            )
             if result_value.render_summary is not None:
                 progress.complete(result_value.render_summary)
             result = _result_payload(result_value)

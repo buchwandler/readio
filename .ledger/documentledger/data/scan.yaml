@@ -168,691 +168,691 @@ changed_units: []
 added_units: []
 deleted_units: []
 affected_sections:
-- doc_path: docs/index.md
-  section_id: md:section:docs/index.md::diagnostics-and-development
-  heading_path:
-  - Readio documentation
-  - Diagnostics and development
-  heading_slug: diagnostics-and-development
-  line_span:
-  - 261
-  - 280
-  section_hash: a6dd6e02c8d6ed52833ba4fc8544695e1c703892d5cc7c70b1c02529e62e8898
-  summary: Diagnostics and development
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/audio.py::PlaybackSink
-    source_path: readio/audio.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/audio.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+  - doc_path: docs/index.md
+    section_id: md:section:docs/index.md::diagnostics-and-development
+    heading_path:
+      - Readio documentation
+      - Diagnostics and development
+    heading_slug: diagnostics-and-development
     line_span:
-    - 77
-    - 135
-  - source_id: py:file:readio/audio.py
-    source_path: readio/audio.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/audio.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 285
-  - source_id: py:function:readio/audio.py::render_prepared
-    source_path: readio/audio.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/audio.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 143
-    - 211
-  - source_id: py:method:readio/audio.py::PlaybackSink.close
-    source_path: readio/audio.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/audio.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 118
-    - 124
-  - source_id: py:method:readio/audio.py::PlaybackSink.write
-    source_path: readio/audio.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/audio.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 91
-    - 111
-  - source_id: py:module:readio/audio.py
-    source_path: readio/audio.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/audio.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 285
-  - source_id: py:file:readio/cli.py
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 2685
-  - source_id: py:function:readio/cli.py::_add_input_options
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 120
-    - 150
-  - source_id: py:function:readio/cli.py::_add_runtime_options
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 268
-    - 273
-  - source_id: py:function:readio/cli.py::_add_synthesis_options
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 161
-    - 236
-  - source_id: py:function:readio/cli.py::_cmd_doctor
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 2068
-    - 2181
-  - source_id: py:function:readio/cli.py::_cmd_render
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1160
-    - 1259
-  - source_id: py:function:readio/cli.py::_cmd_speak
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 528
-    - 552
-  - source_id: py:function:readio/cli.py::_cmd_ssmd
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1262
-    - 1331
-  - source_id: py:function:readio/cli.py::_error_payload
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 2587
-    - 2628
-  - source_id: py:function:readio/cli.py::_read_input
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 415
-    - 425
-  - source_id: py:function:readio/cli.py::_render_audio
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 555
-    - 596
-  - source_id: py:function:readio/cli.py::_resolved_config
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 355
-    - 361
-  - source_id: py:function:readio/cli.py::_validate_live
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 428
-    - 438
-  - source_id: py:function:readio/cli.py::build_parser
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 2184
-    - 2563
-  - source_id: py:function:readio/cli.py::main
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 2641
-    - 2681
-  - source_id: py:module:readio/cli.py
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/cli.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 2685
-  - source_id: py:class:readio/config.py::ReaderSettings
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 50
-    - 64
-  - source_id: py:class:readio/config.py::ReadioConfig
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 105
-    - 127
-  - source_id: py:file:readio/config.py
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 691
-  - source_id: py:function:readio/config.py::_coerce_reader_value
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 172
-    - 219
-  - source_id: py:function:readio/config.py::_config_from_data
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 388
-    - 425
-  - source_id: py:function:readio/config.py::_provider
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 241
-    - 257
-  - source_id: py:function:readio/config.py::dumps_config
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 583
-    - 593
-  - source_id: py:function:readio/config.py::load_config
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 428
-    - 435
-  - source_id: py:function:readio/config.py::set_config_value
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 533
-    - 580
-  - source_id: py:function:readio/config.py::validate_config
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 322
-    - 376
-  - source_id: py:function:readio/config.py::with_overrides
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 438
-    - 459
-  - source_id: py:method:readio/config.py::ReadioConfig.__eq__
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 115
-    - 127
-  - source_id: py:module:readio/config.py
-    source_path: readio/config.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/config.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 691
-  - source_id: py:file:readio/document.py
-    source_path: readio/document.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/document.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 65
-  - source_id: py:function:readio/document.py::document_from_file
-    source_path: readio/document.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/document.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 47
-    - 57
-  - source_id: py:function:readio/document.py::document_from_stdin
-    source_path: readio/document.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/document.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 60
-    - 65
-  - source_id: py:function:readio/document.py::document_from_text
-    source_path: readio/document.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/document.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 38
-    - 44
-  - source_id: py:module:readio/document.py
-    source_path: readio/document.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/document.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 65
-  - source_id: py:file:readio/reader.py
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 465
-  - source_id: py:function:readio/reader.py::_build_pipeline
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 202
-    - 221
-  - source_id: py:function:readio/reader.py::pipeline_config_for_document
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 75
-    - 93
-  - source_id: py:function:readio/reader.py::render_live
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 293
-    - 383
-  - source_id: py:function:readio/reader.py::render_text
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 246
-    - 290
-  - source_id: py:function:readio/reader.py::speak_live
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 454
-    - 465
-  - source_id: py:function:readio/reader.py::speak_text
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 386
-    - 451
-  - source_id: py:module:readio/reader.py
-    source_path: readio/reader.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/reader.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 465
-  - source_id: py:class:readio/spotify.py::SpotifyError
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 15
-    - 16
-  - source_id: py:file:readio/spotify.py
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 280
-  - source_id: py:function:readio/spotify.py::_executable
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 66
-    - 67
-  - source_id: py:function:readio/spotify.py::_run_json
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 109
-    - 124
-  - source_id: py:function:readio/spotify.py::set_timeline
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 264
-    - 280
-  - source_id: py:function:readio/spotify.py::upload_episode
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 166
-    - 197
-  - source_id: py:function:readio/spotify.py::wait_for_episode
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 219
-    - 230
-  - source_id: py:module:readio/spotify.py
-    source_path: readio/spotify.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/spotify.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 280
-  - source_id: py:class:readio/wave.py::WaveSink
-    source_path: readio/wave.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/wave.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 71
-    - 75
-  - source_id: py:file:readio/wave.py
-    source_path: readio/wave.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/wave.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 284
-  - source_id: py:function:readio/wave.py::atomic_wav_path
-    source_path: readio/wave.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/wave.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 280
-    - 284
-  - source_id: py:method:readio/wave.py::WaveSink.__init__
-    source_path: readio/wave.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/wave.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 74
-    - 75
-  - source_id: py:module:readio/wave.py
-    source_path: readio/wave.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact source path `readio/wave.py`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 284
+      - 261
+      - 280
+    section_hash: a6dd6e02c8d6ed52833ba4fc8544695e1c703892d5cc7c70b1c02529e62e8898
+    summary: Diagnostics and development
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/audio.py::PlaybackSink
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 77
+          - 135
+      - source_id: py:file:readio/audio.py
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 285
+      - source_id: py:function:readio/audio.py::render_prepared
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 143
+          - 211
+      - source_id: py:method:readio/audio.py::PlaybackSink.close
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 118
+          - 124
+      - source_id: py:method:readio/audio.py::PlaybackSink.write
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 91
+          - 111
+      - source_id: py:module:readio/audio.py
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 285
+      - source_id: py:file:readio/cli.py
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 2685
+      - source_id: py:function:readio/cli.py::_add_input_options
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 120
+          - 150
+      - source_id: py:function:readio/cli.py::_add_runtime_options
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 273
+      - source_id: py:function:readio/cli.py::_add_synthesis_options
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 161
+          - 236
+      - source_id: py:function:readio/cli.py::_cmd_doctor
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 2068
+          - 2181
+      - source_id: py:function:readio/cli.py::_cmd_render
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1160
+          - 1259
+      - source_id: py:function:readio/cli.py::_cmd_speak
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 528
+          - 552
+      - source_id: py:function:readio/cli.py::_cmd_ssmd
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1262
+          - 1331
+      - source_id: py:function:readio/cli.py::_error_payload
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 2587
+          - 2628
+      - source_id: py:function:readio/cli.py::_read_input
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 415
+          - 425
+      - source_id: py:function:readio/cli.py::_render_audio
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 555
+          - 596
+      - source_id: py:function:readio/cli.py::_resolved_config
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 355
+          - 361
+      - source_id: py:function:readio/cli.py::_validate_live
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 428
+          - 438
+      - source_id: py:function:readio/cli.py::build_parser
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 2184
+          - 2563
+      - source_id: py:function:readio/cli.py::main
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 2641
+          - 2681
+      - source_id: py:module:readio/cli.py
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 2685
+      - source_id: py:class:readio/config.py::ReaderSettings
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 50
+          - 64
+      - source_id: py:class:readio/config.py::ReadioConfig
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 105
+          - 127
+      - source_id: py:file:readio/config.py
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 691
+      - source_id: py:function:readio/config.py::_coerce_reader_value
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 172
+          - 219
+      - source_id: py:function:readio/config.py::_config_from_data
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 388
+          - 425
+      - source_id: py:function:readio/config.py::_provider
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 241
+          - 257
+      - source_id: py:function:readio/config.py::dumps_config
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 583
+          - 593
+      - source_id: py:function:readio/config.py::load_config
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 428
+          - 435
+      - source_id: py:function:readio/config.py::set_config_value
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 533
+          - 580
+      - source_id: py:function:readio/config.py::validate_config
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 322
+          - 376
+      - source_id: py:function:readio/config.py::with_overrides
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 438
+          - 459
+      - source_id: py:method:readio/config.py::ReadioConfig.__eq__
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 115
+          - 127
+      - source_id: py:module:readio/config.py
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 691
+      - source_id: py:file:readio/document.py
+        source_path: readio/document.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/document.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 65
+      - source_id: py:function:readio/document.py::document_from_file
+        source_path: readio/document.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/document.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 47
+          - 57
+      - source_id: py:function:readio/document.py::document_from_stdin
+        source_path: readio/document.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/document.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 60
+          - 65
+      - source_id: py:function:readio/document.py::document_from_text
+        source_path: readio/document.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/document.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 38
+          - 44
+      - source_id: py:module:readio/document.py
+        source_path: readio/document.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/document.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 65
+      - source_id: py:file:readio/reader.py
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 465
+      - source_id: py:function:readio/reader.py::_build_pipeline
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 202
+          - 221
+      - source_id: py:function:readio/reader.py::pipeline_config_for_document
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 75
+          - 93
+      - source_id: py:function:readio/reader.py::render_live
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 293
+          - 383
+      - source_id: py:function:readio/reader.py::render_text
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 246
+          - 290
+      - source_id: py:function:readio/reader.py::speak_live
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 454
+          - 465
+      - source_id: py:function:readio/reader.py::speak_text
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 386
+          - 451
+      - source_id: py:module:readio/reader.py
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 465
+      - source_id: py:class:readio/spotify.py::SpotifyError
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 15
+          - 16
+      - source_id: py:file:readio/spotify.py
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 280
+      - source_id: py:function:readio/spotify.py::_executable
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 66
+          - 67
+      - source_id: py:function:readio/spotify.py::_run_json
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 109
+          - 124
+      - source_id: py:function:readio/spotify.py::set_timeline
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 264
+          - 280
+      - source_id: py:function:readio/spotify.py::upload_episode
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 166
+          - 197
+      - source_id: py:function:readio/spotify.py::wait_for_episode
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 219
+          - 230
+      - source_id: py:module:readio/spotify.py
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 280
+      - source_id: py:class:readio/wave.py::WaveSink
+        source_path: readio/wave.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/wave.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 71
+          - 75
+      - source_id: py:file:readio/wave.py
+        source_path: readio/wave.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/wave.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 284
+      - source_id: py:function:readio/wave.py::atomic_wav_path
+        source_path: readio/wave.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/wave.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 280
+          - 284
+      - source_id: py:method:readio/wave.py::WaveSink.__init__
+        source_path: readio/wave.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/wave.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 74
+          - 75
+      - source_id: py:module:readio/wave.py
+        source_path: readio/wave.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/wave.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 284
 stale_docs:
-- docs/index.md
+  - docs/index.md
 unlinked_changed_sources: []
 unmapped_changed_units: []

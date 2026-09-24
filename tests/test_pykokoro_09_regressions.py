@@ -99,9 +99,7 @@ def test_model_voice_listing_reports_source_and_roles(monkeypatch, capsys) -> No
         "voices_listing",
         lambda self, *args, **kwargs: SimpleNamespace(
             items=(entry,),
-            discovery=SimpleNamespace(
-                to_dict=lambda: registry, cache_fallback=False
-            ),
+            discovery=SimpleNamespace(to_dict=lambda: registry, cache_fallback=False),
         ),
     )
     args = cli.build_parser().parse_args(["voices", "list", "--model", MODEL.id, "--json"])

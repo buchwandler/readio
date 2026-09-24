@@ -31,6 +31,7 @@ class ProjectRoleError(ReadioError):
         self.code = code
         self.details = details or {}
 
+
 @dataclass(frozen=True, slots=True)
 class RoleLocation:
     scope_id: str
@@ -196,7 +197,7 @@ def bind_project_role(
     provider: str | None = None,
     offline: bool = False,
     refresh: bool = False,
- ) -> dict[str, Any]:
+) -> dict[str, Any]:
     """Persist a concrete voice for one SSMD role in this project."""
     role = role.strip()
     requested_voice = voice.strip()
@@ -252,8 +253,8 @@ def bind_project_role(
                 "requested_voice": requested_voice,
             },
         )
-    selected_provider = provider or selector_provider or resolve_project_voice_provider(
-        project.manifest, cfg
+    selected_provider = (
+        provider or selector_provider or resolve_project_voice_provider(project.manifest, cfg)
     )
     stored_voice = selection.voice if selection.selector is not None else requested_voice
 
@@ -270,7 +271,9 @@ def bind_project_role(
     selected_role = next(item for item in inspection.roles if item.role == role)
     if selected_role.document_bindings:
         bindings = selected_role.document_bindings
-        document_voice = next(iter(set(bindings.values()))) if len(set(bindings.values())) == 1 else "mixed"
+        document_voice = (
+            next(iter(set(bindings.values()))) if len(set(bindings.values())) == 1 else "mixed"
+        )
         scopes = list(bindings)
         raise ProjectRoleError(
             f"Role {role!r} is bound by the SSMD document to {document_voice!r}. "
@@ -297,7 +300,8 @@ def bind_project_role(
         operation=f"plan-bind-{role}",
     )
     effective = next(
-        item for item in inspect_project_roles(updated, cfg, provider=selected_provider).roles
+        item
+        for item in inspect_project_roles(updated, cfg, provider=selected_provider).roles
         if item.role == role
     )
     return {
@@ -319,7 +323,7 @@ def unbind_project_role(
     role: str,
     *,
     provider: str | None = None,
- ) -> dict[str, Any]:
+) -> dict[str, Any]:
     """Remove only one project-local binding and report the newly exposed value."""
     selected_provider = resolve_project_voice_provider(
         project.manifest, cfg, explicit_provider=provider
@@ -360,15 +364,12 @@ def unbind_project_role(
     }
 
 
-
-
-
 def _scope_ssmd_text(project: Project, scope: Any) -> str:
     if (
         project.manifest.kind == "document"
         and scope.id == "document"
         and project.manifest.source_format.casefold() == "ssmd"
-):
+    ):
         return project.paths["source"].read_text(encoding="utf-8")
     return project.load_document_scope(scope).text
 

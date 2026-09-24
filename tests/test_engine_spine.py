@@ -79,3 +79,7 @@ def test_active_pykokoro_engine_forwards_short_sentence_policy(
         assert short_sentence is not None
         assert short_sentence.enabled is expected_enabled
         assert short_sentence.resolve_mode == expected_mode
+
+
+def test_pykokoro_capabilities_advertise_live_support() -> None:
+    assert PyKokoroEngineAdapter().capabilities().supports_live

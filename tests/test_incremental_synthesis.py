@@ -63,14 +63,11 @@ def test_project_voice_binding_change_stales_synthesis_without_replanning_or_cac
     status = project_status(project)
     stages = {row["stage"]: row for row in status["stages"]}
     assert stages["plan"]["state"] == "current"
-    assert stages["synthesis"]["reason"] == (
-        "synthesis.stale.project_voice_bindings_changed"
-    )
+    assert stages["synthesis"]["reason"] == ("synthesis.stale.project_voice_bindings_changed")
     assert stages["composition"]["blocked_by"] == "synthesis"
     assert stages["output"]["blocked_by"] == "composition"
     assert status["next_actions"][0]["command"] == "readio synth"
     assert set((project.root / "synthesis" / "cache").glob("*.wav")) == cache_files
-
 
 
 class _Result:
@@ -176,6 +173,7 @@ class _Adapter:
             yield _Session(self)
 
         return session()
+
 
 class _TargetResult(_Result):
     def __init__(self, index: int, segment_id: str):
@@ -292,9 +290,7 @@ class _PiperTargetAdapter(_TargetAdapter):
 def _target_project(tmp_path, monkeypatch, bindings):
     adapter = _TargetAdapter()
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
-    cfg = ReadioConfig(
-        reader=ReaderSettings(engine=adapter.id, voice="voice-n", spacy="off")
-    )
+    cfg = ReadioConfig(reader=ReaderSettings(engine=adapter.id, voice="voice-n", spacy="off"))
     source = tmp_path / "target-project.ssmd"
     source.write_text(
         '<div voice="narrator">N1.</div>\n'
@@ -353,9 +349,7 @@ def test_target_routing_groups_segments_once_per_voice_target(tmp_path, monkeypa
     assert result["activated"] is True
     assert project.load_plan_index().scopes[0].plan_id == original_plan_id
     assert [
-        event.details["target_id"]
-        for event in events
-        if event.kind == "engine_open_started"
+        event.details["target_id"] for event in events if event.kind == "engine_open_started"
     ] == ["voice-g", "voice-h", "voice-n"]
     assert all(artifact.path.is_file() for artifact in result["artifacts"])
     profile = json.loads(project.paths["synthesis_profile"].read_text(encoding="utf-8"))
@@ -382,9 +376,7 @@ def test_target_routing_groups_segments_once_per_voice_target(tmp_path, monkeypa
         ),
     )
     stages = {item["stage"]: item for item in project_status(project)["stages"]}
-    assert stages["synthesis"]["reason"] == (
-        "synthesis.stale.project_voice_bindings_changed"
-    )
+    assert stages["synthesis"]["reason"] == ("synthesis.stale.project_voice_bindings_changed")
 
 
 def test_target_routing_validates_all_targets_before_opening_any_session(tmp_path, monkeypatch):
@@ -425,15 +417,11 @@ def test_target_routing_fails_unresolved_roles_before_opening_any_session(tmp_pa
     assert adapter.open_calls == []
 
 
-def test_project_provider_selects_piper_instead_of_global_engine_or_voice(
-    tmp_path, monkeypatch
- ):
+def test_project_provider_selects_piper_instead_of_global_engine_or_voice(tmp_path, monkeypatch):
     target_voice = "en_US-amy-medium"
     adapter = _PiperTargetAdapter(valid_targets=(target_voice,))
     monkeypatch.setitem(_registry._adapters, "piper", adapter)
-    cfg = ReadioConfig(
-        reader=ReaderSettings(engine="pykokoro", voice="af_sarah", spacy="off")
-    )
+    cfg = ReadioConfig(reader=ReaderSettings(engine="pykokoro", voice="af_sarah", spacy="off"))
     source = tmp_path / "piper-default.ssmd"
     source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "piper-default.readio")
@@ -668,9 +656,7 @@ def test_project_synthesis_merges_document_voice_bindings_with_explicit_override
     resolved_request = captured["request"]
     assert resolved_request.input.document.format == "ssmd"
     assert dict(resolved_request.voice_bindings) == {"narrator": "af_sarah"}
-    assert dict(resolved_request.project_voice_bindings) == {
-        "guest": "am_michael"
-    }
+    assert dict(resolved_request.project_voice_bindings) == {"guest": "am_michael"}
 
 
 def test_project_synthesis_forwards_effective_ssmd_voice_binding(tmp_path, monkeypatch):
@@ -699,9 +685,7 @@ def test_project_synthesis_forwards_effective_ssmd_voice_binding(tmp_path, monke
         "narrator": "af_heart",
     }
     decision = next(
-        item
-        for item in resolved.plan.decisions
-        if item.field == "ssmd.bindings.narrator"
+        item for item in resolved.plan.decisions if item.field == "ssmd.bindings.narrator"
     )
     assert decision.origin == "project"
     assert decision.locator == "project.settings.ssmd.voice_bindings.kokoro.narrator"
@@ -730,9 +714,7 @@ def test_project_synthesis_cli_binding_overrides_project_binding(tmp_path, monke
 
     assert resolved.selection.options["ssmd_voice_bindings"] == {"narrator": "af_bella"}
     decision = next(
-        item
-        for item in resolved.plan.decisions
-        if item.field == "ssmd.bindings.narrator"
+        item for item in resolved.plan.decisions if item.field == "ssmd.bindings.narrator"
     )
     assert decision.origin == "cli"
 
@@ -762,20 +744,14 @@ def test_project_synthesis_document_binding_overrides_project_and_cli(tmp_path, 
 
     resolved, _, _ = synthesis_stage._resolve_profile(project, cfg, request)
 
-    assert resolved.selection.options["ssmd_voice_bindings"] == {
-        "narrator": "am_michael"
-    }
+    assert resolved.selection.options["ssmd_voice_bindings"] == {"narrator": "am_michael"}
     decision = next(
-        item
-        for item in resolved.plan.decisions
-        if item.field == "ssmd.bindings.narrator"
+        item for item in resolved.plan.decisions if item.field == "ssmd.bindings.narrator"
     )
     assert decision.origin == "document"
 
 
-def test_synthesis_preview_and_project_render_share_project_voice_bindings(
-    tmp_path, monkeypatch
-):
+def test_synthesis_preview_and_project_render_share_project_voice_bindings(tmp_path, monkeypatch):
     from readio.stages import pipeline as pipeline_stage
 
     monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
@@ -809,12 +785,8 @@ def test_synthesis_preview_and_project_render_share_project_voice_bindings(
         return result
 
     monkeypatch.setattr(pipeline_stage, "synthesize_project", capture_synthesis)
-    monkeypatch.setattr(
-        pipeline_stage, "compose_artifacts", lambda *args, **kwargs: {}
-    )
-    pipeline_stage.preview_project(
-        project, cfg, request=_request(project), selector="all"
-    )
+    monkeypatch.setattr(pipeline_stage, "compose_artifacts", lambda *args, **kwargs: {})
+    pipeline_stage.preview_project(project, cfg, request=_request(project), selector="all")
     assert observed_bindings[-1] == expected_bindings
 
     monkeypatch.setattr(
@@ -830,9 +802,7 @@ def test_synthesis_preview_and_project_render_share_project_voice_bindings(
         "synthesis_profile_id": initial["profile"].profile_id,
         "master_sha256": hash_file(master),
     }
-    project.paths["composition_state"].write_text(
-        json.dumps(composition_state), encoding="utf-8"
-    )
+    project.paths["composition_state"].write_text(json.dumps(composition_state), encoding="utf-8")
     output_path = project.root / "output" / f"{project.manifest.name}.wav"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(b"output")
@@ -841,9 +811,7 @@ def test_synthesis_preview_and_project_render_share_project_voice_bindings(
         "master_sha256": hash_file(master),
         "output_sha256": hash_file(output_path),
     }
-    (project.root / "output" / "state.json").write_text(
-        json.dumps(output_state), encoding="utf-8"
-    )
+    (project.root / "output" / "state.json").write_text(json.dumps(output_state), encoding="utf-8")
 
     pipeline_stage.render_project(project, cfg)
 
@@ -877,9 +845,7 @@ def test_project_request_uses_project_provider_and_suppresses_global_voice(tmp_p
     assert resolved.synthesis.engine == "piper"
     assert resolved.synthesis.voice is None
     assert dict(resolved.project_voice_bindings) == {"narrator": "en_US-bryce-medium"}
-    assert resolved.scope_voice_bindings == {
-        "document": {"narrator": "en_US-bryce-medium"}
-    }
+    assert resolved.scope_voice_bindings == {"document": {"narrator": "en_US-bryce-medium"}}
 
 
 def test_project_request_engine_override_uses_override_provider_without_mutating_project(
