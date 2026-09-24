@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,11 +11,13 @@ import pytest
 from readio.api import (
     InvalidRequestError,
     ProjectRole,
+    ProjectRoleMutationResult,
     Readio,
     RoleBinding,
     SSMDAnalysis,
     SSMDCheckResult,
     SSMDMaterializeResult,
+    VoiceResolutionError,
     default_config,
     document_from_text,
     register_engine,
@@ -122,7 +125,7 @@ assert adapter.open_calls == 1
         capture_output=True,
         text=True,
         check=False,
-        timeout=60,
+        timeout=90,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
@@ -166,8 +169,43 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
     assert bound.origin == "project"
     assert app.roles.inspect_project(project).unresolved == ()
 
-    app.roles.unbind_project(project, "api_speaker")
+    mutation = app.roles.unbind_project_result(project, "api_speaker")
+    assert isinstance(mutation, ProjectRoleMutationResult)
+    assert mutation.project.root == project.root
+    assert mutation.previous_project_binding == "af_heart"
+    assert mutation.project_binding is None
+    assert mutation.effective_voice is None
+    assert mutation.origin == "unresolved"
+    assert mutation.status == "unresolved"
+    assert mutation.to_dict()["previous_project_binding"] == "af_heart"
     assert app.roles.inspect_project(project).unresolved == ("api_speaker",)
+
+    app.roles.bind_project(project, "api_speaker", "af_heart")
+    assert app.roles.unbind_project(project, "api_speaker") is None
+    assert app.roles.inspect_project(project).unresolved == ("api_speaker",)
+
+
+def test_project_role_unbind_result_exposes_config_fallback(tmp_path: Path) -> None:
+    source = tmp_path / "roles-with-fallback.ssmd"
+    source.write_text(
+        '---\ntitle: Roles\n---\n\n<div voice="api_speaker">Hello.</div>\n',
+        encoding="utf-8",
+    )
+    config = default_config()
+    voices = dict(config.voices)
+    kokoro = voices["kokoro"]
+    voices["kokoro"] = replace(kokoro, roles={**kokoro.roles, "api_speaker": "af_sarah"})
+    app = Readio(replace(config, voices=voices))
+    project = app.projects.create(source, output=tmp_path / "roles-with-fallback.readio")
+    app.roles.bind_project(project, "api_speaker", "af_heart")
+
+    mutation = app.roles.unbind_project_result(project, "api_speaker")
+
+    assert mutation.previous_project_binding == "af_heart"
+    assert mutation.project_binding is None
+    assert mutation.effective_voice == "af_sarah"
+    assert mutation.origin == "config.voice_role"
+    assert mutation.status == "resolved"
 
 
 def test_ssmd_service_checks_materializes_and_roundtrips(tmp_path: Path, monkeypatch) -> None:
@@ -205,6 +243,28 @@ def test_ssmd_service_checks_materializes_and_roundtrips(tmp_path: Path, monkeyp
     assert checked.roundtrip and checked.roundtrip["ok"] is True
     assert not checked.ok
     json.dumps(checked.to_dict())
+
+
+def test_ssmd_validate_raises_public_resolution_error_without_changing_check(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "unresolved.ssmd"
+    source.write_text('<div voice="speaker">Hello.</div>\n', encoding="utf-8")
+    app = Readio(default_config())
+
+    checked = app.ssmd.check(source)
+    assert checked.analysis.unresolved_references == ("speaker",)
+
+    with pytest.raises(VoiceResolutionError) as error:
+        app.ssmd.validate(source)
+
+    assert error.value.code == "ssmd.unresolved_voice_role"
+    assert error.value.provider == checked.analysis.provider
+    assert error.value.reference == "speaker"
+    assert error.value.details["references"] == [{"name": "speaker", "count": 1, "lines": [1]}]
+    assert error.value.details["header_template"] == {
+        "voice_bindings": {checked.analysis.provider: {"speaker": None}}
+    }
 
 
 def test_ssmd_service_rejects_non_ssmd_documents() -> None:

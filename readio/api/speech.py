@@ -32,10 +32,12 @@ from .errors import (
     ExecutionError,
     InvalidRequestError,
     OutputError,
+    PlannedOutputError,
+    PlanNotExecutableError,
     ResolutionError,
     translate_exception,
 )
-from .events import EventHandler, ReadioEvent, compose_event_handlers
+from .events import EventHandler, EventStage, ReadioEvent, compose_event_handlers
 from .types import (
     Diagnostic,
     OutputRequest,
@@ -323,7 +325,8 @@ class SpeechService:
                 ReadioEvent(
                     kind="progress",
                     operation="render_live",
-                    completed=event.completed_units,
+                    stage="synthesis",
+                    progress_kind="unit.completed",
                     total=event.total_units,
                     sample_count=event.sample_count,
                     sample_rate=event.sample_rate,
@@ -430,7 +433,8 @@ class SpeechService:
                 ReadioEvent(
                     kind="progress",
                     operation=operation,
-                    completed=event.completed_units,
+                    stage="synthesis",
+                    progress_kind="unit.completed",
                     total=event.total_units,
                     sample_count=event.sample_count,
                     sample_rate=event.sample_rate,
@@ -442,7 +446,7 @@ class SpeechService:
 
         def phase(message: str) -> None:
             lowered = message.lower()
-            stage = "composition" if "compos" in lowered else "output"
+            stage: EventStage = "composition" if "compos" in lowered else "output"
             self._notify(
                 handler,
                 ReadioEvent(
@@ -481,25 +485,25 @@ class SpeechService:
                 code="speech.plan_failed",
             ) from error
         if not resolved.plan.ok:
-            diagnostics = tuple(
-                Diagnostic.from_plan(item).to_dict() for item in resolved.plan.diagnostics
-            )
-            if any(item["code"] == "output_exists" for item in diagnostics):
-                raise OutputError(
+            diagnostics = tuple(Diagnostic.from_plan(item) for item in resolved.plan.diagnostics)
+            if any(item.code == "output_exists" for item in diagnostics):
+                raise PlannedOutputError(
                     "the requested output already exists",
                     code="output.exists",
-                    details={"diagnostics": list(diagnostics)},
+                    plan=resolved.plan,
+                    diagnostics=diagnostics,
                 )
-            if any(item["code"] == "encoder_unavailable" for item in diagnostics):
-                raise OutputError(
+            if any(item.code == "encoder_unavailable" for item in diagnostics):
+                raise PlannedOutputError(
                     "the requested output encoder is unavailable",
                     code="output.encoder_unavailable",
-                    details={"diagnostics": list(diagnostics)},
+                    plan=resolved.plan,
+                    diagnostics=diagnostics,
                 )
-            raise ExecutionError(
+            raise PlanNotExecutableError(
                 "speech request cannot be executed",
-                code="speech.plan_not_executable",
-                details={"diagnostics": list(diagnostics)},
+                plan=resolved.plan,
+                diagnostics=diagnostics,
             )
         return resolved
 

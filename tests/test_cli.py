@@ -6,13 +6,15 @@ from types import SimpleNamespace
 import pytest
 
 from readio import cli
+from readio.api import PlanNotExecutableError, Readio, ResolvedPlan
 from readio.api.configuration import ConfigurationService
-from readio.api.errors import InvalidRequestError, OutputError
+from readio.api.errors import InvalidRequestError, PlannedOutputError
 from readio.api.events import ReadioEvent
 from readio.api.projects import ProjectService
 from readio.api.speech import SpeechService
 from readio.api.types import (
     ConfigurationInitResult,
+    Diagnostic,
     ProjectCompositionResult,
     ProjectRef,
     RenderResult,
@@ -59,10 +61,17 @@ def _install_render_stub(monkeypatch, callback):
         output = resolved.output.path
         assert output is not None
         if not resolved.ok:
-            raise OutputError(
+            raise PlannedOutputError(
                 "render plan is invalid",
                 code="output.format_conflict",
-                details={"diagnostics": resolved.to_dict()["diagnostics"]},
+                plan=resolved,
+                diagnostics=(
+                    Diagnostic(
+                        code="output_format_conflict",
+                        severity="error",
+                        message="requested audio format conflicts with output extension",
+                    ),
+                ),
             )
         output.parent.mkdir(parents=True, exist_ok=True)
         summary, manifest_path = callback(request, resolved, output, on_event, write_manifest)
@@ -77,6 +86,31 @@ def _install_render_stub(monkeypatch, callback):
 
     monkeypatch.setattr(SpeechService, "plan", plan)
     monkeypatch.setattr(SpeechService, "render", render)
+
+
+def test_render_cli_uses_plan_attached_to_typed_failure(monkeypatch, capsys) -> None:
+    app = Readio(ReadioConfig())
+    error = PlanNotExecutableError(
+        "speech request cannot be executed",
+        plan=ResolvedPlan(),
+        diagnostics=(),
+    )
+
+    def fail_render(self, _request, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(cli, "_api_for", lambda _args: app)
+    monkeypatch.setattr(SpeechService, "render", fail_render)
+    monkeypatch.setattr(
+        SpeechService,
+        "plan",
+        lambda *_args, **_kwargs: pytest.fail("render CLI replanned after execution error"),
+    )
+    monkeypatch.setattr(cli, "format_plan_human", lambda _plan: "attached plan")
+    args = build_parser().parse_args(["render", "Hello world", "--no-progress"])
+
+    assert cli._cmd_render(args) == 1
+    assert capsys.readouterr().out == "attached plan\n"
 
 
 def test_single_existing_positional_ssmd_is_normalized_to_file(tmp_path: Path):
@@ -576,10 +610,8 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, 
                     kind="progress",
                     operation="projects.compose",
                     stage="composition",
-                    message="compose_started",
-                    completed=0,
-                    total=1,
-                    sample_rate=24000,
+                    progress_kind="phase",
+                    message="Composing audio",
                     details={"clip_items": 1},
                 )
             )
@@ -588,11 +620,21 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, 
                     kind="progress",
                     operation="projects.compose",
                     stage="composition",
-                    message="compose_completed",
+                    progress_kind="segment.completed",
+                    message="Segment complete",
                     completed=1,
                     total=1,
+                    segment_id="segment-1",
+                )
+            )
+            on_event(
+                ReadioEvent(
+                    kind="stage.completed",
+                    operation="projects.compose",
+                    stage="composition",
                     sample_rate=24000,
                     sample_count=24000,
+                    details={"frames": 24000, "items": 1, "sample_rate": 24000},
                 )
             )
         return ProjectCompositionResult(

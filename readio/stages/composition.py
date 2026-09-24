@@ -496,6 +496,7 @@ def _write_composition_result(
     return {
         "composition_id": identity["composition_id"],
         "master": master,
+        "sample_rate": result.sample_rate,
         "frames": len(result.audio),
         "items": len(result.items),
     }

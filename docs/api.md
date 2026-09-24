@@ -2,6 +2,7 @@
 
 `readio.api` is Readio's supported, synchronous Python application boundary. Import application objects and stable request/result types from `readio.api`. Modules outside that namespace are implementation details unless explicitly documented as an extension contract.
 
+Importing `readio.api` does not import CLI adapters, optional engine runtimes, or Spotify integration code. Runtime integrations are loaded only by the operations that need them.
 Both `readio.cli` and `readio.spotify_cli` are consumers of this application boundary. They may own argument parsing, prompts, terminal progress, human/JSON presentation, and process exit codes, but application and domain operations must go through `readio.api`. A regression test enforces that the CLIs do not import domain implementation modules directly.
 
 The API does not depend on the CLI or TTSForge. It performs no printing, process exit, or implicit logging configuration. Calls block until their operation completes. Long-running services accept an `on_event` callback; GUI and orchestration clients can run a synchronous call in their own worker.
@@ -110,6 +111,7 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
 ## Discovery and roles
 
 `app.catalog.engines()`, `targets()`, `models()`, `voices()`, `lexicons()`, and `audio_formats()` expose typed discovery data. Listing methods such as `models_listing()` and `voices_listing()` wrap entries with `CatalogDiscovery` metadata, including source, cache fallback, offline, and refresh state. Pass `DiscoveryOptions(offline=True)` to prevent a network refresh.
+Engine aliases `kokoro` -> `pykokoro` and `pipersynth` -> `piper` are canonical for engine, target, model, and voice catalog operations. `app.catalog.normalize_engine()` exposes that mapping. Lexicon queries use backend IDs. The `voices list` CLI also retains the legacy shorthand of treating an engine name supplied to `--model` as an engine filter when `--engine` is omitted. That convenience is CLI-only and is not Python API behavior.
 
 ```python
 from readio.api import DiscoveryOptions, Readio, VoiceQuery
@@ -125,11 +127,25 @@ for voice in listing.items:
 
 Catalogs also provide singular lookups and voice-selector resolution. `app.roles` lists and mutates global role bindings and inspects, binds, or unbinds project-local roles. Mutations persist; use a new `Readio` instance to observe changed configuration snapshots.
 
+`unbind_project_result(project, role)` returns a `ProjectRoleMutationResult` with the removed `previous_project_binding`, resulting `project_binding`, newly `effective_voice`, `origin`, and `status`. It avoids reopening the project just to inspect the state transition. The original `unbind_project()` remains available and continues returning `None` for API-v1 compatibility.
+
 ## SSMD, configuration, templates, and ingest
 
-`app.ssmd.check()` validates a document, `analyze()` reports document/configured/runtime voice bindings, and `materialize_bindings()` writes an explicitly requested bound copy. `roundtrip_check()` provides strict authoring validation.
+`app.ssmd.check()` and `analyze()` provide non-raising inspection of document and voice bindings. `app.ssmd.validate()` returns the same typed check result but raises the public `VoiceResolutionError` when voice references remain unresolved. This lets interactive clients inspect with `check()`, collect bindings, then call `validate()` without reconstructing domain errors. `materialize_bindings()` writes an explicitly requested bound copy; `roundtrip_check()` provides strict authoring validation.
 
 `app.configuration` loads, validates, and atomically saves `ReadioConfig`, sets dotted values, and manages language profiles/defaults. `app.templates` lists, reads, adds, removes, resets, seeds, and validates templates. `app.ingest.create()` creates an ingest file; `list()` and `directory` inspect the configured location. Read-only methods do not create storage directories.
+
+Use `LanguageProfilePatch` with `app.configuration.update_language_profile(language, patch)` for partial updates. Omitted fields use `UNSET` and remain unchanged. Explicit `None` clears nullable settings; for `lexicons`, `None` selects automatic lexicons while an empty tuple disables lexicon layers. `allow_experimental=False` is an explicit update. The method merges against the latest persisted profile and does not mutate the current `Readio.config` snapshot.
+
+```python
+from readio.api import LanguageProfilePatch, Readio
+
+app = Readio()
+app.configuration.update_language_profile(
+    "en-us",
+    LanguageProfilePatch(lexicons=None, allow_experimental=False),
+)
+```
 
 ## Diagnostics
 
@@ -179,7 +195,11 @@ The integration delegates to the separately installed `save-to-spotify` executab
 
 Expected public failures derive from `ReadioError` and expose stable `code`, `message`, optional `source_path`, and structured `details`. Catch the most specific API error when recovery depends on the failure category, or catch `ReadioError` at an application boundary.
 
+Speech planning failures raise `PlanNotExecutableError` with the resolved `plan` and typed `diagnostics`; output-related planning failures raise `PlannedOutputError`, which remains an `OutputError`. Both retain the serialized diagnostics in `details` for compatibility. CLI clients can render `error.plan` directly without repeating the planning operation.
+
 Pass an `on_event` callback to long-running operations or to `Readio(on_event=...)`. Call-level events are delivered before the application-level handler. Events are immutable `ReadioEvent` values with machine-readable `kind`, `operation`, stage/progress fields, and structured details. Handler exceptions are not swallowed.
+
+`EventKind`, `EventStage`, and `ProgressKind` are public `Literal` vocabularies. Event kinds distinguish operation/stage lifecycle from `progress`; stages identify plan, synthesis, composition, export, output, readiness, render, or upload. Progress subtypes identify phase, unit, segment, or item transitions. Consumers should branch on these fields rather than human-readable `message` text.
 
 Public request and result objects are typed and immutable where applicable. Results intended for persistence or JSON output provide `to_dict()`. These mappings convert `Path` objects to strings and nested tuples to JSON arrays; for example, `json.dumps(result.to_dict())`. Do not serialize runtime resources such as an `AudioSink`.
 

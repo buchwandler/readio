@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Generic, Literal, TypeVar, cast
+from typing import Generic, Literal, TypeAlias, TypeVar, cast
 
 from ..audio import AudioSink, RenderSummary
 from ..config import LanguageSettings, ReaderSettings, ReadioConfig
@@ -30,6 +30,29 @@ class DiscoveryOptions:
     offline: bool = False
     refresh: bool = False
     preference: Literal["auto", "github", "huggingface", "upstream"] = "auto"
+
+
+class _UnsetValue:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+Unset: TypeAlias = _UnsetValue
+UNSET = _UnsetValue()
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageProfilePatch:
+    model: str | None | Unset = UNSET
+    source: str | None | Unset = UNSET
+    quality: str | None | Unset = UNSET
+    voice: str | None | Unset = UNSET
+    lexicons: tuple[str, ...] | None | Unset = UNSET
+    g2p_fallback: str | None | Unset = UNSET
+    lexicon_data_policy: str | None | Unset = UNSET
+    allow_experimental: bool | Unset = UNSET
 
 
 T = TypeVar("T")
@@ -610,6 +633,20 @@ class ProjectRoleInspection:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectRoleMutationResult:
+    project: ProjectRef
+    role: str
+    previous_project_binding: str | None
+    project_binding: str | None
+    effective_voice: str | None
+    origin: str | None
+    status: str
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
 class SSMDVoiceReference:
     reference: str
     count: int
@@ -753,6 +790,7 @@ class DoctorReport:
 
 
 __all__ = [
+    "UNSET",
     "AudioFormatDiagnostic",
     "AudioFormatInfo",
     "AudioSink",
@@ -773,6 +811,7 @@ __all__ = [
     "InputRequest",
     "JsonScalar",
     "JsonValue",
+    "LanguageProfilePatch",
     "LanguageProfileResolution",
     "LanguageSettings",
     "LexiconInfo",
@@ -797,6 +836,7 @@ __all__ = [
     "ProjectRef",
     "ProjectRole",
     "ProjectRoleInspection",
+    "ProjectRoleMutationResult",
     "ProjectStatus",
     "ProjectSynthesisResult",
     "ProjectTarget",
@@ -819,6 +859,7 @@ __all__ = [
     "TargetQuery",
     "TemplateInfo",
     "TemplateValidationResult",
+    "Unset",
     "VoiceInfo",
     "VoiceQuery",
     "VoiceResolution",

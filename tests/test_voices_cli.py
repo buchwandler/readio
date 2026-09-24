@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from readio import cli
+from readio.api import Readio, default_config
 from readio.api.catalog import CatalogService
 from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
 from readio.models import ModelInfo, VoiceMetadata
@@ -228,8 +229,15 @@ def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):
 
 
 def test_voice_list_model_engine_aliases_normalize_without_changing_concrete_filters():
+    normalize_engine = Readio(default_config()).catalog.normalize_engine
+    available = {"piper", "pykokoro"}
     assert [
-        cli._normalize_voice_list_filters(engine=None, model=model)
+        cli._normalize_voice_list_filters(
+            engine=None,
+            model=model,
+            available_engines=available,
+            normalize_engine=normalize_engine,
+        )
         for model in ("piper", "pipersynth", "pykokoro", "kokoro")
     ] == [
         ("piper", None),
@@ -237,11 +245,24 @@ def test_voice_list_model_engine_aliases_normalize_without_changing_concrete_fil
         ("pykokoro", None),
         ("pykokoro", None),
     ]
-    assert cli._normalize_voice_list_filters(engine=None, model="v1.0") == (None, "v1.0")
-    assert cli._normalize_voice_list_filters(engine="pipersynth", model="en_US-amy-medium") == (
-        "piper",
-        "en_US-amy-medium",
-    )
+    assert cli._normalize_voice_list_filters(
+        engine=None,
+        model="v1.0",
+        available_engines=available,
+        normalize_engine=normalize_engine,
+    ) == (None, "v1.0")
+    assert cli._normalize_voice_list_filters(
+        engine="pipersynth",
+        model="en_US-amy-medium",
+        available_engines=available,
+        normalize_engine=normalize_engine,
+    ) == ("piper", "en_US-amy-medium")
+    assert cli._normalize_voice_list_filters(
+        engine="PIPERSYNTH",
+        model=None,
+        available_engines=available,
+        normalize_engine=normalize_engine,
+    ) == ("piper", None)
 
 
 def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(

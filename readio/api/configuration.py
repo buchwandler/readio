@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,7 +13,13 @@ from ..errors import ReadioError
 from ..models import ModelDiscoveryError, get_model_info, validate_language_settings
 from ..voices import resolve_voice_selector
 from . import errors as api_errors
-from .types import ConfigurationInitResult, DiscoveryOptions, LanguageProfileResolution
+from .types import (
+    ConfigurationInitResult,
+    DiscoveryOptions,
+    LanguageProfilePatch,
+    LanguageProfileResolution,
+    Unset,
+)
 
 if TYPE_CHECKING:
     from .app import Readio
@@ -192,9 +198,42 @@ class ConfigurationService:
         validate_runtime: bool = True,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> LanguageSettings:
+        return self._write_language_profile(
+            language,
+            lambda _current: settings,
+            validate_runtime=validate_runtime,
+            discovery=discovery,
+        )
+
+    def update_language_profile(
+        self,
+        language: str,
+        patch: LanguageProfilePatch,
+        *,
+        validate_runtime: bool = True,
+        discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
+    ) -> LanguageSettings:
+        return self._write_language_profile(
+            language,
+            lambda current: self._merge_language_profile(current, patch),
+            validate_runtime=validate_runtime,
+            discovery=discovery,
+        )
+
+    def _write_language_profile(
+        self,
+        language: str,
+        update: Callable[[LanguageSettings], LanguageSettings],
+        *,
+        validate_runtime: bool,
+        discovery: DiscoveryOptions,
+    ) -> LanguageSettings:
+        self._validate_discovery_options(discovery)
         try:
             base = self._config_for_persistence()
             normalized = config_internal.normalize_language_key(language)
+            current = base.languages.get(normalized, LanguageSettings())
+            settings = update(current)
             resolved_language = normalized
             resolved_settings = settings
             if validate_runtime:
@@ -230,6 +269,42 @@ class ConfigurationService:
                 error_type=error_type,
                 code="config.language_profile_failed",
             ) from error
+
+    @staticmethod
+    def _merge_language_profile(
+        current: LanguageSettings, patch: LanguageProfilePatch
+    ) -> LanguageSettings:
+        return replace(
+            current,
+            model=current.model if isinstance(patch.model, Unset) else patch.model,
+            source=current.source if isinstance(patch.source, Unset) else patch.source,
+            quality=current.quality if isinstance(patch.quality, Unset) else patch.quality,
+            voice=current.voice if isinstance(patch.voice, Unset) else patch.voice,
+            lexicons=(current.lexicons if isinstance(patch.lexicons, Unset) else patch.lexicons),
+            g2p_fallback=(
+                current.g2p_fallback
+                if isinstance(patch.g2p_fallback, Unset)
+                else patch.g2p_fallback
+            ),
+            lexicon_data_policy=(
+                current.lexicon_data_policy
+                if isinstance(patch.lexicon_data_policy, Unset)
+                else patch.lexicon_data_policy
+            ),
+            allow_experimental=(
+                current.allow_experimental
+                if isinstance(patch.allow_experimental, Unset)
+                else patch.allow_experimental
+            ),
+        )
+
+    @staticmethod
+    def _validate_discovery_options(discovery: DiscoveryOptions) -> None:
+        if discovery.offline and discovery.refresh:
+            raise api_errors.InvalidRequestError(
+                "--offline and --refresh cannot be combined",
+                code="config.discovery_options_conflict",
+            )
 
     def reset_language_profile(self, language: str) -> None:
         try:

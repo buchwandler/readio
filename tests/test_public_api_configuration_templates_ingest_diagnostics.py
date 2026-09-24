@@ -11,6 +11,7 @@ from readio import config as config_internal
 from readio import ingest as ingest_internal
 from readio import templates as templates_internal
 from readio.api import (
+    UNSET,
     AudioFormatDiagnostic,
     ConfigurationInitResult,
     DependencyDiagnostic,
@@ -19,6 +20,7 @@ from readio.api import (
     EngineDiagnostic,
     InputError,
     InvalidRequestError,
+    LanguageProfilePatch,
     LanguageProfileResolution,
     OutputError,
     PathDiagnostic,
@@ -138,9 +140,9 @@ def test_configuration_profile_runtime_resolution(
     monkeypatch.setattr("readio.api.configuration.get_model_info", get_model)
     monkeypatch.setattr("readio.api.configuration.validate_language_settings", validate_profile)
 
-    result = app.configuration.set_language_profile(
+    result = app.configuration.update_language_profile(
         "de-DE",
-        LanguageSettings(voice="de:thorsten"),
+        LanguageProfilePatch(voice="de:thorsten"),
         discovery=DiscoveryOptions(offline=True, preference="upstream"),
     )
 
@@ -155,6 +157,96 @@ def test_configuration_profile_runtime_resolution(
     assert calls["model"][1]["backend"] is None
     assert calls["validated"][0] == "de"
     assert app.configuration.load().languages == {"de": result}
+
+
+def test_configuration_patch_merges_persisted_exact_profile_with_tristate_fields(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    monkeypatch.setenv("READIO_CONFIG", str(config_path))
+    base_profile = LanguageSettings(model="base-model", voice="base-voice")
+    exact_profile = LanguageSettings(
+        model="exact-model",
+        source="github",
+        quality="fp32",
+        voice="exact-voice",
+        lexicons=("old",),
+        allow_experimental=True,
+    )
+    config_internal.save_config(
+        ReadioConfig(languages={"de": base_profile, "de-at": exact_profile}),
+        config_path,
+    )
+    app = Readio(ReadioConfig())
+    app_config_before = app.config
+
+    assert LanguageProfilePatch().model is UNSET
+    changed = app.configuration.update_language_profile(
+        "DE_at",
+        LanguageProfilePatch(quality="new-quality", source=None),
+        validate_runtime=False,
+    )
+    assert changed == replace(exact_profile, quality="new-quality", source=None)
+    assert changed.model == "exact-model"
+    assert app.config is app_config_before
+    assert app.config.languages == {}
+
+    automatic = app.configuration.update_language_profile(
+        "de-at", LanguageProfilePatch(lexicons=None), validate_runtime=False
+    )
+    assert automatic.lexicons is None
+    empty = app.configuration.update_language_profile(
+        "de-at", LanguageProfilePatch(lexicons=()), validate_runtime=False
+    )
+    assert empty.lexicons == ()
+    explicit = app.configuration.update_language_profile(
+        "de-at", LanguageProfilePatch(lexicons=("one", "two")), validate_runtime=False
+    )
+    assert explicit.lexicons == ("one", "two")
+    preserved = app.configuration.update_language_profile(
+        "de-at", LanguageProfilePatch(), validate_runtime=False
+    )
+    assert preserved == explicit
+    disabled = app.configuration.update_language_profile(
+        "de-at", LanguageProfilePatch(allow_experimental=False), validate_runtime=False
+    )
+    assert disabled.allow_experimental is False
+    assert app.configuration.load().languages["de-at"].allow_experimental is False
+    enabled = app.configuration.update_language_profile(
+        "de-at", LanguageProfilePatch(allow_experimental=True), validate_runtime=False
+    )
+    assert enabled.allow_experimental is True
+    persisted = app.configuration.load().languages
+    assert persisted["de"] == base_profile
+    assert persisted["de-at"] == enabled
+
+
+def test_configuration_patch_rejects_conflicting_discovery_and_maps_write_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    monkeypatch.setenv("READIO_CONFIG", str(config_path))
+    app, _paths = _app(tmp_path)
+    patch = LanguageProfilePatch(model="test-model")
+
+    with pytest.raises(InvalidRequestError) as error:
+        app.configuration.update_language_profile(
+            "en",
+            patch,
+            validate_runtime=False,
+            discovery=DiscoveryOptions(offline=True, refresh=True),
+        )
+    assert error.value.code == "config.discovery_options_conflict"
+    assert not config_path.exists()
+
+    def fail_save(_config, _path=None):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(config_internal, "save_config", fail_save)
+    with pytest.raises(OutputError) as error:
+        app.configuration.update_language_profile("en", patch, validate_runtime=False)
+    assert error.value.code == "config.language_profile_failed"
+    assert isinstance(error.value.__cause__, OSError)
 
 
 def test_configuration_service_maps_invalid_values_to_public_errors(tmp_path: Path) -> None:

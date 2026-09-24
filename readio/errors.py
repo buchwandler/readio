@@ -19,6 +19,7 @@ class ReadioError(Exception):
         code: str | None = None,
     ) -> None:
         super().__init__(message)
+        self.message = message
         self.code = code or type(self).code
         self.source_path = source_path
         self.details = dict(details or {})

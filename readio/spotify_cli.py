@@ -5,9 +5,9 @@ import json
 import logging
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
+from . import cli_adapter
 from .api import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
@@ -16,13 +16,11 @@ from .api import (
     SPACY_POLICIES,
     SUPPORTED_AUDIO_FORMATS,
     Document,
-    InputRequest,
+    EventHandler,
     OutputRequest,
     PlanRequest,
     Readio,
     SynthesisRequest,
-    document_from_file,
-    document_from_text,
 )
 from .api.integrations.spotify import (
     SpotifyLivePublishRequest,
@@ -33,8 +31,6 @@ from .api.integrations.spotify import (
 from .progress import TerminalProgress
 
 logger = logging.getLogger(__name__)
-
-_KNOWN_DOCUMENT_SUFFIXES = frozenset({".txt", ".ssmd", ".md", ".markdown", ".mdown", ".mkd"})
 
 
 def _add_json(parser: argparse.ArgumentParser) -> None:
@@ -169,90 +165,19 @@ def _wait_arguments(args: argparse.Namespace) -> tuple[bool, str | None]:
 
 
 def _normalize_positional_input(args: argparse.Namespace) -> None:
-    positional = tuple(getattr(args, "text", ()) or ())
-    if args.file is not None and positional:
-        raise ValueError("provide either positional text/path or --file, not both")
-    if args.file is not None or not positional or len(positional) != 1:
-        return
-    if args.input_format == "text":
-        return
-
-    raw = positional[0]
-    candidate = Path(raw).expanduser()
-    try:
-        exists = candidate.exists()
-    except OSError as error:
-        raise ValueError(f"cannot inspect positional input path {raw!r}: {error}") from error
-    if exists:
-        if not candidate.is_file():
-            raise ValueError(f"positional input path is not a regular file: {candidate}")
-        args.file = candidate
-        args.text = []
-        return
-    if (
-        candidate.suffix.lower() in _KNOWN_DOCUMENT_SUFFIXES
-        or "/" in raw
-        or "\\" in raw
-        or raw.startswith((".", "~"))
-    ):
-        raise ValueError(
-            f"positional input {raw!r} looks like a file path, but it does not exist; "
-            "correct the path or use --input-format text to speak it literally"
-        )
+    cli_adapter.normalize_positional_input(args)
 
 
 def _document(args: argparse.Namespace) -> Document:
-    if args.file is not None:
-        if args.text:
-            raise ValueError("provide either positional text/path or --file, not both")
-        return document_from_file(args.file, input_format=args.input_format)
-    input_format = args.input_format if args.input_format != "auto" else "text"
-    if args.text:
-        return document_from_text(" ".join(args.text), input_format=input_format)
-    if sys.stdin.isatty():
-        raise ValueError("provide text, --file PATH, or pipe text on stdin")
-    return document_from_text(sys.stdin.read(), input_format=input_format)
+    return cli_adapter.read_document(args)
 
 
 def _synthesis_request(args: argparse.Namespace) -> SynthesisRequest:
-    return SynthesisRequest(
-        language=args.lang,
-        model=args.model,
-        model_source=args.model_source,
-        quality=args.quality,
-        voice=args.voice,
-        lexicons=tuple(args.lexicons) if args.lexicons else None,
-        speaker=args.speaker,
-        clear_lexicons=args.no_lexicons,
-        auto_lexicons=args.auto_lexicons,
-        spacy=args.spacy,
-        short_sentence=args.short_sentence,
-        g2p_fallback=args.g2p_fallback,
-        lexicon_data_policy=args.lexicon_data_policy,
-        language_detection=args.language_detection,
-        detect_languages=tuple(args.detect_languages) if args.detect_languages else None,
-        allow_experimental=args.allow_experimental,
-        speed=args.speed,
-        pause_mode=args.pause_mode,
-        unit=args.unit,
-        offline=args.offline,
-        refresh=args.refresh,
-        engine=args.engine,
-    )
+    return cli_adapter.synthesis_request_from_args(args)
 
 
 def _voice_bindings(values: list[str]) -> dict[str, str]:
-    bindings: dict[str, str] = {}
-    for value in values:
-        if value.count("=") != 1:
-            raise ValueError("--voice-bind must use ROLE=VOICE_ID")
-        role, voice_id = value.split("=", 1)
-        if not role or not voice_id:
-            raise ValueError("--voice-bind must use non-empty ROLE=VOICE_ID")
-        if role in bindings:
-            raise ValueError(f"duplicate --voice-bind role {role!r}")
-        bindings[role] = voice_id
-    return bindings
+    return cli_adapter.parse_voice_bindings(values)
 
 
 def _resolve_interactive_bindings(
@@ -265,40 +190,16 @@ def _resolve_interactive_bindings(
     if document.format != "ssmd" or not args.resolve_voices:
         return bindings
     analysis = app.ssmd.check(document, synthesis=synthesis).analysis
-    unresolved = tuple(
-        reference for reference in analysis.unresolved_references if reference not in bindings
-    )
-    if not unresolved:
+    if not set(analysis.unresolved_references).difference(bindings):
         return bindings
     if args.json or not sys.stdin.isatty():
         raise ValueError(
             "--resolve-voices requires an interactive terminal; "
             "provide --voice-bind ROLE=VOICE_ID instead"
         )
-    available = tuple(app.config.voices[analysis.provider].ids)
-    print(
-        f"SSMD uses {len(unresolved)} unconfigured voice references "
-        f"for provider {analysis.provider!r}:"
+    bindings.update(
+        cli_adapter.prompt_missing_voices(analysis, app.config, synthesis, bindings=bindings)
     )
-    print()
-    for reference in unresolved:
-        print(f"  {reference}")
-    print("\nAvailable voices:")
-    for index, voice in enumerate(available, start=1):
-        print(f"  {index}. {voice}")
-    for reference in unresolved:
-        while True:
-            choice = input(f"Voice for {reference} [enter number or voice ID]: ").strip()
-            if choice.isdigit() and 1 <= int(choice) <= len(available):
-                bindings[reference] = available[int(choice) - 1]
-                break
-            if choice in available:
-                bindings[reference] = choice
-                break
-            print(f"unknown voice {choice!r}; choose a number or configured voice ID")
-    print("\nUsing for this render:")
-    for role, voice in bindings.items():
-        print(f"  {role} -> {voice}")
     return bindings
 
 
@@ -316,23 +217,20 @@ def _plan_request(app: Readio, args: argparse.Namespace) -> PlanRequest:
     input_format = args.input_format
     if input_format == "auto" and args.file is None:
         input_format = "text"
-    source_kind = "file" if args.file is not None else "literal" if args.text else "stdin"
-    return PlanRequest(
-        operation="render",
-        input=InputRequest(
-            document=document,
-            requested_format=input_format,
-            selector=args.select,
-            source_kind=source_kind,
-        ),
+    output = OutputRequest(
+        mode="file",
+        requested_format=args.format,
+        requested_path=args.output,
+        force=args.force,
+    )
+    return cli_adapter.build_plan_request(
+        args,
+        document=document,
         synthesis=synthesis,
-        output=OutputRequest(
-            mode="file",
-            requested_format=args.format,
-            requested_path=args.output,
-            force=args.force,
-        ),
+        output=output,
         voice_bindings=bindings,
+        operation="render",
+        requested_format=input_format,
     )
 
 
@@ -347,21 +245,8 @@ def _progress(args: argparse.Namespace) -> TerminalProgress:
     )
 
 
-def _progress_handler(progress: TerminalProgress):
-    def handle(event: Any) -> None:
-        if event.kind == "stage.started" and event.message:
-            progress.phase(event.message)
-        elif event.kind == "progress":
-            progress.update(
-                SimpleNamespace(
-                    completed_units=event.completed or 0,
-                    total_units=event.total,
-                    sample_count=event.sample_count or 0,
-                    sample_rate=event.sample_rate or 0,
-                )
-            )
-
-    return handle
+def _progress_handler(progress: TerminalProgress) -> EventHandler | None:
+    return cli_adapter.public_event_handler(progress)
 
 
 def _result_payload(result: Any) -> dict[str, object]:

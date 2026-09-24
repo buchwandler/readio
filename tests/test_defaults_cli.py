@@ -1,47 +1,119 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 
 import pytest
 
 from readio import cli
+from readio.api import UNSET
 from readio.api.configuration import ConfigurationService
 from readio.config import LanguageSettings, ReadioConfig
 
 
-def test_defaults_set_autocompletes_and_saves_profile(monkeypatch, capsys, tmp_path) -> None:
-    saved: list[ReadioConfig] = []
+def _capture_update(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     monkeypatch.setattr(
         ConfigurationService,
-        "path",
-        lambda self: tmp_path / "config.toml",
+        "language_profiles",
+        lambda _self: pytest.fail("defaults set must not load profiles for merging"),
     )
-    monkeypatch.setattr(
-        ConfigurationService,
-        "_resolve_profile",
-        lambda self, language, settings, *, discovery: (
-            language,
-            replace(settings, source="github", voice="thorsten", quality="fp32"),
-        ),
-    )
-    monkeypatch.setattr(
-        "readio.config.save_config",
-        lambda cfg, path=None: saved.append(cfg) or tmp_path / "config.toml",
-    )
+    captured: dict[str, object] = {}
 
+    def update(self, language, patch, *, validate_runtime, discovery):
+        captured["language"] = language
+        captured["patch"] = patch
+        captured["validate_runtime"] = validate_runtime
+        captured["discovery"] = discovery
+        return LanguageSettings(
+            model="de-thorsten",
+            source="github",
+            quality="fp32",
+            voice="thorsten",
+            lexicons=("crane",),
+        )
+
+    monkeypatch.setattr(ConfigurationService, "update_language_profile", update)
+    return captured
+
+
+def test_defaults_set_builds_a_patch_and_renders_returned_settings(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    captured = _capture_update(monkeypatch)
     args = cli.build_parser().parse_args(
-        ["defaults", "set", "de", "--model", "de-thorsten", "--lexicon", "crane", "--json"]
+        [
+            "defaults",
+            "set",
+            "de",
+            "--model",
+            "de-thorsten",
+            "--model-source",
+            "github",
+            "--quality",
+            "fp32",
+            "--voice",
+            "thorsten",
+            "--lexicon",
+            "crane",
+            "--json",
+        ]
     )
-    assert cli._cmd_defaults(args) == 0
 
+    assert cli._cmd_defaults(args) == 0
     payload = json.loads(capsys.readouterr().out)
+    patch = captured["patch"]
     assert payload["profile"]["source"] == "github"
     assert payload["profile"]["voice"] == "thorsten"
     assert payload["profile"]["quality"] == "fp32"
     assert payload["profile"]["lexicons"] == ["crane"]
-    assert saved[-1].languages["de"].voice == "thorsten"
+    assert patch.model == "de-thorsten"
+    assert patch.source == "github"
+    assert patch.quality == "fp32"
+    assert patch.voice == "thorsten"
+    assert patch.lexicons == ("crane",)
+    assert patch.allow_experimental is UNSET
+    assert captured["language"] == "de"
+    assert captured["validate_runtime"] is True
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        ([], UNSET),
+        (["--auto-lexicons"], None),
+        (["--no-lexicons"], ()),
+        (["--lexicon", "a", "--lexicon", "b"], ("a", "b")),
+    ],
+)
+def test_defaults_set_preserves_lexicon_patch_tri_state(
+    monkeypatch: pytest.MonkeyPatch, flags: list[str], expected: object
+) -> None:
+    captured = _capture_update(monkeypatch)
+    args = cli.build_parser().parse_args(["defaults", "set", "de", *flags, "--json"])
+
+    assert cli._cmd_defaults(args) == 0
+
+    patch = captured["patch"]
+    if expected is UNSET:
+        assert patch.lexicons is UNSET
+    else:
+        assert patch.lexicons == expected
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [([], UNSET), (["--allow-experimental"], True), (["--no-allow-experimental"], False)],
+)
+def test_defaults_set_distinguishes_experimental_patch_values(
+    monkeypatch: pytest.MonkeyPatch, flags: list[str], expected: object
+) -> None:
+    captured = _capture_update(monkeypatch)
+    args = cli.build_parser().parse_args(["defaults", "set", "de", *flags, "--json"])
+
+    assert cli._cmd_defaults(args) == 0
+
+    patch = captured["patch"]
+    assert patch.allow_experimental is expected
 
 
 def test_defaults_show_reports_base_fallback(monkeypatch, capsys) -> None:

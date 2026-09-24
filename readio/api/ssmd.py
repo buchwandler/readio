@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from .. import ssmd as ssmd_internal
 from .. import ssmd_authoring
 from ..document import InputDocument, document_from_file
-from ..errors import ReadioError
+from ..errors import ReadioError, VoiceResolutionError
 from ..jsonutil import JsonValue, json_value
 from ..synthesis import resolve_synthesis_request
 from . import errors as api_errors
@@ -55,6 +55,58 @@ class SSMDService:
             source_path=source.source_path,
             analysis=analysis,
             roundtrip=roundtrip_result,
+        )
+
+    def validate(
+        self,
+        document: Document | Path,
+        *,
+        roundtrip: bool = False,
+        synthesis: SynthesisRequest | None = None,
+        bindings: Mapping[str, str] | None = None,
+    ) -> SSMDCheckResult:
+        """Return a check result or raise when the document has unresolved voices."""
+        result = self.check(
+            document,
+            roundtrip=roundtrip,
+            synthesis=synthesis,
+            bindings=bindings,
+        )
+        self._raise_for_unresolved(result.analysis)
+        return result
+
+    def _raise_for_unresolved(self, analysis: SSMDAnalysis) -> None:
+        unresolved = set(analysis.unresolved_references)
+        if not unresolved:
+            return
+        references = tuple(
+            item for item in analysis.voice_references if item.reference in unresolved
+        )
+        available = tuple(
+            self._app.config.voices[analysis.provider].ids
+            if analysis.provider in self._app.config.voices
+            else ()
+        )
+        header_template = {
+            "voice_bindings": {analysis.provider: {item.reference: None for item in references}}
+        }
+        message = (
+            f"cannot resolve {len(references)} SSMD voice reference"
+            f"{'s' if len(references) != 1 else ''} for provider {analysis.provider!r}\n"
+            + "\n".join(f"  {item.reference} ({item.count} uses)" for item in references)
+            + "\n\nAdd document-local bindings:\n  voice_bindings:\n"
+            + f"    {analysis.provider}:\n"
+            + "".join(f"      {item.reference}: <voice-id>\n" for item in references)
+            + "\nRun `readio voices list` to inspect available voices."
+        )
+        raise VoiceResolutionError(
+            message,
+            provider=analysis.provider,
+            reference=references[0].reference,
+            references=references,
+            available_voices=available,
+            header_template=header_template,
+            source_path=analysis.source_path,
         )
 
     def analyze(self, document: Document | Path) -> SSMDAnalysis:

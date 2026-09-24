@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
-from typing import Any, TextIO
+from typing import TextIO
 
-from audiocompose import CompositionProgress
 from typing_extensions import Self
 
-from .audio import RenderProgress, RenderSummary
+from .api.events import ReadioEvent
+from .audio import RenderSummary
 
 
 def format_duration(seconds: float) -> str:
@@ -18,23 +18,6 @@ def format_duration(seconds: float) -> str:
     if hours:
         return f"{hours:d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
-
-
-def _format_composition_operation(operation: Mapping[str, Any] | None) -> str:
-    if not operation:
-        return "operation"
-    kind = operation.get("type", "operation")
-    if kind == "gain":
-        return f"gain {float(operation.get('db', 0.0)):+.1f} dB"
-    if kind == "tempo":
-        return f"tempo ×{float(operation.get('factor', 1.0)):.2f}"
-    if kind == "pitch":
-        return f"pitch {float(operation.get('semitones', 0.0)):+.1f} st"
-    if kind == "fade_in":
-        return f"fade-in {float(operation.get('seconds', 0.0)):.2f} s"
-    if kind == "fade_out":
-        return f"fade-out {float(operation.get('seconds', 0.0)):.2f} s"
-    return f"operation {kind}"
 
 
 class TerminalProgress:
@@ -115,99 +98,39 @@ class TerminalProgress:
         text = name if detail is None else f"{name} {detail}"
         self._write(text + "…", newline=True)
 
-    def synthesis_event(self, event: Any) -> None:
-        """Render concise persistent-project synthesis lifecycle events."""
-        if not self._enabled:
-            return
-        kind = getattr(event, "kind", "")
-        details = getattr(event, "details", {}) or {}
-        self._finish_line()
-        if kind == "profile_resolved":
-            target = details.get("target", {})
-            if details.get("routing_mode") == "target":
-                targets = details.get("targets", ())
-                voice_bindings = details.get("voice_bindings", ())
-                lines = [
-                    f"Project: {details.get('project', '-')}\n",
-                    f"Source:  {details.get('source', '-')} [{details.get('source_format', '-')}]\n",
-                    f"Plan:    {details.get('plan_id', '-')} {details.get('selected_units', 0)} units\n",
-                    "Synthesis\n",
-                    f"  Engine:   {details.get('engine', '-')} {details.get('engine_version') or ''}\n",
-                    f"  Provider: {details.get('provider', '-')}\n",
-                    f"  Voices:   {len(targets)}\n",
-                ]
-                lines.extend(f"    {item['role']:<12} {item['voice']}\n" for item in voice_bindings)
-                lines.append(f"  Profile:  {details.get('profile_id', '-')}\n")
-                self._write("".join(lines), newline=True)
-            else:
-                self._write(
-                    f"Project: {details.get('project', '-')}\n"
-                    f"Source:  {details.get('source', '-')} [{details.get('source_format', '-')}]\n"
-                    f"Plan:    {details.get('plan_id', '-')} {details.get('selected_units', 0)} units\n"
-                    "Synthesis\n"
-                    f"  Engine:   {details.get('engine', '-')} {details.get('engine_version') or ''}\n"
-                    f"  Model:    {target.get('id', '-')}\n"
-                    f"  Voice:    {target.get('voice', '-')}\n"
-                    f"  Language: {target.get('language', '-')}\n"
-                    f"  Profile:  {details.get('profile_id', '-')}\n",
-                    newline=True,
-                )
-        elif kind == "cache_scanned":
-            self._write(
-                f"Cache: {details.get('reused', 0)} reusable, {details.get('rendered', 0)} to render",
-                newline=True,
-            )
-        elif kind == "engine_open_started":
-            target_id = details.get("target_id")
-            label = (
-                f"Loading synthesis model {target_id}..."
-                if target_id
-                else "Loading synthesis model..."
-            )
-            self._write(label, newline=True)
-        elif kind == "unit_started":
-            unit = getattr(event, "unit_id", "-")
-            index = (getattr(event, "completed", 0) or 0) + 1
-            total = getattr(event, "total", 0) or 0
-            segment_ids = ",".join(details.get("segment_ids", ()))
-            preview = getattr(event, "text", None) or ""
-            self._write(
-                f"[{index}/{total}] {unit} {segment_ids} {preview!r}",
-                newline=True,
-            )
-        elif kind == "complete":
-            self._write(
-                f"Synthesis complete: {details.get('reused', 0)} reused, "
-                f"{details.get('rendered', 0)} rendered",
-                newline=True,
-            )
-
     def render_started(self) -> None:
         if self._started_at is None:
             self._started_at = self._clock()
 
-    def _should_emit(self, event: RenderProgress, now: float) -> bool:
+    def _should_emit_values(
+        self, completed_units: int, total_units: int | None, now: float
+    ) -> bool:
         if self._tty:
             return True
         if self._last_update_at is None:
             return True
         if now - self._last_update_at >= 30.0:
             return True
-        if event.total_units is not None:
-            percent = (
-                min(100, round(event.completed_units * 100 / event.total_units))
-                if event.total_units
-                else 100
-            )
+        if total_units is not None:
+            percent = min(100, round(completed_units * 100 / total_units)) if total_units else 100
             return self._last_logged_percent is None or percent >= self._last_logged_percent + 10
         return False
 
-    def _render_text(self, event: RenderProgress, elapsed: float) -> str:
-        if event.total_units is None:
-            text = f"Rendering live input  {event.completed_units} units  elapsed {format_duration(elapsed)}"
+    def _render_text_values(
+        self,
+        completed_units: int,
+        total_units: int | None,
+        sample_count: int,
+        sample_rate: int,
+        elapsed: float,
+    ) -> str:
+        if total_units is None:
+            text = (
+                f"Rendering live input  {completed_units} units  elapsed {format_duration(elapsed)}"
+            )
         else:
-            total = max(0, event.total_units)
-            completed = min(event.completed_units, total) if total else 0
+            total = max(0, total_units)
+            completed = min(completed_units, total) if total else 0
             percent = 100 if total == 0 else min(100, round(completed * 100 / total))
             text = (
                 f"Rendering {percent:3d}%  {completed}/{total} units"
@@ -217,69 +140,172 @@ class TerminalProgress:
                 eta = elapsed / completed * (total - completed)
                 if eta > 0:
                     text += f"  ETA ~{format_duration(eta)}"
-        if event.sample_rate > 0:
-            text += f"  audio {format_duration(event.sample_count / event.sample_rate)}"
+        if sample_rate > 0:
+            text += f"  audio {format_duration(sample_count / sample_rate)}"
         return text
 
-    def update(self, event: Any) -> None:
+    def _update_values(
+        self,
+        completed_units: int,
+        total_units: int | None,
+        sample_count: int,
+        sample_rate: int,
+        now: float,
+    ) -> None:
         if not self._enabled:
             return
-        self._latest_completed = event.completed_units
-        now = self._clock()
+        self._latest_completed = completed_units
         if self._started_at is None:
             self._started_at = now
-        if not self._should_emit(event, now):
+        if not self._should_emit_values(completed_units, total_units, now):
             return
         elapsed = self._elapsed(now)
-        text = self._render_text(event, elapsed)
+        text = self._render_text_values(
+            completed_units, total_units, sample_count, sample_rate, elapsed
+        )
         if self._tty:
             self._write(text, inplace=True)
         else:
             self._write(text, newline=True)
         self._last_update_at = now
-        self._last_logged_completed = event.completed_units
-        if event.total_units is not None:
-            total = max(0, event.total_units)
+        self._last_logged_completed = completed_units
+        if total_units is not None:
+            total = max(0, total_units)
             self._last_logged_percent = (
-                100 if total == 0 else min(100, round(event.completed_units * 100 / total))
+                100 if total == 0 else min(100, round(completed_units * 100 / total))
             )
+
+    def public_event(self, event: ReadioEvent) -> None:
+        """Render a stable public API event without reconstructing internal callbacks."""
+        if not self._enabled:
+            return
+        if event.kind == "stage.started":
+            if event.stage == "composition":
+                self._composition_started_at = self._clock()
+                self._composition_last_update_at = None
+                self._composition_last_logged_percent = None
+                self._composition_latest_completed = 0
+                self._composition_total_segments = 0
+                self._composition_current_segment = "-"
+                self._composition_current_step = "preparing"
+            label = event.message or (event.stage or "Working").replace("_", " ").title()
+            self.phase(label)
+            return
+        if event.kind == "stage.completed":
+            if event.stage == "composition":
+                self._composition_public_complete(event)
+            elif event.stage == "synthesis":
+                details = event.details
+                reused = details.get("reused", 0)
+                rendered = details.get("rendered", 0)
+                self._finish_line()
+                self._write(
+                    f"Synthesis complete: {reused} reused, {rendered} rendered",
+                    newline=True,
+                )
+            return
+        if event.kind != "progress":
+            return
+        if event.stage == "synthesis":
+            self._synthesis_public_event(event)
+        elif event.stage == "composition":
+            self._composition_public_event(event)
+
+    def _synthesis_public_event(self, event: ReadioEvent) -> None:
+        if event.progress_kind == "phase":
+            if event.message:
+                self._finish_line()
+                self._write(event.message, newline=True)
+        elif event.progress_kind in {"unit.started", "segment.started"}:
+            details = event.details
+            text = details.get("text", "")
+            segment_ids = details.get("segment_ids", ())
+            preview = text if isinstance(text, str) else ""
+            labels = (
+                ",".join(str(item) for item in segment_ids)
+                if isinstance(segment_ids, (tuple, list))
+                else ""
+            )
+            index = (event.completed or 0) + 1
+            total = event.total or 0
+            self._finish_line()
+            self._write(
+                f"[{index}/{total}] {event.unit_id or '-'} {labels} {preview!r}",
+                newline=True,
+            )
+        elif event.progress_kind in {"unit.completed", "segment.completed"}:
+            self._update_values(
+                event.completed or 0,
+                event.total,
+                event.sample_count or 0,
+                event.sample_rate or 0,
+                self._clock(),
+            )
+
+    def _composition_public_event(self, event: ReadioEvent) -> None:
+        details = event.details
+        if event.progress_kind == "phase":
+            metadata_kinds = details.get("metadata_kinds", {})
+            if isinstance(metadata_kinds, Mapping):
+                speech_count = metadata_kinds.get("speech")
+            else:
+                speech_count = None
+            total = event.total if event.total is not None else speech_count
+            if total is None:
+                total = details.get("clip_items")
+            if isinstance(total, int):
+                self._composition_total_segments = total
+            if event.message:
+                self.phase(event.message)
+            return
+        if event.progress_kind not in {
+            "item.started",
+            "item.completed",
+            "segment.started",
+            "segment.completed",
+        }:
+            return
+        now = self._clock()
+        if self._composition_started_at is None:
+            self._composition_started_at = now
+        if event.audio_seconds is not None:
+            self._composition_completed_audio_seconds = event.audio_seconds
+        if event.total_audio_seconds is not None:
+            self._composition_total_audio_seconds = event.total_audio_seconds
+        self._composition_current_segment = event.segment_id or "-"
+        self._composition_current_step = event.message or "preparing"
+        if event.completed is not None:
+            self._composition_latest_completed = event.completed
+        elif event.progress_kind == "segment.completed":
+            self._composition_latest_completed += 1
+        if event.total is not None:
+            self._composition_total_segments = event.total
+        if self._composition_should_emit(now):
+            self._composition_emit_values(now)
+
+    def _composition_public_complete(self, event: ReadioEvent) -> None:
+        details = event.details
+        frames = event.sample_count if event.sample_count is not None else details.get("frames")
+        sample_rate = (
+            event.sample_rate if event.sample_rate is not None else details.get("sample_rate")
+        )
+        if self._composition_started_at is None:
+            self._composition_started_at = self._clock()
+        elapsed = self._composition_elapsed(self._clock())
+        self._finish_line()
+        text = (
+            f"Composition complete: {self._composition_latest_completed} segments"
+            f" in {format_duration(elapsed)}"
+        )
+        if isinstance(frames, int) and isinstance(sample_rate, int) and sample_rate:
+            text += f"  audio {format_duration(frames / sample_rate)}"
+        self._write(text, newline=True)
 
     def _composition_elapsed(self, now: float | None = None) -> float:
         if self._composition_started_at is None:
             self._composition_started_at = self._clock() if now is None else now
         current = self._clock() if now is None else now
         return max(0.0, current - self._composition_started_at)
-
-    def _composition_item_label(self, event: CompositionProgress) -> str:
-        metadata = event.item_metadata or {}
-        return str(metadata.get("segment_id") or event.item_id or "-")
-
-    def _composition_is_silence(self, event: CompositionProgress) -> bool:
-        return event.item_kind == "silence" or (event.item_metadata or {}).get("kind") == "silence"
-
-    def _composition_step_label(self, event: CompositionProgress) -> str:
-        if event.kind == "item_started":
-            if self._composition_is_silence(event):
-                seconds = (event.details or {}).get("seconds")
-                if seconds is None:
-                    frames = (event.item_metadata or {}).get("frames")
-                    seconds = (
-                        float(frames) / event.target_sample_rate
-                        if frames and event.target_sample_rate
-                        else 0.0
-                    )
-                seconds = float(seconds)
-                return f"pause {seconds:.2f} s"
-            return "preparing"
-        if event.kind == "source_load_started":
-            return "loading source"
-        if event.kind == "operation_started":
-            return _format_composition_operation(event.operation)
-        if event.kind == "resample_started":
-            return f"resampling {event.source_sample_rate} -> {event.target_sample_rate} Hz"
-        if event.kind == "item_completed":
-            return "complete"
-        return self._composition_current_step
 
     def _composition_should_emit(self, now: float) -> bool:
         if self._tty:
@@ -330,65 +356,7 @@ class TerminalProgress:
             text += f"  {self._composition_current_step}"
         return text
 
-    def composition_event(self, event: CompositionProgress) -> None:
-        """Render structured audiocompose events without sharing render timing state."""
-        if not self._enabled:
-            return
-        now = self._clock()
-        if event.kind == "compose_started":
-            self._composition_started_at = now
-            details = event.details or {}
-            metadata_kinds = details.get("metadata_kinds", {})
-            speech_count = (
-                metadata_kinds.get("speech") if isinstance(metadata_kinds, dict) else None
-            )
-            self._composition_total_segments = int(
-                speech_count if speech_count is not None else details.get("clip_items", 0)
-            )
-            self._composition_latest_completed = 0
-            self._composition_current_segment = "-"
-            self._composition_current_step = "preparing"
-            self._composition_completed_audio_seconds = event.completed_audio_seconds
-            self._composition_total_audio_seconds = event.total_audio_seconds
-            self._composition_last_update_at = None
-            self._composition_last_logged_percent = None
-            self._composition_emit(event, now, force=True)
-            return
-        if event.completed_audio_seconds is not None:
-            self._composition_completed_audio_seconds = event.completed_audio_seconds
-        if event.total_audio_seconds is not None:
-            self._composition_total_audio_seconds = event.total_audio_seconds
-        if event.kind == "item_started":
-            self._composition_current_segment = self._composition_item_label(event)
-            self._composition_current_step = self._composition_step_label(event)
-        elif event.kind == "item_completed":
-            if event.item_kind == "clip" and not self._composition_is_silence(event):
-                self._composition_latest_completed += 1
-            self._composition_current_segment = self._composition_item_label(event)
-            self._composition_current_step = self._composition_step_label(event)
-        elif event.kind in {"source_load_started", "operation_started", "resample_started"}:
-            self._composition_current_segment = self._composition_item_label(event)
-            self._composition_current_step = self._composition_step_label(event)
-        elif event.kind == "assembly_started":
-            self.phase("Assembling master")
-            return
-        elif event.kind == "loudness_started":
-            self.phase("Finalizing loudness and true peak")
-            return
-        elif event.kind == "compose_completed":
-            self.composition_complete(event)
-            return
-        else:
-            return
-        self._composition_emit(event, now)
-
-    def _composition_emit(
-        self,
-        event: CompositionProgress,
-        now: float,
-        *,
-        force: bool = False,
-    ) -> None:
+    def _composition_emit_values(self, now: float, *, force: bool = False) -> None:
         if not force and not self._composition_should_emit(now):
             return
         text = self._composition_text(self._composition_elapsed(now))
@@ -401,19 +369,6 @@ class TerminalProgress:
         self._composition_last_logged_percent = (
             100 if total == 0 else min(100, round(self._composition_latest_completed * 100 / total))
         )
-
-    def composition_complete(self, event: CompositionProgress) -> None:
-        if not self._enabled:
-            return
-        elapsed = self._composition_elapsed(self._clock())
-        self._finish_line()
-        text = (
-            f"Composition complete: {self._composition_latest_completed} segments"
-            f" in {format_duration(elapsed)}"
-        )
-        if event.target_sample_rate and event.output_frames is not None:
-            text += f"  audio {format_duration(event.output_frames / event.target_sample_rate)}"
-        self._write(text, newline=True)
 
     def complete(self, summary: RenderSummary) -> None:
         if not self._enabled:

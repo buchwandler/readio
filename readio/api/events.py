@@ -4,15 +4,44 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 
 from ..jsonutil import JsonValue
+
+EventKind = Literal[
+    "operation.started",
+    "operation.completed",
+    "stage.started",
+    "stage.completed",
+    "progress",
+]
+EventStage = Literal[
+    "plan",
+    "synthesis",
+    "composition",
+    "export",
+    "output",
+    "readiness",
+    "render",
+    "upload",
+]
+ProgressKind = Literal[
+    "phase",
+    "unit.started",
+    "unit.completed",
+    "segment.started",
+    "segment.completed",
+    "item.started",
+    "item.completed",
+]
 
 
 @dataclass(frozen=True, slots=True)
 class ReadioEvent:
-    kind: str
+    kind: EventKind
     operation: str
-    stage: str | None = None
+    stage: EventStage | None = None
+    progress_kind: ProgressKind | None = None
     message: str | None = None
     completed: int | None = None
     total: int | None = None
@@ -47,4 +76,11 @@ def compose_event_handlers(
     return dispatch
 
 
-__all__ = ["EventHandler", "ReadioEvent", "compose_event_handlers"]
+__all__ = [
+    "EventHandler",
+    "EventKind",
+    "EventStage",
+    "ProgressKind",
+    "ReadioEvent",
+    "compose_event_handlers",
+]

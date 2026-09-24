@@ -1638,7 +1638,7 @@ def _plan_output(
         diagnostics.append(
             PlanDiagnostic(
                 code=DIAG_OUTPUT_EXISTS,
-                severity="warning",
+                severity="error",
                 message=f"Output file already exists: {path}",
                 field="output.path",
             )

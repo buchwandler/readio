@@ -23,7 +23,13 @@ from .errors import (
     ReadioError,
     translate_exception,
 )
-from .events import EventHandler, ReadioEvent, compose_event_handlers
+from .events import (
+    EventHandler,
+    EventStage,
+    ProgressKind,
+    ReadioEvent,
+    compose_event_handlers,
+)
 from .types import (
     CompositionOptions,
     Diagnostic,
@@ -256,7 +262,9 @@ class ProjectService:
                 kind="stage.completed",
                 operation=operation,
                 stage="composition",
-                details={"frames": raw["frames"], "items": raw["items"]},
+                sample_count=raw["frames"],
+                sample_rate=raw["sample_rate"],
+                details={"items": raw["items"]},
             ),
         )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
@@ -473,17 +481,52 @@ class ProjectService:
     def _forward_synthesis_event(
         self, handler: EventHandler | None, operation: str, event: object
     ) -> None:
-        details = getattr(event, "details", {})
+        internal_kind = getattr(event, "kind", None)
+        progress_kinds = {
+            "unit_started": "unit.started",
+            "unit_finished": "unit.completed",
+            "segment_started": "segment.started",
+            "segment_finished": "segment.completed",
+        }
+        progress_kind = cast(ProgressKind, progress_kinds.get(internal_kind, "phase"))
+        phase_messages = {
+            "profile_resolved": "Synthesis plan ready",
+            "cache_scanned": "Synthesis cache scanned",
+            "engine_open_started": "Loading synthesis model",
+            "engine_open_finished": "Synthesis model ready",
+            "prepare_started": "Preparing synthesis",
+            "prepare_finished": "Synthesis prepared",
+            "activation_started": "Activating synthesis",
+            "activation_finished": "Synthesis activated",
+        }
+        details = getattr(event, "details", {}) or {}
         safe = self._safe_details(
-            details, _STATUS_DETAIL_KEYS | {"engine", "provider", "routing_mode"}
+            details,
+            _STATUS_DETAIL_KEYS
+            | {
+                "engine",
+                "engine_version",
+                "provider",
+                "routing_mode",
+                "source",
+                "source_format",
+                "selected_units",
+                "targets",
+                "voice_bindings",
+                "segment_ids",
+            },
         )
+        text = getattr(event, "text", None)
+        if text is not None:
+            safe = {**safe, "text": json_value(text)}
         self._notify(
             handler,
             ReadioEvent(
                 kind="progress",
                 operation=operation,
                 stage="synthesis",
-                message=str(getattr(event, "kind", "synthesis")),
+                progress_kind=progress_kind,
+                message=phase_messages.get(internal_kind),
                 completed=getattr(event, "completed", None),
                 total=getattr(event, "total", None),
                 scope_id=getattr(event, "scope_id", None),
@@ -496,40 +539,96 @@ class ProjectService:
     def _composition_handler(self, handler: EventHandler | None, operation: str):
         if handler is None:
             return None
-        return lambda event: self._forward_composition_event(handler, operation, event)
+
+        state = {"completed": 0, "total": 0}
+
+        def forward(event: object) -> None:
+            internal_kind = getattr(event, "kind", None)
+            if internal_kind == "compose_completed":
+                return
+            if internal_kind == "compose_started":
+                details = getattr(event, "details", {}) or {}
+                metadata_kinds = details.get("metadata_kinds", {})
+                speech_count = (
+                    metadata_kinds.get("speech") if isinstance(metadata_kinds, Mapping) else None
+                )
+                total = (
+                    speech_count if isinstance(speech_count, int) else details.get("clip_items", 0)
+                )
+                state["total"] = total if isinstance(total, int) else 0
+                self._forward_composition_event(
+                    handler,
+                    operation,
+                    event,
+                    completed=0,
+                    total=state["total"],
+                )
+                return
+            item_kind = getattr(event, "item_kind", None)
+            if internal_kind == "item_completed" and item_kind == "clip":
+                metadata = getattr(event, "item_metadata", {}) or {}
+                if metadata.get("kind") != "silence":
+                    state["completed"] += 1
+            is_clip = item_kind == "clip"
+            self._forward_composition_event(
+                handler,
+                operation,
+                event,
+                completed=state["completed"] if is_clip else None,
+                total=state["total"] if is_clip else None,
+            )
+
+        return forward
 
     def _forward_composition_event(
-        self, handler: EventHandler | None, operation: str, event: object
+        self,
+        handler: EventHandler,
+        operation: str,
+        event: object,
+        *,
+        completed: int | None = None,
+        total: int | None = None,
     ) -> None:
-        details = getattr(event, "details", {})
-        safe = self._safe_details(
-            details,
-            frozenset(
-                {
-                    "item_id",
-                    "item_kind",
-                    "completed_items",
-                    "total_items",
-                    "phase",
-                    "clip_items",
-                    "metadata_kinds",
-                }
-            ),
-        )
+        internal_kind = getattr(event, "kind", None)
+        if internal_kind == "compose_completed":
+            return
+        if internal_kind == "item_started":
+            item_kind = getattr(event, "item_kind", None)
+            progress_kind = "segment.started" if item_kind == "clip" else "item.started"
+            message = "Preparing segment" if item_kind == "clip" else "Preparing item"
+        elif internal_kind == "item_completed":
+            item_kind = getattr(event, "item_kind", None)
+            progress_kind = "segment.completed" if item_kind == "clip" else "item.completed"
+            message = "Segment complete" if item_kind == "clip" else "Item complete"
+        elif internal_kind == "compose_started":
+            progress_kind = "phase"
+            message = None
+        else:
+            progress_kind = "phase"
+            message = {
+                "source_load_started": "Loading audio source",
+                "operation_started": "Applying audio operation",
+                "resample_started": "Resampling audio",
+                "assembly_started": "Assembling master",
+                "loudness_started": "Finalizing loudness and true peak",
+            }.get(internal_kind, "Composing audio")
+        item_metadata = getattr(event, "item_metadata", {}) or {}
+        segment_id = item_metadata.get("segment_id") or getattr(event, "item_id", None)
         self._notify(
             handler,
             ReadioEvent(
                 kind="progress",
                 operation=operation,
                 stage="composition",
-                message=str(getattr(event, "kind", "composition")),
-                completed=getattr(event, "completed_items", None),
-                total=getattr(event, "total_items", None),
+                progress_kind=cast(ProgressKind, progress_kind),
+                message=message,
+                completed=completed,
+                total=total,
                 sample_count=getattr(event, "output_frames", None),
                 sample_rate=getattr(event, "target_sample_rate", None),
                 audio_seconds=getattr(event, "completed_audio_seconds", None),
                 total_audio_seconds=getattr(event, "total_audio_seconds", None),
-                details=safe,
+                segment_id=segment_id,
             ),
         )
 
@@ -541,9 +640,10 @@ class ProjectService:
             self._notify(
                 handler,
                 ReadioEvent(
-                    kind="stage.started",
+                    kind="progress",
                     operation=operation,
                     stage="composition",
+                    progress_kind="phase",
                     message=message,
                 ),
             )
@@ -556,7 +656,11 @@ class ProjectService:
         if state == "started":
             self._notify(
                 handler,
-                ReadioEvent(kind="stage.started", operation=operation, stage=stage),
+                ReadioEvent(
+                    kind="stage.started",
+                    operation=operation,
+                    stage=cast(EventStage, stage),
+                ),
             )
         else:
             self._notify(
@@ -564,7 +668,7 @@ class ProjectService:
                 ReadioEvent(
                     kind="stage.completed",
                     operation=operation,
-                    stage=stage,
+                    stage=cast(EventStage, stage),
                     details={"action": state},
                 ),
             )

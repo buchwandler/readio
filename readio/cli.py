@@ -5,12 +5,12 @@ import json
 import logging
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from . import __version__
+from . import __version__, cli_adapter
 from . import api as public_api
 from .cli_present import format_plan_human
 from .jsonutil import json_value as _json_value
@@ -155,17 +155,7 @@ def _add_voice_resolution_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _parse_voice_bindings(values: Sequence[str]) -> dict[str, str]:
-    bindings: dict[str, str] = {}
-    for value in values:
-        if value.count("=") != 1:
-            raise ValueError("--voice-bind must use ROLE=VOICE_ID")
-        role, voice_id = value.split("=", 1)
-        if not role or not voice_id:
-            raise ValueError("--voice-bind must use non-empty ROLE=VOICE_ID")
-        if role in bindings:
-            raise ValueError(f"duplicate --voice-bind role {role!r}")
-        bindings[role] = voice_id
-    return bindings
+    return cli_adapter.parse_voice_bindings(values)
 
 
 def _add_runtime_options(parser: argparse.ArgumentParser, *, playback: bool = True) -> None:
@@ -268,108 +258,15 @@ def _api_for(args: argparse.Namespace | None = None) -> public_api.Readio:
 
 
 def _api_progress_handler(progress: TerminalProgress) -> public_api.EventHandler | None:
-    if not progress.enabled:
-        return None
-
-    from types import SimpleNamespace
-
-    def handle(event: public_api.ReadioEvent) -> None:
-        if event.kind == "stage.started":
-            label = event.message or (event.stage or "Working").replace("_", " ").title()
-            progress.phase(label)
-        elif event.kind == "progress" and event.stage == "synthesis":
-            progress.synthesis_event(
-                SimpleNamespace(
-                    kind=event.message,
-                    details=event.details,
-                    completed=event.completed,
-                    total=event.total,
-                    unit_id=event.unit_id,
-                    text=event.details.get("text"),
-                )
-            )
-        elif event.kind == "progress" and event.stage == "composition":
-            if event.message in {"compose_started", "compose_completed"}:
-                progress.composition_event(
-                    SimpleNamespace(
-                        kind=event.message,
-                        completed_items=event.completed,
-                        total_items=event.total,
-                        target_sample_rate=event.sample_rate or 0,
-                        output_frames=event.sample_count,
-                        completed_audio_seconds=event.audio_seconds,
-                        total_audio_seconds=event.total_audio_seconds,
-                        details=event.details,
-                    )
-                )
-            else:
-                progress.phase(event.message or "Composing")
-
-    return handle
-
-
-_KNOWN_DOCUMENT_SUFFIXES = frozenset({".txt", ".ssmd", ".md", ".markdown", ".mdown", ".mkd"})
-
-
-def _looks_like_path_token(raw: str) -> bool:
-    candidate = Path(raw)
-    return (
-        candidate.suffix.lower() in _KNOWN_DOCUMENT_SUFFIXES
-        or "/" in raw
-        or "\\" in raw
-        or raw.startswith((".", "~"))
-    )
+    return cli_adapter.public_event_handler(progress)
 
 
 def _normalize_positional_input(args: argparse.Namespace) -> None:
-    """Convert one unambiguous positional path into ``args.file`` in place."""
-    positional = tuple(getattr(args, "text", ()) or ())
-    explicit_file = getattr(args, "file", None)
-
-    if explicit_file is not None and positional:
-        raise ValueError("provide either positional text/path or --file, not both")
-
-    if explicit_file is not None or not positional:
-        return
-
-    if len(positional) != 1:
-        return
-
-    if getattr(args, "input_format", "auto") == "text":
-        return
-
-    raw = positional[0]
-    candidate = Path(raw).expanduser()
-    try:
-        exists = candidate.exists()
-    except OSError as exc:
-        raise ValueError(f"cannot inspect positional input path {raw!r}: {exc}") from exc
-
-    if exists:
-        if not candidate.is_file():
-            raise ValueError(f"positional input path is not a regular file: {candidate}")
-        args.file = candidate
-        args.text = []
-        return
-
-    if _looks_like_path_token(raw):
-        raise ValueError(
-            f"positional input {raw!r} looks like a file path, but it does not exist; "
-            "correct the path or use --input-format text to speak it literally"
-        )
+    cli_adapter.normalize_positional_input(args)
 
 
 def _read_input(args: argparse.Namespace, cfg: public_api.ReadioConfig) -> public_api.Document:
-    if getattr(args, "file", None) is not None and getattr(args, "text", None):
-        raise ValueError("provide either positional text/path or --file, not both")
-    if args.file is not None:
-        return public_api.document_from_file(args.file, input_format=args.input_format)
-    input_format = args.input_format if args.input_format != "auto" else "text"
-    if args.text:
-        return public_api.document_from_text(" ".join(args.text), input_format=input_format)
-    if sys.stdin.isatty():
-        raise ValueError("provide text, --file PATH, or pipe text on stdin")
-    return public_api.document_from_text(sys.stdin.read(), input_format=input_format)
+    return cli_adapter.read_document(args)
 
 
 def _validate_live(args: argparse.Namespace) -> None:
@@ -386,45 +283,11 @@ def _validate_live(args: argparse.Namespace) -> None:
 
 
 def _prompt_for_missing_voices(
-    result: object,
+    result: public_api.SSMDAnalysis,
     cfg: public_api.ReadioConfig,
-    synthesis: object | None = None,
+    synthesis: public_api.SynthesisRequest | None = None,
 ) -> dict[str, str]:
-    provider = result.provider
-    unresolved = getattr(result, "unresolved_voice_references", None)
-    if unresolved is None:
-        names = set(result.unresolved_references)
-        unresolved = tuple(item for item in result.voice_references if item.reference in names)
-    resolved_model = getattr(synthesis, "resolved_model", None)
-    available = (
-        tuple(resolved_model.voices)
-        if resolved_model is not None
-        else tuple(cfg.voices[provider].ids)
-    )
-    print(f"SSMD uses {len(unresolved)} unconfigured voice references for provider {provider!r}:")
-    print()
-    for use in unresolved:
-        print(f"  {use.reference} ({use.count} uses)")
-    print()
-    print("Available voices:")
-    for index, voice in enumerate(available, start=1):
-        print(f"  {index}. {voice}")
-    bindings: dict[str, str] = {}
-    for use in unresolved:
-        while True:
-            choice = input(f"Voice for {use.reference} [enter number or voice ID]: ").strip()
-            if choice.isdigit() and 1 <= int(choice) <= len(available):
-                bindings[use.reference] = available[int(choice) - 1]
-                break
-            if choice in available:
-                bindings[use.reference] = choice
-                break
-            print(f"unknown voice {choice!r}; choose a number or configured voice ID")
-    print()
-    print("Using for this render:")
-    for role, voice in bindings.items():
-        print(f"  {role} -> {voice}")
-    return bindings
+    return cli_adapter.prompt_missing_voices(result, cfg, synthesis)
 
 
 def _cmd_speak(args: argparse.Namespace) -> int:
@@ -451,41 +314,14 @@ def _synthesis_request_from_args(
     *,
     default_language: str | None = None,
 ) -> public_api.SynthesisRequest:
-    return public_api.SynthesisRequest(
-        language=getattr(args, "lang", None) or default_language,
-        engine=getattr(args, "engine", None),
-        model=getattr(args, "model", None),
-        model_source=getattr(args, "model_source", None),
-        quality=getattr(args, "quality", None),
-        voice=getattr(args, "voice", None),
-        lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) is not None else None,
-        speaker=getattr(args, "speaker", None),
-        clear_lexicons=bool(getattr(args, "no_lexicons", False)),
-        auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
-        g2p_fallback=getattr(args, "g2p_fallback", None),
-        spacy=getattr(args, "spacy", None),
-        short_sentence=getattr(args, "short_sentence", None),
-        lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
-        language_detection=getattr(args, "language_detection", None),
-        detect_languages=(
-            tuple(args.detect_languages)
-            if getattr(args, "detect_languages", None) is not None
-            else None
-        ),
-        allow_experimental=bool(getattr(args, "allow_experimental", False)),
-        speed=getattr(args, "speed", None),
-        pause_mode=getattr(args, "pause_mode", None),
-        unit=getattr(args, "unit", None),
-        offline=bool(getattr(args, "offline", False)),
-        refresh=bool(getattr(args, "refresh", False)),
-    )
+    return cli_adapter.synthesis_request_from_args(args, default_language=default_language)
 
 
 def _build_plan_request(
     args: argparse.Namespace,
     app: public_api.Readio,
     *,
-    operation: str = "render",
+    operation: Literal["speak", "render"] = "render",
     allow_interactive: bool = False,
 ) -> public_api.PlanRequest:
     """Build a PlanRequest from CLI args.
@@ -523,23 +359,13 @@ def _build_plan_request(
         force=bool(getattr(args, "force", False)),
     )
 
-    return public_api.PlanRequest(
-        operation=operation,  # type: ignore[arg-type]
-        input=public_api.InputRequest(
-            document=document,
-            requested_format=getattr(args, "input_format", "auto"),
-            selector=getattr(args, "select", "all"),
-            source_kind=(
-                "file"
-                if getattr(args, "file", None) is not None
-                else "literal"
-                if getattr(args, "text", None)
-                else "stdin"
-            ),
-        ),
+    return cli_adapter.build_plan_request(
+        args,
+        document=document,
         synthesis=synthesis,
         output=output,
         voice_bindings=bindings,
+        operation=operation,
     )
 
 
@@ -884,18 +710,14 @@ def _cmd_plan_bind(args: argparse.Namespace) -> int:
 def _cmd_plan_unbind(args: argparse.Namespace) -> int:
     app = _api_for(args)
     project = args.project or Path.cwd()
-    before = app.roles.inspect_project(project, provider=args.provider)
-    removed = next((item for item in before.roles if item.role == args.role), None)
-    app.roles.unbind_project(project, args.role, provider=args.provider)
-    after = app.roles.inspect_project(project, provider=args.provider)
-    effective = next((item for item in after.roles if item.role == args.role), None)
+    mutation = app.roles.unbind_project_result(project, args.role, provider=args.provider)
     result = {
         "ok": True,
-        "project": str(app.projects.open(project).root),
-        "role": args.role,
-        "removed_voice": removed.project_binding if removed is not None else None,
-        "effective_voice": effective.effective_voice if effective is not None else None,
-        "origin": effective.origin if effective is not None else None,
+        "project": str(mutation.project.root),
+        "role": mutation.role,
+        "removed_voice": mutation.previous_project_binding,
+        "effective_voice": mutation.effective_voice,
+        "origin": mutation.origin,
     }
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False))
@@ -903,14 +725,16 @@ def _cmd_plan_unbind(args: argparse.Namespace) -> int:
         print("Removed project binding:")
         print(f"  {result['role']} -> {result['removed_voice']}")
         print()
-        if result["effective_voice"] is None:
-            print(f"Role {result['role']!r} is now unresolved.")
+        if mutation.status == "unresolved":
+            print(f"Role {mutation.role!r} is now unresolved.")
+        elif mutation.status == "mixed":
+            print(f"Role {mutation.role!r} has mixed effective voices across scopes.")
         else:
             print("Effective binding is now:")
-            origin = result["origin"]
+            origin = mutation.origin
             if origin == "config.voice_role":
                 origin = "config"
-            print(f"  {result['role']} -> {result['effective_voice']} ({origin})")
+            print(f"  {mutation.role} -> {mutation.effective_voice} ({origin})")
     return 0
 
 
@@ -1022,14 +846,11 @@ def _cmd_render(args: argparse.Namespace) -> int:
                 on_event=_api_progress_handler(progress),
                 write_manifest=bool(getattr(args, "manifest", False)),
             )
-        except (public_api.ExecutionError, public_api.OutputError) as error:
-            if "diagnostics" not in error.details:
-                raise
-            plan = app.speech.plan(request)
+        except (public_api.PlanNotExecutableError, public_api.PlannedOutputError) as error:
             if getattr(args, "json", False):
-                print(json.dumps(plan.to_dict(), ensure_ascii=False, default=str))
+                print(json.dumps(error.plan.to_dict(), ensure_ascii=False, default=str))
             else:
-                print(format_plan_human(plan))
+                print(format_plan_human(error.plan))
             return 1
         progress.complete(result.summary)
 
@@ -1053,56 +874,26 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
 
     bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
     synthesis = _synthesis_request_from_args(args, default_language=cfg.reader.lang)
-    result = app.ssmd.check(
+    if args.resolve_voices:
+        checked = app.ssmd.check(
+            args.file,
+            synthesis=synthesis,
+            bindings=bindings,
+        )
+        if checked.analysis.unresolved_references:
+            if args.json or not sys.stdin.isatty():
+                raise ValueError(
+                    "--resolve-voices requires an interactive terminal; "
+                    "provide --voice-bind ROLE=VOICE_ID instead"
+                )
+            bindings.update(_prompt_for_missing_voices(checked.analysis, cfg, synthesis))
+    result = app.ssmd.validate(
         args.file,
         synthesis=synthesis,
         bindings=bindings,
         roundtrip=bool(args.roundtrip),
     )
-    if result.analysis.unresolved_references and args.resolve_voices:
-        if args.json or not sys.stdin.isatty():
-            raise ValueError(
-                "--resolve-voices requires an interactive terminal; "
-                "provide --voice-bind ROLE=VOICE_ID instead"
-            )
-        bindings.update(_prompt_for_missing_voices(result.analysis, cfg, synthesis))
-        result = app.ssmd.check(
-            args.file,
-            synthesis=synthesis,
-            bindings=bindings,
-            roundtrip=bool(args.roundtrip),
-        )
     analysis = result.analysis
-    if analysis.unresolved_references:
-        unresolved = set(analysis.unresolved_references)
-        references = tuple(
-            item for item in analysis.voice_references if item.reference in unresolved
-        )
-        available = tuple(
-            cfg.voices[analysis.provider].ids if analysis.provider in cfg.voices else ()
-        )
-        reference = references[0].reference
-        header_template = {
-            "voice_bindings": {analysis.provider: {item.reference: None for item in references}}
-        }
-        message = (
-            f"cannot resolve {len(references)} SSMD voice reference"
-            f"{'s' if len(references) != 1 else ''} for provider {analysis.provider!r}\n"
-            + "\n".join(f"  {item.reference} ({item.count} uses)" for item in references)
-            + "\n\nAdd document-local bindings:\n  voice_bindings:\n"
-            + f"    {analysis.provider}:\n"
-            + "".join(f"      {item.reference}: <voice-id>\n" for item in references)
-            + "\nRun `readio voices list` to inspect available voices."
-        )
-        raise public_api.VoiceResolutionError(
-            message,
-            provider=analysis.provider,
-            reference=reference,
-            references=references,
-            available_voices=available,
-            header_template=header_template,
-            source_path=result.source_path,
-        )
     consumer = {
         "ok": analysis.ok,
         "unresolved": list(analysis.unresolved_references),
@@ -1164,14 +955,12 @@ def _print_language_settings(settings: public_api.LanguageSettings) -> None:
 
 def _cmd_defaults(args: argparse.Namespace) -> int:
     config = _api_for(args).configuration
-    profiles = config.language_profiles()
     resolution = (
         config.resolve_language_profile(args.language) if getattr(args, "language", None) else None
     )
     language = resolution.normalized if resolution is not None else None
-    if getattr(args, "offline", False) and getattr(args, "refresh", False):
-        raise ValueError("--offline and --refresh cannot be combined")
     if args.defaults_command == "list":
+        profiles = config.language_profiles()
         items = [
             {"language": key, **(_language_settings_payload(value) or {})}
             for key, value in profiles.items()
@@ -1225,7 +1014,6 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
             print(f"Removed language default: {language}")
         return 0
 
-    existing = profiles.get(language, public_api.LanguageSettings())
     if args.lexicons is not None:
         lexicons = tuple(args.lexicons)
     elif args.no_lexicons:
@@ -1233,32 +1021,29 @@ def _cmd_defaults(args: argparse.Namespace) -> int:
     elif args.auto_lexicons:
         lexicons = None
     else:
-        lexicons = existing.lexicons
-    settings = replace(
-        existing,
-        model=args.model if args.model is not None else existing.model,
-        source=args.model_source if args.model_source is not None else existing.source,
-        quality=args.quality if args.quality is not None else existing.quality,
-        voice=args.voice if args.voice is not None else existing.voice,
+        lexicons = public_api.UNSET
+    patch = public_api.LanguageProfilePatch(
+        model=args.model if args.model is not None else public_api.UNSET,
+        source=args.model_source if args.model_source is not None else public_api.UNSET,
+        quality=args.quality if args.quality is not None else public_api.UNSET,
+        voice=args.voice if args.voice is not None else public_api.UNSET,
         lexicons=lexicons,
-        g2p_fallback=(
-            args.g2p_fallback if args.g2p_fallback is not None else existing.g2p_fallback
-        ),
+        g2p_fallback=(args.g2p_fallback if args.g2p_fallback is not None else public_api.UNSET),
         lexicon_data_policy=(
-            args.lexicon_data_policy
-            if args.lexicon_data_policy is not None
-            else existing.lexicon_data_policy
+            args.lexicon_data_policy if args.lexicon_data_policy is not None else public_api.UNSET
         ),
-        allow_experimental=existing.allow_experimental or args.allow_experimental,
+        allow_experimental=(
+            args.allow_experimental if args.allow_experimental is not None else public_api.UNSET
+        ),
     )
-    settings = config.set_language_profile(
+    settings = config.update_language_profile(
         language,
-        settings,
+        patch,
         validate_runtime=True,
         discovery=public_api.DiscoveryOptions(
             offline=bool(args.offline),
             refresh=bool(args.refresh),
-            preference=settings.source or "auto",
+            preference=args.model_source or "auto",
         ),
     )
     payload = {
@@ -1484,14 +1269,20 @@ def _normalize_voice_list_filters(
     *,
     engine: str | None,
     model: str | None,
-    available_engines: set[str] | None = None,
+    available_engines: set[str] | None,
+    normalize_engine: Callable[[str], str],
 ) -> tuple[str | None, str | None]:
-    aliases = {"kokoro": "pykokoro", "pipersynth": "piper"}
     available = available_engines or {"piper", "pykokoro"}
     if engine is not None:
-        return aliases.get(engine.casefold(), engine), model
+        canonical = normalize_engine(engine)
+        if canonical == engine:
+            folded = engine.casefold()
+            folded_canonical = normalize_engine(folded)
+            if folded_canonical != folded:
+                canonical = folded_canonical
+        return canonical, model
     if model is not None:
-        canonical = aliases.get(model.casefold(), model.casefold())
+        canonical = normalize_engine(model.casefold())
         if canonical in available:
             return canonical, None
     return None, model
@@ -1510,7 +1301,10 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     if args.voices_command == "list":
         available_engines = {item.id.casefold() for item in app.catalog.engines()}
         engine, model = _normalize_voice_list_filters(
-            engine=args.engine, model=args.model, available_engines=available_engines
+            engine=args.engine,
+            model=args.model,
+            available_engines=available_engines,
+            normalize_engine=app.catalog.normalize_engine,
         )
         listing = app.catalog.voices_listing(
             public_api.VoiceQuery(
@@ -1999,7 +1793,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     defaults_set.add_argument("--g2p-fallback", choices=public_api.G2P_FALLBACKS)
     defaults_set.add_argument("--lexicon-data-policy", choices=public_api.LEXICON_DATA_POLICIES)
-    defaults_set.add_argument("--allow-experimental", action="store_true")
+    defaults_set.add_argument(
+        "--allow-experimental",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     defaults_set.add_argument("--offline", action="store_true")
     defaults_set.add_argument("--refresh", action="store_true")
     defaults_set.add_argument("--json", action="store_true")

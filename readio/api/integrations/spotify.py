@@ -23,7 +23,13 @@ from ..errors import (
     OutputError,
     translate_exception,
 )
-from ..events import EventHandler, ReadioEvent, compose_event_handlers
+from ..events import (
+    EventHandler,
+    EventKind,
+    EventStage,
+    ReadioEvent,
+    compose_event_handlers,
+)
 from ..types import OutputRequest, PlanRequest, SynthesisRequest
 
 SpotifyTimeline = Mapping[str, JsonValue]
@@ -606,10 +612,10 @@ class SpotifyService:
     def _emit(
         self,
         on_event: EventHandler | None,
-        kind: str,
+        kind: EventKind,
         operation: str,
         *,
-        stage: str | None = None,
+        stage: EventStage | None = None,
         message: str | None = None,
     ) -> None:
         handler = compose_event_handlers(self._app.on_event, on_event)

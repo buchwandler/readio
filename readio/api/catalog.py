@@ -54,6 +54,10 @@ class CatalogService:
     def __init__(self, app: Readio) -> None:
         self._app = app
 
+    def normalize_engine(self, engine: str) -> str:
+        """Return the canonical ID for a known engine alias, otherwise the input."""
+        return normalize_engine_id(engine)
+
     def engines(self) -> tuple[EngineInfo, ...]:
         try:
             known = set(CANONICAL_ENGINE_IDS) | set(registered_engines())
@@ -139,7 +143,7 @@ class CatalogService:
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[ModelInfo]:
         try:
-            engine = normalize_engine_id(query.engine) if query.engine else None
+            engine = self.normalize_engine(query.engine) if query.engine else None
             if engine not in {None, "pykokoro"}:
                 targets = self.targets(
                     TargetQuery(engine=engine, language=query.language, status=query.status),
@@ -238,7 +242,7 @@ class CatalogService:
         *,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[VoiceInfo]:
-        engine = normalize_engine_id(query.engine) if query.engine else None
+        engine = self.normalize_engine(query.engine) if query.engine else None
         entries: list[VoiceInfo] = []
         raw_discovery = None
         try:

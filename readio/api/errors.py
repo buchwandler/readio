@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from ..errors import InputError, ReadioError
+from ..jsonutil import JsonValue
+
+if TYPE_CHECKING:
+    from .types import Diagnostic, ResolvedPlan
 
 
 class InvalidRequestError(ReadioError):
@@ -28,6 +32,45 @@ class ExecutionError(ReadioError):
 
 class OutputError(ExecutionError):
     code = "output.error"
+
+
+def _diagnostics_details(
+    diagnostics: tuple[Diagnostic, ...],
+) -> dict[str, JsonValue]:
+    return {"diagnostics": [item.to_dict() for item in diagnostics]}
+
+
+class PlanNotExecutableError(ExecutionError):
+    code = "speech.plan_not_executable"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        plan: ResolvedPlan,
+        diagnostics: tuple[Diagnostic, ...],
+    ) -> None:
+        self.plan = plan
+        self.diagnostics = diagnostics
+        super().__init__(message, details=_diagnostics_details(diagnostics))
+
+
+class PlannedOutputError(OutputError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        plan: ResolvedPlan,
+        diagnostics: tuple[Diagnostic, ...],
+    ) -> None:
+        self.plan = plan
+        self.diagnostics = diagnostics
+        super().__init__(
+            message,
+            code=code,
+            details=_diagnostics_details(diagnostics),
+        )
 
 
 class ProjectError(ReadioError):
@@ -122,6 +165,8 @@ __all__ = [
     "IntegrationError",
     "InvalidRequestError",
     "OutputError",
+    "PlanNotExecutableError",
+    "PlannedOutputError",
     "ProjectConflictError",
     "ProjectError",
     "ProjectFormatError",

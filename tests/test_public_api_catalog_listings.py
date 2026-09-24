@@ -83,6 +83,8 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
 
     app = Readio(default_config())
     options = DiscoveryOptions(offline=True, refresh=True, preference="github")
+    assert app.catalog.normalize_engine("kokoro") == "pykokoro"
+    assert app.catalog.normalize_engine("pipersynth") == "piper"
     expected_metadata = {
         "source": "fixture-cache",
         "registry_source": "fixture-cache",
@@ -92,10 +94,10 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
     }
 
     model_listing = app.catalog.models_listing(
-        ModelQuery(language="de", engine="pykokoro"), discovery=options
+        ModelQuery(language="de", engine="kokoro"), discovery=options
     )
     voice_listing = app.catalog.voices_listing(
-        VoiceQuery(language="de", engine="pykokoro"), discovery=options
+        VoiceQuery(language="de", engine="kokoro"), discovery=options
     )
     lexicon_listing = app.catalog.lexicons_listing(
         LexiconQuery(language="de", engine="pykokoro"), discovery=options

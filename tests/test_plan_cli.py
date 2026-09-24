@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from readio import cli
+from readio.api import ProjectRef, ProjectRoleMutationResult
 from readio.api.projects import ProjectService
 from readio.api.roles import RoleService
 from readio.cli import build_parser
@@ -132,32 +133,45 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
     assert json.loads(capsys.readouterr().out)["stored_voice"] == "en-us/sarah"
 
 
-def test_plan_unbind_forwards_project_and_provider(tmp_path, monkeypatch, capsys) -> None:
+def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "episode.ssmd"
     source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
     calls = {}
-    inspect_count = 0
+    mutation = ProjectRoleMutationResult(
+        project=ProjectRef(
+            root=project.root,
+            project_id="test-project",
+            name="episode",
+            kind="document",
+            source_format="ssmd",
+        ),
+        role="narrator",
+        previous_project_binding="af_heart",
+        project_binding=None,
+        effective_voice=None,
+        origin="unresolved",
+        status="unresolved",
+    )
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
-    def inspect(self, project_path, *, provider=None):
-        nonlocal inspect_count
-        inspect_count += 1
-        role = SimpleNamespace(
-            role="narrator",
-            project_binding="af_heart" if inspect_count == 1 else None,
-            effective_voice="af_heart" if inspect_count == 1 else None,
-            origin="project",
-        )
-        return SimpleNamespace(roles=(role,), unresolved=())
-
-    def unbind(self, project_path, role, *, provider=None):
+    def unbind_result(self, project_path, role, *, provider=None):
         calls["project"] = project_path
         calls["role"] = role
         calls["provider"] = provider
+        return mutation
 
-    monkeypatch.setattr(RoleService, "inspect_project", inspect)
-    monkeypatch.setattr(RoleService, "unbind_project", unbind)
+    monkeypatch.setattr(
+        RoleService,
+        "inspect_project",
+        lambda *args, **kwargs: pytest.fail("CLI must not inspect before or after unbind"),
+    )
+    monkeypatch.setattr(
+        RoleService,
+        "unbind_project",
+        lambda *args, **kwargs: pytest.fail("CLI must use the typed mutation operation"),
+    )
+    monkeypatch.setattr(RoleService, "unbind_project_result", unbind_result)
     args = build_parser().parse_args(
         [
             "plan",
@@ -175,7 +189,18 @@ def test_plan_unbind_forwards_project_and_provider(tmp_path, monkeypatch, capsys
     assert calls["project"] == project.root
     assert calls["role"] == "narrator"
     assert calls["provider"] == "kokoro"
-    assert json.loads(capsys.readouterr().out)["removed_voice"] == "af_heart"
+    output = json.loads(capsys.readouterr().out)
+    assert output["removed_voice"] == "af_heart"
+    assert output["effective_voice"] is None
+    assert output["origin"] == "unresolved"
+    assert set(output) == {
+        "ok",
+        "project",
+        "role",
+        "removed_voice",
+        "effective_voice",
+        "origin",
+    }
 
 
 def test_render_dry_run_still_resolves_one_shot_text(capsys) -> None:

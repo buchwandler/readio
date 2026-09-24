@@ -19,6 +19,13 @@ def test_public_import_surface_and_typing_marker() -> None:
     assert "PlanRequest" in readio.api.__all__
     assert "ConfigurationInitResult" in readio.api.__all__
     assert "LanguageProfileResolution" in readio.api.__all__
+    assert "LanguageProfilePatch" in readio.api.__all__
+    assert "ProjectRoleMutationResult" in readio.api.__all__
+    assert "ReadioEvent" in readio.api.__all__
+    assert "EventKind" in readio.api.__all__
+    assert "ProgressKind" in readio.api.__all__
+    assert "EventStage" in readio.api.__all__
+    assert "UNSET" in readio.api.__all__
     assert readio.api.G2P_FALLBACKS == config_internal.G2P_FALLBACKS
     assert readio.api.LANGUAGE_DETECTION_MODES == config_internal.LANGUAGE_DETECTION_MODES
     assert readio.api.LEXICON_DATA_POLICIES == config_internal.LEXICON_DATA_POLICIES
@@ -33,7 +40,8 @@ def test_import_does_not_load_optional_execution_modules() -> None:
 import sys
 import readio.api
 forbidden = {
-    'readio.cli', 'readio.spotify_cli', 'readio.spotify',
+    'readio.cli', 'readio.spotify_cli', 'readio.cli_adapter', 'readio.progress',
+    'readio.api.integrations.spotify', 'readio.spotify',
     'readio.engines.pykokoro', 'readio.engines.pipersynth',
     'pykokoro', 'pykokoro.playback', 'pipersynth', 'onnxruntime',
 }

@@ -15,6 +15,8 @@ from readio.api import (
     InvalidRequestError,
     OutputError,
     OutputRequest,
+    PlannedOutputError,
+    PlanNotExecutableError,
     PlanRequest,
     Readio,
     ReadioEvent,
@@ -270,12 +272,54 @@ def test_output_collision_has_a_stable_public_error(tmp_path: Path) -> None:
     output.write_bytes(b"existing")
     app = Readio(ReadioConfig())
 
-    try:
+    with pytest.raises(PlannedOutputError) as error:
         app.speech.render(_request(output=OutputRequest(requested_path=output)))
-    except OutputError as error:
-        assert error.code == "output.exists"
-    else:
-        raise AssertionError("existing output was overwritten")
+
+    assert isinstance(error.value, OutputError)
+    assert error.value.code == "output.exists"
+    assert error.value.plan.ok is False
+    assert error.value.diagnostics
+    assert error.value.details == {
+        "diagnostics": [item.to_dict() for item in error.value.diagnostics]
+    }
+
+
+def test_non_executable_plan_error_carries_typed_diagnostics(monkeypatch, tmp_path: Path) -> None:
+    from readio.api import speech
+
+    diagnostic = SimpleNamespace(
+        code="plan.invalid",
+        severity="error",
+        message="request is not executable",
+        field=None,
+        source_path=None,
+        line=None,
+    )
+    plan = SimpleNamespace(ok=False, diagnostics=(diagnostic,))
+    monkeypatch.setattr(
+        speech,
+        "resolve_execution_v2",
+        lambda *_args: SimpleNamespace(plan=plan),
+    )
+    app = Readio(ReadioConfig())
+
+    with pytest.raises(PlanNotExecutableError) as error:
+        app.speech.render(
+            _request(
+                output=OutputRequest(
+                    mode="file",
+                    requested_format="wav",
+                    requested_path=tmp_path / "invalid.wav",
+                )
+            )
+        )
+
+    assert error.value.code == "speech.plan_not_executable"
+    assert error.value.plan is plan
+    assert error.value.diagnostics[0].code == "plan.invalid"
+    assert error.value.details == {
+        "diagnostics": [item.to_dict() for item in error.value.diagnostics]
+    }
 
 
 class _FileSink(_Sink):

@@ -19,8 +19,10 @@ from . import errors as api_errors
 from .types import (
     DiscoveryOptions,
     ProjectLike,
+    ProjectRef,
     ProjectRole,
     ProjectRoleInspection,
+    ProjectRoleMutationResult,
     RoleBinding,
     RoleLocation,
 )
@@ -183,9 +185,38 @@ class RoleService:
         *,
         provider: str | None = None,
     ) -> None:
+        self.unbind_project_result(project, role, provider=provider)
+
+    def unbind_project_result(
+        self,
+        project: ProjectLike,
+        role: str,
+        *,
+        provider: str | None = None,
+    ) -> ProjectRoleMutationResult:
         internal = self._load_project(project)
         try:
-            unbind_project_role(internal, self._app.config, role, provider=provider)
+            result = unbind_project_role(internal, self._app.config, role, provider=provider)
+            effective_voice = result["effective_voice"]
+            origin = result["origin"]
+            status = (
+                "mixed"
+                if origin == "mixed"
+                else "unresolved"
+                if effective_voice is None
+                else "resolved"
+            )
+            return ProjectRoleMutationResult(
+                project=self._project_ref(internal),
+                role=str(result["role"]),
+                previous_project_binding=(
+                    result["removed_voice"] if isinstance(result["removed_voice"], str) else None
+                ),
+                project_binding=None,
+                effective_voice=(effective_voice if isinstance(effective_voice, str) else None),
+                origin=origin if isinstance(origin, str) else None,
+                status=status,
+            )
         except InternalProjectRoleError as error:
             raise api_errors.ResolutionError(
                 str(error),
@@ -207,6 +238,16 @@ class RoleService:
             return project_internal.load_project(path)
         except project_internal.ProjectError as error:
             raise api_errors.ProjectNotFoundError(str(error), code="project.not_found") from error
+
+    def _project_ref(self, project: project_internal.Project) -> ProjectRef:
+        manifest = project.manifest
+        return ProjectRef(
+            root=project.root,
+            project_id=manifest.project_id,
+            name=manifest.name,
+            kind=manifest.kind,
+            source_format=manifest.source_format,
+        )
 
     def _project_role(self, role) -> ProjectRole:
         return ProjectRole(
