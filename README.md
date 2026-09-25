@@ -87,9 +87,13 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 
 Readio uses one registry for `pykokoro`, `piper`, and `pocket`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to see whether an engine package and its required API are available.
 
-The published PyPI releases currently do not form a compatible set with Readio's UtterPlan schema-v3 and AudioCompose v0.2 requirements. PyKokoro 0.9.10 requires SSMD below 0.9, while PiperSynth 0.1.3 and PocketSynth 0.1.0 require older UtterPlan and AudioCompose ranges. The optional engine extras therefore cannot currently be resolved alongside the core dependencies. Readio's source adapters target the documented published APIs where possible, and the doctor reports incompatible engine APIs instead of falling back to the retired pipeline path.
+Supported optional engine runtimes are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. Install them individually with `readio[kokoro]`, `readio[piper]`, or `readio[pocket]`, or together with `readio[kokoro,piper,pocket]`. `readio[all]` also installs the optional spaCy integration.
 
 `readio voices list` accepts engine IDs and concrete target IDs. The canonical engine IDs are `pykokoro`, `piper`, and `pocket`; `kokoro` and `pipersynth` remain aliases.
+
+Common `--speed` is a positive synthesis multiplier, not a composition tempo: PyKokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
+
+Adapters make one strict native synthesis request for each Readio-shaped child and do not invoke native text splitters. Readio owns capacity measurement and exact-text subdivision, preserves linguistic and pronunciation boundaries, and merges child audio and local timings. Unsupported explicit semantics and unsplittable requests fail with stable Readio errors instead of being discarded or truncated.
 
 ```bash
 readio models list --language de --offline
@@ -335,7 +339,6 @@ M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 
 For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan once, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD.
 
 Readio accepts SSMD 0.9.x and UtterPlan 0.3.x/schema v3 only. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Existing project plans using UtterPlan schema v1 or v2 are stale and must be rebuilt from valid SSMD 0.9 or plain text. This does not change Readio's own `readio.plan.v2` response schema.
-
 
 Inspect a document before rendering:
 

@@ -59,7 +59,7 @@ The guides target the conservative authoring subset used by:
 - SSMD >=0.9.0,<0.10
 - Utterplan >=0.3.0,<0.4
 - Readio's UtterPlan schema-v3 semantic planning and engine-neutral request contract
-This is a compatibility target, not a claim that the authoring environment ran validation. A generated file should be checked on the destination system before rendering.
+  This is a compatibility target, not a claim that the authoring environment ran validation. A generated file should be checked on the destination system before rendering.
 
 ## Voice portability
 

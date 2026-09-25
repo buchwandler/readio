@@ -32,27 +32,39 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
     assert "pykokoro[playback]>=0.9.9,<0.10" not in dependencies
 
 
-def test_release_ci_targets_released_pykokoro_artifact() -> None:
+def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
 
-    assert "pykokoro[playback]==0.9.10" in workflow
+    for requirement in (
+        "pykokoro[playback]==0.10.0",
+        "pipersynth==0.2.0",
+        "pocketsynth[cpu]==0.2.0",
+    ):
+        assert requirement in workflow
+
+    assert "pykokoro[playback]>=0.10.0,<0.11" in workflow
+    assert "package: pipersynth" in workflow
+    assert 'package: "pocketsynth[cpu]"' in workflow
+    assert 'specifier: ">=0.2.0,<0.3"' in workflow
+    assert "engine-compatibility" in workflow
+    assert "READIO_TEST_ENGINE" in workflow
     assert "pykokoro.git@" not in workflow
     assert "ssmd.git@" not in workflow
     assert "0.9.9" not in workflow
 
 
-def test_fixed_runtime_dependency_floors_are_declared() -> None:
+def test_engine_runtime_dependency_floors_are_declared() -> None:
     dependencies = _project_dependencies()
     optional = _project_optional_dependencies()
 
     assert "onnxvoice>=0.1.12,<0.2" in dependencies
-    assert optional["kokoro"] == ["pykokoro[playback]>=0.9.10,<0.10"]
-    assert "pykokoro[playback]>=0.9.10,<0.10" in optional["all"]
-    assert optional["piper"] == ["pipersynth>=0.1.3,<0.2"]
-    assert optional["pocket"] == ["pocketsynth[cpu]>=0.1.0,<0.2"]
+    assert optional["kokoro"] == ["pykokoro[playback]>=0.10.0,<0.11"]
+    assert "pykokoro[playback]>=0.10.0,<0.11" in optional["all"]
+    assert optional["piper"] == ["pipersynth>=0.2.0,<0.3"]
+    assert optional["pocket"] == ["pocketsynth[cpu]>=0.2.0,<0.3"]
     assert optional["spacy"] == ["utterplan[spacy]>=0.3.0,<0.4"]
-    assert "pipersynth>=0.1.3,<0.2" in optional["all"]
-    assert "pocketsynth[cpu]>=0.1.0,<0.2" in optional["all"]
+    assert "pipersynth>=0.2.0,<0.3" in optional["all"]
+    assert "pocketsynth[cpu]>=0.2.0,<0.3" in optional["all"]
     assert "utterplan[spacy]>=0.3.0,<0.4" in optional["all"]
     assert all(
         dependency != "utterplan[spacy]>=0.1.4,<0.2"

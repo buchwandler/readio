@@ -78,6 +78,18 @@ def test_reader_policy_defaults() -> None:
     assert cfg.short_sentence == "auto"
 
 
+def test_reader_voice_level_and_finite_speed_are_validated(tmp_path: Path) -> None:
+    cfg = ReaderConfig(voice_level="calibrated")
+    path = tmp_path / "voice-level.toml"
+    path.write_text(dumps_config(cfg), encoding="utf-8")
+    assert load_config(path).reader.voice_level == "calibrated"
+    assert set_config_value(ReaderConfig(), "voice_level", "calibrated").voice_level == "calibrated"
+    with pytest.raises(ValueError, match="reader.voice_level"):
+        set_config_value(ReaderConfig(), "voice_level", "unknown")
+    with pytest.raises(ValueError, match="finite"):
+        set_config_value(ReaderConfig(), "speed", float("nan"))
+
+
 def test_reader_policies_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "policies.toml"
     for spacy in ("auto", "off", "sm", "md", "lg", "trf"):

@@ -14,6 +14,7 @@ from readio.models import (
     ModelDiscoveryError,
     ModelInfo,
     _pykokoro_discovery,
+    _version_supported,
     validate_language_settings,
 )
 from readio.voices import VoiceCatalogEntry
@@ -35,10 +36,20 @@ MODEL = ModelInfo(
 )
 
 
+@pytest.mark.parametrize(
+    ("version", "supported"),
+    [("0.10.0", True), ("0.10.1", True), ("0.9.10", False), ("0.11.0", False)],
+)
+def test_discovery_version_guard_matches_supported_release_line(
+    version: str, supported: bool
+) -> None:
+    assert _version_supported(version) is supported
+
+
 def test_discovery_rejects_pykokoro_094_with_required_version(monkeypatch) -> None:
     fake = SimpleNamespace(__version__="0.9.4")
     monkeypatch.setitem(sys.modules, "pykokoro", fake)
-    with pytest.raises(ModelDiscoveryError, match="required: >=0.9.9,<0.10") as error:
+    with pytest.raises(ModelDiscoveryError, match="required: >=0.10.0,<0.11") as error:
         _pykokoro_discovery()
     assert error.value.code == "pykokoro.version_unsupported"
     assert error.value.installed_version == "0.9.4"

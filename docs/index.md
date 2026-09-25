@@ -82,7 +82,7 @@ For non-live input, `--select` can be `all`, `last-paragraph`, or `paragraph:N`.
 
 Synthesis options are available on all three commands:
 
-```text
+````text
 --voice VOICE             engine voice ID
 --voice-file PATH         PocketSynth reference WAV
 --engine ENGINE           pykokoro, piper, or pocket
@@ -101,13 +101,18 @@ Synthesis options are available on all three commands:
 --language-detection      off or auto where supported
 --detect-language LANG    repeatable pronunciation-routing hint
 --speed NUMBER            speech speed multiplier
+--voice-level MODE       off or calibrated voice-level handling
 --spacy MODE              linguistic analysis policy
 --short-sentence MODE     short-sentence handling policy
 --pause-mode MODE         auto, tts, or manual
 --unit UNIT               sentence or paragraph
 
-Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, and persists linguistic artifacts as UtterPlan schema v3 inside Readio's `readio.plan.v2` response. The latest published PyKokoro, PiperSynth, and PocketSynth packages still declare dependency ranges that conflict with these core requirements. Their engine APIs are checked by `readio doctor`; incompatible published packages do not trigger fallback to the retired pipeline path.
+Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. Supported optional engine floors are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. The `kokoro`, `piper`, and `pocket` extras install these runtimes. `readio doctor` checks their strict request APIs; incompatible packages do not trigger fallback to retired pipeline paths.
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
+
+Speed is an engine synthesis multiplier, not a composition tempo. PyKokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, and PocketSynth rejects explicit values other than `1.0`.
+
+Readio, not the engine adapter, owns text-capacity fitting and exact-text subdivision. Adapters synthesize one strict request at a time and do not call native splitters. Readio preserves legal linguistic and pronunciation boundaries and fails when an oversized request has no legal split.
 
 ```bash
 readio models list --language de --offline
@@ -120,7 +125,7 @@ readio defaults show de-at --json
 readio render --lang de --file notes.md
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
-```
+````
 
 `models`, `voices`, and `lexicons` enumerate targets from the unified engine registry. They are metadata-only and do not load model weights or instantiate ONNX runtimes. Offline mode uses cached catalogs; refresh updates catalog metadata only.
 `--model-source` applies only to engines that advertise distribution-source selection. Voice rosters are target-scoped where the engine exposes them, and lexicons are listed only for engines that support lexicon discovery. SSMD preflight validates role targets against the selected engine catalog.

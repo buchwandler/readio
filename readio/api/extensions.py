@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import re
 
-from ..engines.base import EngineAdapter, EngineCapabilities, EngineSelection, EngineSession
+from ..engines.base import (
+    EngineAdapter,
+    EngineCapabilities,
+    EngineSelection,
+    EngineSession,
+    RequestMeasure,
+)
 from ..engines.catalog import CatalogRequest, CatalogResult, SynthesisTarget
 from ..engines.registry import (
     CANONICAL_ENGINE_IDS,
@@ -93,6 +99,7 @@ __all__ = [
     "EngineCapabilities",
     "EngineSelection",
     "EngineSession",
+    "RequestMeasure",
     "SynthesisTarget",
     "register_engine",
     "registered_engines",

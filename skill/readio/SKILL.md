@@ -19,7 +19,7 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
 
 ## Model discovery and defaults
 
-PyKokoro >=0.9.9,<0.10 is the source of truth for runtime model and voice metadata. Agents should inspect JSON discovery rather than embedding model or voice inventories:
+Supported optional runtime floors are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. Each registered engine is the source of truth for its own models, voices, and capability metadata; use `readio doctor --json` to inspect API compatibility.
 
 ```bash
 readio voices list --lang de --offline --json
@@ -39,10 +39,11 @@ readio defaults show de-at --json
 ```
 
 Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `lexicons: null` means automatic/unknown capability depending on the payload; in synthesis plans, `null` means PyKokoro language defaults and `[]` means explicit provider-only pronunciation. Exact locale defaults override base-language defaults. Use `--no-lexicons` for `()`, `--auto-lexicons` for `None`, and repeat `--lexicon` to preserve ordered layers.
-`--preference auto|github|huggingface|upstream` makes discovery views deterministic. `--model-source github|huggingface` controls the distribution used for discovery, validation, and runtime. Voices are model-scoped: the global reader voice is only a legacy fallback when no language/model selection changes the domain, and SSMD uses the resolved model roster. Use `readio doctor --json` for PyKokoro path/version/public-API mismatches.
-Stable short selectors are engine-qualified and append-only: Kokoro uses selectors such as `en_us-ko-4` -> `af_heart` (Kokoro v1.0), and Piper uses `de-pi-9`. Use `--lang en-us` to filter a voice inventory; the canonical stable selector uses the normalized language key `en_us`. Selector identities come from the authoritative registry; role and SSMD/provider bindings continue to persist canonical concrete voice IDs. Canonical backend voice IDs remain accepted.
+Use `--offline` for cache-only metadata and `--refresh` to update registry metadata only. `lexicons: null` means automatic/unknown capability depending on the payload, while `[]` is an explicit empty selection where supported. Exact locale defaults override base-language defaults. Use `--no-lexicons` for the empty selection, `--auto-lexicons` to restore defaults, and repeat `--lexicon` to preserve ordered layers.
 
-Readio uses an explicit synthesis backend registry. PyKokoro is the implemented backend. Use `--engine BACKEND` to select a registered backend, and keep lexicon selectors such as `crane` separate from downstream asset IDs such as `de-de:crane`.
+`--preference auto|github|huggingface|upstream` makes discovery views deterministic. `--model-source github|huggingface` applies only to engines that advertise distribution-source selection. Voices are model-scoped where supported; use `readio doctor --json` for installed engine API/version diagnostics.
+
+Readio's engine registry provides PyKokoro, PiperSynth, and PocketSynth through one neutral request API. Use `--engine BACKEND` to choose an installed backend, and inspect each engine's own model and voice catalog rather than assuming the packages share inventory semantics.
 
 ## Main production steps
 
@@ -52,7 +53,9 @@ choose input -> render --dry-run -> review execution plan -> render -> optionall
 
 Use `readio render --dry-run` to inspect one-shot synthesis values before rendering. It shows model, voice, language, lexicons, SSMD decisions, output format, and provenance without loading TTS. `readio plan` is reserved for persistent project build and role-management commands.
 
-The PyKokoro 0.9.9+ tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
+PyKokoro 0.10 tokenizer controls are explicit plan inputs: `--g2p-fallback none|espeak|goruut` and `--lexicon-data-policy auto|installed-only`. Named selector `crane` is not the backend asset ID `de-de:crane`, and `de-crane` is a separate acoustic model ID. SSMD `language_detection` hints and the CLI `--language-detection`/`--detect-language` options are pronunciation-routing policy, not acoustic-language selection.
+
+The common `--speed` option changes synthesis speed, not composition rate. PyKokoro receives it directly, PiperSynth maps it to reciprocal `length_scale`, and PocketSynth supports only `1.0`. `--voice-level off|calibrated` selects the engine's voice-level mode. Readio owns exact-text capacity fitting and subdivision; adapters do not call native text splitters.
 
 ```bash
 # Recommended: inspect one-shot plan first

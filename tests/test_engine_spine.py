@@ -34,6 +34,7 @@ def fake_pykokoro(monkeypatch: pytest.MonkeyPatch):
     module.TokenizerConfig = _NativeConfig
     module.ShortSentenceConfig = _NativeConfig
     module.SynthesisConfig = _NativeConfig
+    module.VoiceLevelConfig = _NativeConfig
     module.KokoroSynthesizer = _FakeSynthesizer
     monkeypatch.setitem(sys.modules, "pykokoro", module)
     return _FakeSynthesizer

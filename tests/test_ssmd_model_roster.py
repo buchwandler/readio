@@ -24,16 +24,17 @@ MODEL = ModelInfo(
     redistribution_allowed=True,
 )
 SYNTHESIS = ResolvedSynthesis(
-    "de",
-    "de-thorsten",
-    "github",
-    "fp32",
-    "thorsten",
-    None,
-    False,
-    1.0,
-    "tts",
-    "sentence",
+    language="de",
+    model="de-thorsten",
+    source="github",
+    quality="fp32",
+    voice="thorsten",
+    lexicons=None,
+    allow_experimental=False,
+    speed=1.0,
+    voice_level="off",
+    pause_mode="tts",
+    unit="sentence",
     resolved_model=ResolvedModel.from_info(MODEL),
 )
 

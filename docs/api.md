@@ -73,6 +73,8 @@ if plan.ok:
 
 `document_from_file(path)` constructs an input document from a file. Choose `requested_format="markdown"` or `"ssmd"` when the input format is known, or leave it as `"auto"`. A successful bounded `render()` owns its output file and sink. It returns a typed `RenderResult`; when requested, the colocated render manifest is available as `result.manifest_path`.
 
+`SynthesisRequest.speed` is a finite positive engine synthesis multiplier and is not also applied as composition rate. `voice_level` accepts `"off"` or `"calibrated"`; both settings are passed through typed planning and are part of the effective speech identity. PocketSynth currently supports only speed `1.0` and reports unsupported explicit values as a resolution error.
+
 `render_live_to_file(lines, output, ...)` consumes the caller-owned iterable without closing it, resolves the output format/path, creates and closes its own file sink, and atomically commits the file. Its `RenderResult` includes `output_path` and `audio_format`. Live support is declared by each adapter's `capabilities().supports_live`; requesting live synthesis from an unsupported engine raises `InvalidRequestError` with code `speech.live_unsupported`.
 
 For playback, call `app.speech.speak(request)`. It creates and closes the playback sink. For live text, `render_live(lines, sink, ...)` consumes but does not close the caller's iterable or sink. `speak_live(lines, ...)` owns playback. `render_to_sink(request, sink)` writes bounded output to a caller-owned `AudioSink` and leaves it open.
@@ -171,7 +173,9 @@ app.configuration.update_language_profile(
 
 ## Engine extensions
 
-`EngineAdapter` and its typed request/result/session contracts are public extension points in `readio.api` and `readio.api.extensions`. Implement the documented protocol and register an adapter with `register_engine(adapter)`. `registered_engines()` reports registrations. Prefer `engine_options` on `SynthesisRequest` for engine-specific settings. Engine identities and the public protocol, rather than private registry modules, are the compatibility boundary.
+`EngineAdapter`, `EngineSession`, `EngineCapabilities`, and `RequestMeasure` are public extension contracts in `readio.api` and `readio.api.extensions`. Implement the documented protocol and register an adapter with `register_engine(adapter)`. Each synthesis call is one exact Readio-shaped request: adapters must not select new text boundaries or invoke native convenience splitters. Readio uses optional measurement or typed too-long errors to fit an oversized request, subdivides exact text while respecting protected token and pronunciation ranges, then merges child audio and rebases timings. Adapters should declare only semantics they implement; unsupported explicit features fail with stable Readio errors before inference. Prefer `engine_options` on `SynthesisRequest` for engine-specific settings.
+
+`registered_engines()` reports registered identifiers. Engine identities and the documented protocol, not private registry modules, are the compatibility boundary.
 
 ## Spotify integration
 

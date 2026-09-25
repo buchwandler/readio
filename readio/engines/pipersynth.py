@@ -7,11 +7,31 @@ import inspect
 import math
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import replace
 from typing import Any
 
 from ..config import normalize_language_key
-from .base import EngineCapabilities, EngineSelection, RenderedSpeech, SpeechRequest
+from ..errors import (
+    EmptySpeechTextError,
+    EngineBackendError,
+    EngineSynthesisError,
+    InvalidEngineLanguageError,
+    InvalidEngineModelError,
+    InvalidEngineOptionError,
+    InvalidEngineSpeakerError,
+    InvalidSpeechRequestError,
+    SpeechRequestTooLongError,
+    UnsupportedSynthesisFeatureError,
+)
+from .base import (
+    EngineCapabilities,
+    EngineSelection,
+    PronunciationSpan,
+    RenderedSpeech,
+    RequestMeasure,
+    SpeechRequest,
+    SpeechToken,
+    validate_rendered_speech,
+)
 from .catalog import CatalogRequest, SynthesisTarget
 
 PIPER_RENDER_OPTIONS = frozenset(
@@ -20,8 +40,8 @@ PIPER_RENDER_OPTIONS = frozenset(
         "noise_scale",
         "noise_w_scale",
         "normalize_audio",
-        "volume",
-        "loudness",
+        "output_gain",
+        "voice_level",
         "cache_dir",
         "providers",
         "provider_options",
@@ -60,42 +80,175 @@ def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> Synthes
     )
 
 
-class PiperSynthEngineSession:
-    """Adapt neutral text requests to one open PiperVoice."""
+def _piper_version() -> str | None:
+    try:
+        return importlib.metadata.version("pipersynth")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
-    def __init__(self, voice: Any, config: Any) -> None:
+
+def _translate_piper_error(
+    error: Exception,
+    selection: EngineSelection,
+    request: SpeechRequest | None = None,
+    *,
+    opening: bool = False,
+) -> EngineSynthesisError:
+    import pipersynth
+
+    error_map = (
+        ("SynthesisInputTooLongError", SpeechRequestTooLongError),
+        ("EmptyTextError", EmptySpeechTextError),
+        ("InvalidLanguageError", InvalidEngineLanguageError),
+        ("InvalidSpeakerError", InvalidEngineSpeakerError),
+        ("InvalidSynthesisConfigError", InvalidEngineOptionError),
+        ("InvalidLinguisticTokensError", InvalidSpeechRequestError),
+        ("InvalidPronunciationError", InvalidSpeechRequestError),
+        ("InvalidRequestError", InvalidSpeechRequestError),
+        ("UnsupportedFeatureError", UnsupportedSynthesisFeatureError),
+        ("UnsupportedModelError", InvalidEngineModelError),
+        ("VoiceNotFoundError", InvalidEngineModelError),
+        ("ModelFileNotFoundError", InvalidEngineModelError),
+        ("ConfigFileNotFoundError", InvalidEngineModelError),
+        ("ModelInferenceError", EngineBackendError),
+        ("VoiceClosedError", EngineBackendError),
+    )
+    error_type: type[EngineSynthesisError] = EngineBackendError
+    for native_name, mapped_type in error_map:
+        native_type = getattr(pipersynth, native_name, None)
+        if isinstance(native_type, type) and isinstance(error, native_type):
+            error_type = mapped_type
+            break
+    else:
+        if opening and isinstance(error, (TypeError, ValueError)):
+            error_type = InvalidEngineOptionError
+        elif isinstance(error, (TypeError, ValueError)):
+            error_type = InvalidSpeechRequestError
+
+    context: dict[str, Any] = {
+        "engine": "piper",
+        "engine_version": _piper_version(),
+        "target_id": selection.target_id,
+        "language": request.language if request is not None else selection.language,
+        "voice": request.voice if request is not None else selection.voice,
+        "speaker": request.speaker if request is not None else selection.speaker,
+        "request_id": request.id if request is not None else None,
+        "native_error_type": type(error).__name__,
+    }
+    if error_type is SpeechRequestTooLongError:
+        context.update(
+            amount=getattr(error, "phoneme_count", None),
+            maximum=getattr(error, "max_phonemes", None),
+            unit="phoneme_ids",
+            text_length=getattr(error, "text_length", len(request.text) if request else None),
+            source="pipersynth.strict_error_fallback",
+        )
+    return error_type(str(error), **context)
+
+
+def _piper_token(item: SpeechToken, module: Any) -> Any:
+    return module.LinguisticToken(
+        start=item.start,
+        end=item.end,
+        text=item.text,
+        pos=item.pos,
+        tag=item.tag,
+        lemma=item.lemma,
+        language=item.language,
+        morph=item.morph,
+    )
+
+
+def _piper_pronunciation(item: PronunciationSpan, module: Any) -> Any:
+    if item.alphabet not in (None, "ipa"):
+        raise UnsupportedSynthesisFeatureError(
+            f"PiperSynth supports IPA pronunciation overrides, not {item.alphabet!r}",
+            engine="piper",
+            language=item.language,
+        )
+    return module.PronunciationOverride(
+        start=item.start,
+        end=item.end,
+        phonemes=item.phonemes,
+        language=item.language,
+    )
+
+
+def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
+    metadata = dict(value) if isinstance(value, Mapping) else {}
+    return {
+        "mode": metadata.get("mode", mode),
+        "applied": bool(metadata.get("applied", False)),
+        "gain_db": metadata.get("gain_db"),
+        "source": metadata.get("source", "none"),
+        "reason": metadata.get("reason"),
+        "calibration_identity": metadata.get(
+            "calibration_key", metadata.get("calibration_identity")
+        ),
+        "calibration_revision": metadata.get(
+            "catalog_revision", metadata.get("calibration_revision")
+        ),
+    }
+
+
+class PiperSynthEngineSession:
+    """Adapt one exact Readio request to one open PiperVoice."""
+
+    def __init__(self, voice: Any, config: Any, selection: EngineSelection | None = None) -> None:
         self._voice = voice
         self._config = config
+        self._selection = selection or EngineSelection(
+            engine="piper", target_id="unknown", language="und"
+        )
+
+    def measure(self, request: SpeechRequest) -> RequestMeasure:
+        return RequestMeasure(
+            fits=None,
+            amount=None,
+            maximum=None,
+            unit="phoneme_ids",
+            source="pipersynth.strict_error_fallback",
+        )
 
     def synthesize(self, request: SpeechRequest) -> RenderedSpeech:
-        import numpy as np
+        import pipersynth
 
-        config = replace(
-            self._config,
-            speaker_id=self._voice.resolve_speaker_id(request.speaker),
-        )
-        chunks = tuple(self._voice.synthesize(request.text, config))
-        sample_rate = chunks[0].sample_rate if chunks else self._voice.config.sample_rate
-        if any(chunk.sample_rate != sample_rate for chunk in chunks):
-            raise ValueError(
-                "piper.sample_rate_mismatch: sentence chunks use different sample rates"
-            )
-        audio_parts = [np.asarray(chunk.audio_float_array, dtype=np.float32) for chunk in chunks]
-        audio = np.concatenate(audio_parts) if audio_parts else np.zeros(0, dtype=np.float32)
-        if audio.ndim != 1 or not np.isfinite(audio).all():
-            raise ValueError("piper.rendered_audio_invalid: expected finite mono float32 audio")
-        return RenderedSpeech(
-            id=request.id,
-            audio=audio,
-            sample_rate=sample_rate,
-            warnings=tuple(warning for chunk in chunks for warning in chunk.warnings),
-            metadata={
-                "phonemes": tuple(phoneme for chunk in chunks for phoneme in chunk.phonemes),
-                "phoneme_ids": tuple(
-                    identifier for chunk in chunks for identifier in chunk.phoneme_ids
+        try:
+            native = pipersynth.SynthesisRequest(
+                id=request.id,
+                text=request.text,
+                language=request.language,
+                speaker=request.speaker,
+                tokens=tuple(_piper_token(token, pipersynth) for token in request.tokens),
+                pronunciation_overrides=tuple(
+                    _piper_pronunciation(span, pipersynth)
+                    for span in request.pronunciation_overrides
                 ),
-                "chunks": len(chunks),
-            },
+            )
+            result = self._voice.synthesize(native, config=self._config)
+        except EngineSynthesisError:
+            raise
+        except Exception as exc:
+            raise _translate_piper_error(exc, self._selection, request) from exc
+
+        metadata = dict(result.metadata)
+        metadata["voice_level"] = _voice_level_metadata(
+            metadata.get("voice_level"), str(self._selection.options.get("voice_level", "off"))
+        )
+        rendered = RenderedSpeech(
+            id=result.id,
+            audio=result.audio,
+            sample_rate=result.sample_rate,
+            warnings=tuple(result.warnings),
+            word_timings=(),
+            metadata=metadata,
+        )
+        return validate_rendered_speech(
+            request,
+            rendered,
+            engine="piper",
+            engine_version=_piper_version(),
+            target_id=self._selection.target_id,
         )
 
 
@@ -115,12 +268,24 @@ class PiperSynthEngineAdapter:
         try:
             import pipersynth
 
-            voice = getattr(pipersynth, "PiperVoice", None)
-            synthesize = getattr(voice, "synthesize", None)
-            if not callable(synthesize) or not hasattr(pipersynth, "SynthesisConfig"):
+            required = (
+                "PiperVoice",
+                "SynthesisRequest",
+                "SynthesisResult",
+                "SynthesisConfig",
+                "LinguisticToken",
+                "PronunciationOverride",
+                "VoiceLevelConfig",
+                "SynthesisInputTooLongError",
+            )
+            if not all(hasattr(pipersynth, name) for name in required):
                 return False
-            parameters = inspect.signature(synthesize).parameters
-            return "text" in parameters and "syn_config" in parameters
+            parameters = inspect.signature(pipersynth.PiperVoice.synthesize).parameters
+            return (
+                "request" in parameters
+                and "config" in parameters
+                and parameters["config"].kind is inspect.Parameter.KEYWORD_ONLY
+            )
         except (
             ImportError,
             SyntaxError,
@@ -139,6 +304,11 @@ class PiperSynthEngineAdapter:
             voice_binding_scope="target",
             option_names=PIPER_RENDER_OPTIONS,
             supports_speakers=True,
+            supports_linguistic_tokens=True,
+            supports_pronunciation_overrides=True,
+            pronunciation_alphabets=frozenset({"ipa"}),
+            supports_voice_level_calibration=True,
+            supports_request_measurement=False,
             supports_qualities=True,
             supports_live=True,
             supports_timestamps=False,
@@ -265,6 +435,7 @@ class PiperSynthEngineAdapter:
             "speaker_id_map": dict(metadata.speaker_id_map),
             "source_revision": metadata.source_revision,
             "quality": metadata.quality,
+            "sample_rate": getattr(metadata, "sample_rate", None),
         }
 
     def canonical_synthesis_identity(self, selection: EngineSelection) -> Mapping[str, Any]:
@@ -282,36 +453,33 @@ class PiperSynthEngineAdapter:
         import pipersynth
 
         options = dict(selection.options)
-        voice = pipersynth.PiperVoice.from_pretrained(
-            selection.target_id,
-            cache_dir=options.get("cache_dir"),
-            offline=selection.offline,
-            refresh_catalog=selection.refresh,
-            force_download=bool(options.get("force_download", False)),
-            providers=options.get("providers"),
-            provider_options=options.get("provider_options"),
-            session_options=options.get("session_options"),
-            frontend_options=options.get("frontend_options"),
-        )
-        loudness_options = options.get("loudness")
-        loudness = (
-            pipersynth.LoudnessConfig(**loudness_options)
-            if isinstance(loudness_options, Mapping)
-            else pipersynth.LoudnessConfig()
-        )
-        config = pipersynth.SynthesisConfig(
-            length_scale=options.get("length_scale"),
-            noise_scale=options.get("noise_scale"),
-            noise_w_scale=options.get("noise_w_scale"),
-            normalize_audio=bool(options.get("normalize_audio", True)),
-            volume=float(options.get("volume", 1.0)),
-            loudness=loudness,
-        )
+        try:
+            voice = pipersynth.PiperVoice.from_pretrained(
+                selection.target_id,
+                cache_dir=options.get("cache_dir"),
+                offline=selection.offline,
+                refresh_catalog=selection.refresh,
+                force_download=bool(options.get("force_download", False)),
+                providers=options.get("providers"),
+                provider_options=options.get("provider_options"),
+                session_options=options.get("session_options"),
+                frontend_options=options.get("frontend_options"),
+            )
+            config = pipersynth.SynthesisConfig(
+                length_scale=options.get("length_scale"),
+                noise_scale=options.get("noise_scale"),
+                noise_w_scale=options.get("noise_w_scale"),
+                normalize_audio=bool(options.get("normalize_audio", True)),
+                output_gain=float(options.get("output_gain", 1.0)),
+                voice_level=pipersynth.VoiceLevelConfig(mode=options.get("voice_level", "off")),
+            )
+        except Exception as exc:
+            raise _translate_piper_error(exc, selection, opening=True) from exc
 
         @contextmanager
         def session() -> Any:
             try:
-                yield PiperSynthEngineSession(voice, config)
+                yield PiperSynthEngineSession(voice, config, selection)
             finally:
                 voice.close()
 

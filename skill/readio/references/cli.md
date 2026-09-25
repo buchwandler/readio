@@ -71,7 +71,7 @@ The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-man
 
 ## Model discovery
 
-Use PyKokoro >=0.9.9,<0.10 metadata to inspect runnable voices first, then inspect backend models when needed. Discovery is metadata-only and does not download model weights or voices:
+Use PyKokoro >=0.10.0,<0.11 metadata to inspect its model and voice catalog. PiperSynth >=0.2.0,<0.3 and PocketSynth >=0.2.0,<0.3 provide their own target catalogs. Discovery is metadata-only and does not download model weights or voices:
 
 ````bash
 readio voices list --lang de --offline --json
@@ -82,8 +82,9 @@ readio models list --preference huggingface --json
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 `--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
-Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. Synthesis/default `--model-source github|huggingface` selects the same distribution for metadata validation and `PipelineConfig`. Voices are model-scoped; SSMD checks the active model roster, not the legacy configured list.
-Readio uses an explicit backend registry. PyKokoro and Piper are supported engines. Use `--engine BACKEND` with `kokoro`/`pykokoro` or `piper`/`pipersynth`; stable selectors are engine-qualified (`de-ko-3`, `de-pi-9`) and canonical voice IDs remain accepted.
+Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. `--model-source github|huggingface` selects a distribution only for engines that advertise that capability. Voices are model-scoped where the engine exposes a roster; SSMD checks the active target's roster.
+
+Readio supports PyKokoro, PiperSynth, and PocketSynth through a neutral strict request API. Use `--engine BACKEND` to select an installed engine; engine target catalogs and capabilities are not interchangeable. Readio owns exact-text capacity fitting and subdivision, while each adapter makes one native synthesis request per child and does not invoke a native splitter.
 
 ## Language defaults
 
@@ -97,6 +98,7 @@ readio defaults reset de
 ````
 
 When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `--lexicon NAME` accepts named PyKokoro selectors such as `crane`; `--no-lexicons` selects no static layers, while `--auto-lexicons` restores language defaults. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
+When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, `--speed`, `--voice-level`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
 
 ### SpaCy and short-sentence controls
 
@@ -106,10 +108,14 @@ The shared synthesis options are available on `speak`, `render`, and `spotify pu
 --spacy auto|off|sm|md|lg|trf
 --short-sentence auto|off|wrap|phrase|randomized-phrase
 --pause-mode auto|tts|manual
+--speed FLOAT
+--voice-level off|calibrated
 ```
 
 Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and phrase modes can perform carrier-phrase inference and retries. Persist these as `[reader] spacy` and `[reader] short_sentence`.
 Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. Persist an installation-specific choice with `[reader] pause_mode` or `readio config set reader.pause_mode auto`; use an explicit CLI value when reproducibility requires it.
+
+`--speed` is a finite positive synthesis multiplier, not a composition tempo. PyKokoro receives it directly, PiperSynth converts it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`. `--voice-level off|calibrated` selects engine voice-level handling. Both controls affect speech-cache identity.
 
 `--g2p-fallback` accepts `none`, `espeak`, or `goruut`; `--lexicon-data-policy` accepts `auto` or `installed-only`. `--language-detection auto` plus repeatable `--detect-language LANG` controls pronunciation routing. Plans preserve `lexicons: null` versus `lexicons: []`. Do not pass `de-de:crane` as the selector: it is the language-qualified Lexphon asset ID resolved downstream; `de-crane` is an acoustic model.
 

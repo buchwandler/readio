@@ -133,6 +133,11 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
     parser.add_argument(
+        "--voice-level",
+        choices=public_api.VOICE_LEVEL_MODES,
+        help="static identity-specific voice gain calibration (default: off)",
+    )
+    parser.add_argument(
         "--precision",
         choices=("int8", "fp32"),
         help="PocketSynth bundle precision",

@@ -32,3 +32,14 @@ def test_prompt_missing_voices_skips_existing_bindings(monkeypatch, capsys) -> N
     assert bindings == {"guest": default_config().voices["kokoro"].ids[0]}
     assert prompts == ["Voice for guest [enter number or voice ID]: "]
     assert "SSMD uses 1 unconfigured voice references" in capsys.readouterr().out
+
+
+def test_cli_adapter_maps_common_speed_and_voice_level() -> None:
+    from types import SimpleNamespace
+
+    request = cli_adapter.synthesis_request_from_args(
+        SimpleNamespace(speed=1.25, voice_level="calibrated")
+    )
+
+    assert request.speed == 1.25
+    assert request.voice_level == "calibrated"

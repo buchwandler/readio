@@ -71,12 +71,11 @@ sidecars cause only the affected segment to render again.
 
 Readio lowers each UtterPlan segment to a Readio-owned `SpeechRequest`; adapters receive requests and return `RenderedSpeech`. They do not receive UtterPlan documents or construct AudioCompose jobs. The engine runtime may perform engine-specific tokenization and acoustic inference, but semantic role binding, pause layout, markers, timing rebasing, timeline operations, and output remain Readio responsibilities.
 
+A native adapter makes one strict synthesis call for a Readio-shaped request and never invokes the engine's convenience splitter. Readio owns capacity fitting: it measures when supported, handles typed too-long responses, and recursively subdivides exact text at legal sentence, clause, token, or word boundaries. Protected linguistic and pronunciation ranges are not cut. Child audio is merged and child-local timings are rebased to the original request.
+
 PyKokoro and Pocket support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
 
-Readio's engine adapter owns canonical profile identity. Project `speed` and
-semantic rate are composition controls. Model-native controls such as a named
-Kokoro model speed or Piper `length_scale` remain synthesis controls when
-explicitly requested.
+Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. PyKokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Composition rate remains separate, so synthesis speed is never applied twice.
 
 ## Composition and status dependencies
 
@@ -99,8 +98,8 @@ hashes, audio digests, operation payloads, timing frames, and output policy.
 Consequently:
 
 - pause or prosody edits rebuild composition but do not rerun speech synthesis;
-- text, pronunciation, token, voice, G2P, model, or calibration changes rerender
-  only affected canonical segments;
+- text, pronunciation, token, voice, speed, voice-level, G2P, model, target revision, or
+  calibration changes rerender only affected canonical segments;
 - loudness changes rebuild composition only;
 - codec changes rebuild export only;
 - trace plan IDs and trace hashes are provenance, not cache validity checks.

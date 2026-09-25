@@ -6,49 +6,173 @@ import importlib.metadata
 import logging
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from ..errors import (
+    EmptySpeechTextError,
+    EngineBackendError,
+    EngineSynthesisError,
+    InvalidEngineLanguageError,
+    InvalidEngineModelError,
+    InvalidEngineOptionError,
+    InvalidEngineVoiceError,
+    InvalidSpeechRequestError,
+    SpeechRequestTooLongError,
+    UnsupportedSynthesisFeatureError,
+)
 from .base import (
     EngineCapabilities,
     EngineSelection,
     PronunciationSpan,
     RenderedSpeech,
+    RequestMeasure,
     SpeechRequest,
     SpeechToken,
     SpeechWordTiming,
+    validate_rendered_speech,
 )
 from .catalog import SynthesisTarget
 
 logger = logging.getLogger(__name__)
 
 
+def _pykokoro_version() -> str | None:
+    try:
+        return importlib.metadata.version("pykokoro")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _translate_pykokoro_error(
+    error: Exception,
+    selection: EngineSelection,
+    request: SpeechRequest | None = None,
+    *,
+    opening: bool = False,
+) -> EngineSynthesisError:
+    import pykokoro
+
+    error_map = (
+        ("SynthesisInputTooLongError", SpeechRequestTooLongError),
+        ("EmptyTextError", EmptySpeechTextError),
+        ("InvalidModelError", InvalidEngineModelError),
+        ("InvalidVoiceError", InvalidEngineVoiceError),
+        ("InvalidLanguageError", InvalidEngineLanguageError),
+        ("InvalidPronunciationError", InvalidSpeechRequestError),
+        ("InvalidLinguisticTokensError", InvalidSpeechRequestError),
+        ("ConfigurationError", InvalidEngineOptionError),
+        ("UnsupportedFeatureError", UnsupportedSynthesisFeatureError),
+        ("BackendError", EngineBackendError),
+        ("AlignmentError", EngineBackendError),
+        ("SynthesisStateError", EngineBackendError),
+    )
+    error_type: type[EngineSynthesisError] = EngineBackendError
+    for native_name, mapped_type in error_map:
+        native_type = getattr(pykokoro, native_name, None)
+        if isinstance(native_type, type) and isinstance(error, native_type):
+            error_type = mapped_type
+            break
+    else:
+        if opening and isinstance(error, (TypeError, ValueError)):
+            error_type = InvalidEngineOptionError
+        elif isinstance(error, (TypeError, ValueError)):
+            error_type = InvalidSpeechRequestError
+
+    context: dict[str, Any] = {
+        "engine": "pykokoro",
+        "engine_version": _pykokoro_version(),
+        "target_id": selection.target_id,
+        "language": request.language if request is not None else selection.language,
+        "voice": request.voice if request is not None else selection.voice,
+        "speaker": request.speaker if request is not None else selection.speaker,
+        "request_id": request.id if request is not None else None,
+        "native_error_type": type(error).__name__,
+    }
+    if error_type is SpeechRequestTooLongError:
+        context.update(
+            amount=getattr(error, "token_count", None),
+            maximum=getattr(error, "max_tokens", None),
+            unit="model_tokens",
+            text_length=getattr(error, "text_length", len(request.text) if request else None),
+            source="pykokoro.prepare",
+        )
+    return error_type(str(error), **context)
+
+
+def _pykokoro_request(request: SpeechRequest, module: Any) -> Any:
+    return module.SynthesisRequest(
+        id=request.id,
+        text=request.text,
+        language=request.language,
+        voice=request.voice,
+        pronunciation_overrides=tuple(
+            _pykokoro_override(item, module) for item in request.pronunciation_overrides
+        ),
+        tokens=tuple(_pykokoro_token(item, module) for item in request.tokens),
+        phonemes=request.whole_request_phonemes,
+    )
+
+
+def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
+    if is_dataclass(value) and not isinstance(value, type):
+        metadata = asdict(value)
+    elif isinstance(value, Mapping):
+        metadata = dict(value)
+    else:
+        metadata = {}
+    return {
+        "mode": metadata.get("mode", mode),
+        "applied": bool(metadata.get("applied", False)),
+        "gain_db": metadata.get("gain_db"),
+        "source": metadata.get("source", "none"),
+        "reason": metadata.get("reason"),
+        "calibration_identity": metadata.get("key", metadata.get("calibration_identity")),
+        "calibration_revision": metadata.get("corpus", metadata.get("catalog_revision")),
+    }
+
+
 class PyKokoroEngineSession:
     """Adapt neutral requests to one open KokoroSynthesizer."""
 
-    def __init__(self, synthesizer: Any) -> None:
+    def __init__(self, synthesizer: Any, selection: EngineSelection | None = None) -> None:
         self._synthesizer = synthesizer
+        self._selection = selection or EngineSelection(
+            engine="pykokoro", target_id="unknown", language="und"
+        )
 
-    def synthesize(self, request: SpeechRequest) -> RenderedSpeech:
-        import numpy as np
+    def measure(self, request: SpeechRequest) -> RequestMeasure:
         import pykokoro
 
-        overrides = tuple(
-            _pykokoro_override(item, pykokoro) for item in request.pronunciation_overrides
+        try:
+            prepared = self._synthesizer.prepare(_pykokoro_request(request, pykokoro))
+        except EngineSynthesisError:
+            raise
+        except Exception as exc:
+            raise _translate_pykokoro_error(exc, self._selection, request) from exc
+        token_ids = tuple(getattr(prepared, "token_ids", ()))
+        amount = len(token_ids)
+        maximum = self._selection.metadata.get("max_tokens")
+        if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum <= 0:
+            maximum = None
+        return RequestMeasure(
+            fits=amount <= maximum if maximum is not None else None,
+            amount=amount,
+            maximum=maximum,
+            unit="model_tokens",
+            source="pykokoro.prepare",
         )
-        tokens = tuple(_pykokoro_token(item, pykokoro) for item in request.tokens)
-        native = pykokoro.SynthesisSegment(
-            id=request.id,
-            text=request.text,
-            language=request.language,
-            voice=request.voice,
-            pronunciation_overrides=overrides,
-            annotations=tokens,
-            phonemes=request.whole_request_phonemes,
-        )
-        result = self._synthesizer.synthesize(native)
-        audio = np.asarray(result.audio, dtype=np.float32)
-        if audio.ndim != 1 or not np.isfinite(audio).all():
-            raise ValueError("pykokoro.rendered_audio_invalid: expected finite mono float32 audio")
+
+    def synthesize(self, request: SpeechRequest) -> RenderedSpeech:
+        import pykokoro
+
+        try:
+            result = self._synthesizer.synthesize(_pykokoro_request(request, pykokoro))
+        except EngineSynthesisError:
+            raise
+        except Exception as exc:
+            raise _translate_pykokoro_error(exc, self._selection, request) from exc
+
         timings = tuple(
             SpeechWordTiming(
                 text=item.text,
@@ -59,26 +183,33 @@ class PyKokoroEngineSession:
             )
             for item in result.word_timings
         )
-        warnings = list(result.diagnostics)
-        if any(token.morph is not None for token in request.tokens):
-            warnings.append(
-                "pykokoro.token_morph_unsupported: current PyKokoro API has no morph field"
-            )
+        applications = tuple(getattr(result, "voice_level_applications", ()) or ())
         metadata: dict[str, Any] = {
             "language": result.language,
             "voice": result.voice,
             "phonemes": result.phonemes,
             "token_ids": tuple(result.token_ids),
+            "voice_level": _voice_level_metadata(
+                applications[0] if applications else None,
+                str(self._selection.options.get("voice_level", "off")),
+            ),
         }
         if result.trace is not None:
             metadata["trace"] = result.trace
-        return RenderedSpeech(
+        rendered = RenderedSpeech(
             id=result.id,
-            audio=audio,
+            audio=result.audio,
             sample_rate=result.sample_rate,
-            warnings=tuple(warnings),
+            warnings=tuple(result.diagnostics),
             word_timings=timings,
             metadata=metadata,
+        )
+        return validate_rendered_speech(
+            request,
+            rendered,
+            engine="pykokoro",
+            engine_version=_pykokoro_version(),
+            target_id=self._selection.target_id,
         )
 
 
@@ -100,6 +231,7 @@ def _pykokoro_token(item: SpeechToken, module: Any) -> Any:
         tag=item.tag,
         lemma=item.lemma,
         language=item.language,
+        morph=item.morph,
     )
 
 
@@ -122,11 +254,19 @@ class PyKokoroEngineAdapter:
             required = (
                 "KokoroSynthesizer",
                 "SynthesisConfig",
-                "SynthesisSegment",
+                "SynthesisRequest",
                 "PronunciationOverride",
                 "LinguisticToken",
+                "VoiceLevelConfig",
+                "SynthesisInputTooLongError",
+                "ShortSentenceConfig",
             )
-            return all(hasattr(pykokoro, name) for name in required)
+            if not all(hasattr(pykokoro, name) for name in required):
+                return False
+            synthesizer = pykokoro.KokoroSynthesizer
+            return callable(getattr(synthesizer, "prepare", None)) and callable(
+                getattr(synthesizer, "synthesize", None)
+            )
         except (
             ImportError,
             SyntaxError,
@@ -147,12 +287,15 @@ class PyKokoroEngineAdapter:
                     "lexicons",
                     "model_source",
                     "quality",
-                    "acoustic_speed",
+                    "speed",
                     "random_seed",
-                    "spacy",
+                    "voice_level",
                     "short_sentence",
                     "g2p_fallback",
                     "lexicon_data_policy",
+                    "waveform_validation",
+                    "trace",
+                    "allow_experimental_frontend",
                 }
             ),
             supports_named_voices=True,
@@ -165,6 +308,8 @@ class PyKokoroEngineAdapter:
             supports_qualities=True,
             supports_live=True,
             supports_timestamps=True,
+            supports_voice_level_calibration=True,
+            supports_request_measurement=True,
         )
 
     def discover(self, request: Any) -> tuple[SynthesisTarget, ...]:
@@ -340,7 +485,15 @@ class PyKokoroEngineAdapter:
             )
         except (ImportError, OSError, ValueError):
             return {}
-        return {"languages": tuple(model.languages), "voices": tuple(model.voices)}
+        return {
+            "languages": tuple(model.languages),
+            "voices": tuple(model.voices),
+            "sample_rate": model.sample_rate,
+            "max_tokens": model.max_tokens,
+            "model_source": model.source,
+            "model_identity": model.distribution_id or model.id,
+            "distribution_id": model.distribution_id,
+        }
 
     def canonical_synthesis_identity(self, selection: EngineSelection) -> Mapping[str, Any]:
         return {
@@ -357,45 +510,47 @@ class PyKokoroEngineAdapter:
         import pykokoro
 
         options = dict(selection.options)
-        generation = pykokoro.GenerationConfig(
-            speed=float(options.get("acoustic_speed", 1.0)),
-            lang=selection.language,
-            random_seed=options.get("random_seed"),
-        )
-        tokenizer_values: dict[str, Any] = {
-            "lexicons": options.get("lexicons"),
-            "fallback": options.get("g2p_fallback", "espeak"),
-            "lexicon_data_policy": options.get("lexicon_data_policy", "auto"),
-        }
-        spacy = options.get("spacy")
-        if spacy not in {None, "auto", "off"}:
-            tokenizer_values.update(use_spacy=True, spacy_model_size=spacy)
-        tokenizer = pykokoro.TokenizerConfig(**tokenizer_values)
-        short_sentence = options.get("short_sentence")
-        short_sentence_config = None
-        if short_sentence is not None:
-            short_sentence_config = pykokoro.ShortSentenceConfig(
-                enabled=short_sentence != "off",
-                **({"resolve_mode": short_sentence} if short_sentence != "off" else {}),
+        try:
+            generation = pykokoro.GenerationConfig(
+                speed=float(options.get("speed", 1.0)),
+                lang=selection.language,
+                random_seed=options.get("random_seed"),
             )
-        config = pykokoro.SynthesisConfig(
-            voice=selection.voice,
-            generation=generation,
-            model_quality=options.get("quality"),
-            model_source=options.get("model_source"),
-            model_variant=selection.target_id,
-            tokenizer_config=tokenizer,
-            short_sentence_config=short_sentence_config,
-            waveform_validation=options.get("waveform_validation", "off"),
-            return_trace=bool(options.get("trace", False)),
-            allow_experimental_frontend=bool(options.get("allow_experimental_frontend", False)),
-        )
-        synthesizer = pykokoro.KokoroSynthesizer(config)
+            tokenizer = pykokoro.TokenizerConfig(
+                lexicons=options.get("lexicons"),
+                fallback=options.get("g2p_fallback", "espeak"),
+                lexicon_data_policy=options.get("lexicon_data_policy", "auto"),
+            )
+            short_sentence = options.get("short_sentence")
+            short_sentence_config = None
+            if short_sentence is not None:
+                short_sentence_config = pykokoro.ShortSentenceConfig(
+                    enabled=short_sentence != "off",
+                    **({"resolve_mode": short_sentence} if short_sentence != "off" else {}),
+                )
+            config = pykokoro.SynthesisConfig(
+                voice=selection.voice,
+                generation=generation,
+                model_quality=options.get("quality"),
+                model_source=options.get("model_source"),
+                model_variant=selection.target_id,
+                tokenizer_config=tokenizer,
+                short_sentence_config=short_sentence_config,
+                waveform_validation=options.get("waveform_validation", "off"),
+                return_trace=bool(options.get("trace", False)),
+                allow_experimental_frontend=bool(options.get("allow_experimental_frontend", False)),
+                voice_level=pykokoro.VoiceLevelConfig(mode=options.get("voice_level", "off")),
+                long_text_split="none",
+                long_text_use_spacy=False,
+            )
+            synthesizer = pykokoro.KokoroSynthesizer(config)
+        except Exception as exc:
+            raise _translate_pykokoro_error(exc, selection, opening=True) from exc
 
         @contextmanager
         def session() -> Any:
             try:
-                yield PyKokoroEngineSession(synthesizer)
+                yield PyKokoroEngineSession(synthesizer, selection)
             finally:
                 synthesizer.close()
 

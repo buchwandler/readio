@@ -119,8 +119,7 @@ def execute_bounded_v2(
     if default_target is None:
         raise RenderError("resolved v2 plan has no default render target")
     role_targets = {binding.role: binding.target for binding in plan.render.role_bindings}
-    from .rendering import lower_segment
-    from .rendering.lowering import LoweringError
+    from .rendering import LoweringError, lower_segment, render_atomic_request
     from .stages.composition import _build_layout, _markers_by_segment
 
     rendered_segments: list[tuple[Any, dict[str, Any]]] = []
@@ -146,7 +145,8 @@ def execute_bounded_v2(
             if session is None:
                 session = stack.enter_context(adapter.open(selection))
                 sessions[key] = session
-            rendered = session.synthesize(lowered.request)
+            atomic = render_atomic_request(session, lowered.request)
+            rendered = atomic.result
             if rendered.id != lowered.request.id:
                 raise RenderError(
                     f"engine returned request {rendered.id!r}; expected {lowered.request.id!r}"

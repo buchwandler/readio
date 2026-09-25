@@ -4,18 +4,12 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import numpy as np
-import pykokoro
 from project_support import assert_neutral_session_contract
 
-from readio.engines.base import PronunciationSpan, SpeechRequest, SpeechToken
+from readio.engines.base import EngineSelection, PronunciationSpan, SpeechRequest, SpeechToken
 from readio.engines.pipersynth import PiperSynthEngineAdapter, PiperSynthEngineSession
 from readio.engines.pykokoro import PyKokoroEngineAdapter, PyKokoroEngineSession
 from readio.engines.selection import EngineRequest
-
-
-class _NativeValue:
-    def __init__(self, **kwargs) -> None:
-        self.__dict__.update(kwargs)
 
 
 def test_pykokoro_adapter_resolves_default_model_separately_from_voice() -> None:
@@ -28,10 +22,55 @@ def test_pykokoro_adapter_resolves_default_model_separately_from_voice() -> None
     assert selection.voice == "af_heart"
 
 
+def test_pykokoro_open_maps_common_speed_and_voice_level_without_splitting(
+    monkeypatch,
+):
+    import pykokoro
+
+    class _Config:
+        def __init__(self, **values):
+            self.__dict__.update(values)
+
+    class _Synthesizer:
+        def __init__(self, config):
+            self.config = config
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(pykokoro, "GenerationConfig", _Config)
+    monkeypatch.setattr(pykokoro, "TokenizerConfig", _Config)
+    monkeypatch.setattr(pykokoro, "SynthesisConfig", _Config)
+    monkeypatch.setattr(pykokoro, "VoiceLevelConfig", _Config)
+    created = []
+
+    def open_synthesizer(config):
+        synthesizer = _Synthesizer(config)
+        created.append(synthesizer)
+        return synthesizer
+
+    monkeypatch.setattr(pykokoro, "KokoroSynthesizer", open_synthesizer)
+    selection = EngineSelection(
+        engine="pykokoro",
+        target_id="v1.0",
+        language="en-us",
+        voice="af_heart",
+        options={"speed": 1.25, "voice_level": "calibrated"},
+    )
+
+    with PyKokoroEngineAdapter().open(selection):
+        pass
+
+    config = created[0].config
+    assert config.generation.speed == 1.25
+    assert config.voice_level.mode == "calibrated"
+    assert config.long_text_split == "none"
+    assert config.long_text_use_spacy is False
+    assert created[0].closed
+
+
 def test_pykokoro_session_converts_request_and_result(monkeypatch) -> None:
-    monkeypatch.setattr(pykokoro, "SynthesisSegment", _NativeValue)
-    monkeypatch.setattr(pykokoro, "PronunciationOverride", _NativeValue)
-    monkeypatch.setattr(pykokoro, "LinguisticToken", _NativeValue)
     native_result = SimpleNamespace(
         id="segment-1",
         audio=np.array([0.1, -0.1], dtype=np.float32),
@@ -46,8 +85,8 @@ def test_pykokoro_session_converts_request_and_result(monkeypatch) -> None:
     )
 
     class _Synthesizer:
-        def synthesize(self, segment):
-            self.segment = segment
+        def synthesize(self, request):
+            self.request = request
             return native_result
 
     synthesizer = _Synthesizer()
@@ -57,14 +96,23 @@ def test_pykokoro_session_converts_request_and_result(monkeypatch) -> None:
         language="en-us",
         voice="af_heart",
         pronunciation_overrides=(PronunciationSpan(0, 5, "həˈloʊ", alphabet="ipa"),),
-        tokens=(SpeechToken(0, 5, "Hello", pos="INTJ"),),
+        tokens=(
+            SpeechToken(
+                0,
+                5,
+                "Hello",
+                pos="INTJ",
+                morph="Number=Sing",
+            ),
+        ),
     )
 
     rendered = assert_neutral_session_contract(PyKokoroEngineSession(synthesizer), request)
 
-    assert synthesizer.segment.text == "Hello"
-    assert synthesizer.segment.pronunciation_overrides[0].phonemes == "həˈloʊ"
-    assert synthesizer.segment.annotations[0].pos == "INTJ"
+    assert synthesizer.request.text == "Hello"
+    assert synthesizer.request.pronunciation_overrides[0].phonemes == "həˈloʊ"
+    assert synthesizer.request.tokens[0].pos == "INTJ"
+    assert synthesizer.request.tokens[0].morph == "Number=Sing"
     assert rendered.id == request.id
     assert rendered.sample_rate == 24000
     np.testing.assert_array_equal(rendered.audio, native_result.audio)
@@ -85,39 +133,26 @@ def test_piper_adapter_maps_request_rate_to_native_length_scale() -> None:
     assert selection.options["length_scale"] == 0.5
 
 
-def test_piper_session_uses_published_text_request_api() -> None:
+def test_piper_session_uses_one_published_request_api() -> None:
+    import pipersynth
+
     @dataclass(frozen=True)
     class _Config:
         speaker_id: int | None = None
 
-    chunks = (
-        SimpleNamespace(
-            audio_float_array=np.array([0.2], dtype=np.float32),
-            sample_rate=22050,
-            phonemes=("h",),
-            phoneme_ids=(1,),
-            warnings=(),
-        ),
-        SimpleNamespace(
-            audio_float_array=np.array([-0.2], dtype=np.float32),
-            sample_rate=22050,
-            phonemes=("i",),
-            phoneme_ids=(2,),
-            warnings=("chunk warning",),
-        ),
+    native_result = SimpleNamespace(
+        id="segment-2",
+        audio=np.array([0.2, -0.2], dtype=np.float32),
+        sample_rate=22050,
+        warnings=("native warning",),
+        metadata={"phonemes": ("h", "i")},
     )
 
     class _Voice:
-        config = SimpleNamespace(sample_rate=22050)
-
-        def resolve_speaker_id(self, speaker):
-            self.speaker = speaker
-            return 0
-
-        def synthesize(self, text, syn_config):
-            self.text = text
-            self.config_used = syn_config
-            return iter(chunks)
+        def synthesize(self, request, *, config):
+            self.request = request
+            self.config_used = config
+            return native_result
 
     voice = _Voice()
     request = SpeechRequest(
@@ -126,36 +161,53 @@ def test_piper_session_uses_published_text_request_api() -> None:
         language="en-us",
         voice="lessac",
         speaker="narrator",
+        tokens=(SpeechToken(0, 2, "Hi", pos="INTJ", morph="Number=Sing"),),
+        pronunciation_overrides=(PronunciationSpan(0, 2, "haɪ", alphabet="ipa"),),
     )
 
     rendered = assert_neutral_session_contract(PiperSynthEngineSession(voice, _Config()), request)
 
-    assert voice.text == "Hi"
-    assert voice.speaker == "narrator"
-    assert voice.config_used.speaker_id == 0
+    assert isinstance(voice.request, pipersynth.SynthesisRequest)
+    assert voice.request.text == "Hi"
+    assert voice.request.speaker == "narrator"
+    assert voice.request.tokens[0].morph == "Number=Sing"
+    assert voice.request.pronunciation_overrides[0].phonemes == "haɪ"
     assert rendered.id == request.id
     assert rendered.sample_rate == 22050
-    assert rendered.warnings == ("chunk warning",)
+    assert rendered.warnings == ("native warning",)
     assert rendered.metadata["phonemes"] == ("h", "i")
+    assert voice.config_used.speaker_id is None
     np.testing.assert_array_equal(rendered.audio, np.array([0.2, -0.2], dtype=np.float32))
 
 
-def test_piper_release_capabilities_do_not_claim_token_or_pronunciation_support() -> None:
+def test_piper_release_capabilities_claim_request_context_support() -> None:
     capabilities = PiperSynthEngineAdapter().capabilities()
 
     assert capabilities.supports_speakers
-    assert not capabilities.supports_linguistic_tokens
-    assert not capabilities.supports_pronunciation_overrides
+    assert capabilities.supports_linguistic_tokens
+    assert capabilities.supports_pronunciation_overrides
+    assert capabilities.supports_voice_level_calibration
 
 
 def test_piper_api_compatibility_checks_published_voice_signature(monkeypatch) -> None:
     import pipersynth
 
     class _PublishedVoice:
+        def synthesize(self, request, *, config=None):
+            return None
+
+    monkeypatch.setattr(pipersynth, "PiperVoice", _PublishedVoice)
+
+    assert PiperSynthEngineAdapter().compatible_api()
+
+
+def test_piper_api_compatibility_rejects_legacy_text_signature(monkeypatch) -> None:
+    import pipersynth
+
+    class _LegacyVoice:
         def synthesize(self, text, syn_config=None):
             return iter(())
 
-    monkeypatch.setattr(pipersynth, "PiperVoice", _PublishedVoice)
-    monkeypatch.setattr(pipersynth, "SynthesisConfig", object, raising=False)
+    monkeypatch.setattr(pipersynth, "PiperVoice", _LegacyVoice)
 
-    assert PiperSynthEngineAdapter().compatible_api()
+    assert not PiperSynthEngineAdapter().compatible_api()

@@ -292,6 +292,14 @@ def test_pause_mode_cli_is_unset_when_omitted(command):
     assert args.pause_mode is None
 
 
+def test_voice_level_cli_option_is_available_on_render() -> None:
+    args = build_parser().parse_args(
+        ["render", "hello", "--speed", "1.25", "--voice-level", "calibrated"]
+    )
+    assert args.speed == 1.25
+    assert args.voice_level == "calibrated"
+
+
 def test_render_parser_has_shared_input_and_output_options():
     args = build_parser().parse_args(
         ["render", "literal", "--file", "episode.ssmd", "--select", "paragraph:2", "-o", "out.wav"]

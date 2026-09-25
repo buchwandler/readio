@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 from collections.abc import Mapping
@@ -35,6 +36,7 @@ G2P_FALLBACKS = ("none", "espeak", "goruut")
 LEXICON_DATA_POLICIES = ("auto", "installed-only")
 LANGUAGE_DETECTION_MODES = ("off", "auto")
 
+VOICE_LEVEL_MODES = ("off", "calibrated")
 SPACY_POLICIES = ("auto", "off", "sm", "md", "lg", "trf")
 SPACY_LEGACY_ALIASES = {"required": "sm"}
 SHORT_SENTENCE_POLICIES = (
@@ -51,6 +53,7 @@ class ReaderSettings:
     voice: str = "af_sarah"
     lang: str = "en-us"
     speed: float = 1.0
+    voice_level: str = "off"
     pause_mode: str = "auto"
     unit: str = "sentence"
     queue_size: int = 2
@@ -169,14 +172,24 @@ def normalize_short_sentence_policy(value: object) -> str:
     return normalized
 
 
+def normalize_voice_level(value: object) -> str:
+    normalized = str(value).strip().lower()
+    if normalized not in VOICE_LEVEL_MODES:
+        allowed = ", ".join(VOICE_LEVEL_MODES)
+        raise ValueError(f"reader.voice_level must be one of: {allowed}")
+    return normalized
+
+
 def _coerce_reader_value(key: str, value: Any) -> Any:
     if key not in _READER_KEYS:
         raise KeyError(f"unknown reader config key {key!r}")
     if key == "speed":
         value = float(value)
-        if value <= 0:
-            raise ValueError("speed must be > 0")
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("speed must be finite and > 0")
         return value
+    if key == "voice_level":
+        return normalize_voice_level(value)
     if key == "queue_size":
         value = int(value)
         if value <= 0:
@@ -321,6 +334,7 @@ def _languages(values: Any) -> dict[str, LanguageSettings]:
 
 def validate_config(cfg: ReadioConfig) -> ReadioConfig:
     _coerce_reader_value("speed", cfg.reader.speed)
+    _coerce_reader_value("voice_level", cfg.reader.voice_level)
     _coerce_reader_value("queue_size", cfg.reader.queue_size)
     _coerce_reader_value("unit", cfg.reader.unit)
     _coerce_reader_value("pause_mode", cfg.reader.pause_mode)
@@ -533,7 +547,12 @@ def _serializable_data(cfg: ReadioConfig, *, schema: int = 2) -> dict[str, Any]:
 def set_config_value(
     cfg: ReadioConfig | ReaderSettings, key: str, value: Any
 ) -> ReadioConfig | ReaderSettings:
-    aliases = {"voice": "reader.voice", "lang": "reader.lang", "speed": "reader.speed"}
+    aliases = {
+        "voice": "reader.voice",
+        "lang": "reader.lang",
+        "speed": "reader.speed",
+        "voice_level": "reader.voice_level",
+    }
     key = aliases.get(key, key)
     if isinstance(cfg, ReaderSettings):
         if "." in key:

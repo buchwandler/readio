@@ -107,7 +107,8 @@ def test_bounded_execution_lowers_segments_to_engine_requests(monkeypatch) -> No
     assert result.summary.sample_rate == 16000
     assert result.audio_job.output.sample_rate == 16000
     assert result.audio_job.output.clip_policy == "warn"
-    assert any(isinstance(item, Tempo) for item in result.audio_job.items[0].operations)
+    assert adapter.open_selections[0].options["speed"] == 1.5
+    assert not any(isinstance(item, Tempo) for item in result.audio_job.items[0].operations)
     assert isinstance(result.summary, RenderSummary)
 
 

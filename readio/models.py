@@ -12,7 +12,7 @@ from .config import LanguageSettings, normalize_language_key
 from .engines.registry import normalize_engine_id
 
 logger = logging.getLogger(__name__)
-PYKOKORO_REQUIRED = ">=0.9.9,<0.10"
+PYKOKORO_REQUIRED = ">=0.10.0,<0.11"
 _DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
 
@@ -235,7 +235,7 @@ def _version_supported(version: str) -> bool:
         return False
     major, minor = int(match.group(1)), int(match.group(2))
     patch = int(match.group(3) or 0)
-    return (major, minor, patch) >= (0, 9, 5) and (major, minor) == (0, 9)
+    return (major, minor, patch) >= (0, 10, 0) and (major, minor) == (0, 10)
 
 
 def _package_metadata() -> str | None:

@@ -83,16 +83,23 @@ def test_reader_policy_overrides_are_in_planning_and_render_target():
                 pause_mode="tts",
                 spacy="lg",
                 short_sentence="wrap",
+                voice_level="calibrated",
             )
         ),
     )
 
     assert plan.planning.pause_mode == "tts"
     assert plan.planning.spacy == "lg"
-    assert plan.render.rate == 1.5
+    assert plan.render.rate == 1.0
+    assert plan.render.options["speed"] == 1.5
+    assert plan.render.options["voice_level"] == "calibrated"
     assert plan.render.options["short_sentence"] == "wrap"
     assert (
         next(item for item in plan.decisions if item.field == "synthesis.pause_mode").origin
+        == "cli"
+    )
+    assert (
+        next(item for item in plan.decisions if item.field == "synthesis.voice_level").origin
         == "cli"
     )
     assert next(item for item in plan.decisions if item.field == "synthesis.speed").origin == "cli"

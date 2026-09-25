@@ -87,7 +87,7 @@ def test_piper_resolution_maps_generic_speed_to_length_scale():
     }
 
 
-def test_piper_published_text_session_uses_the_neutral_contract(monkeypatch):
+def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
     module = ModuleType("pipersynth")
     calls = {}
 
@@ -97,36 +97,38 @@ def test_piper_published_text_session_uses_the_neutral_contract(monkeypatch):
         noise_scale: float | None = None
         noise_w_scale: float | None = None
         normalize_audio: bool = True
-        volume: float = 1.0
-        loudness: object | None = None
-        speaker_id: int | None = None
+        output_gain: float = 1.0
+        voice_level: object | None = None
+
+    @dataclass(frozen=True)
+    class VoiceLevelConfig:
+        mode: str = "off"
+
+    @dataclass(frozen=True)
+    class SynthesisRequest:
+        id: str
+        text: str
+        language: str
+        speaker: str | int | None = None
+        tokens: tuple[object, ...] = ()
+        pronunciation_overrides: tuple[object, ...] = ()
 
     class Voice:
-        config = SimpleNamespace(sample_rate=22050)
-
         @classmethod
         def from_pretrained(cls, voice_id, **kwargs):
             calls["voice_id"] = voice_id
             calls["load_options"] = kwargs
             return cls()
 
-        def resolve_speaker_id(self, speaker):
-            calls["speaker"] = speaker
-            return 0
-
-        def synthesize(self, text, syn_config):
-            calls["text"] = text
-            calls["config"] = syn_config
-            return iter(
-                [
-                    SimpleNamespace(
-                        audio_float_array=np.array([0.2, -0.2], dtype=np.float32),
-                        sample_rate=22050,
-                        phonemes=("h", "i"),
-                        phoneme_ids=(1, 2),
-                        warnings=(),
-                    )
-                ]
+        def synthesize(self, request, *, config):
+            calls["request"] = request
+            calls["config"] = config
+            return SimpleNamespace(
+                id=request.id,
+                audio=np.array([0.2, -0.2], dtype=np.float32),
+                sample_rate=22050,
+                warnings=(),
+                metadata={"phonemes": ("h", "i")},
             )
 
         def close(self):
@@ -134,7 +136,8 @@ def test_piper_published_text_session_uses_the_neutral_contract(monkeypatch):
 
     module.PiperVoice = Voice
     module.SynthesisConfig = Config
-    module.LoudnessConfig = Config
+    module.VoiceLevelConfig = VoiceLevelConfig
+    module.SynthesisRequest = SynthesisRequest
     monkeypatch.setitem(sys.modules, "pipersynth", module)
 
     selection = EngineSelection(
@@ -157,9 +160,10 @@ def test_piper_published_text_session_uses_the_neutral_contract(monkeypatch):
         rendered = assert_neutral_session_contract(session, request)
 
     assert calls["voice_id"] == selection.target_id
-    assert calls["text"] == "Hi"
-    assert calls["speaker"] == "narrator"
+    assert calls["request"].text == "Hi"
+    assert calls["request"].speaker == "narrator"
     assert calls["config"].length_scale == 0.5
     assert calls["config"].noise_scale == 0.4
+    assert calls["config"].voice_level.mode == "off"
     assert rendered.metadata["phonemes"] == ("h", "i")
     assert calls["closed"]

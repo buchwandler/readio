@@ -54,7 +54,7 @@ Keep YAML front matter small and limited to portable metadata and defaults. Norm
 
 ```yaml
 ---
-ssmd_version: '0.9'
+ssmd_version: "0.9"
 title: Example title
 pause_defaults:
   enabled: true
@@ -254,7 +254,7 @@ Unless the user asks for different pacing, start from:
 
 ```yaml
 ---
-ssmd_version: '0.9'
+ssmd_version: "0.9"
 title: Example title
 pause_defaults:
   enabled: true

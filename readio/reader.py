@@ -46,6 +46,7 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
 
 def _synthesis_request(synthesis: ResolvedSynthesis) -> SynthesisRequest:
     return SynthesisRequest(
+        voice_level=synthesis.voice_level,
         language=synthesis.language,
         model=synthesis.model,
         model_source=synthesis.source,
@@ -151,6 +152,7 @@ def render_live(
     from .engines.base import SpeechRequest
     from .engines.registry import get_engine
     from .engines.selection import EngineRequest
+    from .rendering import render_atomic_request
 
     config = _config(cfg)
     resolved = synthesis or resolve_synthesis(config)
@@ -202,7 +204,8 @@ def render_live(
     with adapter.open(selection) as session:
         for paragraph in iter_live_paragraphs(lines):
             saw_text = True
-            rendered = session.synthesize(
+            rendered = render_atomic_request(
+                session,
                 SpeechRequest(
                     id=f"live-{completed + 1}",
                     text=paragraph,
@@ -210,8 +213,8 @@ def render_live(
                     voice=selection.voice,
                     speaker=selection.speaker,
                     options=dict(selection.options),
-                )
-            )
+                ),
+            ).result
             audio = np.asarray(rendered.audio)
             rendered_channels = 1 if audio.ndim == 1 else int(audio.shape[1])
             if sample_count and (

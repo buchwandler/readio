@@ -15,6 +15,7 @@ from .api import (
     SHORT_SENTENCE_POLICIES,
     SPACY_POLICIES,
     SUPPORTED_AUDIO_FORMATS,
+    VOICE_LEVEL_MODES,
     Document,
     EventHandler,
     OutputRequest,
@@ -141,6 +142,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--allow-experimental", action="store_true")
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
+    parser.add_argument("--voice-level", choices=VOICE_LEVEL_MODES)
     parser.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
     parser.add_argument("--unit", choices=("sentence", "paragraph"))
     parser.add_argument("--voice-bind", action="append", default=[], metavar="ROLE=VOICE_ID")

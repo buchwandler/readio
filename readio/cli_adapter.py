@@ -115,6 +115,7 @@ def synthesis_request_from_args(
             else None
         ),
         allow_experimental=bool(getattr(args, "allow_experimental", False)),
+        voice_level=getattr(args, "voice_level", None),
         speed=getattr(args, "speed", None),
         pause_mode=getattr(args, "pause_mode", None),
         unit=getattr(args, "unit", None),

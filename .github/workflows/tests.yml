@@ -24,8 +24,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install Readio runtime dependencies
-        run: |
-          python -m pip install "pykokoro[playback]==0.9.10"
+        run: python -m pip install "pykokoro[playback]>=0.10.0,<0.11"
       - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
@@ -33,10 +32,43 @@ jobs:
       - name: Run test suite
         run: python -m pytest -q
 
-
-  minimum-compatibility:
-    name: Minimum PyKokoro compatibility (Ubuntu, Python 3.10)
+  engine-compatibility:
+    name: ${{ matrix.engine }} ${{ matrix.channel }} API (Ubuntu, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: pykokoro
+            channel: minimum
+            package: "pykokoro[playback]"
+            specifier: "==0.10.0"
+            python-version: "3.10"
+          - engine: pykokoro
+            channel: current
+            package: "pykokoro[playback]"
+            specifier: ">=0.10.0,<0.11"
+            python-version: "3.13"
+          - engine: piper
+            channel: minimum
+            package: pipersynth
+            specifier: "==0.2.0"
+            python-version: "3.10"
+          - engine: piper
+            channel: current
+            package: pipersynth
+            specifier: ">=0.2.0,<0.3"
+            python-version: "3.13"
+          - engine: pocket
+            channel: minimum
+            package: "pocketsynth[cpu]"
+            specifier: "==0.2.0"
+            python-version: "3.10"
+          - engine: pocket
+            channel: current
+            package: "pocketsynth[cpu]"
+            specifier: ">=0.2.0,<0.3"
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@v4
       - name: Install PortAudio
@@ -44,18 +76,26 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install minimum PyKokoro runtime
-        run: python -m pip install "pykokoro[playback]==0.9.10"
       - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-      - name: Run minimum-version test suite
-        run: python -m pytest -q
-  current-compatibility:
-    name: Current PyKokoro compatibility (Ubuntu, Python 3.13)
+      - name: Install selected engine package
+        env:
+          ENGINE_PACKAGE: ${{ matrix.package }}
+          ENGINE_SPECIFIER: ${{ matrix.specifier }}
+        run: python -m pip install "${ENGINE_PACKAGE}${ENGINE_SPECIFIER}"
+      - name: Verify dependency resolution
+        run: python -m pip check
+      - name: Run released-package API contract without model downloads
+        env:
+          READIO_TEST_ENGINE: ${{ matrix.engine }}
+        run: python -m pytest -q tests/test_released_engine_apis.py
+
+  released-engine-api:
+    name: Released engine API integration (Ubuntu, Python 3.13)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,31 +106,31 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - name: Install current supported PyKokoro range
-        run: python -m pip install "pykokoro[playback]>=0.9.10,<0.10"
-      - name: Show installed PyKokoro version
-        run: python -c "import importlib.metadata; print('PyKokoro', importlib.metadata.version('pykokoro'))"
       - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-      - name: Run current-range test suite
-        run: python -m pytest -q
+      - name: Install exact released engine packages
+        run: |
+          python -m pip install \
+            "pykokoro[playback]==0.10.0" \
+            "pipersynth==0.2.0" \
+            "pocketsynth[cpu]==0.2.0"
+      - name: Verify dependency resolution
+        run: python -m pip check
+      - name: Run released-package API contracts without model downloads
+        run: python -m pytest -q tests/test_released_engine_apis.py
+
   quality:
     name: Static quality checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PortAudio
-        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
-      - name: Install Readio runtime dependencies
-        run: |
-          python -m pip install "pykokoro[playback]==0.9.10"
       - name: Install development tools
         run: python -m pip install -e ".[dev]"
       - name: Ruff lint
@@ -124,7 +164,10 @@ jobs:
         shell: bash
         run: |
           python -m venv "${RUNNER_TEMP}/readio-wheel-smoke"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "pykokoro[playback]==0.9.10"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install \
+            "pykokoro[playback]==0.10.0" \
+            "pipersynth==0.2.0" \
+            "pocketsynth[cpu]==0.2.0"
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install dist/*.whl
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"

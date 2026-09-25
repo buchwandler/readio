@@ -56,29 +56,42 @@ class _AssetManager:
 
 
 class _Frontend:
-    def split_for_model(self, text):
-        return (text[:5], text[5:])
-
     def encode(self, text):
         return tuple(ord(character) for character in text)
+
+    def split_for_model(self, text):
+        raise AssertionError("Readio must not call PocketSynth's text splitter")
 
 
 class _Runtime:
     def __init__(self):
-        self.metadata = SimpleNamespace(language="en")
+        self.metadata = SimpleNamespace(language="en", max_token_per_chunk=192)
         self.sample_rate = 24000
         self.frontend = _Frontend()
         self.prepared_sources = []
-        self.inference_calls = []
+        self.synthesis_calls = []
         self.close_calls = 0
 
     def prepare_voice(self, source):
         self.prepared_sources.append(source)
         return f"prepared:{source}"
 
-    def infer_tokens(self, tokens, voice, generation):
-        self.inference_calls.append((tokens, voice, generation))
-        return np.full(2, len(tokens), dtype=np.float32)
+    def synthesize(self, request, *, voice, config, voice_level):
+        self.synthesis_calls.append((request, voice, config, voice_level))
+        return SimpleNamespace(
+            id=request.id,
+            audio=np.full(2, len(request.text), dtype=np.float32),
+            sample_rate=self.sample_rate,
+            warnings=(),
+            metadata={
+                "chunks": 1,
+                "voice_level_application": {
+                    "mode": voice_level.mode,
+                    "applied": False,
+                    "source": "none",
+                },
+            },
+        )
 
     def close(self):
         self.close_calls += 1
@@ -150,7 +163,9 @@ def test_pocket_generation_options_validate_before_catalog_or_runtime(monkeypatc
     assert runtime.close_calls == 0
 
 
-def test_pocket_session_reuses_prepared_voices_and_maps_generation_controls(monkeypatch):
+def test_pocket_session_reuses_prepared_voices_and_uses_one_strict_call_per_request(
+    monkeypatch,
+):
     pocketsynth, runtime = _install_fakes(monkeypatch)
     adapter = PocketSynthEngineAdapter()
     selection, _ = adapter.resolve(
@@ -175,25 +190,30 @@ def test_pocket_session_reuses_prepared_voices_and_maps_generation_controls(monk
 
     assert [result.id for result in rendered] == ["seg-1", "seg-2", "seg-3"]
     assert all(result.sample_rate == 24000 for result in rendered)
-    assert rendered[0].audio.tolist() == [5.0, 5.0, 6.0, 6.0]
+    assert rendered[0].audio.tolist() == [11.0, 11.0]
     assert rendered[0].metadata["precision"] == "fp32"
-    assert rendered[0].metadata["chunks"] == 2
+    assert rendered[0].metadata["chunks"] == 1
+    assert rendered[0].metadata["token_count"] == len("Hello world")
+    assert rendered[0].metadata["voice_level"]["mode"] == "off"
     assert runtime.prepared_sources == ["alba", "bella"]
-    assert len(runtime.inference_calls) == 6
-    assert [call[1] for call in runtime.inference_calls] == [
-        "prepared:alba",
+    assert len(runtime.synthesis_calls) == 3
+    assert [call[0].text for call in runtime.synthesis_calls] == [
+        "Hello world",
+        "Hello again",
+        "Hello once more",
+    ]
+    assert [call[1] for call in runtime.synthesis_calls] == [
         "prepared:alba",
         "prepared:bella",
-        "prepared:bella",
-        "prepared:alba",
         "prepared:alba",
     ]
-    generation = runtime.inference_calls[0][2]
+    generation = runtime.synthesis_calls[0][2]
     assert isinstance(generation, pocketsynth.GenerationConfig)
     assert generation.temperature == 0.9
     assert generation.lsd_steps == 3
     assert generation.max_frames == 120
     assert generation.frames_after_eos == 8
+    assert isinstance(runtime.synthesis_calls[0][3], pocketsynth.VoiceLevelConfig)
     assert runtime.close_calls == 1
     assert _AssetManager.resolve_calls[0][1]["precision"] == "fp32"
 
@@ -220,6 +240,15 @@ def test_pocket_reference_voice_is_content_identified_and_cached(monkeypatch, tm
     )
     assert identity["voice"] == {"kind": "reference", "sha256": digest}
     assert identity["voice"] == other_identity["voice"]
+    calibrated_identity = adapter.canonical_synthesis_identity(
+        replace(
+            selection,
+            options={**selection.options, "voice_level": "calibrated"},
+        )
+    )
+    assert identity["voice_level"] == "off"
+    assert calibrated_identity["voice_level"] == "calibrated"
+    assert identity != calibrated_identity
 
     runtime = _Runtime()
     _pocketsynth, runtime = _install_fakes(monkeypatch, runtime)
@@ -275,5 +304,5 @@ def test_pocket_extra_uses_a_published_runtime_release():
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     extras = pyproject["project"]["optional-dependencies"]
 
-    assert extras["pocket"] == ["pocketsynth[cpu]>=0.1.0,<0.2"]
-    assert any("pocketsynth[cpu]>=0.1.0,<0.2" in item for item in extras["all"])
+    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.0,<0.3"]
+    assert any("pocketsynth[cpu]>=0.2.0,<0.3" in item for item in extras["all"])

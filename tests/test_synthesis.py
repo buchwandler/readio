@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from argparse import Namespace
 
+import pytest
+
 from readio.config import LanguageSettings, ReaderSettings, ReadioConfig
 from readio.synthesis import resolve_synthesis
 
@@ -17,6 +19,8 @@ def _args(**values: object) -> Namespace:
         "no_lexicons": False,
         "allow_experimental": False,
         "speed": None,
+        "voice_level": None,
+        "engine": None,
         "pause_mode": None,
         "unit": None,
     }
@@ -65,3 +69,17 @@ def test_resolution_without_model_preserves_automatic_selection() -> None:
     resolved = resolve_synthesis(cfg)
     assert resolved.model is None
     assert resolved.voice == "af_sarah"
+
+
+def test_resolve_synthesis_threads_engine_speed_and_voice_level() -> None:
+    resolved = resolve_synthesis(
+        ReadioConfig(),
+        _args(speed=1.25, voice_level="calibrated"),
+    )
+    assert resolved.speed == 1.25
+    assert resolved.voice_level == "calibrated"
+
+
+def test_pocket_rejects_non_default_synthesis_speed() -> None:
+    with pytest.raises(ValueError, match="synthesis.speed_unsupported"):
+        resolve_synthesis(ReadioConfig(), _args(engine="pocket", speed=1.25))

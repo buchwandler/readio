@@ -34,6 +34,7 @@ def test_render_text_uses_spoken_markdown_projection(monkeypatch):
         lexicons=None,
         allow_experimental=False,
         speed=1.0,
+        voice_level="off",
         pause_mode="auto",
         unit="paragraph",
     )

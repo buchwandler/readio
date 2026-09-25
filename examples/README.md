@@ -54,4 +54,4 @@ readio render --engine pocket --model BUNDLE_ID --voice VOICE "Hello from a Pock
 readio render --engine pocket --model BUNDLE_ID --voice-file reference.wav --precision fp32 "Hello from a reference voice."
 ```
 
-The latest published PocketSynth package currently declares UtterPlan and AudioCompose ranges that conflict with Readio's core requirements. Check `readio doctor` after resolving compatible package releases; the CLI examples describe the request contract, not a successful install of the incompatible package set.
+The `readio[pocket]` extra installs the supported PocketSynth >=0.2.0,<0.3 runtime. The CLI examples use the strict request API; target catalogs are metadata-only, while synthesis may download the selected bundle when it is not already cached.

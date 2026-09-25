@@ -30,7 +30,7 @@ Upgrade to a version with positional file detection, or keep using the explicit 
 
 ## Model discovery and defaults
 
-- **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install PyKokoro >=0.9.2,<0.10 and verify `python -c "from pykokoro import discover_models; from pykokoro.tokenizer import TokenizerConfig"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
+- **PyKokoro import/API mismatch:** if the error reports `pykokoro.import_failed`, `pykokoro.version_unsupported`, or `pykokoro.discovery_api_missing`, install PyKokoro >=0.10.0,<0.11 and verify `python -c "from pykokoro import discover_models; from pykokoro.tokenizer import TokenizerConfig"`. Run `readio doctor --json`. Do not import private PyKokoro modules.
 
 ### PyKokoro model discovery is unavailable
 

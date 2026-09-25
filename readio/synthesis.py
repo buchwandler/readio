@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, replace
 
 from .config import (
@@ -12,6 +13,7 @@ from .config import (
     normalize_language_key,
     normalize_short_sentence_policy,
     normalize_spacy_policy,
+    normalize_voice_level,
 )
 from .models import ModelInfo, get_model_info, validate_language_settings
 from .plan import SynthesisRequest
@@ -74,6 +76,7 @@ class ResolvedSynthesis:
     lexicons: tuple[str, ...] | None
     allow_experimental: bool
     speed: float
+    voice_level: str
     pause_mode: str
     unit: str
     g2p_fallback: str | None = None
@@ -133,6 +136,7 @@ def _legacy_synthesis_request(args: object | None) -> SynthesisRequest:
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),
         auto_lexicons=bool(getattr(args, "auto_lexicons", False)),
         spacy=getattr(args, "spacy", None),
+        voice_level=getattr(args, "voice_level", None),
         short_sentence=getattr(args, "short_sentence", None),
         g2p_fallback=getattr(args, "g2p_fallback", None),
         lexicon_data_policy=getattr(args, "lexicon_data_policy", None),
@@ -207,9 +211,26 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
         model = request.model
     if request.engine is not None:
         engine = request.engine
-    from .engines.registry import get_engine
+    from .engines.registry import get_engine, normalize_engine_id
 
+    engine = normalize_engine_id(engine)
     get_engine(engine)
+    raw_speed = request.speed if request.speed is not None else cfg.reader.speed
+    if isinstance(raw_speed, bool):
+        raise TypeError("synthesis.speed must be numeric")
+    try:
+        speed = float(raw_speed)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("synthesis.speed must be finite and > 0") from exc
+    if not math.isfinite(speed) or speed <= 0:
+        raise ValueError("synthesis.speed must be finite and > 0")
+    if engine == "pocket" and speed != 1.0:
+        raise ValueError(
+            "synthesis.speed_unsupported: PocketSynth only supports synthesis speed 1.0"
+        )
+    voice_level = normalize_voice_level(
+        request.voice_level if request.voice_level is not None else cfg.reader.voice_level
+    )
     if request.model_source is not None:
         source = request.model_source
     if request.quality is not None:
@@ -303,7 +324,8 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
         language_detection=language_detection,
         detect_languages=detect_languages,
         allow_experimental=allow_experimental,
-        speed=float(request.speed if request.speed is not None else cfg.reader.speed),
+        speed=speed,
+        voice_level=voice_level,
         pause_mode=request.pause_mode or cfg.reader.pause_mode,
         unit=request.unit or cfg.reader.unit,
         resolved_model=resolved_model,

@@ -65,6 +65,8 @@ def test_spotify_publish_normalizes_input_before_public_service_call(monkeypatch
             "--allow-experimental",
             "--speed",
             "1.2",
+            "--voice-level",
+            "calibrated",
             "--pause-mode",
             "manual",
             "--unit",

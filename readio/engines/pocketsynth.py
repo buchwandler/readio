@@ -4,15 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import inspect
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from ..config import normalize_language_key
-from .base import EngineCapabilities, EngineSelection, RenderedSpeech, SpeechRequest
+from ..errors import (
+    EmptySpeechTextError,
+    EngineBackendError,
+    EngineSynthesisError,
+    InvalidEngineLanguageError,
+    InvalidEngineModelError,
+    InvalidEngineOptionError,
+    InvalidEngineVoiceError,
+    InvalidSpeechRequestError,
+    SpeechRequestTooLongError,
+    UnsupportedSynthesisFeatureError,
+)
+from .base import (
+    EngineCapabilities,
+    EngineSelection,
+    RenderedSpeech,
+    RequestMeasure,
+    SpeechRequest,
+    validate_rendered_speech,
+)
 from .catalog import CatalogRequest, SynthesisTarget
 
 POCKET_OPTION_NAMES = frozenset(
@@ -28,6 +46,7 @@ POCKET_OPTION_NAMES = frozenset(
         "providers",
         "provider_options",
         "session_options",
+        "voice_level",
         "force_download",
     }
 )
@@ -135,13 +154,92 @@ def _find_bundle(
     return None
 
 
-class PocketSynthEngineSession:
-    """Adapt Readio requests to PocketSynth's published low-level runtime API."""
+def _pocket_version() -> str | None:
+    try:
+        return importlib.metadata.version("pocketsynth")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
-    def __init__(self, runtime: Any, selection: EngineSelection, generation: Any) -> None:
+
+def _translate_pocket_error(
+    error: Exception,
+    selection: EngineSelection,
+    request: SpeechRequest | None = None,
+    *,
+    opening: bool = False,
+) -> EngineSynthesisError:
+    import pocketsynth
+
+    error_map = (
+        ("SynthesisInputTooLongError", SpeechRequestTooLongError),
+        ("EmptyTextError", EmptySpeechTextError),
+        ("InvalidLanguageError", InvalidEngineLanguageError),
+        ("BundleLanguageError", InvalidEngineLanguageError),
+        ("InvalidVoiceError", InvalidEngineVoiceError),
+        ("InvalidGenerationConfigError", InvalidEngineOptionError),
+        ("InvalidRequestError", InvalidSpeechRequestError),
+        ("UnsupportedFeatureError", UnsupportedSynthesisFeatureError),
+        ("BundleNotFoundError", InvalidEngineModelError),
+        ("UnsupportedBundleError", InvalidEngineModelError),
+        ("ModelInferenceError", EngineBackendError),
+        ("RuntimeClosedError", EngineBackendError),
+    )
+    error_type: type[EngineSynthesisError] = EngineBackendError
+    for native_name, mapped_type in error_map:
+        native_type = getattr(pocketsynth, native_name, None)
+        if isinstance(native_type, type) and isinstance(error, native_type):
+            error_type = mapped_type
+            break
+    else:
+        if opening and isinstance(error, (TypeError, ValueError)):
+            error_type = InvalidEngineOptionError
+        elif isinstance(error, (TypeError, ValueError)):
+            error_type = InvalidSpeechRequestError
+
+    context: dict[str, Any] = {
+        "engine": "pocket",
+        "engine_version": _pocket_version(),
+        "target_id": selection.target_id,
+        "language": request.language if request is not None else selection.language,
+        "voice": request.voice if request is not None else selection.voice,
+        "speaker": request.speaker if request is not None else selection.speaker,
+        "request_id": request.id if request is not None else None,
+        "native_error_type": type(error).__name__,
+    }
+    if error_type is SpeechRequestTooLongError:
+        context.update(
+            amount=getattr(error, "token_count", None),
+            maximum=getattr(error, "max_tokens", None),
+            unit="model_tokens",
+            text_length=getattr(error, "text_length", len(request.text) if request else None),
+            source="pocketsynth.runtime",
+        )
+    return error_type(str(error), **context)
+
+
+def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
+    metadata = dict(value) if isinstance(value, Mapping) else {}
+    return {
+        "mode": metadata.get("mode", mode),
+        "applied": bool(metadata.get("applied", False)),
+        "gain_db": metadata.get("gain_db"),
+        "source": metadata.get("source", "none"),
+        "reason": metadata.get("reason"),
+        "calibration_identity": metadata.get("identity", metadata.get("calibration_identity")),
+        "calibration_revision": metadata.get("catalog_revision", metadata.get("bundle_revision")),
+    }
+
+
+class PocketSynthEngineSession:
+    """Adapt one exact Readio request to PocketSynth's strict runtime API."""
+
+    def __init__(
+        self, runtime: Any, selection: EngineSelection, generation: Any, voice_level: Any
+    ) -> None:
         self._runtime = runtime
         self._selection = selection
         self._generation = generation
+        self._voice_level = voice_level
         self._voices: dict[tuple[str, str], Any] = {}
 
     def _voice(self, request: SpeechRequest) -> Any:
@@ -162,7 +260,7 @@ class PocketSynthEngineSession:
         if source is None:
             voice_name = request.voice or self._selection.voice
             if not voice_name:
-                raise ValueError("pocket.voice_required: select a predefined or reference voice")
+                raise ValueError("PocketSynth requires a predefined or reference voice")
             source = {"kind": "named", "value": voice_name}
         if source["kind"] == "reference":
             _reference_sha256(source)
@@ -175,38 +273,117 @@ class PocketSynthEngineSession:
             self._voices[key] = self._runtime.prepare_voice(voice_input)
         return self._voices[key]
 
+    def measure(self, request: SpeechRequest) -> RequestMeasure:
+        token_ids = self._runtime.frontend.encode(request.text)
+        maximum = getattr(self._runtime.metadata, "max_token_per_chunk", None)
+        maximum = int(maximum) if maximum is not None else None
+        amount = len(token_ids)
+        return RequestMeasure(
+            fits=amount <= maximum if maximum is not None else None,
+            amount=amount,
+            maximum=maximum,
+            unit="model_tokens",
+            source="pocketsynth.frontend",
+        )
+
     def synthesize(self, request: SpeechRequest) -> RenderedSpeech:
+        import pocketsynth
+
+        if request.tokens:
+            raise UnsupportedSynthesisFeatureError(
+                "PocketSynth does not support linguistic tokens",
+                engine="pocket",
+                target_id=self._selection.target_id,
+                request_id=request.id,
+            )
+        if request.pronunciation_overrides:
+            raise UnsupportedSynthesisFeatureError(
+                "PocketSynth does not support pronunciation overrides",
+                engine="pocket",
+                target_id=self._selection.target_id,
+                request_id=request.id,
+            )
         requested = normalize_language_key(request.language)
         bundle_language = getattr(self._runtime.metadata, "language", None)
         if isinstance(bundle_language, str) and not _matches_language(requested, bundle_language):
-            raise ValueError(
-                "engine_language_incompatible: "
+            raise InvalidEngineLanguageError(
                 f"Pocket bundle {self._selection.target_id!r} supports {bundle_language!r}, "
-                f"not {requested!r}"
+                f"not {requested!r}",
+                engine="pocket",
+                target_id=self._selection.target_id,
+                language=request.language,
+                request_id=request.id,
             )
-        chunks = self._runtime.frontend.split_for_model(request.text)
-        token_chunks = tuple(self._runtime.frontend.encode(chunk) for chunk in chunks)
-        voice = self._voice(request) if token_chunks else None
-        audio_parts = [
-            np.asarray(
-                self._runtime.infer_tokens(tokens, voice, self._generation), dtype=np.float32
+
+        try:
+            native = pocketsynth.SynthesisRequest(
+                id=request.id, text=request.text, language=request.language
             )
-            for tokens in token_chunks
-        ]
-        audio = np.concatenate(audio_parts) if audio_parts else np.zeros(0, dtype=np.float32)
-        if audio.ndim != 1 or not np.isfinite(audio).all():
-            raise ValueError("pocket.rendered_audio_invalid: expected finite mono float32 audio")
-        return RenderedSpeech(
-            id=request.id,
-            audio=audio,
-            sample_rate=self._runtime.sample_rate,
-            metadata={
-                "bundle_id": self._selection.target_id,
-                "precision": self._selection.options.get("precision", "int8"),
-                "voice": _voice_identity_for_request(self._selection, request),
-                "chunks": len(audio_parts),
-                "token_count": sum(len(tokens) for tokens in token_chunks),
-            },
+        except EngineSynthesisError:
+            raise
+        except Exception as exc:
+            raise _translate_pocket_error(exc, self._selection, request) from exc
+        try:
+            voice = self._voice(request)
+        except (OSError, ValueError) as exc:
+            raise InvalidEngineVoiceError(
+                str(exc),
+                engine="pocket",
+                target_id=self._selection.target_id,
+                language=request.language,
+                voice=request.voice,
+                request_id=request.id,
+                native_error_type=type(exc).__name__,
+            ) from exc
+        try:
+            voice = self._voice(request)
+        except (OSError, ValueError) as exc:
+            raise InvalidEngineVoiceError(
+                str(exc),
+                engine="pocket",
+                target_id=self._selection.target_id,
+                language=request.language,
+                voice=request.voice,
+                request_id=request.id,
+                native_error_type=type(exc).__name__,
+            ) from exc
+        try:
+            result = self._runtime.synthesize(
+                native,
+                voice=voice,
+                config=self._generation,
+                voice_level=self._voice_level,
+            )
+        except EngineSynthesisError:
+            raise
+        except Exception as exc:
+            raise _translate_pocket_error(exc, self._selection, request) from exc
+
+        metadata = dict(result.metadata)
+        metadata.update(
+            bundle_id=self._selection.target_id,
+            precision=self._selection.options.get("precision", "int8"),
+            voice=_voice_identity_for_request(self._selection, request),
+            voice_level=_voice_level_metadata(
+                metadata.get("voice_level_application"), self._voice_level.mode
+            ),
+        )
+        measured = self.measure(request)
+        metadata.setdefault("token_count", measured.amount)
+        rendered = RenderedSpeech(
+            id=result.id,
+            audio=result.audio,
+            sample_rate=result.sample_rate,
+            warnings=tuple(result.warnings),
+            word_timings=(),
+            metadata=metadata,
+        )
+        return validate_rendered_speech(
+            request,
+            rendered,
+            engine="pocket",
+            engine_version=_pocket_version(),
+            target_id=self._selection.target_id,
         )
 
 
@@ -245,15 +422,20 @@ class PocketSynthEngineAdapter:
             import pocketsynth
 
             runtime = getattr(pocketsynth, "PocketRuntime", None)
-            return (
-                runtime is not None
-                and hasattr(pocketsynth, "BundleAssetManager")
-                and hasattr(pocketsynth, "GenerationConfig")
-                and all(
-                    hasattr(runtime, name)
-                    for name in ("from_resolved", "prepare_voice", "infer_tokens")
-                )
+            required = (
+                "SynthesisRequest",
+                "SynthesisResult",
+                "GenerationConfig",
+                "VoiceLevelConfig",
+                "SynthesisInputTooLongError",
+                "BundleAssetManager",
             )
+            if runtime is None or not all(hasattr(pocketsynth, name) for name in required):
+                return False
+            if not all(hasattr(runtime, name) for name in ("from_resolved", "prepare_voice")):
+                return False
+            parameters = inspect.signature(runtime.synthesize).parameters
+            return all(name in parameters for name in ("request", "voice", "config", "voice_level"))
         except (
             ImportError,
             SyntaxError,
@@ -273,6 +455,8 @@ class PocketSynthEngineAdapter:
             supports_reference_voice=True,
             supports_qualities=True,
             option_names=POCKET_OPTION_NAMES,
+            supports_voice_level_calibration=True,
+            supports_request_measurement=True,
         )
 
     def discover(self, request: CatalogRequest) -> tuple[SynthesisTarget, ...]:
@@ -498,6 +682,7 @@ class PocketSynthEngineAdapter:
             "languages": languages,
             "predefined_voices": voices,
             "sample_rate": sample_rate,
+            "max_token_per_chunk": metadata.get("max_token_per_chunk"),
             "precision_profiles": metadata["qualities"],
             "source_revision": metadata.get("source_revision"),
         }
@@ -516,6 +701,7 @@ class PocketSynthEngineAdapter:
             "target_id": selection.target_id,
             "language": normalize_language_key(selection.language),
             "precision": selection.options.get("precision", "int8"),
+            "voice_level": selection.options.get("voice_level", "off"),
             "voice": voice,
             "generation": {
                 key: selection.options[key]
@@ -528,31 +714,35 @@ class PocketSynthEngineAdapter:
         import pocketsynth
 
         options = dict(selection.options)
-        generation = pocketsynth.GenerationConfig(
-            temperature=float(options.get("temperature", 0.7)),
-            lsd_steps=int(options.get("lsd_steps", 1)),
-            max_frames=options.get("max_frames"),
-            frames_after_eos=options.get("frames_after_eos"),
-        )
-        bundle = _manager(options=options, offline=selection.offline).resolve_bundle(
-            selection.target_id,
-            precision=str(options.get("precision", "int8")),
-            refresh_catalog=selection.refresh,
-            force_download=bool(options.get("force_download", False)),
-        )
-        runtime = pocketsynth.PocketRuntime.from_resolved(
-            bundle,
-            cache_dir=options.get("cache_dir"),
-            offline=selection.offline,
-            providers=options.get("providers"),
-            provider_options=options.get("provider_options"),
-            session_options=options.get("session_options"),
-        )
+        try:
+            generation = pocketsynth.GenerationConfig(
+                temperature=float(options.get("temperature", 0.7)),
+                lsd_steps=int(options.get("lsd_steps", 1)),
+                max_frames=options.get("max_frames"),
+                frames_after_eos=options.get("frames_after_eos"),
+            )
+            voice_level = pocketsynth.VoiceLevelConfig(mode=options.get("voice_level", "off"))
+            bundle = _manager(options=options, offline=selection.offline).resolve_bundle(
+                selection.target_id,
+                precision=str(options.get("precision", "int8")),
+                refresh_catalog=selection.refresh,
+                force_download=bool(options.get("force_download", False)),
+            )
+            runtime = pocketsynth.PocketRuntime.from_resolved(
+                bundle,
+                cache_dir=options.get("cache_dir"),
+                offline=selection.offline,
+                providers=options.get("providers"),
+                provider_options=options.get("provider_options"),
+                session_options=options.get("session_options"),
+            )
+        except Exception as exc:
+            raise _translate_pocket_error(exc, selection, opening=True) from exc
 
         @contextmanager
         def session() -> Any:
             try:
-                yield PocketSynthEngineSession(runtime, selection, generation)
+                yield PocketSynthEngineSession(runtime, selection, generation, voice_level)
             finally:
                 runtime.close()
 

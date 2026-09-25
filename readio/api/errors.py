@@ -7,7 +7,21 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
-from ..errors import InputError, ReadioError
+from ..errors import (
+    EmptySpeechTextError,
+    EngineBackendError,
+    EngineSynthesisError,
+    InputError,
+    InvalidEngineLanguageError,
+    InvalidEngineModelError,
+    InvalidEngineOptionError,
+    InvalidEngineSpeakerError,
+    InvalidEngineVoiceError,
+    InvalidSpeechRequestError,
+    ReadioError,
+    SpeechRequestTooLongError,
+    UnsupportedSynthesisFeatureError,
+)
 from ..jsonutil import JsonValue
 
 if TYPE_CHECKING:
@@ -160,10 +174,19 @@ def error_boundary(
 
 __all__ = [
     "DiscoveryError",
+    "EmptySpeechTextError",
+    "EngineBackendError",
+    "EngineSynthesisError",
     "ExecutionError",
     "InputError",
     "IntegrationError",
+    "InvalidEngineLanguageError",
+    "InvalidEngineModelError",
+    "InvalidEngineOptionError",
+    "InvalidEngineSpeakerError",
+    "InvalidEngineVoiceError",
     "InvalidRequestError",
+    "InvalidSpeechRequestError",
     "OutputError",
     "PlanNotExecutableError",
     "PlannedOutputError",
@@ -173,6 +196,8 @@ __all__ = [
     "ProjectNotFoundError",
     "ReadioError",
     "ResolutionError",
+    "SpeechRequestTooLongError",
+    "UnsupportedSynthesisFeatureError",
     "error_boundary",
     "translate_exception",
 ]

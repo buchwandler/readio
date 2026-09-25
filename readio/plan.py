@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -23,6 +24,7 @@ from .config import (
     normalize_language_key,
     normalize_short_sentence_policy,
     normalize_spacy_policy,
+    normalize_voice_level,
 )
 from .document import InputDocument, InputFormat, InputFormatRequest, resolve_input_format
 from .errors import RenderError
@@ -184,6 +186,7 @@ class SynthesisRequest:
     detect_languages: tuple[str, ...] | None = None
     allow_experimental: bool = False
     speed: float | None = None
+    voice_level: str | None = None
     pause_mode: str | None = None
     unit: str | None = None
     offline: bool = False
@@ -345,6 +348,7 @@ class SynthesisPlan:
     detect_languages: tuple[str, ...] | None
     allow_experimental: bool
     speed: float
+    voice_level: str
     pause_mode: str
     unit: str
 
@@ -365,6 +369,7 @@ class SynthesisPlan:
             ),
             "allow_experimental": self.allow_experimental,
             "speed": self.speed,
+            "voice_level": self.voice_level,
             "pause_mode": self.pause_mode,
             "unit": self.unit,
         }
@@ -509,6 +514,7 @@ class SynthesisCandidate:
     detect_languages: tuple[str, ...] | None
     allow_experimental: bool
     speed: float
+    voice_level: str
     pause_mode: str
     unit: str
     decisions: tuple[ResolutionDecision, ...]
@@ -972,30 +978,40 @@ def _resolve_synthesis_candidate(
             )
         )
 
-    # Speed/pause_mode/unit: CLI > config.reader
-    speed = request.speed if request.speed is not None else cfg.reader.speed
+    # Synthesis speed is consumed by the selected engine, not composition Tempo.
+    raw_speed = request.speed if request.speed is not None else cfg.reader.speed
+    if isinstance(raw_speed, bool):
+        raise TypeError("synthesis.speed must be numeric")
+    try:
+        speed = float(raw_speed)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("synthesis.speed must be finite and > 0") from exc
+    if not math.isfinite(speed) or speed <= 0:
+        raise ValueError("synthesis.speed must be finite and > 0")
+    voice_level = normalize_voice_level(
+        request.voice_level if request.voice_level is not None else cfg.reader.voice_level
+    )
     pause_mode = request.pause_mode if request.pause_mode is not None else cfg.reader.pause_mode
     unit = request.unit if request.unit is not None else cfg.reader.unit
 
-    if request.speed is not None:
-        decisions.append(
-            ResolutionDecision(
-                field="synthesis.speed",
-                value=speed,
-                origin=ORIGIN_CLI,
-                locator="request.speed",
-            )
+    decisions.append(
+        ResolutionDecision(
+            field="synthesis.speed",
+            value=speed,
+            origin=ORIGIN_CLI if request.speed is not None else ORIGIN_CONFIG_READER,
+            locator="request.speed" if request.speed is not None else "reader.speed",
         )
-    else:
-        decisions.append(
-            ResolutionDecision(
-                field="synthesis.speed",
-                value=speed,
-                origin=ORIGIN_CONFIG_READER,
-                locator="reader.speed",
-            )
+    )
+    decisions.append(
+        ResolutionDecision(
+            field="synthesis.voice_level",
+            value=voice_level,
+            origin=(ORIGIN_CLI if request.voice_level is not None else ORIGIN_CONFIG_READER),
+            locator=(
+                "request.voice_level" if request.voice_level is not None else "reader.voice_level"
+            ),
         )
-
+    )
     if request.pause_mode is not None:
         decisions.append(
             ResolutionDecision(
@@ -1076,6 +1092,7 @@ def _resolve_synthesis_candidate(
         detect_languages=detect_languages,
         allow_experimental=allow_experimental,
         speed=speed,
+        voice_level=voice_level,
         pause_mode=pause_mode,
         unit=unit,
         decisions=tuple(decisions),
@@ -1380,6 +1397,15 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     candidate = _resolve_synthesis_candidate(cfg, request.synthesis, document_language_detection)
     decisions.extend(candidate.decisions)
     engine_id = normalize_engine_id(candidate.engine or cfg.reader.engine)
+    if engine_id == "pocket" and candidate.speed != 1.0:
+        diagnostics.append(
+            PlanDiagnostic(
+                code="synthesis.speed_unsupported",
+                severity="error",
+                message="PocketSynth does not support synthesis speed values other than 1.0.",
+                field="synthesis.speed",
+            )
+        )
     adapter = None
     selection: EngineSelection | None = None
 
@@ -1448,8 +1474,8 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                 )
 
         options: dict[str, Any] = {
-            "rate": candidate.speed,
             "speed": candidate.speed,
+            "voice_level": candidate.voice_level,
             "pause_mode": candidate.pause_mode,
             "short_sentence": candidate.short_sentence,
             "allow_experimental": candidate.allow_experimental,
@@ -1625,7 +1651,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         render = RenderPlanV2(
             engine=selection.engine,
             default_target=target,
-            rate=candidate.speed,
+            rate=1.0,
             options=dict(selection.options),
         )
         render = replace(render, render_id=render_identity(semantic.sha256, render))

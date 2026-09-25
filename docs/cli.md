@@ -38,6 +38,12 @@ readio synth --engine pykokoro  # one-run override
 
 PyKokoro and Pocket expose request-scoped voice selection; Piper binds each role to a voice-bundle target. Readio validates all target-bound selections before opening sessions and reuses one session per distinct target. Project synthesis preserves semantic plan identity when voice bindings change.
 
+### Shared speech controls
+
+The `--speed` option and `reader.speed` configuration value are engine synthesis multipliers. PyKokoro receives speed directly, PiperSynth maps it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`; unsupported explicit values fail before inference. Composition rate is separate and is not also changed by `--speed`.
+
+Use `--voice-level off|calibrated` or `reader.voice_level` to select voice-level handling. The resolved voice-level mode and synthesis speed are included in speech-cache identity.
+
 PocketSynth project runs select a bundle and either a predefined voice or a reference WAV. The reference asset is represented by its SHA-256 content identity in the resolved render plan:
 
 ```bash

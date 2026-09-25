@@ -30,7 +30,13 @@ from ..project_settings import (
 from ..selection import resolve_project_selection, resolve_unit_selection
 from ..ssmd import resolve_voice_references
 from .planning import load_scope_plan
-from .speech_identity import segment_speech_hash, segment_synthesis_key
+from .speech_identity import (
+    CAPACITY_SCHEMA,
+    LOWERING_SCHEMA,
+    canonical_engine_identity,
+    segment_speech_hash,
+    segment_synthesis_key,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +59,7 @@ class SynthesisEvent:
 class SynthesisProfile:
     profile_id: str
     payload: Mapping[str, Any]
-    schema_version: int = 2
+    schema_version: int = 3
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -147,7 +153,6 @@ def _safe_key(key: str) -> str:
 
 def _fallback_canonical_identity(selection: Any, adapter: Any) -> dict[str, Any]:
     editorial = {
-        "speed",
         "rate",
         "volume",
         "pitch",
@@ -173,27 +178,46 @@ def _fallback_canonical_identity(selection: Any, adapter: Any) -> dict[str, Any]
     }
 
 
-def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
+def _readio_capabilities(adapter: Any) -> dict[str, bool]:
+    capabilities = adapter.capabilities()
+    return {
+        "linguistic_tokens": capabilities.supports_linguistic_tokens,
+        "pronunciation_overrides": capabilities.supports_pronunciation_overrides,
+        "whole_request_phonemes": capabilities.supports_whole_request_phonemes,
+    }
+
+
+def _selection_identity(adapter: Any, selection: Any) -> dict[str, Any]:
     identity_method = getattr(adapter, "canonical_synthesis_identity", None)
     identity = (
         dict(identity_method(selection))
         if callable(identity_method)
         else _fallback_canonical_identity(selection, adapter)
     )
+    identity["readio_capabilities"] = _readio_capabilities(adapter)
+    identity["readio_lowering"] = {
+        "schema": LOWERING_SCHEMA,
+        "capacity_schema": CAPACITY_SCHEMA,
+    }
+    return canonical_engine_identity(identity)
+
+
+def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
+    identity = _selection_identity(adapter, selection)
     composition = {
         key: value
         for key, value in selection.options.items()
         if key in {"speed", "rate", "pitch", "volume", "emphasis"} and value is not None
     }
     identity_payload = {
-        "schema": "readio.synthesis-profile.v2",
+        "schema": "readio.synthesis-profile.v3",
         "canonical": identity,
     }
     payload: dict[str, Any] = {
         **identity_payload,
         "composition": composition,
     }
-    return SynthesisProfile(synthesis_profile_id(identity_payload), payload)
+    return SynthesisProfile(synthesis_profile_id(identity_payload), payload, schema_version=3)
 
 
 def _profile_from_route(
@@ -203,14 +227,8 @@ def _profile_from_route(
     if not aggregate:
         return profile
 
-    identity_method = getattr(adapter, "canonical_synthesis_identity", None)
     identities = {
-        key: (
-            dict(identity_method(selection))
-            if callable(identity_method)
-            else _fallback_canonical_identity(selection, adapter)
-        )
-        for key, selection in route.selections.items()
+        key: _selection_identity(adapter, selection) for key, selection in route.selections.items()
     }
     canonical: dict[str, Any] = {
         "engine": route.engine,
@@ -218,6 +236,7 @@ def _profile_from_route(
         "ssmd_provider": route.provider,
         "routing_mode": route.mode,
     }
+    canonical["readio_capabilities"] = _readio_capabilities(adapter)
     binding_record = profile.payload.get("project_voice_bindings")
     if isinstance(binding_record, Mapping):
         canonical["project_voice_bindings_sha256"] = binding_record.get("sha256")
@@ -229,8 +248,12 @@ def _profile_from_route(
         scope_id: dict(sorted(bindings.items()))
         for scope_id, bindings in sorted(route.bindings_by_scope.items())
     }
+    canonical["readio_lowering"] = {
+        "schema": LOWERING_SCHEMA,
+        "capacity_schema": CAPACITY_SCHEMA,
+    }
     identity_payload = {
-        "schema": "readio.synthesis-profile.v3",
+        "schema": "readio.synthesis-profile.v4",
         "canonical": canonical,
     }
     payload = {
@@ -242,7 +265,7 @@ def _profile_from_route(
     return SynthesisProfile(
         synthesis_profile_id(identity_payload),
         payload,
-        schema_version=3,
+        schema_version=4,
     )
 
 
@@ -552,6 +575,7 @@ def _write_cache_artifact(
     item: Mapping[str, Any],
     result: Any,
     profile: SynthesisProfile,
+    lowering: Mapping[str, Any],
 ) -> tuple[int, int, int, str, Path]:
     cache_path = item["cache_path"]
     sidecar_path = item["sidecar_path"]
@@ -567,11 +591,13 @@ def _write_cache_artifact(
             sidecar_path,
             {
                 "format": "readio.synthesis-artifact",
-                "schema_version": 2,
+                "schema_version": 3,
                 "segment_id_at_creation": item["segment_id"],
                 "speech_hash": item["speech_hash"],
                 "synthesis_key": item["synthesis_key"],
                 "profile_id": profile.profile_id,
+                "lowering": dict(lowering),
+                "lowering_sha256": hashlib.sha256(canonical_json(lowering)).hexdigest(),
                 "audio_sha256": digest,
                 "sample_rate": rate,
                 "channels": channels,
@@ -610,7 +636,7 @@ def _render_missing(
     else:
         session_context = nullcontext(session)
     capabilities = adapter.capabilities()
-    from ..rendering import lower_segment
+    from ..rendering import lower_segment, render_atomic_request
 
     with session_context as active_session:
         if session is None:
@@ -643,14 +669,15 @@ def _render_missing(
             )
             render_started = time.monotonic()
             lowered = lower_segment(plan, segment, selection, capabilities)
-            result = active_session.synthesize(lowered.request)
+            atomic = render_atomic_request(active_session, lowered.request)
+            result = atomic.result
             if result.id != item["segment_id"]:
                 raise ValueError(
                     f"engine returned request {result.id!r}; expected {item['segment_id']!r}"
                 )
             try:
                 rate, channels, frames, digest, sidecar = _write_cache_artifact(
-                    project, item, result, profile
+                    project, item, result, profile, atomic.manifest
                 )
                 item["rendered"] = (rate, channels, frames, digest, sidecar)
                 details = _result_details(result)
@@ -754,6 +781,51 @@ def _render_all_missing(
     return details, total_open_ms
 
 
+def _valid_lowering_manifest(lowering: Any, item: Mapping[str, Any]) -> bool:
+    if not isinstance(lowering, Mapping):
+        return False
+    if (
+        lowering.get("schema") != LOWERING_SCHEMA
+        or lowering.get("capacity_schema") != CAPACITY_SCHEMA
+    ):
+        return False
+    requests = lowering.get("requests")
+    if not isinstance(requests, list) or not requests:
+        return False
+    parent_text = str(item["segment"].text)
+    offset = 0
+    for index, child in enumerate(requests):
+        if not isinstance(child, Mapping):
+            return False
+        start = child.get("char_start")
+        end = child.get("char_end")
+        child_id = child.get("id")
+        text = child.get("text")
+        request = child.get("request")
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, int)
+            or isinstance(end, bool)
+            or not isinstance(end, int)
+            or not isinstance(child_id, str)
+            or not isinstance(text, str)
+            or not isinstance(request, Mapping)
+        ):
+            return False
+        if (
+            child.get("index") != index
+            or start != offset
+            or end <= start
+            or end > len(parent_text)
+            or parent_text[start:end] != text
+            or request.get("id") != child_id
+            or request.get("text") != text
+        ):
+            return False
+        offset = end
+    return offset == len(parent_text)
+
+
 def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
     checked = _valid_audio(item["cache_path"])
     if checked is None:
@@ -762,6 +834,13 @@ def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisA
     try:
         sidecar = read_json(item["sidecar_path"])
     except (OSError, ValueError):
+        return None
+    lowering = sidecar.get("lowering")
+    if (
+        sidecar.get("schema_version") != 3
+        or sidecar.get("lowering_sha256") != hashlib.sha256(canonical_json(lowering)).hexdigest()
+        or not _valid_lowering_manifest(lowering, item)
+    ):
         return None
     if (
         sidecar.get("speech_hash") != item["speech_hash"]
