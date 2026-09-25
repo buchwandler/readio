@@ -320,7 +320,7 @@ def discover_voice_catalog(
             engine=canonical_engine,
         )
     models, result = discover_model_info(
-        offline=offline, refresh=refresh, preference=preference, backend=engine
+        offline=offline, refresh=refresh, preference=preference, engine=engine
     )
     catalog = build_voice_catalog(
         models,

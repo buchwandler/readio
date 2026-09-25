@@ -41,7 +41,10 @@ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
     assert isinstance(project, ProjectRef)
     assert app.projects.find(root) == project
     assert app.projects.open(root) == project
-    with patch("pykokoro.KokoroPipeline", side_effect=AssertionError("TTS loaded")):
+    with patch(
+        "readio.engines.pykokoro.PyKokoroEngineAdapter.open",
+        side_effect=AssertionError("synthesis runtime opened"),
+    ):
         result = app.projects.plan(project)
 
     assert isinstance(result, ProjectPlanResult)

@@ -500,29 +500,6 @@ def default_role_bindings(
     return {provider: defaults} if defaults else {}
 
 
-def build_ssmd_render_config(
-    text: str,
-    cfg: ReadioConfig,
-    additional_bindings: Mapping[str, str] | None = None,
-    synthesis: ResolvedSynthesis | None = None,
-    *,
-    source_path: Path | None = None,
-    parsed: ParsedSSMD09 | None = None,
-) -> Any:
-    """Build SSMD configuration through the selected synthesis backend."""
-    if parsed is None:
-        parse_ssmd_09(text, source_path=source_path)
-    from .backends import get_backend
-
-    backend = get_backend(getattr(cfg, "engine", "pykokoro"))
-    return backend.build_ssmd_render_config(
-        text,
-        cfg,
-        dict(additional_bindings or {}),
-        synthesis,
-    )
-
-
 def analyze_ssmd(
     text: str,
     cfg: ReadioConfig,

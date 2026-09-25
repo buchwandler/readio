@@ -39,14 +39,24 @@ class EngineResolution:
 
 
 def engine_selection_from_render_plan(render: RenderPlanV2) -> EngineSelection:
-    """Convert a resolved render plan into its concrete engine selection."""
+    """Convert the default render target into an engine selection."""
+    target = render.default_target
+    if target is None:
+        raise ValueError("render plan has no default target")
+    voice = (
+        target.voice.value if target.voice is not None and target.voice.kind == "named" else None
+    )
+    metadata = dict(target.metadata)
+    if target.voice is not None and target.voice.kind == "reference":
+        metadata["voice_source"] = target.voice.to_dict()
     return EngineSelection(
         engine=render.engine,
-        target_id=render.target.id,
-        language=render.target.language,
-        voice=render.target.voice,
-        speaker=render.target.speaker,
-        options=dict(render.options),
+        target_id=target.id,
+        language=target.language,
+        voice=voice,
+        speaker=target.speaker,
+        options={**dict(target.options), **dict(render.options)},
+        metadata=metadata,
     )
 
 

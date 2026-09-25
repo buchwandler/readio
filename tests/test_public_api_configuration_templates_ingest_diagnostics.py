@@ -154,7 +154,7 @@ def test_configuration_profile_runtime_resolution(
     )
     assert calls["selector"][1]["offline"] is True
     assert calls["selector"][1]["preference"] == "upstream"
-    assert calls["model"][1]["backend"] is None
+    assert calls["model"][1]["engine"] is None
     assert calls["validated"][0] == "de"
     assert app.configuration.load().languages == {"de": result}
 

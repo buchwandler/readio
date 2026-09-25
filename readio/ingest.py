@@ -36,14 +36,22 @@ def new_ingest(
         if template_directory is None:
             raise ValueError("template directory is required")
         source = template_path(template_directory, template)
-        requested_name = name or automatic_ingest_name(template=template, suffix=".ssmd")
+        template_suffix = ".ssmd.md" if template.lower().endswith(".ssmd.md") else ".ssmd"
+        template_stem = (
+            template[: -len(template_suffix)]
+            if template.lower().endswith(template_suffix)
+            else template
+        )
+        requested_name = name or automatic_ingest_name(
+            template=template_stem, suffix=template_suffix
+        )
         target = safe_child(directory, requested_name)
         if target.exists():
             if name:
                 raise ValueError(f"ingest file already exists: {target}")
             return new_ingest(
                 directory,
-                name=automatic_ingest_name(template=template, suffix=".ssmd"),
+                name=automatic_ingest_name(template=template_stem, suffix=template_suffix),
                 template_directory=template_directory,
                 template=template,
             )

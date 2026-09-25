@@ -1,19 +1,10 @@
-"""Supported engine adapter registration contracts."""
+"""Public registration for adapters in Readio's engine registry."""
 
 from __future__ import annotations
 
 import re
 
-from ..engines.base import (
-    EngineAdapter,
-    EngineCapabilities,
-    EngineSelection,
-    EngineSession,
-    PreparedSegmentRenderer,
-    PreparedUnitRenderer,
-    RenderedSegment,
-    RenderedUnit,
-)
+from ..engines.base import EngineAdapter, EngineCapabilities, EngineSelection, EngineSession
 from ..engines.catalog import CatalogRequest, CatalogResult, SynthesisTarget
 from ..engines.registry import (
     CANONICAL_ENGINE_IDS,
@@ -30,14 +21,13 @@ _REQUIRED_ADAPTER_METHODS = (
     "capabilities",
     "discover",
     "resolve",
-    "planner_config",
     "canonical_synthesis_identity",
     "open",
 )
 
 
 def register_engine(adapter: EngineAdapter, *, replace: bool = False) -> None:
-    """Register an engine adapter for discovery, planning, and rendering."""
+    """Register an adapter in the single engine registry."""
     engine_id = getattr(adapter, "id", None)
     if not isinstance(engine_id, str) or not _ENGINE_ID.fullmatch(engine_id):
         raise api_errors.InvalidRequestError(
@@ -83,11 +73,11 @@ def register_engine(adapter: EngineAdapter, *, replace: bool = False) -> None:
             f"engine {engine_id!r} is already registered; pass replace=True to replace it",
             code="engine.already_registered",
         )
-    _registry.register(adapter)
+    _registry.register(adapter, replace=replace)
 
 
 def registered_engines() -> tuple[str, ...]:
-    """Return registered engine IDs, lazily discovering the built-in adapters."""
+    """Return registered IDs after attempting built-in adapter discovery."""
     for engine_id in sorted(CANONICAL_ENGINE_IDS):
         try:
             get_engine(engine_id)
@@ -103,10 +93,6 @@ __all__ = [
     "EngineCapabilities",
     "EngineSelection",
     "EngineSession",
-    "PreparedSegmentRenderer",
-    "PreparedUnitRenderer",
-    "RenderedSegment",
-    "RenderedUnit",
     "SynthesisTarget",
     "register_engine",
     "registered_engines",

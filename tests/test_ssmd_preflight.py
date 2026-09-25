@@ -4,12 +4,7 @@ import pytest
 
 from readio.config import ReadioConfig, VoiceProviderSettings
 from readio.errors import SSMDInputError, VoiceResolutionError
-from readio.ssmd import (
-    build_ssmd_render_config,
-    default_role_bindings,
-    document_voice_bindings,
-    preflight_ssmd,
-)
+from readio.ssmd import default_role_bindings, document_voice_bindings, preflight_ssmd
 
 
 def config() -> ReadioConfig:
@@ -36,11 +31,6 @@ def test_document_binding_overrides_default_and_only_missing_defaults_are_api_bi
     assert document_voice_bindings(text) == {"kokoro": {"host": "af_bella"}}
     assert default_role_bindings(text, config()) == {
         "kokoro": {"analyst": "am_michael", "guest": "af_bella"}
-    }
-    render_config = build_ssmd_render_config(text, config())
-    assert dict(render_config.voice_bindings["kokoro"]) == {
-        "analyst": "am_michael",
-        "guest": "af_bella",
     }
     result = preflight_ssmd(text, config())
     assert result.document_bindings == {"host": "af_bella"}

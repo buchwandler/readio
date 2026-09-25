@@ -43,3 +43,15 @@ readio render --file examples/readio-prosody.ssmd -o readio-prosody.wav
 ## Python API planning example
 
 [`python_api.py`](python_api.py) creates a typed literal-text request and calls `Readio.speech.plan()`. Run it from the repository root with `python examples/python_api.py`. The example prints the JSON-safe plan and does not load a TTS model or create the requested audio file. Registry discovery follows the configured online/offline policy.
+
+## PocketSynth CLI example
+
+Pocket synthesis requests select a registered bundle and either a predefined voice or a reference WAV. The source adapter accepts `--precision`, `--temperature`, `--lsd-steps`, `--max-frames`, and `--frames-after-eos`:
+
+```bash
+readio voices list --engine pocket --lang en-us
+readio render --engine pocket --model BUNDLE_ID --voice VOICE "Hello from a PocketSynth bundle."
+readio render --engine pocket --model BUNDLE_ID --voice-file reference.wav --precision fp32 "Hello from a reference voice."
+```
+
+The latest published PocketSynth package currently declares UtterPlan and AudioCompose ranges that conflict with Readio's core requirements. Check `readio doctor` after resolving compatible package releases; the CLI examples describe the request contract, not a successful install of the incompatible package set.

@@ -112,15 +112,27 @@ class TestSemanticPlanIdentityAcousticInvariant:
     speaker, output format, etc. must not change the plan identity.
     """
 
-    def test_engine_config_cannot_override_semantics(self) -> None:
-        """Engine-specific planner configuration is rejected explicitly."""
-        import pytest
+    def test_planner_is_called_once_and_plan_identity_is_canonical(self, monkeypatch) -> None:
+        from utterplan import UtterancePlanner as UpstreamPlanner
 
-        doc = _make_document("Hello world, this is a test.")
-        with pytest.raises(ValueError, match="engine-specific planner configuration"):
-            compile_semantic_plan(
-                doc, planning=_make_policy(), engine_config={"voice": "different"}
-            )
+        import readio.planning.semantic as semantic_module
+
+        calls = []
+
+        class CountingPlanner(UpstreamPlanner):
+            def plan(self, text, **kwargs):
+                calls.append((text, kwargs))
+                return super().plan(text)
+
+        monkeypatch.setattr(semantic_module, "UtterancePlanner", CountingPlanner)
+        result = compile_semantic_plan(_make_document("Hello world."), planning=_make_policy())
+
+        assert len(calls) == 1
+        assert calls[0] == ("Hello world.", {})
+        assert result.plan_id == result.plan.plan_id
+
+    def test_document_planning_defaults_to_spokenform(self) -> None:
+        assert PlanningPolicy().to_planner_config().text_preparation == "spokenform"
 
 
 def test_semantic_compiler_uses_typed_planner_config() -> None:
@@ -129,7 +141,7 @@ def test_semantic_compiler_uses_typed_planner_config() -> None:
     policy = _make_policy(
         spacy_policy="off",
         pause_mode="manual",
-        ssmd=SSMDConfig(unknown_header="ignore"),
+        ssmd=SSMDConfig(parse_yaml_header=False),
         overlap_mode="strict",
         language_aliases={"en": "en-us"},
         diagnostics=False,
@@ -138,6 +150,6 @@ def test_semantic_compiler_uses_typed_planner_config() -> None:
     config = result.plan.semantic_dict()["config"]
     assert config["pauses"]["mode"] == "manual"
     assert config["linguistics"]["use_spacy"] is False
-    assert config["ssmd"]["unknown_header"] == "ignore"
+    assert config["ssmd"]["parse_yaml_header"] is False
     assert config["overlap_mode"] == "strict"
     assert config["language_aliases"] == {"en": "en-us"}

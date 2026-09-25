@@ -1,10 +1,13 @@
+"""Readio-owned request execution for bounded and live speech."""
+
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import AbstractContextManager
-from functools import partial
-from typing import TYPE_CHECKING, Any
+from dataclasses import replace
+from typing import Any
+
+import numpy as np
 
 from .audio import (
     AudioSink,
@@ -12,24 +15,20 @@ from .audio import (
     RenderProgress,
     RenderProgressCallback,
     RenderSummary,
-    render_prepared,
 )
-from .config import ReaderSettings, ReadioConfig
+from .config import ReaderSettings, ReadioConfig, default_config
 from .document import InputDocument, document_from_text
 from .errors import InputError, RenderError
 from .markdown import markdown_to_speech
+from .plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from .synthesis import ResolvedSynthesis, resolve_synthesis
 from .text import iter_live_paragraphs
-
-if TYPE_CHECKING:
-    from .plan import ReadioPlan
-
 
 logger = logging.getLogger(__name__)
 
 
-class SelectionError(ValueError):
-    pass
+def _config(config: ReadioConfig | ReaderSettings) -> ReadioConfig:
+    return config if isinstance(config, ReadioConfig) else replace(default_config(), reader=config)
 
 
 def prepare_input_document(document: InputDocument) -> InputDocument:
@@ -45,124 +44,26 @@ def prepare_input_document(document: InputDocument) -> InputDocument:
     return InputDocument(text=text, source_path=document.source_path, format="text")
 
 
-def tokenizer_config_for_synthesis(synthesis: object) -> Any:
-    """Build a backend-specific tokenizer override through the registry."""
-    from .backends import get_backend
-
-    backend = get_backend(getattr(synthesis, "engine", "pykokoro"))
-    return backend.tokenizer_config_for_synthesis(synthesis)
-
-
-def short_sentence_config_for_synthesis(synthesis: object) -> Any:
-    """Build a backend-specific short-sentence configuration."""
-    from .backends import get_backend
-
-    backend = get_backend(getattr(synthesis, "engine", "pykokoro"))
-    return backend.short_sentence_config_for_synthesis(synthesis)
-
-
-def language_detection_config_for_synthesis(
-    synthesis: object,
-    document: InputDocument | None = None,
-) -> Any:
-    """Build a backend-specific language-detection configuration."""
-    from .backends import get_backend
-
-    backend = get_backend(getattr(synthesis, "engine", "pykokoro"))
-    return backend.language_detection_config_for_synthesis(synthesis, document)
-
-
-def pipeline_config_for_document(
-    document: InputDocument,
-    cfg: ReadioConfig,
-    *,
-    ssmd_voice_bindings: Mapping[str, str] | None = None,
-    synthesis: ResolvedSynthesis | None = None,
-) -> Any:
-    """Build a backend configuration through the selected adapter."""
-    from .backends import get_backend
-    from .synthesis import resolve_synthesis
-
-    resolved = synthesis or resolve_synthesis(cfg)
-    backend = get_backend(resolved.engine)
-    return backend.pipeline_config_for_document(
-        document,
-        cfg,
-        ssmd_voice_bindings=dict(ssmd_voice_bindings or {}),
-        synthesis=resolved,
+def _synthesis_request(synthesis: ResolvedSynthesis) -> SynthesisRequest:
+    return SynthesisRequest(
+        language=synthesis.language,
+        model=synthesis.model,
+        model_source=synthesis.source,
+        quality=synthesis.quality,
+        voice=synthesis.voice,
+        lexicons=synthesis.lexicons,
+        spacy=synthesis.spacy,
+        short_sentence=synthesis.short_sentence,
+        g2p_fallback=synthesis.g2p_fallback,
+        lexicon_data_policy=synthesis.lexicon_data_policy,
+        language_detection=synthesis.language_detection,
+        detect_languages=synthesis.detect_languages,
+        allow_experimental=synthesis.allow_experimental,
+        speed=synthesis.speed,
+        pause_mode=synthesis.pause_mode,
+        unit=synthesis.unit,
+        engine=synthesis.engine,
     )
-
-
-def pipeline_config_from_plan(
-    plan: ReadioPlan,
-    document: InputDocument,
-) -> Any:
-    """Build a concrete backend configuration from a resolved plan."""
-    from .backends import get_backend
-
-    synthesis = plan.synthesis
-    if synthesis is None:
-        raise ValueError("plan has no synthesis; cannot build pipeline config")
-    backend = get_backend(synthesis.engine)
-    return backend.pipeline_config_from_plan(plan, document)
-
-
-def render_from_plan(
-    plan: ReadioPlan,
-    document: InputDocument,
-    sink: AudioSink,
-    *,
-    selector: str = "all",
-    on_progress: RenderProgressCallback | None = None,
-    on_phase: Callable[[str], None] | None = None,
-) -> RenderSummary:
-    """Execute a resolved ReadioPlan exactly.
-
-    The pipeline configuration is derived from the plan via
-    ``pipeline_config_from_plan``; no synthesis selection is re-run here.
-    """
-    from .execution import ResolvedExecutionV2, execute_bounded_v2
-
-    if isinstance(plan, ResolvedExecutionV2):
-        return execute_bounded_v2(
-            plan,
-            sink,
-            on_progress=on_progress,
-            on_phase=on_phase,
-        ).summary
-    logger.info(
-        "render.start format=%s selector=%s source=%s",
-        document.format,
-        selector,
-        document.source_path or "stdin",
-    )
-    from .backends import get_backend
-
-    document = prepare_input_document(document)
-    if not document.text.strip():
-        raise ValueError("no text to read")
-    if plan.synthesis is None:
-        raise ValueError("plan has no synthesis; cannot render")
-    backend = get_backend(plan.synthesis.engine)
-    with backend.open_session(plan, document) as pipeline:
-        unit = plan.synthesis.unit
-        prepare_unit = "paragraph" if selector != "all" else unit
-        with pipeline.prepare_units(document.text, unit=prepare_unit) as prepared:
-            indices = _selected_indices(prepared, selector)
-            if on_progress is None:
-                summary = render_prepared(prepared, sink, indices=indices)
-            else:
-                summary = render_prepared(
-                    prepared,
-                    sink,
-                    indices=indices,
-                    on_progress=on_progress,
-                )
-    if on_phase is not None and plan.output.format:
-        on_phase(f"Finalizing {plan.output.format.upper()}")
-    if summary.sample_count <= 0:
-        raise RenderError("render produced no audio")
-    return summary
 
 
 def render_from_plan_v2(
@@ -174,73 +75,26 @@ def render_from_plan_v2(
     on_progress: RenderProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
 ) -> RenderSummary:
-    """Execute a resolved v2 bundle through the engine-neutral path."""
+    """Execute a resolved plan-v2 bundle without re-resolving its selection."""
     from .execution import ResolvedExecutionV2, execute_bounded_v2
 
-    logger.info(
-        "render.v2.start format=%s selector=%s engine=%s",
-        document.format,
-        selector,
-        plan.plan.render.engine
-        if isinstance(plan, ResolvedExecutionV2) and plan.plan.render
-        else "unknown",
-    )
     if not isinstance(plan, ResolvedExecutionV2):
         raise RenderError(
             "render_from_plan_v2 requires ResolvedExecutionV2; "
             "resolve with resolve_execution_v2 first"
         )
-    result = execute_bounded_v2(
+    logger.info(
+        "render.v2.start format=%s selector=%s engine=%s",
+        document.format,
+        selector,
+        plan.plan.render.engine if plan.plan.render else "unknown",
+    )
+    return execute_bounded_v2(
         plan,
         sink,
         on_progress=on_progress,
         on_phase=on_phase,
-    )
-    return result.summary
-
-
-def _build_pipeline(
-    document: InputDocument,
-    cfg: ReadioConfig | ReaderSettings,
-    *,
-    ssmd_voice_bindings: Mapping[str, str] | None = None,
-    synthesis: ResolvedSynthesis | None = None,
-) -> AbstractContextManager[Any]:
-    """Open the selected backend for a compatibility or planned request."""
-    from .backends import get_backend
-
-    backend = get_backend(getattr(synthesis, "engine", None) or getattr(cfg, "engine", "pykokoro"))
-    if isinstance(cfg, ReadioConfig):
-        resolved = synthesis or resolve_synthesis(cfg)
-        return backend.open_resolved_session(
-            document,
-            cfg,
-            ssmd_voice_bindings=dict(ssmd_voice_bindings or {}),
-            synthesis=resolved,
-        )
-    return backend.open_legacy_session(document, cfg)
-
-
-def _selected_indices(prepared: Any, selector: str) -> tuple[int, ...] | None:
-    if selector == "all":
-        return None
-    units = prepared.units
-    if not units:
-        raise SelectionError("the input produced no readable paragraphs")
-    if selector == "last-paragraph":
-        return (units[-1].index,)
-    if selector.startswith("paragraph:"):
-        raw = selector.partition(":")[2]
-        try:
-            one_based = int(raw)
-        except ValueError as exc:
-            raise SelectionError("paragraph selector must look like paragraph:3") from exc
-        if one_based <= 0 or one_based > len(units):
-            raise SelectionError(
-                f"paragraph {one_based} is out of range; document has {len(units)} paragraphs"
-            )
-        return (units[one_based - 1].index,)
-    raise SelectionError("selector must be all, last-paragraph, or paragraph:N")
+    ).summary
 
 
 def render_text(
@@ -254,40 +108,34 @@ def render_text(
     synthesis: ResolvedSynthesis | None = None,
     on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
+    from .plan import resolve_execution_v2
+
+    config = _config(cfg)
     document = text if isinstance(text, InputDocument) else document_from_text(text)
     document = prepare_input_document(document)
     if not document.text.strip():
         raise ValueError("no text to read")
-    logger.info(
-        "input.ready format=%s characters=%d source=%s",
-        document.format,
-        len(document.text),
-        document.source_path or "stdin",
+    resolved_synthesis = synthesis or resolve_synthesis(config)
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=document, selector=selector, source_kind="literal"),
+        synthesis=replace(
+            _synthesis_request(resolved_synthesis), unit=unit or resolved_synthesis.unit
+        ),
+        output=OutputRequest(mode="playback"),
+        voice_bindings=dict(ssmd_voice_bindings or {}),
     )
-    reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
-    effective_unit = unit or (synthesis.unit if synthesis is not None else reader_cfg.unit)
-    prepare_unit = "paragraph" if selector != "all" else effective_unit
-    if ssmd_voice_bindings is None and synthesis is None:
-        pipeline_context = _build_pipeline(document, cfg)
-    elif ssmd_voice_bindings is None:
-        pipeline_context = _build_pipeline(document, cfg, synthesis=synthesis)
-    else:
-        pipeline_context = _build_pipeline(
-            document, cfg, ssmd_voice_bindings=ssmd_voice_bindings, synthesis=synthesis
-        )
-    with (
-        pipeline_context as pipeline,
-        pipeline.prepare_units(document.text, unit=prepare_unit) as prepared,
-    ):
-        indices = _selected_indices(prepared, selector)
-        if on_progress is None:
-            return render_prepared(prepared, sink, indices=indices)
-        return render_prepared(
-            prepared,
-            sink,
-            indices=indices,
-            on_progress=on_progress,
-        )
+    execution = resolve_execution_v2(config, request)
+    if not execution.plan.ok:
+        details = "; ".join(item.message for item in execution.plan.diagnostics)
+        raise RenderError(f"render plan is not executable: {details}")
+    return render_from_plan_v2(
+        execution,
+        document,
+        sink,
+        selector=selector,
+        on_progress=on_progress,
+    )
 
 
 def render_live(
@@ -299,87 +147,92 @@ def render_live(
     synthesis: ResolvedSynthesis | None = None,
     on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
-    reader_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
-    effective_unit = unit or (synthesis.unit if synthesis is not None else reader_cfg.unit)
-    logger.info("render.live.start unit=%s", effective_unit)
+    """Stream independent paragraphs through one Readio engine session."""
+    from .engines.base import SpeechRequest
+    from .engines.registry import get_engine
+    from .engines.selection import EngineRequest
+
+    config = _config(cfg)
+    resolved = synthesis or resolve_synthesis(config)
+    engine_id = resolved.engine or config.reader.engine
+    adapter = get_engine(engine_id)
+    if not adapter.capabilities().supports_live:
+        raise RenderError(f"live rendering is not supported by engine {engine_id!r}")
+    options: dict[str, Any] = {
+        "speed": resolved.speed,
+        "rate": resolved.speed,
+        "pause_mode": resolved.pause_mode,
+        "short_sentence": resolved.short_sentence,
+        "allow_experimental": resolved.allow_experimental,
+    }
+    optional_options = {
+        "model_source": resolved.source,
+        "quality": resolved.quality,
+        "lexicons": resolved.lexicons,
+        "g2p_fallback": resolved.g2p_fallback,
+        "lexicon_data_policy": resolved.lexicon_data_policy,
+        "language_detection": resolved.language_detection,
+        "detect_languages": resolved.detect_languages,
+    }
+    options.update({key: value for key, value in optional_options.items() if value is not None})
+    selection, diagnostics = adapter.resolve(
+        EngineRequest(
+            engine=engine_id,
+            target_id=resolved.model,
+            language=resolved.language,
+            voice=resolved.voice,
+            options=options,
+        )
+    )
+    validate = getattr(adapter, "validate_selection", None)
+    if validate is not None:
+        diagnostics = (*diagnostics, *validate(selection))
+    errors = [item.message for item in diagnostics if getattr(item, "severity", None) == "error"]
+    if errors:
+        raise RenderError("live synthesis selection failed: " + "; ".join(errors))
+    target_metadata = getattr(adapter, "target_metadata", None)
+    if target_metadata is not None:
+        selection = replace(selection, metadata=dict(target_metadata(selection)))
+
     saw_text = False
     sample_rate = 0
-    sample_count = 0
     channels = 0
-    metadata: dict[str, Any] = {}
-    markers: list[dict[str, Any]] = []
-    completed_units = 0
-
-    def emit_paragraph_progress(
-        event: RenderProgress,
-        *,
-        base_completed_units: int,
-        base_sample_count: int,
-        base_sample_rate: int,
-        state: dict[str, int],
-    ) -> None:
-        state["completed"] = event.completed_units
-        if on_progress is not None:
-            on_progress(
-                RenderProgress(
-                    completed_units=base_completed_units + event.completed_units,
-                    total_units=None,
-                    sample_count=base_sample_count + event.sample_count,
-                    sample_rate=event.sample_rate or base_sample_rate,
-                )
-            )
-
-    with _build_pipeline(document_from_text(""), cfg, synthesis=synthesis) as pipeline:
+    sample_count = 0
+    completed = 0
+    with adapter.open(selection) as session:
         for paragraph in iter_live_paragraphs(lines):
             saw_text = True
-            with pipeline.prepare_units(paragraph, unit=effective_unit) as prepared:
-                paragraph_state = {"completed": 0}
-                paragraph_callback = (
-                    partial(
-                        emit_paragraph_progress,
-                        base_completed_units=completed_units,
-                        base_sample_count=sample_count,
-                        base_sample_rate=sample_rate,
-                        state=paragraph_state,
-                    )
-                    if on_progress is not None
-                    else None
+            rendered = session.synthesize(
+                SpeechRequest(
+                    id=f"live-{completed + 1}",
+                    text=paragraph,
+                    language=resolved.language,
+                    voice=selection.voice,
+                    speaker=selection.speaker,
+                    options=dict(selection.options),
                 )
-                summary = render_prepared(
-                    prepared,
-                    sink,
-                    on_progress=paragraph_callback,
-                )
-            completed_units += paragraph_state["completed"]
-            if summary.sample_count:
-                if sample_count and (
-                    summary.sample_rate != sample_rate or summary.channels != channels
-                ):
-                    raise ValueError(
-                        "all rendered chunks must use the same sample rate and channel count"
-                    )
-                sample_rate = summary.sample_rate
-                channels = summary.channels
-            sample_count += summary.sample_count
-            metadata.update(summary.document_metadata)
-            markers.extend(
-                {
-                    **marker,
-                    "sample_offset": int(marker["sample_offset"])
-                    + sample_count
-                    - summary.sample_count,
-                }
-                for marker in summary.markers
             )
-
+            audio = np.asarray(rendered.audio)
+            rendered_channels = 1 if audio.ndim == 1 else int(audio.shape[1])
+            if sample_count and (
+                rendered.sample_rate != sample_rate or rendered_channels != channels
+            ):
+                raise RenderError("live chunks must use the same sample rate and channel count")
+            sample_rate = rendered.sample_rate
+            channels = rendered_channels
+            sink.write(audio, rendered.sample_rate)
+            sample_count += int(audio.shape[0])
+            completed += 1
+            if on_progress is not None:
+                on_progress(RenderProgress(completed, None, sample_count, sample_rate))
     if not saw_text:
         raise ValueError("no text to read")
     return RenderSummary(
         sample_rate=sample_rate,
         sample_count=sample_count,
         channels=channels,
-        document_metadata=metadata,
-        markers=tuple(markers),
+        document_metadata={},
+        markers=(),
     )
 
 
@@ -392,62 +245,18 @@ def speak_text(
     ssmd_voice_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> None:
-    """Resolve and execute non-live playback through one explicit plan."""
+    config = _config(cfg)
     logger.info("playback.start mode=text selector=%s", selector)
-    if not isinstance(cfg, ReadioConfig):
-        playback_cfg = cfg
-        with PlaybackSink(playback_cfg) as sink:
-            render_text(
-                text,
-                cfg,
-                sink,
-                selector=selector,
-                unit=unit,
-                ssmd_voice_bindings=ssmd_voice_bindings,
-                synthesis=synthesis,
-            )
-            sink.finish()
-        return
-
-    from .plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_plan
-
-    resolved = synthesis or resolve_synthesis(cfg)
-    document = text if isinstance(text, InputDocument) else document_from_text(text)
-    request = PlanRequest(
-        operation="speak",
-        input=InputRequest(
-            document=document,
+    with PlaybackSink(config.reader) as sink:
+        render_text(
+            text,
+            config,
+            sink,
             selector=selector,
-            source_kind="literal",
-        ),
-        synthesis=SynthesisRequest(
-            language=resolved.language,
-            engine=resolved.engine,
-            model=resolved.model,
-            model_source=resolved.source,
-            quality=resolved.quality,
-            voice=resolved.voice,
-            lexicons=resolved.lexicons if resolved.lexicons else None,
-            clear_lexicons=resolved.lexicons == (),
-            g2p_fallback=resolved.g2p_fallback,
-            spacy=resolved.spacy,
-            short_sentence=resolved.short_sentence,
-            lexicon_data_policy=resolved.lexicon_data_policy,
-            language_detection=resolved.language_detection,
-            detect_languages=resolved.detect_languages,
-            allow_experimental=resolved.allow_experimental,
-            speed=resolved.speed,
-            pause_mode=resolved.pause_mode,
-            unit=unit or resolved.unit,
-        ),
-        output=OutputRequest(mode="playback"),
-        voice_bindings=dict(ssmd_voice_bindings or {}),
-    )
-    plan = resolve_plan(cfg, request)
-    if not plan.ok:
-        raise RenderError("speak plan is not executable")
-    with PlaybackSink(cfg.reader) as sink:
-        render_from_plan(plan, document, sink, selector=selector)
+            unit=unit,
+            ssmd_voice_bindings=ssmd_voice_bindings,
+            synthesis=synthesis,
+        )
         sink.finish()
 
 
@@ -458,8 +267,8 @@ def speak_live(
     unit: str | None = None,
     synthesis: ResolvedSynthesis | None = None,
 ) -> None:
+    config = _config(cfg)
     logger.info("playback.start mode=live unit=%s", unit or "default")
-    playback_cfg = cfg.reader if isinstance(cfg, ReadioConfig) else cfg
-    with PlaybackSink(playback_cfg) as sink:
-        render_live(lines, cfg, sink, unit=unit, synthesis=synthesis)
+    with PlaybackSink(config.reader) as sink:
+        render_live(lines, config, sink, unit=unit, synthesis=synthesis)
         sink.finish()

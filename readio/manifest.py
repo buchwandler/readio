@@ -15,7 +15,7 @@ from .jsonutil import json_value
 
 if TYPE_CHECKING:
     from .audio import RenderSummary
-    from .plan import ReadioPlan
+    from .plan import ReadioPlanV2
 
 
 RENDER_MANIFEST_SCHEMA_V1 = "readio.render-manifest.v1"
@@ -28,7 +28,7 @@ def manifest_path_for(output: Path) -> Path:
     return Path(f"{output}.readio.json")
 
 
-def canonical_plan_json(plan: ReadioPlan) -> bytes:
+def canonical_plan_json(plan: ReadioPlanV2) -> bytes:
     """Serialize a plan using the canonical representation used for its digest."""
     text = json.dumps(
         plan.to_dict(),
@@ -39,7 +39,7 @@ def canonical_plan_json(plan: ReadioPlan) -> bytes:
     return text.encode("utf-8")
 
 
-def plan_sha256(plan: ReadioPlan) -> str:
+def plan_sha256(plan: ReadioPlanV2) -> str:
     """Return the SHA-256 digest of the canonical embedded plan."""
     return hashlib.sha256(canonical_plan_json(plan)).hexdigest()
 
@@ -64,7 +64,7 @@ def _created_at(value: datetime | None) -> str:
 
 def build_render_manifest(
     *,
-    plan: ReadioPlan,
+    plan: ReadioPlanV2,
     summary: RenderSummary,
     output: Path,
     created_at: datetime | None = None,

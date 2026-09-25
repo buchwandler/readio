@@ -21,13 +21,16 @@ def format_plan_human(plan: public_api.ResolvedPlan) -> str:
         f"  SHA256:    {plan.semantic_plan.sha256 or '(none)'}",
     ]
     if plan.render is not None:
+        target = plan.render.default_target
+        voice = target.voice.value if target is not None and target.voice is not None else "(none)"
         lines.extend(
             [
                 "",
                 "Render",
                 f"  Engine:    {plan.render.engine}",
-                f"  Target:    {plan.render.target.id}",
-                f"  Voice:     {plan.render.target.voice or '(none)'}",
+                f"  Target:    {target.id if target is not None else '(role targets only)'}",
+                f"  Voice:     {voice}",
+                f"  Role count: {len(plan.render.role_bindings)}",
                 f"  Render ID: {plan.render.render_id or '(none)'}",
             ]
         )

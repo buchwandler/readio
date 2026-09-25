@@ -379,7 +379,7 @@ class ConfigurationService:
             offline=discovery.offline,
             refresh=discovery.refresh,
             preference=source or discovery.preference,
-            backend=settings.engine,
+            engine=settings.engine,
         )
         source = source or model.source
         voice = voice or model.default_voice

@@ -212,75 +212,11 @@ def render_prepared(
 
 
 # ---------------------------------------------------------------------------
-# RenderedUnit / AudioJob helpers (engine-neutral)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(slots=True)
-class RenderedUnit:
-    """Normalized view of a rendered unit for live/streaming mode.
-
-    This provides a neutral representation that adapters convert
-    their native unit results into.
-    """
-
-    index: int
-    plan_unit_id: str
-    content_hash: str | None
-    audio: np.ndarray
-    sample_rate: int
-    markers: tuple[dict[str, Any], ...] = ()
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-    def release_audio(self) -> None:
-        """Release the audio buffer."""
-        self.audio = np.array([], dtype=np.float32)
-
-
-def render_to_audio_job(
-    units: list[RenderedUnit],
-    sample_rate: int = 24000,
-) -> Any:
-    """Convert rendered units to an AudioJob.
-
-    This is the bounded render path that creates an AudioJob
-    from the rendered units.
-    """
-    from audiocompose import AudioBufferSource, AudioClip, AudioJob, OutputPolicy
-
-    items = []
-    for unit in units:
-        if unit.audio.size > 0:
-            items.append(
-                AudioClip(
-                    id=unit.plan_unit_id,
-                    source=AudioBufferSource(unit.audio, unit.sample_rate),
-                    metadata={
-                        "plan_unit_id": unit.plan_unit_id,
-                        "content_hash": unit.content_hash,
-                        **dict(unit.metadata),
-                    },
-                )
-            )
-
-    return AudioJob(
-        items=tuple(items),
-        schema_version=2,
-        output=OutputPolicy(sample_rate=sample_rate),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 __all__ = [
     "AudioSink",
     "PlaybackSink",
     "RenderProgress",
     "RenderProgressCallback",
     "RenderSummary",
-    "RenderedUnit",
     "render_prepared",
-    "render_to_audio_job",
 ]

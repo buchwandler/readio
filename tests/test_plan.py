@@ -1,4 +1,4 @@
-"""Tests for readio.plan — pure plan domain resolution."""
+"""Tests for the request-centric plan-v2 contract."""
 
 from __future__ import annotations
 
@@ -8,414 +8,141 @@ from readio.config import ReadioConfig, with_overrides
 from readio.document import InputDocument
 from readio.plan import (
     DIAG_OUTPUT_FORMAT_CONFLICT,
-    DIAG_SSMD_UNRESOLVED_VOICE,
     InputRequest,
     OutputRequest,
     PlanRequest,
     SynthesisRequest,
+    format_plan_human,
     resolve_plan,
 )
 
 
-def _default_config(**overrides) -> ReadioConfig:
-    cfg = ReadioConfig()
-    if overrides:
-        cfg = with_overrides(cfg, **overrides)
-    return cfg
+def _config(**overrides) -> ReadioConfig:
+    config = ReadioConfig()
+    return with_overrides(config, **overrides) if overrides else config
 
 
-def _text_request(
-    text: str = "Hello world.",
+def _request(
     *,
+    text: str = "Hello world.",
+    format: str = "text",
     synthesis: SynthesisRequest | None = None,
     output: OutputRequest | None = None,
     voice_bindings: dict[str, str] | None = None,
 ) -> PlanRequest:
     return PlanRequest(
         operation="render",
-        input=InputRequest(
-            document=InputDocument(text=text, source_path=None, format="text"),
-        ),
+        input=InputRequest(document=InputDocument(text, None, format)),
         synthesis=synthesis or SynthesisRequest(),
         output=output or OutputRequest(),
         voice_bindings=voice_bindings or {},
     )
 
 
-# ---------------------------------------------------------------------------
-# Basic structure
-# ---------------------------------------------------------------------------
+def test_plan_represents_semantics_render_target_environment_and_output():
+    plan = resolve_plan(_config(), _request())
+
+    assert plan.ok
+    assert plan.schema == "readio.plan.v2"
+    assert plan.input.source_kind == "stdin"
+    assert plan.input.format == "text"
+    assert plan.semantic_plan.schema_version == 3
+    assert plan.planning.language == "en-us"
+    assert plan.render.engine == "pykokoro"
+    assert plan.render.default_target.id
+    assert plan.environment.packages["readio"]
+    assert plan.environment.packages["utterplan"]
+    assert plan.output.format == "wav"
+    assert plan.output.mode == "file"
 
 
-class TestPlanStructure:
-    def test_plan_has_schema(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.schema == "readio.plan.v1"
+def test_language_override_is_recorded_in_plan_decisions():
+    plan = resolve_plan(_config(), _request(synthesis=SynthesisRequest(language="de")))
 
-    def test_plan_has_input(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.input.source_kind == "stdin"
-        assert plan.input.format == "text"
-        assert plan.input.source_sha256
-
-    def test_plan_has_environment(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.environment.readio_version
-        assert plan.environment.pykokoro_version
-
-    def test_plan_has_output(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.output.format == "wav"
-        assert plan.output.mode == "file"
-
-    def test_plan_has_decisions(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert len(plan.decisions) > 0
-        # Should have at least language, speed, pause_mode, unit
-        fields = {d.field for d in plan.decisions}
-        assert "synthesis.language" in fields
-        assert "synthesis.speed" in fields
-
-
-# ---------------------------------------------------------------------------
-# Language precedence
-# ---------------------------------------------------------------------------
-
-
-class TestLanguagePrecedence:
-    def test_default_language(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.synthesis is not None
-        assert plan.synthesis.language == "en-us"
-
-    def test_cli_language_overrides_config(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(synthesis=SynthesisRequest(language="de")),
-        )
-        assert plan.synthesis is not None
-        assert plan.synthesis.language == "de"
-        # Provenance should show CLI
-        lang_dec = next(d for d in plan.decisions if d.field == "synthesis.language")
-        assert lang_dec.origin == "cli"
-
-    def test_config_language_used_when_no_cli(self) -> None:
-        cfg = _default_config()
-        # Set reader.lang via with_overrides doesn't work directly,
-        # so we test the default path
-        plan = resolve_plan(cfg, _text_request())
-        assert plan.synthesis is not None
-        lang_dec = next(d for d in plan.decisions if d.field == "synthesis.language")
-        assert lang_dec.origin == "config.reader"
-
-
-# ---------------------------------------------------------------------------
-# Language profile matching
-# ---------------------------------------------------------------------------
-
-
-class TestLanguageProfile:
-    def test_exact_profile_match(self) -> None:
-        # Default config has no language profiles, so match is 'none'
-        cfg = _default_config()
-        plan = resolve_plan(
-            cfg,
-            _text_request(synthesis=SynthesisRequest(language="de")),
-        )
-        assert plan.synthesis is not None
-        lp = plan.synthesis.language_profile
-        assert lp.requested == "de"
-        # No profile configured => match is 'none'
-        assert lp.match == "none"
-
-    def test_base_profile_fallback(self) -> None:
-        cfg = _default_config()
-        # de-at should fall back to de base profile if de-at doesn't exist
-        plan = resolve_plan(
-            cfg,
-            _text_request(synthesis=SynthesisRequest(language="de-at")),
-        )
-        assert plan.synthesis is not None
-        lp = plan.synthesis.language_profile
-        assert lp.requested == "de-at"
-        # Depending on config, this could be exact or base
-        assert lp.match in ("exact", "base", "none")
-
-
-# ---------------------------------------------------------------------------
-# Lexicon semantics
-# ---------------------------------------------------------------------------
-
-
-class TestLexicons:
-    def test_lexicon_order_preserved(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(synthesis=SynthesisRequest(lexicons=("gold", "crane"))),
-        )
-        assert plan.synthesis is not None
-        assert plan.synthesis.lexicons == ("gold", "crane")
-
-    def test_clear_lexicons(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(synthesis=SynthesisRequest(clear_lexicons=True)),
-        )
-        assert plan.synthesis is not None
-        assert plan.synthesis.lexicons == ()
-        assert plan.synthesis.to_dict()["lexicons"] == []
-
-
-# ---------------------------------------------------------------------------
-# Reader controls precedence
-# ---------------------------------------------------------------------------
-
-
-class TestReaderControls:
-    def test_cli_speed_overrides_config(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(synthesis=SynthesisRequest(speed=1.5)),
-        )
-        assert plan.synthesis is not None
-        assert plan.synthesis.speed == 1.5
-        speed_dec = next(d for d in plan.decisions if d.field == "synthesis.speed")
-        assert speed_dec.origin == "cli"
-
-    def test_config_speed_used_when_no_cli(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.synthesis is not None
-        assert plan.synthesis.speed == 1.0  # default
-        speed_dec = next(d for d in plan.decisions if d.field == "synthesis.speed")
-        assert speed_dec.origin == "config.reader"
-
-
-# ---------------------------------------------------------------------------
-def test_default_pause_mode_is_auto() -> None:
-    plan = resolve_plan(_default_config(), _text_request())
-
-    assert plan.synthesis is not None
-    assert plan.synthesis.pause_mode == "auto"
-
-    decision = next(item for item in plan.decisions if item.field == "synthesis.pause_mode")
-    assert decision.origin == "config.reader"
-    assert decision.value == "auto"
-
-
-def test_config_pause_mode_overrides_builtin_default() -> None:
-    plan = resolve_plan(_default_config(pause_mode="manual"), _text_request())
-
-    assert plan.synthesis is not None
-    assert plan.synthesis.pause_mode == "manual"
-
-
-def test_cli_pause_mode_overrides_config() -> None:
-    plan = resolve_plan(
-        _default_config(pause_mode="manual"),
-        _text_request(synthesis=SynthesisRequest(pause_mode="tts")),
-    )
-
-    assert plan.synthesis is not None
-    assert plan.synthesis.pause_mode == "tts"
-
-    decision = next(item for item in plan.decisions if item.field == "synthesis.pause_mode")
+    assert plan.planning.language == "de"
+    decision = next(item for item in plan.decisions if item.field == "synthesis.language")
+    assert decision.value == "de"
     assert decision.origin == "cli"
 
 
-# Output planning
-# ---------------------------------------------------------------------------
+def test_lexicon_order_and_explicit_disable_are_render_options():
+    plan = resolve_plan(_config(), _request(synthesis=SynthesisRequest(lexicons=("gold", "crane"))))
+    disabled = resolve_plan(_config(), _request(synthesis=SynthesisRequest(clear_lexicons=True)))
+
+    assert plan.render.options["lexicons"] == ("gold", "crane")
+    assert disabled.render.options["lexicons"] == ()
+    assert disabled.to_dict()["render"]["options"]["lexicons"] == ()
 
 
-class TestOutputPlanning:
-    def test_default_format_is_wav(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.output.format == "wav"
-
-    def test_explicit_format(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(output=OutputRequest(requested_format="mp3")),
-        )
-        assert plan.output.format == "mp3"
-
-    def test_format_from_suffix(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(
-                output=OutputRequest(requested_path=Path("/tmp/test.mp3")),
-            ),
-        )
-        assert plan.output.format == "mp3"
-
-    def test_format_conflict_produces_diagnostic(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(
-                output=OutputRequest(
-                    requested_format="mp3",
-                    requested_path=Path("/tmp/test.wav"),
-                ),
-            ),
-        )
-        assert not plan.ok
-        format_diags = [d for d in plan.diagnostics if d.code == DIAG_OUTPUT_FORMAT_CONFLICT]
-        assert len(format_diags) > 0
-
-    def test_explicit_path_recorded(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(
-                output=OutputRequest(requested_path=Path("/tmp/test.wav")),
-            ),
-        )
-        assert plan.output.path == Path("/tmp/test.wav")
-        assert plan.output.path_origin == "explicit"
-
-    def test_generated_path_when_file_mode(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        assert plan.output.path is not None
-        assert plan.output.path_origin == "generated"
-
-
-# ---------------------------------------------------------------------------
-# Provenance
-# ---------------------------------------------------------------------------
-
-
-class TestProvenance:
-    def test_language_provenance(self) -> None:
-        plan = resolve_plan(
-            _default_config(),
-            _text_request(synthesis=SynthesisRequest(language="de")),
-        )
-        lang_dec = next(d for d in plan.decisions if d.field == "synthesis.language")
-        assert lang_dec.origin == "cli"
-        assert lang_dec.value == "de"
-
-    def test_decisions_have_origin(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        for dec in plan.decisions:
-            assert dec.origin  # no empty origins
-
-
-# ---------------------------------------------------------------------------
-# JSON serialization
-# ---------------------------------------------------------------------------
-
-
-class TestJsonSerialization:
-    def test_to_dict_has_schema(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        d = plan.to_dict()
-        assert d["schema"] == "readio.plan.v1"
-
-    def test_to_dict_has_ok(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        d = plan.to_dict()
-        assert isinstance(d["ok"], bool)
-
-    def test_to_dict_has_synthesis(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        d = plan.to_dict()
-        assert "synthesis" in d
-        assert d["synthesis"] is not None
-        assert "model" in d["synthesis"]
-
-    def test_to_dict_has_decisions(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        d = plan.to_dict()
-        assert isinstance(d["decisions"], list)
-        assert len(d["decisions"]) > 0
-
-    def test_to_dict_has_diagnostics(self) -> None:
-        plan = resolve_plan(_default_config(), _text_request())
-        d = plan.to_dict()
-        assert isinstance(d["diagnostics"], list)
-
-
-# ---------------------------------------------------------------------------
-# Invalid plans
-# ---------------------------------------------------------------------------
-
-
-class TestInvalidPlans:
-    def test_unresolved_ssmd_role_produces_error(self) -> None:
-        ssmd_text = """---
-voice_bindings: {}
----
-<div voice="nonexistent_role">Hello world.</div>
-"""
-
-        plan = resolve_plan(
-            _default_config(),
-            PlanRequest(
-                operation="render",
-                input=InputRequest(
-                    document=InputDocument(
-                        text=ssmd_text,
-                        source_path=None,
-                        format="ssmd",
-                    ),
-                ),
-                synthesis=SynthesisRequest(),
-                output=OutputRequest(),
-            ),
-        )
-        assert not plan.ok
-        unresolved_diags = [d for d in plan.diagnostics if d.code == DIAG_SSMD_UNRESOLVED_VOICE]
-        assert len(unresolved_diags) > 0
-
-
-# ---------------------------------------------------------------------------
-# Human-readable output
-# ---------------------------------------------------------------------------
-
-
-class TestHumanOutput:
-    def test_format_plan_human(self) -> None:
-        from readio.plan import format_plan_human
-
-        plan = resolve_plan(_default_config(), _text_request())
-        text = format_plan_human(plan)
-        assert "Input" in text
-        assert "Synthesis" in text
-        assert "Output" in text
-        assert "Environment" in text
-
-    def test_format_plan_human_shows_why(self) -> None:
-        from readio.plan import format_plan_human
-
-        plan = resolve_plan(_default_config(), _text_request())
-        text = format_plan_human(plan)
-        assert "Why" in text
-
-
-def test_synthesis_policies_are_planned_and_serialized() -> None:
+def test_reader_policy_overrides_are_in_planning_and_render_target():
     plan = resolve_plan(
-        _default_config(),
-        _text_request(
-            synthesis=SynthesisRequest(spacy="lg", short_sentence="wrap"),
+        _config(pause_mode="manual"),
+        _request(
+            synthesis=SynthesisRequest(
+                speed=1.5,
+                pause_mode="tts",
+                spacy="lg",
+                short_sentence="wrap",
+            )
         ),
     )
-    assert plan.synthesis is not None
-    assert plan.synthesis.spacy == "lg"
-    assert plan.synthesis.short_sentence == "wrap"
-    assert plan.to_dict()["synthesis"]["short_sentence"] == "wrap"
-    fields = {decision.field for decision in plan.decisions}
-    assert "synthesis.spacy" in fields
-    assert "synthesis.short_sentence" in fields
+
+    assert plan.planning.pause_mode == "tts"
+    assert plan.planning.spacy == "lg"
+    assert plan.render.rate == 1.5
+    assert plan.render.options["short_sentence"] == "wrap"
+    assert (
+        next(item for item in plan.decisions if item.field == "synthesis.pause_mode").origin
+        == "cli"
+    )
+    assert next(item for item in plan.decisions if item.field == "synthesis.speed").origin == "cli"
 
 
-# ---------------------------------------------------------------------------
-# Compatibility view
-# ---------------------------------------------------------------------------
+def test_output_format_path_conflict_is_reported():
+    plan = resolve_plan(
+        _config(),
+        _request(
+            output=OutputRequest(
+                requested_format="mp3",
+                requested_path=Path("/tmp/episode.wav"),
+            )
+        ),
+    )
+
+    assert not plan.ok
+    assert any(item.code == DIAG_OUTPUT_FORMAT_CONFLICT for item in plan.diagnostics)
 
 
-class TestCompatibilityView:
-    def test_resolved_synthesis_from_plan(self) -> None:
-        from readio.plan import resolved_synthesis_from_plan
+def test_output_path_origin_and_force_are_serialized(tmp_path: Path):
+    path = tmp_path / "episode"
+    plan = resolve_plan(
+        _config(),
+        _request(output=OutputRequest(requested_path=path, requested_format="mp3", force=True)),
+    )
 
-        plan = resolve_plan(_default_config(), _text_request())
-        rs = resolved_synthesis_from_plan(plan)
-        assert rs.language == "en-us"
-        assert rs.speed == 1.0
+    assert plan.output.path == tmp_path / "episode.mp3"
+    assert plan.output.path_origin == "explicit"
+    assert plan.output.force is True
+    assert plan.to_dict()["output"]["force"] is True
+
+
+def test_unresolved_ssmd_role_produces_a_plan_diagnostic():
+    text = '---\nssmd_version: "0.9"\n---\n:::{voice="nonexistent_role"}\nHello world.\n:::\n'
+    plan = resolve_plan(_config(), _request(text=text, format="ssmd"))
+
+    assert not plan.ok
+    assert any(item.code == "ssmd_unresolved_voice" for item in plan.diagnostics)
+
+
+def test_plan_serialization_and_human_report_use_v2_sections():
+    plan = resolve_plan(_config(), _request())
+    data = plan.to_dict()
+    text = format_plan_human(plan)
+
+    assert data["schema"] == "readio.plan.v2"
+    assert "planning" in data and "render" in data and "environment" in data
+    assert "synthesis" not in data
+    assert all(
+        section in text for section in ("Input", "Planning", "Semantic plan", "Render", "Output")
+    )
+    assert "Plan is executable" in text

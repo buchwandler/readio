@@ -40,11 +40,11 @@ SYNTHESIS = ResolvedSynthesis(
 
 def test_ssmd_accepts_voice_from_active_model_roster() -> None:
     result = preflight_ssmd(
-        '<div voice="thorsten">Hallo.</div>', ReadioConfig(), synthesis=SYNTHESIS
+        ':::{voice="thorsten"}\nHallo.\n:::', ReadioConfig(), synthesis=SYNTHESIS
     )
     assert result.ok
 
 
 def test_ssmd_rejects_legacy_voice_for_active_model() -> None:
     with pytest.raises(VoiceResolutionError, match="active model"):
-        preflight_ssmd('<div voice="af_sarah">Hallo.</div>', ReadioConfig(), synthesis=SYNTHESIS)
+        preflight_ssmd(':::{voice="af_sarah"}\nHallo.\n:::', ReadioConfig(), synthesis=SYNTHESIS)

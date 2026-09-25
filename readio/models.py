@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import LanguageSettings, normalize_language_key
+from .engines.registry import normalize_engine_id
 
 logger = logging.getLogger(__name__)
 PYKOKORO_REQUIRED = ">=0.9.9,<0.10"
@@ -142,6 +143,46 @@ class ModelInfo:
                 f"PyKokoro returned invalid model capability metadata: {exc}",
                 code="pykokoro.registry_invalid",
             ) from exc
+
+    @classmethod
+    def from_target(cls, target: Any) -> ModelInfo:
+        """Build the legacy model view from a neutral discovered target."""
+        metadata = target.metadata
+        voices = tuple(target.voices)
+        details = tuple(
+            VoiceMetadata(
+                id=str(item["id"]),
+                gender=str(item["gender"]),
+                language=str(item["language"]),
+                locale=str(item["locale"]),
+                language_label=str(item["language_label"]),
+            )
+            for item in metadata.get("voice_details", ())
+            if isinstance(item, dict)
+        )
+        lexicons = metadata.get("lexicons")
+        return cls(
+            id=target.id,
+            source=str(metadata.get("source") or target.engine),
+            languages=tuple(target.languages),
+            voices=voices,
+            default_voice=str(metadata.get("default_voice") or (voices[0] if voices else "")),
+            qualities=tuple(target.qualities),
+            g2p_backend=metadata.get("g2p_backend"),
+            lexicons=tuple(lexicons) if lexicons is not None else None,
+            frontend=str(metadata.get("frontend") or ""),
+            status=target.status,
+            experimental=bool(metadata.get("experimental", target.status == "experimental")),
+            runtime_available=target.runtime_available,
+            redistribution_allowed=bool(metadata.get("redistribution_allowed", False)),
+            distribution_id=metadata.get("distribution_id"),
+            provider=metadata.get("provider"),
+            distribution_provider=metadata.get("distribution_provider"),
+            backend=target.engine,
+            sample_rate=target.sample_rate or metadata.get("sample_rate"),
+            max_tokens=metadata.get("max_tokens"),
+            voice_details=details,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -410,20 +451,23 @@ def discover_model_info(
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
-    backend: str | None = None,
+    engine: str | None = None,
 ) -> tuple[tuple[ModelInfo, ...], Any]:
-    """Discover models through the selected synthesis backend."""
-    from .backends import get_backend
-    from .backends.registry import default_backend
+    """Discover engine targets through the unified synthesis registry."""
+    from .engines.discovery import discover_targets
 
-    selected = default_backend() if backend is None else get_backend(backend)
-    return selected.discover_models(
+    selected_engine = normalize_engine_id(engine) if engine is not None else "pykokoro"
+    discovery = discover_targets(
+        engine=selected_engine,
         language=language,
-        status=status,
         offline=offline,
         refresh=refresh,
         preference=preference,
     )
+    models = tuple(ModelInfo.from_target(target) for target in discovery.targets)
+    if status is not None:
+        models = tuple(item for item in models if item.status == status)
+    return models, discovery
 
 
 def get_model_info(
@@ -432,11 +476,11 @@ def get_model_info(
     offline: bool = False,
     refresh: bool = False,
     preference: str = "auto",
-    backend: str | None = None,
+    engine: str | None = None,
 ) -> tuple[ModelInfo, Any]:
     logger.debug("model.resolve.start model=%s", model_id)
     models, result = discover_model_info(
-        offline=offline, refresh=refresh, preference=preference, backend=backend
+        offline=offline, refresh=refresh, preference=preference, engine=engine
     )
     for model in models:
         if model.id == model_id:

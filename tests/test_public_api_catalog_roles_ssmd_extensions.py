@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 import numpy as np
-from audiocompose import AudioBufferSource, AudioClip, AudioJob
+from readio.engines import RenderedSpeech
 from readio.api import (
     EngineCapabilities, EngineSelection, InputRequest, ModelQuery, OutputRequest,
     PlanRequest, Readio, SynthesisRequest, TargetQuery, VoiceQuery, default_config,
@@ -43,14 +43,13 @@ ENGINE_ID = "api-extension-fixture"
 class Session:
     def __init__(self, adapter):
         self.adapter = adapter
-    def to_audio_job(self, plan, *, options):
-        unit = plan.units[0]
-        clip = AudioClip(
-            id=unit.id,
-            source=AudioBufferSource(np.ones(16, dtype=np.float32), 24000),
-            metadata={"plan_unit_id": unit.id},
+    def synthesize(self, request):
+        self.adapter.requests.append(request)
+        return RenderedSpeech(
+            id=request.id,
+            audio=np.ones(160, dtype=np.float32),
+            sample_rate=24000,
         )
-        return AudioJob(items=(clip,))
 
 class Adapter:
     id = ENGINE_ID
@@ -58,6 +57,7 @@ class Adapter:
         self.discover_calls = 0
         self.open_calls = 0
         self.options = None
+        self.requests = []
     def version(self):
         return "1.0"
     def capabilities(self):
@@ -118,6 +118,7 @@ assert any(diagnostic.code == "engine_option_unsupported" for diagnostic in bad_
 result = app.speech.render(request)
 assert result.output_path and result.output_path.is_file()
 assert adapter.open_calls == 1
+assert len(adapter.requests) == 1 and adapter.requests[0].text == "Public engine API."
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, str(output)],

@@ -1,41 +1,15 @@
-from contextlib import contextmanager
+from __future__ import annotations
+
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from readio.audio import AudioSink
+from readio.audio import AudioSink, RenderSummary
 from readio.config import ReadioConfig
 from readio.document import InputDocument
 from readio.reader import prepare_input_document, render_text
-
-
-class _Unit:
-    def __init__(self, index: int) -> None:
-        self.index = index
-
-
-class _Prepared:
-    def __init__(self, text: str) -> None:
-        self.text = text
-        self.units = tuple(_Unit(index) for index, _ in enumerate(text.split("\n\n")))
-
-
-class _Pipeline:
-    def __init__(self) -> None:
-        self.document_text = ""
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, traceback):
-        return False
-
-    @contextmanager
-    def prepare_units(self, text: str, *, unit: str):
-        del unit
-        self.document_text = text
-        yield _Prepared(text)
+from readio.synthesis import ResolvedSynthesis
 
 
 def test_prepare_input_document_projects_markdown_to_plain_text(tmp_path: Path):
@@ -48,59 +22,55 @@ def test_prepare_input_document_projects_markdown_to_plain_text(tmp_path: Path):
     assert prepared.text == "Title.\n\nParagraph."
 
 
-def test_render_selection_uses_spoken_markdown_projection(monkeypatch):
-    pipeline = _Pipeline()
-    selected = []
-
-    monkeypatch.setattr("readio.reader._build_pipeline", lambda document, cfg: pipeline)
-    monkeypatch.setattr(
-        "readio.reader.render_prepared",
-        lambda prepared, sink, indices=None: selected.append(indices) or "rendered",
+def test_render_text_uses_spoken_markdown_projection(monkeypatch):
+    captured = {}
+    summary = RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
+    synthesis = ResolvedSynthesis(
+        language="en-us",
+        model=None,
+        source=None,
+        quality=None,
+        voice=None,
+        lexicons=None,
+        allow_experimental=False,
+        speed=1.0,
+        pause_mode="auto",
+        unit="paragraph",
     )
 
+    def resolve(_config, request):
+        captured["request"] = request
+        return type("Resolved", (), {"plan": type("Plan", (), {"ok": True})()})()
+
+    def render_from_plan(plan, document, sink, **kwargs):
+        captured.update(plan=plan, document=document, sink=sink, kwargs=kwargs)
+        return summary
+
+    monkeypatch.setattr("readio.plan.resolve_execution_v2", resolve)
+    monkeypatch.setattr("readio.reader.render_from_plan_v2", render_from_plan)
     source = InputDocument("# Title\n\n- first\n- second", None, "markdown")
-    result = render_text(
-        source, ReadioConfig(), cast(AudioSink, object()), selector="last-paragraph"
-    )
-
-    assert result == "rendered"
-    assert pipeline.document_text == "Title.\n\nItem: first.\n\nItem: second."
-    assert selected == [(2,)]
-
-
-def test_render_text_forwards_progress_callback(monkeypatch):
-    pipeline = _Pipeline()
-    received = []
-    callback = object()
-
-    monkeypatch.setattr("readio.reader._build_pipeline", lambda document, cfg: pipeline)
-    monkeypatch.setattr(
-        "readio.reader.render_prepared",
-        lambda prepared, sink, indices=None, on_progress=None: (
-            received.append((indices, on_progress)) or "rendered"
-        ),
-    )
+    sink = cast(AudioSink, object())
 
     result = render_text(
-        InputDocument("first\n\nsecond", None, "text"),
+        source,
         ReadioConfig(),
-        cast(AudioSink, object()),
-        on_progress=callback,
+        sink,
+        selector="last-paragraph",
+        synthesis=synthesis,
     )
 
-    assert result == "rendered"
-    assert received == [(None, callback)]
+    assert result is summary
+    assert captured["document"].text == "Title.\n\nItem: first.\n\nItem: second."
+    assert captured["request"].input.document == captured["document"]
+    assert captured["request"].input.selector == "last-paragraph"
+    assert captured["kwargs"]["selector"] == "last-paragraph"
 
 
-def test_empty_markdown_projection_uses_clear_reader_error(monkeypatch):
+def test_empty_markdown_projection_fails_before_plan_resolution(monkeypatch):
     monkeypatch.setattr(
-        "readio.reader._build_pipeline",
-        lambda document, cfg: pytest.fail("empty Markdown must fail before pipeline construction"),
+        "readio.plan.resolve_execution_v2",
+        lambda *_args, **_kwargs: pytest.fail("empty Markdown must fail before plan resolution"),
     )
 
     with pytest.raises(ValueError, match="no text to read"):
-        render_text(
-            InputDocument("![](image.png)", None, "markdown"),
-            ReadioConfig(),
-            cast(AudioSink, object()),
-        )
+        render_text(InputDocument("#", None, "markdown"), ReadioConfig(), cast(AudioSink, object()))

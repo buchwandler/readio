@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from utterplan import UtterancePlan
 
@@ -41,7 +41,6 @@ def compile_semantic_plan(
     document: InputDocument,
     *,
     planning: PlanningPolicy,
-    engine_config: Any = None,
 ) -> CompiledSemanticPlan:
     """Compile a document into a semantic UtterancePlan.
 
@@ -59,10 +58,6 @@ def compile_semantic_plan(
     """
     from .semantic import SemanticPlanningService
 
-    if engine_config is not None:
-        raise ValueError(
-            "engine-specific planner configuration is not accepted by Readio semantic planning"
-        )
     service = SemanticPlanningService()
     plan = service.compile_from_document(document, planning)
     # Compute identity after the compiler has materialized UtterPlan identity.

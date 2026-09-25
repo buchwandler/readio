@@ -1,171 +1,99 @@
-"""Diagnostics and health checks for Readio.
-
-This module provides the `readio doctor` command that reports
-on engine status, dependencies, and configuration.
-"""
+"""Diagnostics and health checks for Readio."""
 
 from __future__ import annotations
 
 import importlib.metadata
-import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from .engines import engine_status
 
 
 def check_engine_status() -> dict[str, dict[str, Any]]:
-    """Check status of all known engines.
-
-    Returns:
-        Dict mapping engine ID to status info.
-    """
-    result: dict[str, dict[str, Any]] = {}
-
-    # Check PyKokoro
-    result["pykokoro"] = _check_pykokoro()
-
-    # Check PiperSynth
-    result["piper"] = _check_piper()
-
-    return result
+    """Return package and adapter status from the unified engine registry."""
+    return engine_status()
 
 
-def _check_pykokoro() -> dict[str, Any]:
-    """Check PyKokoro status."""
-    status: dict[str, Any] = {
-        "adapter": False,
-        "package": False,
-        "version": None,
-        "status": "not_installed",
-    }
-
-    # Check if adapter is available
+def _check_distribution(distribution: str) -> dict[str, Any]:
     try:
-        import importlib.util
-
-        if importlib.util.find_spec("pykokoro") is not None:
-            from .engines.pykokoro import PyKokoroEngineAdapter  # noqa: F401
-
-            status["adapter"] = True
-    except ImportError:
-        pass
-
-    # Check if package is installed
-    try:
-        version = importlib.metadata.version("pykokoro")
-        status["package"] = True
-        status["version"] = version
-        status["status"] = "ready"
+        return {"available": True, "version": importlib.metadata.version(distribution)}
     except importlib.metadata.PackageNotFoundError:
-        status["status"] = "package_missing"
-
-    return status
-
-
-def _check_piper() -> dict[str, Any]:
-    """Check PiperSynth status."""
-    status: dict[str, Any] = {
-        "adapter": False,
-        "package": False,
-        "version": None,
-        "status": "not_installed",
-    }
-
-    # Check if adapter is available
-    try:
-        import importlib.util
-
-        if importlib.util.find_spec("pipersynth") is not None:
-            from .engines.pipersynth import PiperSynthEngineAdapter  # noqa: F401
-
-            status["adapter"] = True
-    except ImportError:
-        pass
-
-    # Check if package is installed
-    try:
-        version = importlib.metadata.version("pipersynth")
-        status["package"] = True
-        status["version"] = version
-        status["status"] = "ready"
-    except importlib.metadata.PackageNotFoundError:
-        status["status"] = "package_missing"
-
-    return status
+        return {"available": False, "version": None}
 
 
 def check_utterplan() -> dict[str, Any]:
     """Check UtterPlan availability."""
-    try:
-        version = importlib.metadata.version("utterplan")
-        return {"available": True, "version": version}
-    except importlib.metadata.PackageNotFoundError:
-        return {"available": False, "version": None}
+    return _check_distribution("utterplan")
+
+
+def check_ssmd() -> dict[str, Any]:
+    """Check SSMD availability."""
+    return _check_distribution("ssmd")
 
 
 def check_audiocompose() -> dict[str, Any]:
     """Check AudioCompose availability."""
-    try:
-        version = importlib.metadata.version("audiocompose")
-        return {"available": True, "version": version}
-    except importlib.metadata.PackageNotFoundError:
-        return {"available": False, "version": None}
+    return _check_distribution("audiocompose")
+
+
+def check_onnxvoice() -> dict[str, Any]:
+    """Check OnnxVoice package availability without initializing a runtime."""
+    return _check_distribution("onnxvoice")
 
 
 def run_doctor() -> str:
-    """Run all diagnostics and return a formatted report.
-
-    Returns:
-        Formatted diagnostic report.
-    """
-    lines = ["Readio Doctor", "=" * 40, ""]
-
-    # Engine status
-    lines.append("Engines:")
-    lines.append("-" * 20)
+    """Return a formatted package and adapter health report."""
+    lines = ["Readio Doctor", "=" * 40, "", "Engines:", "-" * 20]
     engines = check_engine_status()
     for engine_id, status in engines.items():
-        adapter = "yes" if status["adapter"] else "no"
         package = status["version"] or "not installed"
-        lines.append(f"  {engine_id}:")
-        lines.append(f"    adapter: {adapter}")
-        lines.append(f"    package: {package}")
-        lines.append(f"    status: {status['status']}")
+        compatible = status.get("api_compatible")
+        api_report = "unknown" if compatible is None else "yes" if compatible else "no"
+        lines.extend(
+            [
+                f"  {engine_id}:",
+                f"    adapter: {'yes' if status['adapter'] else 'no'}",
+                f"    package: {package}",
+                f"    request API compatible: {api_report}",
+                f"    status: {status['status']}",
+            ]
+        )
     lines.append("")
 
-    # UtterPlan
-    utterplan = check_utterplan()
-    lines.append("UtterPlan:")
-    lines.append("-" * 20)
-    if utterplan["available"]:
-        lines.append(f"  version: {utterplan['version']}")
-    else:
-        lines.append("  not installed")
-    lines.append("")
-
-    # AudioCompose
-    audiocompose = check_audiocompose()
-    lines.append("AudioCompose:")
-    lines.append("-" * 20)
-    if audiocompose["available"]:
-        lines.append(f"  version: {audiocompose['version']}")
-    else:
-        lines.append("  not installed")
-    lines.append("")
-
-    # Recommendations
-    lines.append("Recommendations:")
-    lines.append("-" * 20)
-    if not engines["pykokoro"]["package"]:
-        lines.append("  - Install PyKokoro: pip install readio[kokoro]")
-    if not engines["piper"]["package"]:
-        lines.append("  - Install PiperSynth: pip install readio[piper]")
-    if not utterplan["available"]:
-        lines.append("  - Install UtterPlan: pip install utterplan")
-    if not audiocompose["available"]:
-        lines.append("  - Install AudioCompose: pip install audiocompose")
-
+    dependencies = {
+        "UtterPlan": check_utterplan(),
+        "SSMD": check_ssmd(),
+        "AudioCompose": check_audiocompose(),
+        "OnnxVoice": check_onnxvoice(),
+    }
+    lines.extend(["Dependencies:", "-" * 20])
+    for name, dependency in dependencies.items():
+        version = dependency["version"] or "not installed"
+        lines.append(f"  {name}: {version}")
+    lines.extend(["", "Recommendations:", "-" * 20])
+    for engine_id, status in engines.items():
+        if not status["package"]:
+            extra = {"pykokoro": "kokoro", "piper": "piper", "pocket": "pocket"}.get(
+                engine_id, engine_id
+            )
+            lines.append(f"  - Install {engine_id}: pip install readio[{extra}]")
+    for name, dependency in dependencies.items():
+        if not dependency["available"]:
+            package = {
+                "UtterPlan": "utterplan",
+                "SSMD": "ssmd",
+                "AudioCompose": "audiocompose",
+            }.get(name, name.lower())
+            lines.append(f"  - Install {name}: pip install {package}")
+    if len(lines) == 10:
+        lines.append("  No issues detected.")
     return "\n".join(lines)
 
 
-__all__ = ["check_engine_status", "run_doctor"]
+__all__ = [
+    "check_audiocompose",
+    "check_engine_status",
+    "check_onnxvoice",
+    "check_ssmd",
+    "check_utterplan",
+    "run_doctor",
+]

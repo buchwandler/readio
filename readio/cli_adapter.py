@@ -9,7 +9,9 @@ from typing import Literal
 from . import api
 from .progress import TerminalProgress
 
-_KNOWN_DOCUMENT_SUFFIXES = frozenset({".txt", ".ssmd", ".md", ".markdown", ".mdown", ".mkd"})
+_KNOWN_DOCUMENT_SUFFIXES = frozenset(
+    {".txt", ".ssmd", ".ssmd.md", ".md", ".markdown", ".mdown", ".mkd"}
+)
 
 
 def normalize_positional_input(args: argparse.Namespace) -> None:
@@ -38,7 +40,7 @@ def normalize_positional_input(args: argparse.Namespace) -> None:
         return
 
     if (
-        candidate.suffix.lower() in _KNOWN_DOCUMENT_SUFFIXES
+        any(candidate.name.lower().endswith(suffix) for suffix in _KNOWN_DOCUMENT_SUFFIXES)
         or "/" in raw
         or "\\" in raw
         or raw.startswith((".", "~"))
@@ -81,13 +83,23 @@ def synthesis_request_from_args(
     *,
     default_language: str | None = None,
 ) -> api.SynthesisRequest:
+    voice = getattr(args, "voice", None)
+    voice_file = getattr(args, "voice_file", None)
+    if voice is not None and voice_file is not None:
+        raise ValueError("--voice and --voice-file cannot be combined")
+    engine_options = {
+        name: value
+        for name in ("precision", "temperature", "lsd_steps", "max_frames", "frames_after_eos")
+        if (value := getattr(args, name, None)) is not None
+    }
     return api.SynthesisRequest(
         language=getattr(args, "lang", None) or default_language,
         engine=getattr(args, "engine", None),
         model=getattr(args, "model", None),
         model_source=getattr(args, "model_source", None),
         quality=getattr(args, "quality", None),
-        voice=getattr(args, "voice", None),
+        voice=voice,
+        voice_file=voice_file,
         lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) is not None else None,
         speaker=getattr(args, "speaker", None),
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),
@@ -108,6 +120,7 @@ def synthesis_request_from_args(
         unit=getattr(args, "unit", None),
         offline=bool(getattr(args, "offline", False)),
         refresh=bool(getattr(args, "refresh", False)),
+        engine_options=engine_options,
     )
 
 
@@ -187,6 +200,10 @@ def build_plan_request(
         ),
         synthesis=synthesis,
         output=output,
+        composition=api.CompositionOptions(
+            target_lufs=getattr(args, "target_lufs", None),
+            sample_rate=getattr(args, "sample_rate", None),
+        ),
         voice_bindings=voice_bindings,
     )
 

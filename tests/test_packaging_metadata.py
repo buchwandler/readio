@@ -35,7 +35,7 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
 def test_release_ci_targets_released_pykokoro_artifact() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
 
-    assert "pykokoro[playback]==0.9.11" in workflow
+    assert "pykokoro[playback]==0.9.10" in workflow
     assert "pykokoro.git@" not in workflow
     assert "ssmd.git@" not in workflow
     assert "0.9.9" not in workflow
@@ -45,12 +45,14 @@ def test_fixed_runtime_dependency_floors_are_declared() -> None:
     dependencies = _project_dependencies()
     optional = _project_optional_dependencies()
 
-    assert "onnxvoice>=0.1.8,<0.2" in dependencies
-    assert optional["kokoro"] == ["pykokoro[playback]>=0.9.11,<0.10"]
-    assert "pykokoro[playback]>=0.9.11,<0.10" in optional["all"]
+    assert "onnxvoice>=0.1.12,<0.2" in dependencies
+    assert optional["kokoro"] == ["pykokoro[playback]>=0.9.10,<0.10"]
+    assert "pykokoro[playback]>=0.9.10,<0.10" in optional["all"]
     assert optional["piper"] == ["pipersynth>=0.1.3,<0.2"]
+    assert optional["pocket"] == ["pocketsynth[cpu]>=0.1.0,<0.2"]
     assert optional["spacy"] == ["utterplan[spacy]>=0.3.0,<0.4"]
     assert "pipersynth>=0.1.3,<0.2" in optional["all"]
+    assert "pocketsynth[cpu]>=0.1.0,<0.2" in optional["all"]
     assert "utterplan[spacy]>=0.3.0,<0.4" in optional["all"]
     assert all(
         dependency != "utterplan[spacy]>=0.1.4,<0.2"

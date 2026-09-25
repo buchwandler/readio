@@ -1,4 +1,4 @@
-"""Engine-neutral Utterplan v3 planning policy for Readio."""
+"""Engine-neutral typed UtterPlan policy for Readio."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from utterplan import LinguisticsConfig, PauseConfig, PlannerConfig, SSMDConfig
 
 
 def _linguistics_from_spacy_policy(policy: str | None) -> LinguisticsConfig:
-    """Translate Readio's spaCy policy into Utterplan v3 settings."""
+    """Translate Readio's spaCy policy into UtterPlan settings."""
     selected = policy or "auto"
     if selected == "off":
         return LinguisticsConfig(use_spacy=False, require_spacy=False)
@@ -28,15 +28,20 @@ def _linguistics_from_spacy_policy(policy: str | None) -> LinguisticsConfig:
 
 @dataclass(frozen=True, slots=True)
 class PlanningPolicy:
-    """Readio's semantic policy, independent of a synthesis engine."""
+    """Readio's semantic planning settings, independent of synthesis engines."""
 
     language: str = "en-us"
     unit: Literal["paragraph", "sentence"] = "paragraph"
-    text_preparation: Literal["identity", "spokenform"] = "identity"
+    text_preparation: Literal["identity", "spokenform"] = "spokenform"
     document_format: Literal["plain", "ssmd"] = "plain"
-    ssmd_provider: str | None = None
-    ssmd_voice_bindings: dict[str, str] = field(default_factory=dict)
     pause_mode: str = "auto"
+    pause_weak: float = 0.15
+    pause_clause: float = 0.3
+    pause_sentence: float = 0.6
+    pause_paragraph: float = 1.0
+    pause_parenthetical: float = 0.15
+    pause_voice_change: float = 0.15
+    pause_enabled: bool = True
     spacy_policy: str | None = "auto"
     language_aliases: dict[str, str] = field(default_factory=dict)
     language_detection: str | None = None
@@ -45,18 +50,23 @@ class PlanningPolicy:
     overlap_mode: Literal["snap", "strict"] = "snap"
     diagnostics: bool = True
 
-    def to_planner_config(self, engine_config: Any = None) -> PlannerConfig:
-        """Build the complete Utterplan v3 planner configuration."""
-        if engine_config is not None:
-            raise ValueError(
-                "engine-specific planner configuration is not accepted by Readio semantic planning"
-            )
+    def to_planner_config(self) -> PlannerConfig:
+        """Build UtterPlan's typed planner configuration."""
         return PlannerConfig(
             language=self.language,
             document_format=self.document_format,
             text_preparation=self.text_preparation,
             unit=self.unit,
-            pauses=PauseConfig(mode=self.pause_mode),
+            pauses=PauseConfig(
+                mode=self.pause_mode,
+                weak=self.pause_weak,
+                clause=self.pause_clause,
+                sentence=self.pause_sentence,
+                paragraph=self.pause_paragraph,
+                parenthetical=self.pause_parenthetical,
+                voice_change=self.pause_voice_change,
+                enabled=self.pause_enabled,
+            ),
             linguistics=_linguistics_from_spacy_policy(self.spacy_policy),
             ssmd=self.ssmd,
             overlap_mode=self.overlap_mode,
@@ -65,17 +75,27 @@ class PlanningPolicy:
         )
 
     @classmethod
-    def from_semantic_config(cls, cfg: Any, *, document_format: str = "plain") -> PlanningPolicy:
+    def from_semantic_config(
+        cls,
+        cfg: Any,
+        *,
+        document_format: str = "plain",
+    ) -> PlanningPolicy:
         """Create the engine-free policy from Readio configuration."""
         reader = getattr(cfg, "reader", cfg)
-        ssmd = getattr(cfg, "ssmd", None)
         return cls(
             language=getattr(reader, "lang", "en-us"),
             unit=getattr(reader, "unit", "sentence"),
-            text_preparation=getattr(reader, "text_preparation", "identity"),
+            text_preparation=getattr(reader, "text_preparation", "spokenform"),
             document_format=document_format,
-            ssmd_provider=getattr(ssmd, "voice_provider", None),
             pause_mode=getattr(reader, "pause_mode", "auto"),
+            pause_weak=getattr(reader, "pause_weak", 0.15),
+            pause_clause=getattr(reader, "pause_clause", 0.3),
+            pause_sentence=getattr(reader, "pause_sentence", 0.6),
+            pause_paragraph=getattr(reader, "pause_paragraph", 1.0),
+            pause_parenthetical=getattr(reader, "pause_parenthetical", 0.15),
+            pause_voice_change=getattr(reader, "pause_voice_change", 0.15),
+            pause_enabled=getattr(reader, "pause_enabled", True),
             spacy_policy=getattr(reader, "spacy", "auto"),
             language_aliases=dict(getattr(cfg, "language_aliases", {}) or {}),
             language_detection=getattr(reader, "language_detection", None),
@@ -84,7 +104,7 @@ class PlanningPolicy:
 
     @classmethod
     def from_readio_config(cls, cfg: Any) -> PlanningPolicy:
-        """Backward-compatible alias for the engine-free semantic policy."""
+        """Create planning policy from the current Readio configuration."""
         return cls.from_semantic_config(cfg)
 
 

@@ -7,7 +7,7 @@ source/document
       |
       | semantic policy and linguistic enrichment
       v
-UtterancePlan v2
+UtterancePlan schema v3
       |\
       | \
       |  +--> resolved pauses, segment order, presentation directives
@@ -18,7 +18,10 @@ UtterancePlan v2
       +--> canonical speech identity
                     |
                     v
-       engine segment renderer
+       Readio request lowering
+                    |
+                    v
+       engine session pool
                     |
                     v
        content-addressed speech cache
@@ -66,13 +69,9 @@ sidecars cause only the affected segment to render again.
 
 ## Engine boundary
 
-PyKokoro and PiperSynth retain their ordinary full-plan APIs for standalone
-consumers. Readio uses their explicit prepared-segment APIs. Those APIs perform
-model inference, contextual G2P, short-sentence handling, deterministic
-model-specific cleanup, timestamps, and voice/model calibration, then stop at
-canonical speech-only audio. They do not apply semantic pauses, presentation
-pitch, user-facing rate or speed, volume, emphasis, fades, or final program
-loudness.
+Readio lowers each UtterPlan segment to a Readio-owned `SpeechRequest`; adapters receive requests and return `RenderedSpeech`. They do not receive UtterPlan documents or construct AudioCompose jobs. The engine runtime may perform engine-specific tokenization and acoustic inference, but semantic role binding, pause layout, markers, timing rebasing, timeline operations, and output remain Readio responsibilities.
+
+PyKokoro and Pocket support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
 
 Readio's engine adapter owns canonical profile identity. Project `speed` and
 semantic rate are composition controls. Model-native controls such as a named
@@ -125,8 +124,7 @@ The synthesis profile records provider, sorted project bindings, and a SHA-256 p
 
 ## Engine voice-binding modes
 
-Engine capabilities declare whether SSMD role bindings are applied at runtime or select acoustic targets. PyKokoro advertises runtime binding, so Readio can pass role-to-voice bindings into one loaded synthesis pipeline. Piper advertises target binding because each selection loads one voice bundle and cannot switch roles inside that session.
-
+Engine capabilities declare whether voice selection is request-scoped or target-scoped. A request-scoped engine can switch a voice on each `SpeechRequest`; a target-scoped engine requires Readio to resolve roles to distinct `SynthesisTarget`s. Pocket reference voices are explicit content-addressed voice sources, not entries in a global named-voice catalog.
 For target-bound execution, Readio resolves every speech segment's symbolic role for its document scope, validates all distinct target selections before opening any session, and groups segments by target. It opens one reusable session per distinct target, not one model per segment. The semantic plan remains unchanged and retains symbolic role references. Aggregate v3 synthesis profiles identify the targets, per-scope bindings, and project-binding fingerprint; progress events include target IDs and report target-specific model loading.
 
 ## End-to-end acceptance scenario

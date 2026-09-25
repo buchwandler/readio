@@ -58,8 +58,8 @@ def test_project_ssmd_plan_preserves_semantics_and_metadata(tmp_path):
         "    narrator: af_heart\n"
         "    guest: af_bella\n"
         "---\n\n"
-        '<div voice="narrator">\nHello. ...600ms\nWorld.\n</div>\n\n'
-        '<div voice="guest">\nReply.\n</div>\n',
+        ':::{voice="narrator"}\nHello. ...600ms\nWorld.\n:::\n\n'
+        ':::{voice="guest"}\nReply.\n:::\n',
         encoding="utf-8",
     )
     project = init_project(source, tmp_path / "episode.readio")
@@ -163,7 +163,7 @@ def test_project_planning_plans_all_document_scopes_and_tracks_input_hashes(tmp_
     assert [item.id for item in initial] == ["chapter-0002", "chapter-0003"]
     assert all(item.document_sha256 for item in initial)
     assert all(item.plan_id for item in initial)
-    assert all(load_scope_plan(project, item).schema_version == 2 for item in initial)
+    assert all(load_scope_plan(project, item).schema_version == 3 for item in initial)
 
     project.path("document/chapters/chapter-0003.md").write_text(
         "# Chapter Three\n\nUpdated text.", encoding="utf-8"

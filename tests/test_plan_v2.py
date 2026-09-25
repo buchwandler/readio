@@ -1,14 +1,8 @@
-"""Tests for readio.plan.v2 schema and resolver.
-
-These tests verify:
-- Plan v2 structure
-- SemanticPlanRef
-- Engine-neutral render section
-- resolve_plan_v2() produces correct v2 plan
-"""
+"""Tests for the engine-neutral readio.plan.v2 schema."""
 
 from __future__ import annotations
 
+import pytest
 from utterplan import CURRENT_SCHEMA_VERSION
 
 from readio.plan import (
@@ -17,238 +11,372 @@ from readio.plan import (
     ReadioPlanV2,
     RenderPlanV2,
     RenderTargetV2,
+    RoleTargetBindingV2,
     SemanticPlanRef,
+    VoiceSourceV2,
     render_identity,
 )
 
-# ---------------------------------------------------------------------------
-# Schema tests
-# ---------------------------------------------------------------------------
+
+def test_semantic_plan_ref_uses_utterplan_schema() -> None:
+    ref = SemanticPlanRef(plan_id="plan", sha256="hash")
+    assert ref.format == "utterplan"
+    assert ref.schema_version == CURRENT_SCHEMA_VERSION == 3
+    assert ref.to_dict()["sha256"] == "hash"
 
 
-class TestSemanticPlanRef:
-    """Tests for SemanticPlanRef dataclass."""
-
-    def test_default_values(self) -> None:
-        """SemanticPlanRef should have correct default values."""
-        ref = SemanticPlanRef()
-        assert ref.format == "utterplan"
-        assert ref.schema_version == CURRENT_SCHEMA_VERSION == 3
-        assert ref.plan_id == ""
-        assert ref.sha256 == ""
-        assert ref.path is None
-
-    def test_custom_values(self) -> None:
-        """SemanticPlanRef should accept custom values."""
-        ref = SemanticPlanRef(
-            plan_id="test-plan-id",
-            sha256="abc123",
-            path="/path/to/plan.json",
-        )
-        assert ref.plan_id == "test-plan-id"
-        assert ref.sha256 == "abc123"
-        assert ref.path == "/path/to/plan.json"
-
-    def test_to_dict(self) -> None:
-        """SemanticPlanRef.to_dict() should return correct dict."""
-        ref = SemanticPlanRef(plan_id="test", sha256="hash")
-        d = ref.to_dict()
-        assert d["format"] == "utterplan"
-        assert d["schema_version"] == CURRENT_SCHEMA_VERSION == 3
-        assert d["plan_id"] == "test"
-        assert d["sha256"] == "hash"
-        assert d["path"] is None
+def test_voice_source_has_explicit_kind_and_reference_hash() -> None:
+    named = VoiceSourceV2(kind="named", value="af_sarah")
+    assert named.to_dict() == {"kind": "named", "value": "af_sarah"}
+    reference = VoiceSourceV2(kind="reference", value="voices/guest.wav", sha256="abc")
+    assert reference.to_dict() == {
+        "kind": "reference",
+        "value": "voices/guest.wav",
+        "sha256": "abc",
+    }
+    with pytest.raises(ValueError, match="stable SHA-256"):
+        VoiceSourceV2(kind="reference", value="voices/guest.wav")
 
 
-class TestRenderTargetV2:
-    """Tests for RenderTargetV2 dataclass."""
-
-    def test_basic_target(self) -> None:
-        """RenderTargetV2 should store id, language, voice, speaker."""
-        target = RenderTargetV2(
-            id="test-model",
-            language="en-us",
-            voice="test-voice",
-            speaker=0,
-        )
-        assert target.id == "test-model"
-        assert target.language == "en-us"
-        assert target.voice == "test-voice"
-        assert target.speaker == 0
-
-    def test_to_dict(self) -> None:
-        """RenderTargetV2.to_dict() should omit None values."""
-        target = RenderTargetV2(id="model", language="en")
-        d = target.to_dict()
-        assert d["id"] == "model"
-        assert d["language"] == "en"
-        assert "voice" not in d
-        assert "speaker" not in d
+def test_render_target_serializes_typed_voice_source() -> None:
+    target = RenderTargetV2(
+        id="kokoro-model",
+        language="en-us",
+        voice=VoiceSourceV2(kind="named", value="af_sarah"),
+        speaker=0,
+        options={"quality": "high"},
+    )
+    assert target.to_dict() == {
+        "id": "kokoro-model",
+        "language": "en-us",
+        "voice": {"kind": "named", "value": "af_sarah"},
+        "speaker": 0,
+        "options": {"quality": "high"},
+    }
 
 
-class TestRenderPlanV2:
-    """Tests for RenderPlanV2 dataclass."""
-
-    def test_basic_render_plan(self) -> None:
-        """RenderPlanV2 should store engine, target, rate, options."""
-        target = RenderTargetV2(id="model", language="en")
-        render = RenderPlanV2(
-            engine="piper",
-            target=target,
-            rate=1.0,
-            options={"noise_scale": 0.5},
-        )
-        assert render.engine == "piper"
-        assert render.target.id == "model"
-        assert render.rate == 1.0
-        assert render.options["noise_scale"] == 0.5
-
-    def test_to_dict(self) -> None:
-        """RenderPlanV2.to_dict() should return correct structure."""
-        target = RenderTargetV2(id="model", language="en", voice="voice1")
-        render = RenderPlanV2(engine="piper", target=target)
-        d = render.to_dict()
-        assert d["engine"] == "piper"
-        assert d["target"]["id"] == "model"
-        assert d["target"]["voice"] == "voice1"
-        assert d["rate"] == 1.0
-
-
-class TestEnvironmentPlanV2:
-    """Tests for EnvironmentPlanV2 dataclass."""
-
-    def test_engine_neutral_packages(self) -> None:
-        """EnvironmentPlanV2 should use generic package keys."""
-        env = EnvironmentPlanV2(
-            packages={"readio": "0.1.0", "utterplan": "0.1.2"},
-            ffmpeg_available=True,
-        )
-        assert env.packages["readio"] == "0.1.0"
-        assert env.packages["utterplan"] == "0.1.2"
-        assert env.ffmpeg_available is True
-        # Must NOT have engine-specific fields
-        assert not hasattr(env, "pykokoro_version")
-        assert not hasattr(env, "piper_version")
-
-    def test_to_dict(self) -> None:
-        """EnvironmentPlanV2.to_dict() should return correct structure."""
-        env = EnvironmentPlanV2(packages={"readio": "1.0"})
-        d = env.to_dict()
-        assert d["packages"]["readio"] == "1.0"
-        assert "pykokoro_version" not in d
+def test_render_plan_serializes_default_and_role_targets() -> None:
+    default = RenderTargetV2(id="model", language="en-us")
+    role_target = RenderTargetV2(
+        id="model",
+        language="en-us",
+        voice=VoiceSourceV2(kind="named", value="voice-b"),
+    )
+    render = RenderPlanV2(
+        engine="pykokoro",
+        default_target=default,
+        role_bindings=(
+            RoleTargetBindingV2(
+                role="narrator",
+                target=role_target,
+                origin="document",
+                locator="ssmd.front_matter.voice_bindings",
+            ),
+        ),
+        options={"quality": "high"},
+    )
+    data = render.to_dict()
+    assert data["default_target"]["id"] == "model"
+    assert data["role_bindings"][0]["role"] == "narrator"
+    assert data["role_bindings"][0]["target"]["voice"] == {
+        "kind": "named",
+        "value": "voice-b",
+    }
+    assert data["options"] == {"quality": "high"}
+    assert "target" not in data
 
 
-class TestPlanningPlanV2:
-    """Tests for PlanningPlanV2 dataclass."""
-
-    def test_basic_planning(self) -> None:
-        """PlanningPlanV2 should store planning configuration."""
-        planning = PlanningPlanV2(
-            language="en-us",
-            unit="paragraph",
-            pause_mode="auto",
-            spacy="auto",
-        )
-        assert planning.language == "en-us"
-        assert planning.unit == "paragraph"
-        assert planning.pause_mode == "auto"
-        assert planning.spacy == "auto"
-
-    def test_to_dict_omits_none(self) -> None:
-        """PlanningPlanV2.to_dict() should omit None values."""
-        planning = PlanningPlanV2(language="en", unit="paragraph")
-        d = planning.to_dict()
-        assert d["language"] == "en"
-        assert "text_preparation" not in d
-        assert "spacy" not in d
+def test_reference_voice_identity_is_explicit_and_stable() -> None:
+    target = RenderTargetV2(
+        id="pocket-bundle",
+        language="en-us",
+        voice=VoiceSourceV2(kind="reference", value="voices/guest.wav", sha256="abc"),
+    )
+    assert target.to_dict()["voice"]["sha256"] == "abc"
 
 
-class TestReadioPlanV2:
-    """Tests for ReadioPlanV2 dataclass."""
-
-    def test_default_schema(self) -> None:
-        """ReadioPlanV2 should have schema='readio.plan.v2'."""
-        plan = ReadioPlanV2()
-        assert plan.schema == "readio.plan.v2"
-
-    def test_to_dict_structure(self) -> None:
-        """ReadioPlanV2.to_dict() should have correct top-level keys."""
-        plan = ReadioPlanV2()
-        d = plan.to_dict()
-        assert "schema" in d
-        assert "ok" in d
-        assert "operation" in d
-        assert "input" in d
-        assert "planning" in d
-        assert "semantic_plan" in d
-        assert "render" in d
-        assert "output" in d
-        assert "environment" in d
-        assert "decisions" in d
-        assert "diagnostics" in d
-
-    def test_engine_neutral_render(self) -> None:
-        """ReadioPlanV2 render section should be engine-neutral."""
-        target = RenderTargetV2(id="model", language="en")
-        render = RenderPlanV2(engine="piper", target=target)
-        plan = ReadioPlanV2(render=render)
-        d = plan.to_dict()
-        assert d["render"]["engine"] == "piper"
-        assert d["render"]["target"]["id"] == "model"
+def test_environment_plan_uses_generic_package_metadata() -> None:
+    environment = EnvironmentPlanV2(
+        packages={"readio": "0.1.0", "utterplan": "0.1.2", "audiocompose": "0.2.0"},
+        ffmpeg_available=True,
+    )
+    assert environment.to_dict()["packages"]["audiocompose"] == "0.2.0"
+    assert environment.ffmpeg_available is True
+    assert not hasattr(environment, "pykokoro_version")
+    assert not hasattr(environment, "piper_version")
 
 
-class TestPykokoroPlanHasNoPiperFields:
-    """PyKokoro plans must not have Piper-specific top-level fields."""
-
-    def test_pykokoro_plan_neutral(self) -> None:
-        """PyKokoro plan should use engine-neutral structure."""
-        target = RenderTargetV2(id="kokoro-model", language="en", voice="kokoro-voice")
-        render = RenderPlanV2(engine="pykokoro", target=target)
-        plan = ReadioPlanV2(render=render)
-        d = plan.to_dict()
-        # Should not have Piper-specific fields at top level
-        assert "noise_scale" not in d
-        assert "length_scale" not in d
+def test_planning_plan_serializes_typed_configuration() -> None:
+    planning = PlanningPlanV2(
+        language="en-us",
+        unit="paragraph",
+        text_preparation="spokenform",
+        pause_mode="auto",
+        spacy="auto",
+    )
+    assert planning.to_dict()["text_preparation"] == "spokenform"
+    assert planning.to_dict()["spacy"] == "auto"
 
 
-class TestPiperPlanHasNoKokoroFields:
-    """Piper plans must not have PyKokoro-specific top-level fields."""
-
-    def test_piper_plan_neutral(self) -> None:
-        """Piper plan should use engine-neutral structure."""
-        target = RenderTargetV2(id="piper-voice", language="de", voice="thorsten")
-        render = RenderPlanV2(
-            engine="piper",
-            target=target,
-            options={"noise_scale": 0.667},
-        )
-        plan = ReadioPlanV2(render=render)
-        d = plan.to_dict()
-        # Should not have PyKokoro-specific fields at top level
-        assert "pykokoro_version" not in d.get("environment", {})
-        # Engine-specific options should be in render.options
-        assert d["render"]["options"]["noise_scale"] == 0.667
+def test_readio_plan_v2_top_level_contract() -> None:
+    render = RenderPlanV2(
+        engine="piper",
+        default_target=RenderTargetV2(id="voice", language="de"),
+    )
+    plan = ReadioPlanV2(render=render)
+    data = plan.to_dict()
+    assert data["schema"] == "readio.plan.v2"
+    assert data["render"]["default_target"]["id"] == "voice"
+    assert "environment" in data
 
 
-def test_render_identity_is_acoustic_and_packaging_independent():
+def test_render_identity_includes_role_target_acoustics() -> None:
+    semantic_sha = "semantic-sha"
+    default = RenderTargetV2(id="model", language="en")
+    first = RenderPlanV2(
+        engine="pykokoro",
+        default_target=default,
+        role_bindings=(
+            RoleTargetBindingV2(
+                role="narrator",
+                target=RenderTargetV2(
+                    id="model", language="en", voice=VoiceSourceV2(kind="named", value="voice-a")
+                ),
+                origin="document",
+            ),
+        ),
+    )
+    same = RenderPlanV2(
+        engine="pykokoro",
+        default_target=default,
+        role_bindings=(
+            RoleTargetBindingV2(
+                role="narrator",
+                target=RenderTargetV2(
+                    id="model", language="en", voice=VoiceSourceV2(kind="named", value="voice-a")
+                ),
+                origin="cli",
+            ),
+        ),
+    )
+    different = RenderPlanV2(
+        engine="pykokoro",
+        default_target=default,
+        role_bindings=(
+            RoleTargetBindingV2(
+                role="narrator",
+                target=RenderTargetV2(
+                    id="model", language="en", voice=VoiceSourceV2(kind="named", value="voice-b")
+                ),
+                origin="document",
+            ),
+        ),
+    )
+    assert render_identity(semantic_sha, first) == render_identity(semantic_sha, same)
+    assert render_identity(semantic_sha, first) != render_identity(semantic_sha, different)
+
+    metadata_only_change = RenderPlanV2(
+        engine="pykokoro",
+        default_target=RenderTargetV2(
+            id="model", language="en", metadata={"source": "other mirror"}
+        ),
+    )
+    without_metadata = RenderPlanV2(
+        engine="pykokoro",
+        default_target=RenderTargetV2(id="model", language="en"),
+    )
+    assert render_identity(semantic_sha, metadata_only_change) == render_identity(
+        semantic_sha, without_metadata
+    )
+
+
+def test_reference_voice_identity_uses_content_not_local_path() -> None:
     semantic_sha = "semantic-sha"
     first = RenderPlanV2(
-        engine="piper",
-        target=RenderTargetV2(id="voice-a", language="en", voice="voice-a"),
-        rate=1.0,
-        options={"length_scale": 1.0},
+        engine="pocket",
+        default_target=RenderTargetV2(
+            id="bundle",
+            language="en",
+            voice=VoiceSourceV2(
+                kind="reference", value="/users/one/voice.wav", sha256="content-hash"
+            ),
+        ),
     )
-    second = RenderPlanV2(
-        engine="piper",
-        target=RenderTargetV2(id="voice-a", language="en", voice="voice-a"),
-        rate=1.0,
-        options={"length_scale": 1.0},
+    same_content = RenderPlanV2(
+        engine="pocket",
+        default_target=RenderTargetV2(
+            id="bundle",
+            language="en",
+            voice=VoiceSourceV2(
+                kind="reference", value="/users/two/voice.wav", sha256="content-hash"
+            ),
+        ),
     )
-    different_voice = RenderPlanV2(
-        engine="piper",
-        target=RenderTargetV2(id="voice-b", language="en", voice="voice-b"),
-        rate=1.0,
-        options={"length_scale": 1.0},
+    different_content = RenderPlanV2(
+        engine="pocket",
+        default_target=RenderTargetV2(
+            id="bundle",
+            language="en",
+            voice=VoiceSourceV2(
+                kind="reference", value="/users/one/voice.wav", sha256="different-hash"
+            ),
+        ),
     )
-    assert render_identity(semantic_sha, first) == render_identity(semantic_sha, second)
-    assert render_identity(semantic_sha, first) != render_identity(semantic_sha, different_voice)
+
+    assert render_identity(semantic_sha, first) == render_identity(semantic_sha, same_content)
+    assert render_identity(semantic_sha, first) != render_identity(semantic_sha, different_content)
+
+
+def test_semantic_plan_compiles_when_engine_runtime_is_unavailable(monkeypatch) -> None:
+    from readio.config import ReaderSettings, ReadioConfig
+    from readio.document import document_from_text
+    from readio.engines import registry
+    from readio.plan import (
+        InputRequest,
+        OutputRequest,
+        PlanRequest,
+        SynthesisRequest,
+        resolve_execution_v2,
+    )
+
+    def unavailable_engine(_engine: str):
+        raise ValueError("engine runtime unavailable")
+
+    monkeypatch.setattr(registry, "get_engine", unavailable_engine)
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=document_from_text("Plan this without a runtime.")),
+        synthesis=SynthesisRequest(engine="missing-engine"),
+        output=OutputRequest(),
+    )
+
+    resolved = resolve_execution_v2(
+        ReadioConfig(reader=ReaderSettings(engine="missing-engine")),
+        request,
+    )
+
+    assert resolved.semantic is not None
+    assert resolved.plan.semantic_plan.plan_id == resolved.semantic.plan_id
+    assert resolved.plan.render is None
+    assert any(item.code == "engine_unavailable" for item in resolved.plan.diagnostics)
+
+
+def test_semantic_plan_compiles_but_skips_incompatible_engine_api(monkeypatch) -> None:
+    from readio.config import ReaderSettings, ReadioConfig
+    from readio.document import document_from_text
+    from readio.engines import registry
+    from readio.engines.base import EngineCapabilities
+    from readio.plan import (
+        InputRequest,
+        OutputRequest,
+        PlanRequest,
+        SynthesisRequest,
+        resolve_execution_v2,
+    )
+
+    class IncompatibleAdapter:
+        id = "incompatible"
+        package_name = "test-engine"
+
+        def compatible_api(self):
+            return False
+
+        def version(self):
+            return "0.1.0"
+
+        def capabilities(self):
+            return EngineCapabilities(id=self.id)
+
+        def resolve(self, _request):
+            raise AssertionError("incompatible adapter must not resolve requests")
+
+    monkeypatch.setattr(registry, "get_engine", lambda _engine: IncompatibleAdapter())
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=document_from_text("Plan with an incompatible engine.")),
+        synthesis=SynthesisRequest(engine="incompatible"),
+        output=OutputRequest(),
+    )
+
+    resolved = resolve_execution_v2(
+        ReadioConfig(reader=ReaderSettings(engine="incompatible")),
+        request,
+    )
+
+    assert resolved.semantic is not None
+    assert resolved.plan.render is None
+    assert not resolved.plan.ok
+    assert any(item.code == "engine_api_incompatible" for item in resolved.plan.diagnostics)
+
+
+def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch, tmp_path) -> None:
+    import hashlib
+
+    from readio.config import ReaderSettings, ReadioConfig
+    from readio.document import document_from_text
+    from readio.engines import registry
+    from readio.engines.base import EngineCapabilities, EngineSelection
+    from readio.plan import (
+        InputRequest,
+        OutputRequest,
+        PlanRequest,
+        SynthesisRequest,
+        resolve_execution_v2,
+    )
+
+    class PocketAdapter:
+        id = "pocket"
+        package_name = "pocketsynth"
+
+        def compatible_api(self):
+            return True
+
+        def version(self):
+            return "0.1.0"
+
+        def capabilities(self):
+            return EngineCapabilities(
+                id=self.id,
+                voice_binding_namespace=self.id,
+                supports_reference_voice=True,
+                option_names=frozenset({"voice_source"}),
+            )
+
+        def resolve(self, request):
+            return (
+                EngineSelection(
+                    engine=self.id,
+                    target_id=request.target_id or "bundle",
+                    language=request.language or "en-us",
+                    metadata={"voice_source": request.engine_options["voice_source"]},
+                ),
+                (),
+            )
+
+        def validate_selection(self, _selection):
+            return ()
+
+        def target_metadata(self, selection):
+            return selection.metadata
+
+    monkeypatch.setattr(registry, "get_engine", lambda _engine: PocketAdapter())
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"reference audio content")
+    expected_digest = hashlib.sha256(reference.read_bytes()).hexdigest()
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=document_from_text("Use a reference voice.")),
+        synthesis=SynthesisRequest(engine="pocket", voice_file=reference),
+        output=OutputRequest(),
+    )
+
+    resolved = resolve_execution_v2(
+        ReadioConfig(reader=ReaderSettings(engine="pocket")),
+        request,
+    )
+
+    assert resolved.plan.ok
+    target_voice = resolved.plan.render.default_target.voice
+    assert target_voice.kind == "reference"
+    assert target_voice.value == str(reference.resolve())
+    assert target_voice.sha256 == expected_digest

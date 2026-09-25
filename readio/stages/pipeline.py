@@ -263,6 +263,9 @@ def project_status(project: Project) -> dict[str, Any]:
                     clip_policy=identity_payload.get("clip_policy", "clamp")
                     if isinstance(identity_payload, dict)
                     else "clamp",
+                    output_sample_rate=identity_payload.get("sample_rate")
+                    if isinstance(identity_payload, dict)
+                    else None,
                 )
                 profile_id = read_json(project.paths["synthesis_profile"]).get("profile_id")
                 if (
@@ -416,6 +419,7 @@ def build_project(
         true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
         peak_policy=composition_options.peak_policy,
         clip_policy=composition_options.clip_policy,
+        output_sample_rate=composition_options.sample_rate,
     )
     state_path = project.paths["composition_state"]
     state = read_json(state_path) if state_path.is_file() else {}
@@ -434,6 +438,7 @@ def build_project(
             true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
             peak_policy=composition_options.peak_policy,
             clip_policy=composition_options.clip_policy,
+            output_sample_rate=composition_options.sample_rate,
             on_progress=on_composition_progress,
             on_phase=on_phase,
         )
@@ -561,6 +566,7 @@ def preview_project(
         true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
         peak_policy=options.peak_policy,
         clip_policy=options.clip_policy,
+        output_sample_rate=options.sample_rate,
         composition=synthesis["profile"].payload.get("composition", {}),
         synthesis_profile=synthesis["profile"].payload,
         output=output,

@@ -107,7 +107,7 @@ Project document metadata keeps editable `input_format` separate from semantic `
 
 `readio synth` resolves and reports the project, source, plan, profile, engine/model/voice, cache reuse, and unit progress before loading an engine. `readio preview` uses the same progress events. Progress and logs use stderr; `--json` keeps stdout as one final JSON object containing `scope`, `plan_id`, `profile`, `selection`, and `cache`.
 
-Use `--no-progress` for quiet automation or `--progress` to force progress. Repeat the existing global verbosity flag (`-v` or `-vv`) for INFO or bounded backend/runtime diagnostics. Diagnostics identify decisions, paths, counts, timings, and cache keys; raw tensors, waveforms, and embeddings are never dumped.
+Use `--no-progress` for quiet automation or `--progress` to force progress. Repeat the global verbosity flag (`-v` or `-vv`) for INFO or bounded engine/runtime diagnostics. Diagnostics identify decisions, paths, counts, timings, and cache keys; raw tensors, waveforms, and embeddings are never dumped.
 
 ## Composition observability
 

@@ -1,28 +1,42 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
-from readio.reader import SelectionError, _selected_indices
+from readio.selection import SelectionError, resolve_unit_selection
 
 
 @dataclass
 class Unit:
     index: int
+    segment_ids: tuple[str, ...]
+    kind: str = "paragraph"
 
 
-class Prepared:
-    def __init__(self, n: int):
-        self.units = tuple(Unit(i) for i in range(n))
+def _plan(paragraphs: tuple[int, ...]):
+    segments = tuple(
+        SimpleNamespace(id=f"segment-{index}", paragraph=paragraph, sentence=index)
+        for index, paragraph in enumerate(paragraphs)
+    )
+    units = tuple(
+        Unit(index=index, segment_ids=(segment.id,)) for index, segment in enumerate(segments)
+    )
+    return SimpleNamespace(units=units, segments=segments)
 
 
-def test_last_paragraph():
-    assert _selected_indices(Prepared(3), "last-paragraph") == (2,)
+def test_last_paragraph_selects_its_plan_units():
+    selection = resolve_unit_selection(_plan((0, 1, 1)), "last-paragraph")
+
+    assert selection.unit_indices == (1, 2)
+    assert selection.segment_ids == ("segment-1", "segment-2")
 
 
 def test_specific_paragraph_is_one_based():
-    assert _selected_indices(Prepared(3), "paragraph:2") == (1,)
+    selection = resolve_unit_selection(_plan((0, 1, 1)), "paragraph:2")
+
+    assert selection.unit_indices == (1, 2)
 
 
 def test_out_of_range_paragraph():
     with pytest.raises(SelectionError):
-        _selected_indices(Prepared(2), "paragraph:3")
+        resolve_unit_selection(_plan((0, 1)), "paragraph:3")

@@ -9,7 +9,7 @@ import shutil
 import time
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -91,6 +91,7 @@ class SynthesisArtifact:
     channels: int
     frames: int
     markers: tuple[Mapping[str, Any], ...] = ()
+    word_timings: tuple[Mapping[str, Any], ...] = ()
     speech_hash: str | None = None
     segment_id_value: str | None = None
     segment_index_value: int | None = None
@@ -119,6 +120,7 @@ class SynthesisArtifact:
             "channels": self.channels,
             "frames": self.frames,
             "markers": list(self.markers),
+            "word_timings": [dict(item) for item in self.word_timings],
         }
         if self.sidecar_path is not None:
             data["sidecar_path"] = self.sidecar_path.relative_to(root).as_posix()
@@ -380,7 +382,7 @@ def _resolve_profile(
             pass
     if (
         requested_adapter is not None
-        and requested_adapter.capabilities().ssmd_voice_binding_mode == "target"
+        and requested_adapter.capabilities().supports_named_voices
         and request.synthesis.voice is None
     ):
         seed_voice = next(
@@ -393,8 +395,7 @@ def _resolve_profile(
         )
         if seed_voice is None:
             raise ValueError(
-                "target-routed synthesis requires a base voice when selected segments "
-                "do not have resolved voice references"
+                "role-target synthesis requires a base voice when segments have no voice binding"
             )
         request = replace(
             request,
@@ -407,7 +408,7 @@ def _resolve_profile(
         raise ValueError(f"cannot resolve synthesis profile: {diagnostics}")
     adapter = get_engine(resolved.selection.engine)
     profile = _profile_from_selection(adapter, resolved.selection)
-    provider = adapter.capabilities().ssmd_provider or resolve_project_voice_provider(
+    provider = adapter.capabilities().voice_binding_namespace or resolve_project_voice_provider(
         project.manifest, cfg, explicit_engine=resolved.selection.engine
     )
     project_bindings = project_voice_bindings_provenance(provider, request.project_voice_bindings)
@@ -455,110 +456,75 @@ def _build_project_synthesis_route(
     selected_by_scope: Mapping[str, Any],
 ) -> ProjectSynthesisRoute:
     capabilities = adapter.capabilities()
-    provider = capabilities.ssmd_provider or resolve_project_voice_provider(
+    provider = capabilities.voice_binding_namespace or resolve_project_voice_provider(
         project.manifest, cfg, explicit_engine=default_selection.engine
     )
     bindings_by_scope = request.scope_voice_bindings
-    if capabilities.ssmd_voice_binding_mode == "target":
-        segment_routes: dict[tuple[str, str], str] = {}
-        target_languages: dict[str, set[str]] = {}
-        explicit_base_voice = (
-            default_selection.voice if request.synthesis.voice is not None else None
-        )
-        for scope, plan in scoped_plans:
-            scope_id = scope.id
-            selected_ids = set(selected_by_scope[scope_id].segment_ids)
-            scope_bindings = bindings_by_scope.get(scope_id, {})
-            for segment in plan.segments:
-                segment_id = str(segment.id)
-                if segment_id not in selected_ids:
-                    continue
-                reference = _segment_voice_reference(segment)
-                if reference is not None:
-                    target = scope_bindings.get(reference)
-                    if target is None:
-                        raise ValueError(
-                            f"cannot resolve voice reference {reference!r} "
-                            f"in project scope {scope_id!r}"
-                        )
-                else:
-                    target = explicit_base_voice
-                    if target is None:
-                        raise ValueError(
-                            f"selected segment {scope_id}:{segment_id} has no voice reference "
-                            "and no base voice is available"
-                        )
-                segment_routes[(scope_id, segment_id)] = target
-                language = getattr(segment, "language", None) or default_selection.language
-                target_languages.setdefault(target, set()).add(language)
+    segment_routes: dict[tuple[str, str], str] = {}
+    target_languages: dict[str, set[str]] = {}
+    base_voice = default_selection.voice
 
-        if not target_languages:
-            raise ValueError("selected segments contain no target voices")
-        selections: dict[str, EngineSelection] = {}
-        options = {
-            key: value
-            for key, value in default_selection.options.items()
-            if key != "ssmd_voice_bindings"
-        }
-        validator = getattr(adapter, "validate_selection", None)
-        metadata_loader = getattr(adapter, "target_metadata", None)
-        for target in sorted(target_languages):
-            selection = replace(
-                default_selection,
-                target_id=target,
-                voice=target,
-                options=options,
-            )
-            if validator is not None:
-                for language in sorted(target_languages[target]):
-                    checked = replace(selection, language=language)
-                    errors = [
-                        item
-                        for item in validator(checked)
-                        if getattr(item, "severity", "error") == "error"
-                    ]
-                    if errors:
-                        raise ValueError("; ".join(item.message for item in errors))
-            if metadata_loader is not None:
-                selection = replace(selection, metadata=dict(metadata_loader(selection)))
-            selections[target] = selection
-        return ProjectSynthesisRoute(
-            provider=provider,
-            engine=default_selection.engine,
-            mode="target",
-            bindings_by_scope=bindings_by_scope,
-            selections=selections,
-            segment_routes=segment_routes,
-            default_selection=default_selection,
-        )
-
-    selections = {}
-    segment_routes = {}
     for scope, plan in scoped_plans:
         scope_id = scope.id
         selected_ids = set(selected_by_scope[scope_id].segment_ids)
-        scope_bindings = dict(bindings_by_scope.get(scope_id, {}))
-        if capabilities.ssmd_voice_binding_mode == "runtime":
-            options = {
-                key: value
-                for key, value in default_selection.options.items()
-                if key != "ssmd_voice_bindings"
-            }
-            if scope_bindings:
-                options["ssmd_voice_bindings"] = scope_bindings
-            route_key = "runtime:" + hashlib.sha256(canonical_json(scope_bindings)).hexdigest()
-            selections.setdefault(route_key, replace(default_selection, options=options))
-        else:
-            route_key = "default"
-            selections.setdefault(route_key, default_selection)
+        scope_bindings = bindings_by_scope.get(scope_id, {})
         for segment in plan.segments:
             segment_id = str(segment.id)
-            if segment_id in selected_ids:
-                segment_routes[(scope_id, segment_id)] = route_key
+            if segment_id not in selected_ids:
+                continue
+            reference = _segment_voice_reference(segment)
+            target = scope_bindings.get(reference) if reference is not None else base_voice
+            if target is None:
+                raise ValueError(
+                    f"selected segment {scope_id}:{segment_id} has no resolved voice target"
+                )
+            segment_routes[(scope_id, segment_id)] = target
+            language = getattr(segment, "language", None) or default_selection.language
+            target_languages.setdefault(target, set()).add(language)
+
+    if not target_languages:
+        raise ValueError("selected segments contain no target voices")
+    if not capabilities.supports_named_voices:
+        raise ValueError(
+            f"engine {default_selection.engine!r} does not support named voice targets"
+        )
+
+    selections: dict[str, EngineSelection] = {}
+    options = {
+        key: value
+        for key, value in default_selection.options.items()
+        if key != "ssmd_voice_bindings"
+    }
+    validator = getattr(adapter, "validate_selection", None)
+    metadata_loader = getattr(adapter, "target_metadata", None)
+    for target in sorted(target_languages):
+        target_id = (
+            target if capabilities.voice_binding_scope == "target" else default_selection.target_id
+        )
+        selection = replace(
+            default_selection,
+            target_id=target_id,
+            voice=target,
+            options=options,
+        )
+        if validator is not None:
+            for language in sorted(target_languages[target]):
+                checked = replace(selection, language=language)
+                errors = [
+                    item
+                    for item in validator(checked)
+                    if getattr(item, "severity", "error") == "error"
+                ]
+                if errors:
+                    raise ValueError("; ".join(item.message for item in errors))
+        if metadata_loader is not None:
+            selection = replace(selection, metadata=dict(metadata_loader(selection)))
+        selections[target] = selection
+
     return ProjectSynthesisRoute(
         provider=provider,
         engine=default_selection.engine,
-        mode=capabilities.ssmd_voice_binding_mode,
+        mode="target",
         bindings_by_scope=bindings_by_scope,
         selections=selections,
         segment_routes=segment_routes,
@@ -610,6 +576,10 @@ def _write_cache_artifact(
                 "sample_rate": rate,
                 "channels": channels,
                 "frames": frames,
+                "word_timings": [
+                    asdict(timing) if is_dataclass(timing) else dict(timing)
+                    for timing in getattr(result, "word_timings", ())
+                ],
             },
         )
         return rate, channels, frames, digest, sidecar_path
@@ -639,6 +609,9 @@ def _render_missing(
         session_context = adapter.open(selection)
     else:
         session_context = nullcontext(session)
+    capabilities = adapter.capabilities()
+    from ..rendering import lower_segment
+
     with session_context as active_session:
         if session is None:
             _emit(
@@ -650,134 +623,64 @@ def _render_missing(
                     details={"elapsed_ms": round((time.monotonic() - engine_started) * 1000, 3)},
                 ),
             )
-        use_segments = callable(getattr(active_session, "prepare_segments", None))
-        prepare_method = (
-            active_session.prepare_segments if use_segments else active_session.prepare_plan
-        )
-        _emit(on_event, SynthesisEvent("prepare_started", scope_id=scope_id, total=total))
-        prepare_started = time.monotonic()
-        with prepare_method(plan, options=selection.options) as prepared:
+        for completed, item in enumerate(stale, 1):
+            segment = item["segment"]
+            unit = item["unit"]
             _emit(
                 on_event,
                 SynthesisEvent(
-                    "prepare_finished",
+                    "segment_started",
                     scope_id=scope_id,
+                    unit_id=unit.id,
+                    unit_index=int(unit.index),
+                    segment_id=item["segment_id"],
+                    segment_index=item["segment_index"],
+                    completed=completed - 1,
                     total=total,
-                    details={"elapsed_ms": round((time.monotonic() - prepare_started) * 1000, 3)},
+                    text=_segment_preview(segment),
+                    details={"segment_ids": [item["segment_id"]]},
                 ),
             )
-            render_kwargs = (
-                {"segment_ids": tuple(item["segment_id"] for item in stale)}
-                if use_segments
-                else {"indices": tuple(item["unit"].index for item in stale)}
-            )
-            render_iter = iter(prepared.render(**render_kwargs))
+            render_started = time.monotonic()
+            lowered = lower_segment(plan, segment, selection, capabilities)
+            result = active_session.synthesize(lowered.request)
+            if result.id != item["segment_id"]:
+                raise ValueError(
+                    f"engine returned request {result.id!r}; expected {item['segment_id']!r}"
+                )
             try:
-                for completed, item in enumerate(stale, 1):
-                    segment = item["segment"]
-                    unit = item["unit"]
-                    event_kind = "segment_started" if use_segments else "unit_started"
-                    _emit(
-                        on_event,
-                        SynthesisEvent(
-                            event_kind,
-                            scope_id=scope_id,
-                            unit_id=unit.id,
-                            unit_index=int(unit.index),
-                            segment_id=item["segment_id"],
-                            segment_index=item["segment_index"],
-                            completed=completed - 1,
-                            total=total,
-                            text=_segment_preview(segment)
-                            if use_segments
-                            else _unit_preview(plan, unit),
-                            details={"segment_ids": [item["segment_id"]]},
-                        ),
-                    )
-                    render_started = time.monotonic()
-                    try:
-                        result = next(render_iter)
-                    except StopIteration as exc:
-                        label = "segment" if use_segments else "plan unit"
-                        raise ValueError(
-                            f"engine stopped rendering before {label} "
-                            f"{item['segment_id'] if use_segments else unit.id} "
-                            f"(index {item['render_index'] if use_segments else unit.index})"
-                        ) from exc
-                    try:
-                        result_segment_id = getattr(result, "segment_id", None)
-                        if use_segments and result_segment_id is not None:
-                            if str(result_segment_id) != item["segment_id"]:
-                                raise ValueError(
-                                    f"engine returned segment {result_segment_id}; "
-                                    f"expected {item['segment_id']}"
-                                )
-                        else:
-                            descriptor = getattr(result, "descriptor", None)
-                            index = int(
-                                getattr(
-                                    result,
-                                    "index",
-                                    getattr(
-                                        result,
-                                        "segment_index",
-                                        getattr(
-                                            result,
-                                            "unit_index",
-                                            getattr(descriptor, "index", -1),
-                                        ),
-                                    ),
-                                )
-                            )
-                            if index < 0:
-                                metadata = getattr(result, "metadata", {}) or {}
-                                index = int(
-                                    metadata.get("segment_index", metadata.get("unit_index", -1))
-                                )
-                            expected = item["render_index"] if use_segments else int(unit.index)
-                            if index != expected:
-                                kind = "segment" if use_segments else "plan unit"
-                                raise ValueError(
-                                    f"engine returned {kind} index {index}; expected {expected}"
-                                )
-                        rate, channels, frames, digest, sidecar = _write_cache_artifact(
-                            project, item, result, profile
-                        )
-                        item["rendered"] = (rate, channels, frames, digest, sidecar)
-                        details = _result_details(result)
-                        details_by_index[item["segment_index"]] = details
-                        finished_kind = "segment_finished" if use_segments else "unit_finished"
-                        _emit(
-                            on_event,
-                            SynthesisEvent(
-                                finished_kind,
-                                scope_id=scope_id,
-                                unit_id=unit.id,
-                                unit_index=int(unit.index),
-                                segment_id=item["segment_id"],
-                                segment_index=item["segment_index"],
-                                completed=completed,
-                                total=total,
-                                text=_segment_preview(segment)
-                                if use_segments
-                                else _unit_preview(plan, unit),
-                                details={
-                                    **details,
-                                    "segment_ids": [item["segment_id"]],
-                                    "render_ms": round(
-                                        (time.monotonic() - render_started) * 1000, 3
-                                    ),
-                                },
-                            ),
-                        )
-                    finally:
-                        release = getattr(result, "release_audio", None)
-                        if callable(release):
-                            release()
+                rate, channels, frames, digest, sidecar = _write_cache_artifact(
+                    project, item, result, profile
+                )
+                item["rendered"] = (rate, channels, frames, digest, sidecar)
+                details = _result_details(result)
+                if lowered.diagnostics:
+                    details["lowering_diagnostics"] = [
+                        diagnostic.to_dict() for diagnostic in lowered.diagnostics
+                    ]
+                details_by_index[item["segment_index"]] = details
+                _emit(
+                    on_event,
+                    SynthesisEvent(
+                        "segment_finished",
+                        scope_id=scope_id,
+                        unit_id=unit.id,
+                        unit_index=int(unit.index),
+                        segment_id=item["segment_id"],
+                        segment_index=item["segment_index"],
+                        completed=completed,
+                        total=total,
+                        text=_segment_preview(segment),
+                        details={
+                            **details,
+                            "render_ms": round((time.monotonic() - render_started) * 1000, 3),
+                        },
+                    ),
+                )
             finally:
-                close = getattr(render_iter, "close", None)
-                if callable(close):
-                    close()
+                release = getattr(result, "release_audio", None)
+                if callable(release):
+                    release()
     return details_by_index
 
 
@@ -879,6 +782,7 @@ def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisA
         sample_rate=rate,
         channels=channels,
         frames=frames,
+        word_timings=tuple(sidecar.get("word_timings", ())),
         speech_hash=item["speech_hash"],
         segment_id_value=item["segment_id"],
         segment_index_value=item["segment_index"],

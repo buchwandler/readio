@@ -1,13 +1,15 @@
-"""Engine adapters for Readio multi-engine architecture.
-
-This package provides the engine-neutral contract for synthesis engines.
-"""
+"""Neutral engine contracts, registry, and synthesis target discovery."""
 
 from .base import (
     EngineAdapter,
     EngineCapabilities,
     EngineSelection,
     EngineSession,
+    PronunciationSpan,
+    RenderedSpeech,
+    SpeechRequest,
+    SpeechToken,
+    SpeechWordTiming,
 )
 from .catalog import SynthesisTarget
 from .discovery import discover_targets
@@ -18,6 +20,7 @@ from .registry import (
     default_engine,
     engine_for_ssmd_provider,
     engine_ids,
+    engine_status,
     get_engine,
     iter_engines,
     normalize_engine_id,
@@ -32,11 +35,17 @@ __all__ = [
     "EngineRegistry",
     "EngineSelection",
     "EngineSession",
+    "PronunciationSpan",
+    "RenderedSpeech",
+    "SpeechRequest",
+    "SpeechToken",
+    "SpeechWordTiming",
     "SynthesisTarget",
     "default_engine",
     "discover_targets",
     "engine_for_ssmd_provider",
     "engine_ids",
+    "engine_status",
     "get_engine",
     "iter_engines",
     "normalize_engine_id",

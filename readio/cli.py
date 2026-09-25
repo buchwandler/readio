@@ -73,6 +73,11 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         help="stable selector or canonical backend voice ID, e.g. de-ko-3, de-pi-9, or af_sarah",
     )
     parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
+    parser.add_argument(
+        "--voice-file",
+        type=Path,
+        help="PocketSynth reference voice WAV (use instead of --voice)",
+    )
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
     parser.add_argument("--model", help="runtime model ID")
     parser.add_argument(
@@ -127,6 +132,19 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         "--allow-experimental", action="store_true", help="allow experimental frontends"
     )
     parser.add_argument("--speed", type=float, help="speech speed multiplier")
+    parser.add_argument(
+        "--precision",
+        choices=("int8", "fp32"),
+        help="PocketSynth bundle precision",
+    )
+    parser.add_argument("--temperature", type=float, help="PocketSynth generation temperature")
+    parser.add_argument("--lsd-steps", type=int, help="PocketSynth latent diffusion steps")
+    parser.add_argument("--max-frames", type=int, help="PocketSynth maximum generated frames")
+    parser.add_argument(
+        "--frames-after-eos",
+        type=int,
+        help="PocketSynth frames generated after end of sequence",
+    )
     parser.add_argument(
         "--pause-mode",
         choices=("tts", "manual", "auto"),
@@ -380,7 +398,10 @@ def _project_build_request(args: argparse.Namespace) -> public_api.ProjectBuildR
         selection=getattr(args, "select", "all"),
         voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
         synthesis=_project_synthesis_request(args),
-        composition=public_api.CompositionOptions(target_lufs=getattr(args, "target_lufs", None)),
+        composition=public_api.CompositionOptions(
+            target_lufs=getattr(args, "target_lufs", None),
+            sample_rate=getattr(args, "sample_rate", None),
+        ),
         export=public_api.ExportOptions(format=getattr(args, "format", None) or "wav"),
     )
 
@@ -417,6 +438,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
                 true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
                 peak_policy=args.peak_policy,
                 clip_policy=args.clip_policy,
+                sample_rate=args.sample_rate,
             ),
             on_event=_api_progress_handler(progress),
         )
@@ -459,7 +481,10 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         selection=args.select,
         voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
         synthesis=_project_synthesis_request(args),
-        composition=public_api.CompositionOptions(target_lufs=args.target_lufs),
+        composition=public_api.CompositionOptions(
+            target_lufs=getattr(args, "target_lufs", None),
+            sample_rate=getattr(args, "sample_rate", None),
+        ),
         output=args.output,
         activate=args.activate,
     )
@@ -1581,6 +1606,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="output audio path (.wav, .mp3, .m4a, or .ogg)",
     )
     render.add_argument("--target-lufs", type=float, help="project composition loudness target")
+    render.add_argument("--sample-rate", type=int, help="AudioCompose output sample rate")
     render.add_argument("--force", action="store_true", help="replace an existing output")
     _add_runtime_options(render, playback=False)
     _add_progress_option(render)
@@ -1679,6 +1705,7 @@ def build_parser() -> argparse.ArgumentParser:
     compose_cmd = sub.add_parser("compose", help="compose persisted project synthesis audio")
     compose_cmd.add_argument("project", nargs="?", type=Path)
     compose_cmd.add_argument("--target-lufs", type=float)
+    compose_cmd.add_argument("--sample-rate", type=int)
     compose_cmd.add_argument("--true-peak-ceiling-dbtp", type=float, default=-1.0)
     compose_cmd.add_argument(
         "--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain"
@@ -1699,6 +1726,8 @@ def build_parser() -> argparse.ArgumentParser:
     preview_cmd = sub.add_parser("preview", help="synthesize and compose a selected project range")
     preview_cmd.add_argument("project", nargs="?", type=Path)
     preview_cmd.add_argument("--select", default="first:3")
+    preview_cmd.add_argument("--target-lufs", type=float)
+    preview_cmd.add_argument("--sample-rate", type=int)
     preview_cmd.add_argument("-o", "--output", type=Path)
     preview_cmd.add_argument("--activate", action="store_true")
     _add_synthesis_options(preview_cmd)

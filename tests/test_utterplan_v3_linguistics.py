@@ -199,35 +199,3 @@ def test_linguistic_annotation_changes_only_affected_unit_hash() -> None:
     assert changed.units[0].content_hash != plan.units[0].content_hash
     assert changed.units[1].content_hash == plan.units[1].content_hash
     assert SemanticPlanRef().schema_version == 3
-
-
-def test_plan_render_sessions_forward_acoustic_options_only() -> None:
-    from readio.engines.pipersynth import PiperSynthEngineSession
-
-    class Pipeline:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, object]] = []
-
-        def prepare_plan(self, plan, **options):
-            self.calls.append(dict(options))
-            return object()
-
-        def to_audio_job(self, plan, **options):
-            self.calls.append(dict(options))
-            return object()
-
-    pipeline = Pipeline()
-    session = PiperSynthEngineSession(pipeline)
-    options = {
-        "spacy": "lg",
-        "pause_mode": "auto",
-        "length_scale": 0.8,
-        "noise_scale": 0.5,
-    }
-    session.prepare_plan(object(), options=options)
-    session.to_audio_job(object(), options=options)
-
-    assert pipeline.calls == [
-        {"length_scale": 0.8, "noise_scale": 0.5},
-        {"length_scale": 0.8, "noise_scale": 0.5},
-    ]

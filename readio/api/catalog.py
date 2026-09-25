@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from importlib import metadata
 from typing import TYPE_CHECKING, cast
 
 from .. import formats as formats_internal
@@ -10,14 +9,13 @@ from .. import lexicons as lexicons_internal
 from .. import models as models_internal
 from .. import voices as voices_internal
 from ..engines.discovery import discover_targets
-from ..engines.registry import CANONICAL_ENGINE_IDS, get_engine, normalize_engine_id
+from ..engines.registry import engine_status, get_engine, normalize_engine_id
 from ..errors import ReadioError
 from ..jsonutil import JsonValue, json_value
 from ..lexicons import discover_lexicon_catalog
 from ..models import discover_model_info, get_model_info
 from ..voices import discover_voice_catalog, resolve_voice_selector
 from . import errors as api_errors
-from .extensions import registered_engines
 from .types import (
     AudioFormatInfo,
     CatalogDiscovery,
@@ -40,7 +38,7 @@ if TYPE_CHECKING:
     from .app import Readio
 
 
-_ENGINE_PACKAGES = {"pykokoro": "pykokoro", "piper": "pipersynth"}
+_ENGINE_PACKAGES = {"pykokoro": "pykokoro", "piper": "pipersynth", "pocket": "pocketsynth"}
 _DEFAULT_DISCOVERY = DiscoveryOptions()
 _DEFAULT_TARGET_QUERY = TargetQuery()
 _DEFAULT_MODEL_QUERY = ModelQuery()
@@ -60,38 +58,24 @@ class CatalogService:
 
     def engines(self) -> tuple[EngineInfo, ...]:
         try:
-            known = set(CANONICAL_ENGINE_IDS) | set(registered_engines())
             rows: list[EngineInfo] = []
-            for engine_id in sorted(known):
-                try:
-                    adapter = get_engine(engine_id)
-                except (ImportError, ValueError):
-                    package = _ENGINE_PACKAGES.get(engine_id)
-                    try:
-                        version = metadata.version(package) if package else None
-                    except metadata.PackageNotFoundError:
-                        version = None
-                    rows.append(
-                        EngineInfo(
-                            id=engine_id,
-                            version=version,
-                            registered=False,
-                            installed=version is not None,
-                            runnable=False,
-                            missing_dependency=package if version is None else None,
-                        )
+            for engine_id, status in engine_status().items():
+                adapter = get_engine(engine_id) if status["adapter"] else None
+                rows.append(
+                    EngineInfo(
+                        id=engine_id,
+                        version=status["version"],
+                        registered=status["adapter"],
+                        installed=status["package"],
+                        runnable=status["status"] == "ready",
+                        capabilities=adapter.capabilities() if adapter is not None else None,
+                        missing_dependency=(
+                            _ENGINE_PACKAGES.get(engine_id, engine_id)
+                            if not status["package"]
+                            else None
+                        ),
                     )
-                else:
-                    rows.append(
-                        EngineInfo(
-                            id=engine_id,
-                            version=adapter.version(),
-                            registered=True,
-                            installed=True,
-                            runnable=True,
-                            capabilities=adapter.capabilities(),
-                        )
-                    )
+                )
             return tuple(rows)
         except ReadioError:
             raise
@@ -160,7 +144,7 @@ class CatalogService:
                 offline=discovery.offline,
                 refresh=discovery.refresh,
                 preference=discovery.preference,
-                backend=engine,
+                engine=engine,
             )
             models = tuple(self._model_info(model) for model in discovered)
             if query.engine is not None:
@@ -270,17 +254,14 @@ class CatalogService:
                 else:
                     entries.extend(self._voice_info(entry) for entry in found)
                     raw_discovery = raw_discovery or piper_discovery
-            custom_ids = registered_engines()
-            for engine_id in custom_ids:
-                if engine_id in CANONICAL_ENGINE_IDS or (
-                    engine is not None and engine_id != engine
-                ):
-                    continue
-                for target in self.targets(
-                    TargetQuery(engine=engine_id, language=query.language),
+            if engine not in {"pykokoro", "piper"}:
+                targets = self.targets(
+                    TargetQuery(engine=engine, language=query.language),
                     discovery=discovery,
-                ):
-                    entries.extend(self._target_voices(target))
+                )
+                for target in targets:
+                    if target.engine not in {"pykokoro", "piper"}:
+                        entries.extend(self._target_voices(target))
         except ReadioError:
             raise
         except Exception as error:

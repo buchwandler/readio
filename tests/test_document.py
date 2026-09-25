@@ -14,6 +14,16 @@ def test_document_from_ssmd_file_classifies_by_suffix(tmp_path: Path):
     assert document.format == "ssmd"
 
 
+def test_ssmd_markdown_compound_extension_precedes_markdown(tmp_path: Path):
+    source = tmp_path / "episode.SSMD.MD"
+    source.write_text("---\nssmd_version: '0.9'\n---\nHello.", encoding="utf-8")
+
+    assert document_from_file(source).format == "ssmd"
+    ordinary_markdown = tmp_path / "ordinary.md"
+    ordinary_markdown.write_text("# heading", encoding="utf-8")
+    assert document_from_file(ordinary_markdown).format == "markdown"
+
+
 def test_document_from_markdown_suffixes_and_literals(tmp_path: Path):
     for suffix in (".md", ".markdown", ".mdown", ".mkd", ".MD"):
         source = tmp_path / f"episode{suffix}"

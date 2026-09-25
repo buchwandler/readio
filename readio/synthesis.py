@@ -207,9 +207,9 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
         model = request.model
     if request.engine is not None:
         engine = request.engine
-    from .backends import get_backend
+    from .engines.registry import get_engine
 
-    get_backend(engine)
+    get_engine(engine)
     if request.model_source is not None:
         source = request.model_source
     if request.quality is not None:
@@ -250,7 +250,7 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
             "preference": policy.preference,
         }
         if engine != "pykokoro":
-            discovery_kwargs["backend"] = engine
+            discovery_kwargs["engine"] = engine
         discovered, result = get_model_info(model, **discovery_kwargs)
         resolved_model = ResolvedModel.from_info(discovered)
         source = source or discovered.source

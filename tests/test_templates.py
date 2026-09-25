@@ -58,3 +58,28 @@ def test_template_use_copies_to_ingest(tmp_path: Path):
     target = new_ingest(ingest, template_directory=templates, template="podcast")
     assert target.suffix == ".ssmd"
     assert target.read_text(encoding="utf-8") == packaged_template("podcast")
+
+
+def test_compound_ssmd_markdown_template_name_and_ingest(tmp_path: Path):
+    template_directory = tmp_path / "templates"
+    ingest_directory = tmp_path / "ingest"
+    source = tmp_path / "source.ssmd.md"
+    source.write_text("---\nssmd_version: '0.9'\n---\nHello.", encoding="utf-8")
+    add_template(template_directory, "custom.ssmd.md", source)
+
+    assert list_templates(template_directory) == ["custom"]
+    assert show_template(template_directory, "custom.ssmd.md") == source.read_text(encoding="utf-8")
+    target = new_ingest(
+        ingest_directory,
+        template_directory=template_directory,
+        template="custom.ssmd.md",
+        name="episode.ssmd.md",
+    )
+    assert target.name == "episode.ssmd.md"
+    assert target.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
+    automatic = new_ingest(
+        ingest_directory,
+        template_directory=template_directory,
+        template="custom.ssmd.md",
+    )
+    assert automatic.name.endswith(".ssmd.md")

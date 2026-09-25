@@ -19,9 +19,10 @@ class InputDocument:
 def infer_input_format(path: Path | None) -> InputFormat:
     if path is None:
         return "text"
-    suffix = path.suffix.lower()
-    if suffix == ".ssmd":
+    name = path.name.lower()
+    if name.endswith((".ssmd.md", ".ssmd")):
         return "ssmd"
+    suffix = path.suffix.lower()
     if suffix in MARKDOWN_SUFFIXES:
         return "markdown"
     return "text"

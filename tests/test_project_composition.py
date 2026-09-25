@@ -95,3 +95,19 @@ def test_preview_forwards_composition_progress(tmp_path, monkeypatch):
     )
     assert events[0].kind == "compose_started"
     assert events[-1].kind == "compose_completed"
+
+
+def test_project_composition_honors_requested_sample_rate(tmp_path, monkeypatch):
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "book.txt"
+    source.write_text("Alpha.\n\nBeta.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    plan_project(project, cfg)
+    synthesize_project(project, cfg, request=request(project))
+
+    result = compose_project(project, output_sample_rate=16000)
+
+    assert result["sample_rate"] == 16000
+    assert read_json(project.paths["composition_state"])["identity_payload"]["sample_rate"] == 16000

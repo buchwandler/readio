@@ -36,11 +36,18 @@ readio synth
 readio synth --engine pykokoro  # one-run override
 ```
 
-PyKokoro is runtime-bound and can switch voices in one loaded pipeline. Piper is target-bound. Readio resolves every role to a Piper voice target and validates all targets before model loading, then reuses one session per distinct target. Progress reports each target's load separately. Bindings affect synthesis, not the semantic plan ID.
+PyKokoro and Pocket expose request-scoped voice selection; Piper binds each role to a voice-bundle target. Readio validates all target-bound selections before opening sessions and reuses one session per distinct target. Project synthesis preserves semantic plan identity when voice bindings change.
+
+PocketSynth project runs select a bundle and either a predefined voice or a reference WAV. The reference asset is represented by its SHA-256 content identity in the resolved render plan:
+
+```bash
+readio synth PROJECT --engine pocket --model BUNDLE_ID --voice VOICE --precision int8
+readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-file reference.wav --temperature 0.6
+```
 
 ## Voice catalog filters
 
-For `readio voices list`, registered engine/system names passed as `--model` are shortcuts only when `--engine` is omitted: `piper` and `pipersynth` select Piper, while `pykokoro` and `kokoro` select PyKokoro. The JSON `filters` object reports the effective engine and clears the model field for such shortcuts. Concrete model IDs and Piper target IDs remain model filters.
+For `readio voices list`, registered engine names passed as `--model` are shortcuts only when `--engine` is omitted: `piper` and `pipersynth` select Piper, `pykokoro` and `kokoro` select PyKokoro, and `pocket` selects PocketSynth. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and Pocket bundle IDs remain model filters.
 
 ```bash
 readio voices list --model piper --lang en-us

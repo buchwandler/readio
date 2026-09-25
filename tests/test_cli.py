@@ -8,7 +8,7 @@ import pytest
 from readio import cli
 from readio.api import PlanNotExecutableError, Readio, ResolvedPlan
 from readio.api.configuration import ConfigurationService
-from readio.api.errors import InvalidRequestError, PlannedOutputError
+from readio.api.errors import PlannedOutputError
 from readio.api.events import ReadioEvent
 from readio.api.projects import ProjectService
 from readio.api.speech import SpeechService
@@ -338,23 +338,10 @@ def test_input_format_option_and_live_markdown_restriction():
         _validate_live(live)
 
 
-def test_piper_live_mode_is_rejected_by_public_speech_service(monkeypatch):
-    from readio.api.speech import SpeechService
+def test_piper_live_mode_is_supported_by_the_released_text_request_api():
+    from readio.engines.pipersynth import PiperSynthEngineAdapter
 
-    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
-    monkeypatch.setattr(
-        SpeechService,
-        "_resolve_live_synthesis",
-        lambda _self, _synthesis: SimpleNamespace(engine="piper"),
-    )
-    for command in ("speak", "render"):
-        args = build_parser().parse_args([command, "--live", "--engine", "piper"])
-        with pytest.raises(InvalidRequestError, match="not supported") as error:
-            if command == "speak":
-                cli._cmd_speak(args)
-            else:
-                cli._cmd_render(args)
-        assert error.value.code == "speech.live_unsupported"
+    assert PiperSynthEngineAdapter().capabilities().supports_live
 
 
 def test_live_render_delegates_file_ownership_and_reports_service_metadata(
@@ -407,9 +394,64 @@ def test_synthesis_parser_exposes_speaker_and_asset_policy():
     assert args.refresh is True
 
 
-def test_speak_uses_the_public_speech_service(monkeypatch):
+def test_pocketsynth_cli_options_lower_to_public_synthesis_request(tmp_path: Path):
+    reference = tmp_path / "voice.wav"
+    reference.write_bytes(b"reference")
+    args = build_parser().parse_args(
+        [
+            "render",
+            "hello",
+            "--engine",
+            "pocket",
+            "--voice-file",
+            str(reference),
+            "--precision",
+            "fp32",
+            "--temperature",
+            "0.6",
+            "--lsd-steps",
+            "3",
+            "--max-frames",
+            "120",
+            "--frames-after-eos",
+            "4",
+        ]
+    )
+
+    synthesis = cli._synthesis_request_from_args(args)
+
+    assert synthesis.engine == "pocket"
+    assert synthesis.voice_file == reference
+    assert synthesis.engine_options == {
+        "precision": "fp32",
+        "temperature": 0.6,
+        "lsd_steps": 3,
+        "max_frames": 120,
+        "frames_after_eos": 4,
+    }
+
+
+def test_voice_and_reference_file_options_are_mutually_exclusive(tmp_path: Path):
+    reference = tmp_path / "voice.wav"
+    reference.write_bytes(b"reference")
+    args = build_parser().parse_args(
+        ["render", "hello", "--voice", "af_sarah", "--voice-file", str(reference)]
+    )
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        cli._synthesis_request_from_args(args)
+
+
+def test_speak_uses_the_public_speech_service_without_creating_a_project(monkeypatch, tmp_path):
     captured = []
-    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
+    config = ReadioConfig(
+        paths=PathSettings(
+            tmp_path / "templates",
+            tmp_path / "ingest",
+            tmp_path / "output",
+        )
+    )
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config)
     monkeypatch.setattr(
         SpeechService,
         "speak",
@@ -420,6 +462,7 @@ def test_speak_uses_the_public_speech_service(monkeypatch):
     assert cli._cmd_speak(args) == 0
     assert captured[0].operation == "speak"
     assert captured[0].input.document.text == "hello"
+    assert tuple(tmp_path.iterdir()) == ()
 
 
 def test_render_uses_selected_format_and_output_suffix(monkeypatch, tmp_path: Path):

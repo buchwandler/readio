@@ -29,6 +29,8 @@ def test_doctor_reports_ssmd_executable_provider_roles_paths_and_audio_formats(
         "ogg",
     }
 
+    assert {"pykokoro", "piper", "pocket"}.issubset({item["id"] for item in result["engines"]})
+
 
 def test_doctor_does_not_create_missing_directories(monkeypatch, tmp_path: Path, capsys):
     paths = PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")

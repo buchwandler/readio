@@ -186,9 +186,8 @@ class TestEngineRegistryClass:
     def test_status_includes_known_engines(self) -> None:
         registry = EngineRegistry()
         status = registry.status()
-        # Should include pykokoro and piper even if not registered
-        assert "pykokoro" in status
-        assert "piper" in status
+        # Known optional engines remain visible when their packages are absent.
+        assert {"pykokoro", "piper", "pocket"}.issubset(status)
 
     def test_iter_adapters_yields_all(self) -> None:
         registry = EngineRegistry()
@@ -210,7 +209,7 @@ class TestEngineProviderHelpers:
             engine_for_ssmd_provider("unknown")
 
     def test_ssmd_provider_comes_from_adapter_capabilities(self, monkeypatch) -> None:
-        capabilities = type("Capabilities", (), {"ssmd_provider": "piper"})()
+        capabilities = type("Capabilities", (), {"voice_binding_namespace": "piper"})()
         adapter = type("MockAdapter", (), {"capabilities": lambda self: capabilities})()
         requested = []
         monkeypatch.setattr(

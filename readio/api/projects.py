@@ -252,6 +252,7 @@ class ProjectService:
                 true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
                 peak_policy=options.peak_policy,
                 clip_policy=options.clip_policy,
+                output_sample_rate=options.sample_rate,
                 on_progress=self._composition_handler(handler, operation),
                 on_phase=self._phase_handler(handler, operation),
             )

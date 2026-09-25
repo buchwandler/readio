@@ -108,7 +108,10 @@ def test_public_plan_is_serializable_and_does_not_create_output(tmp_path: Path) 
     output = tmp_path / "not-created.wav"
     app = Readio(ReadioConfig())
 
-    with patch("pykokoro.KokoroPipeline", side_effect=AssertionError("TTS loaded")):
+    with patch(
+        "readio.engines.pykokoro.PyKokoroEngineAdapter.open",
+        side_effect=AssertionError("synthesis runtime opened"),
+    ):
         plan = app.speech.plan(
             _request(output=OutputRequest(requested_format="wav", requested_path=output))
         )

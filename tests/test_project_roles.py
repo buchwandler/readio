@@ -404,7 +404,9 @@ def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
     )
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
-        lambda engine: SimpleNamespace(capabilities=lambda: SimpleNamespace(ssmd_provider="piper")),
+        lambda engine: SimpleNamespace(
+            capabilities=lambda: SimpleNamespace(voice_binding_namespace="piper")
+        ),
     )
 
     result = bind_project_role(project, ReadioConfig(), "guest", "en-pi-13")
@@ -480,7 +482,9 @@ def test_bind_checks_document_binding_in_selector_provider(tmp_path, monkeypatch
     )
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
-        lambda engine: SimpleNamespace(capabilities=lambda: SimpleNamespace(ssmd_provider="piper")),
+        lambda engine: SimpleNamespace(
+            capabilities=lambda: SimpleNamespace(voice_binding_namespace="piper")
+        ),
     )
 
     with pytest.raises(ProjectRoleError) as document_bound:

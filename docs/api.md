@@ -77,6 +77,24 @@ if plan.ok:
 
 For playback, call `app.speech.speak(request)`. It creates and closes the playback sink. For live text, `render_live(lines, sink, ...)` consumes but does not close the caller's iterable or sink. `speak_live(lines, ...)` owns playback. `render_to_sink(request, sink)` writes bounded output to a caller-owned `AudioSink` and leaves it open.
 
+For PocketSynth, pass the registered bundle as `model`, choose a predefined `voice`, or supply a reference WAV with `voice_file`. Engine-specific generation options use `engine_options`:
+
+```python
+request = PlanRequest(
+    operation="render",
+    input=InputRequest(document=document_from_text("Hello.")),
+    synthesis=SynthesisRequest(
+        engine="pocket",
+        model="BUNDLE_ID",
+        voice_file=Path("reference.wav"),
+        engine_options={"precision": "fp32", "temperature": 0.6},
+    ),
+    output=OutputRequest(requested_path=Path("pocket.wav")),
+)
+```
+
+The resolver records the reference WAV's SHA-256 in the render target. It does not include a local filesystem path in the acoustic render identity.
+
 An `AudioSink` implements `write(audio, sample_rate)` and `close()`. For example, an application can implement this protocol to stream chunks into its own audio pipeline. Do not pass a sink to `json.dumps`; sinks are runtime resources, not result data.
 
 ## Projects and audiobooks
@@ -111,7 +129,7 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
 ## Discovery and roles
 
 `app.catalog.engines()`, `targets()`, `models()`, `voices()`, `lexicons()`, and `audio_formats()` expose typed discovery data. Listing methods such as `models_listing()` and `voices_listing()` wrap entries with `CatalogDiscovery` metadata, including source, cache fallback, offline, and refresh state. Pass `DiscoveryOptions(offline=True)` to prevent a network refresh.
-Engine aliases `kokoro` -> `pykokoro` and `pipersynth` -> `piper` are canonical for engine, target, model, and voice catalog operations. `app.catalog.normalize_engine()` exposes that mapping. Lexicon queries use backend IDs. The `voices list` CLI also retains the legacy shorthand of treating an engine name supplied to `--model` as an engine filter when `--engine` is omitted. That convenience is CLI-only and is not Python API behavior.
+Engine aliases `kokoro` -> `pykokoro` and `pipersynth` -> `piper` are canonical for engine, target, model, and voice catalog operations. `pocket` is a canonical engine ID. `app.catalog.normalize_engine()` exposes alias normalization. Lexicon queries are filtered through engine capabilities. The `voices list` CLI retains the convenience of treating a registered engine name supplied to `--model` as an engine filter when `--engine` is omitted.
 
 ```python
 from readio.api import DiscoveryOptions, Readio, VoiceQuery

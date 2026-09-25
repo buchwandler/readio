@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from .base import EngineAdapter
@@ -26,13 +27,15 @@ ENGINE_ALIASES: dict[str, str] = {
 READIO_ENGINE_TO_ONNXVOICE_SYSTEM: dict[str, str] = {
     "pykokoro": "kokoro",
     "piper": "piper",
+    "pocket": "pocket",
 }
 
 ONNXVOICE_SYSTEM_TO_READIO_ENGINE: dict[str, str] = {
     "kokoro": "pykokoro",
     "piper": "piper",
+    "pocket": "pocket",
 }
-CANONICAL_ENGINE_IDS: frozenset[str] = frozenset({"pykokoro", "piper"})
+CANONICAL_ENGINE_IDS: frozenset[str] = frozenset({"pykokoro", "piper", "pocket"})
 
 
 def normalize_engine_id(value: str) -> str:
@@ -45,8 +48,10 @@ def normalize_engine_id(value: str) -> str:
 
 
 def ssmd_provider_for_engine(engine: str) -> str | None:
-    """Return the SSMD provider advertised by a synthesis engine."""
-    return get_engine(normalize_engine_id(engine)).capabilities().ssmd_provider
+    """Return the voice-binding namespace used by an engine for SSMD metadata."""
+    return getattr(
+        get_engine(normalize_engine_id(engine)).capabilities(), "voice_binding_namespace", None
+    )
 
 
 def engine_for_ssmd_provider(provider: str) -> str:
@@ -71,8 +76,11 @@ class EngineRegistry:
         self._adapters: dict[str, EngineAdapter] = {}
         self._discover_attempted: set[str] = set()
 
-    def register(self, adapter: EngineAdapter) -> None:
-        """Register an engine adapter."""
+    def register(self, adapter: EngineAdapter, *, replace: bool = False) -> None:
+        """Register an engine adapter, rejecting accidental replacements."""
+        existing = self._adapters.get(adapter.id)
+        if existing is not None and not replace:
+            raise ValueError(f"engine {adapter.id!r} is already registered")
         self._adapters[adapter.id] = adapter
         logger.debug("Registered engine adapter: %s", adapter.id)
 
@@ -93,6 +101,8 @@ class EngineRegistry:
             self._try_register_pykokoro()
         elif engine_id == "piper":
             self._try_register_piper()
+        elif engine_id == "pocket":
+            self._try_register_pocket()
 
     def _try_register_pykokoro(self) -> None:
         """Try to register PyKokoro if available."""
@@ -112,6 +122,15 @@ class EngineRegistry:
         except ImportError:
             logger.debug("PiperSynth not available")
 
+    def _try_register_pocket(self) -> None:
+        """Try to register PocketSynth if its adapter is available."""
+        try:
+            from .pocketsynth import PocketSynthEngineAdapter
+
+            self.register(PocketSynthEngineAdapter())
+        except ImportError:
+            logger.debug("PocketSynth not available")
+
     def available_engines(self) -> tuple[str, ...]:
         """Return IDs of all registered engines."""
         return tuple(sorted(self._adapters.keys()))
@@ -121,22 +140,62 @@ class EngineRegistry:
         yield from self._adapters.values()
 
     def status(self) -> dict[str, dict[str, Any]]:
-        """Return status information for all known engines."""
+        """Return installed package and adapter status for known engines."""
+
+        distributions = {
+            "pykokoro": "pykokoro",
+            "piper": "pipersynth",
+            "pocket": "pocketsynth",
+        }
         result: dict[str, dict[str, Any]] = {}
-        for engine_id in sorted(set(list(self._adapters.keys()) + list(CANONICAL_ENGINE_IDS))):
-            adapter = self._adapters.get(engine_id)
-            if adapter is not None:
-                result[engine_id] = {
-                    "adapter": True,
-                    "version": adapter.version(),
-                    "status": "ready",
-                }
-            else:
-                result[engine_id] = {
-                    "adapter": False,
-                    "version": None,
-                    "status": "not_registered",
-                }
+        engine_ids = sorted(CANONICAL_ENGINE_IDS | self._adapters.keys())
+        for engine_id in engine_ids:
+            canonical = normalize_engine_id(engine_id)
+            try:
+                adapter = self.get(canonical)
+            except (ImportError, ValueError):
+                adapter = None
+            package_name = getattr(adapter, "package_name", distributions.get(canonical, canonical))
+            adapter_version = getattr(adapter, "version", None)
+            package_version = adapter_version() if callable(adapter_version) else None
+            if package_version is None:
+                try:
+                    package_version = version(package_name)
+                except PackageNotFoundError:
+                    package_version = None
+            compatible = None
+            if adapter is not None and package_version is not None:
+                compatibility_check = getattr(adapter, "compatible_api", None)
+                if compatibility_check is not None:
+                    try:
+                        compatible = compatibility_check()
+                    except (
+                        ImportError,
+                        SyntaxError,
+                        OSError,
+                        RuntimeError,
+                        AttributeError,
+                        TypeError,
+                        ValueError,
+                    ) as exc:
+                        logger.debug("Engine %s API compatibility check failed: %s", canonical, exc)
+                        compatible = False
+            status = (
+                "adapter_unavailable"
+                if adapter is None
+                else "package_missing"
+                if package_version is None
+                else "api_incompatible"
+                if compatible is False
+                else "ready"
+            )
+            result[canonical] = {
+                "adapter": adapter is not None,
+                "package": package_version is not None,
+                "version": package_version,
+                "api_compatible": compatible,
+                "status": status,
+            }
         return result
 
 
@@ -174,6 +233,11 @@ def engine_ids() -> tuple[str, ...]:
     return _registry.available_engines()
 
 
+def engine_status() -> dict[str, dict[str, Any]]:
+    """Return package and adapter status for all known synthesis engines."""
+    return _registry.status()
+
+
 def default_engine() -> EngineAdapter:
     """Return the default engine adapter (pykokoro).
 
@@ -191,6 +255,7 @@ __all__ = [
     "default_engine",
     "engine_for_ssmd_provider",
     "engine_ids",
+    "engine_status",
     "get_engine",
     "iter_engines",
     "normalize_engine_id",

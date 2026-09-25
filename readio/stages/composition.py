@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 from audiocompose import (
+    AudioAnchor,
     AudioBufferSource,
     AudioClip,
     AudioFileSource,
@@ -317,6 +318,54 @@ def _pause_seconds(pause: Any) -> tuple[float, tuple[str, ...]]:
     return float(getattr(pause, "seconds", 0.0)), tuple(getattr(pause, "events", ()) or ())
 
 
+def _markers_by_segment(
+    plan: Any, scope_id: str = "document"
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    markers: dict[str, list[dict[str, Any]]] = {str(segment.id): [] for segment in plan.segments}
+    for marker in plan.markers:
+        owner = next(
+            (
+                segment
+                for segment in plan.segments
+                if segment.spoken_start <= marker.spoken_position <= segment.spoken_end
+            ),
+            None,
+        )
+        if owner is not None:
+            value = marker.to_dict()
+            if scope_id != "document":
+                value["id"] = f"{scope_id}:{marker.id}"
+            markers[str(owner.id)].append(value)
+    return {segment_id: tuple(values) for segment_id, values in markers.items()}
+
+
+def _marker_sample_offset(marker: Mapping[str, Any], segment: Any, entry: Mapping[str, Any]) -> int:
+    position = max(0, min(len(segment.text), int(marker["spoken_position"]) - segment.spoken_start))
+    frames = int(entry["frames"])
+    timings = entry.get("word_timings", ())
+    for timing in timings:
+        char_start = int(
+            timing.get("char_start", 0) if isinstance(timing, Mapping) else timing.char_start
+        )
+        char_end = int(
+            timing.get("char_end", 0) if isinstance(timing, Mapping) else timing.char_end
+        )
+        start_sample = int(
+            timing.get("start_sample", 0) if isinstance(timing, Mapping) else timing.start_sample
+        )
+        end_sample = int(
+            timing.get("end_sample", 0) if isinstance(timing, Mapping) else timing.end_sample
+        )
+        if char_start <= position <= char_end:
+            if char_end == char_start:
+                return start_sample
+            fraction = (position - char_start) / (char_end - char_start)
+            return round(start_sample + fraction * (end_sample - start_sample))
+    if not segment.text:
+        return 0
+    return round(frames * position / len(segment.text))
+
+
 def _cache_entries(
     project: Project, plan: Any, scope_id: str
 ) -> dict[tuple[str, str], dict[str, Any]]:
@@ -327,6 +376,7 @@ def _cache_entries(
         raise ValueError("synthesis profile is missing canonical identity")
     entries: dict[tuple[str, str], dict[str, Any]] = {}
     cache_dir = project.root / "synthesis" / "cache"
+    markers_by_segment = _markers_by_segment(plan, scope_id)
     for segment in plan.segments:
         speech_hash = segment_speech_hash(plan, segment, canonical)
         key = segment_synthesis_key(speech_hash, profile_id)
@@ -361,6 +411,8 @@ def _cache_entries(
             "sample_rate": checked[0],
             "channels": checked[1],
             "frames": checked[2],
+            "word_timings": tuple(sidecar.get("word_timings", ())),
+            "markers": markers_by_segment[str(segment.id)],
             "composition": dict(profile.get("composition", {})),
             "prosody_transitions": (
                 plan.document_metadata.get("prosody_transitions")
@@ -406,10 +458,11 @@ def _build_layout(
     clip_policy: str,
     composition: Mapping[str, Any] | None = None,
     scope_metadata: tuple[Mapping[str, Any], ...] = (),
+    output_sample_rate: int | None = None,
 ) -> tuple[AudioJob, dict[str, Any]]:
     if not segments:
         raise ValueError("composition selected no synthesized segments")
-    sample_rate = int(segments[0][1]["sample_rate"])
+    sample_rate = int(output_sample_rate or segments[0][1]["sample_rate"])
     items: list[Any] = []
     layout: list[dict[str, Any]] = []
     seen_events: set[str] = set()
@@ -546,9 +599,22 @@ def _build_layout(
                 channels=int(entry["channels"]),
                 frames=int(entry["frames"]),
             )
+        elif entry.get("audio") is not None:
+            source = AudioBufferSource(
+                np.asarray(entry["audio"], dtype=np.float32), int(entry["sample_rate"])
+            )
         else:
-            audio, rate = sf.read(source_path, always_2d=False, dtype="float32")
-            source = AudioBufferSource(audio, rate)
+            audio, source_rate = sf.read(source_path, always_2d=False, dtype="float32")
+            source = AudioBufferSource(audio, source_rate)
+        markers = tuple(entry.get("markers", ()))
+        anchors = tuple(
+            AudioAnchor(
+                id=str(marker["id"]),
+                sample_offset=_marker_sample_offset(marker, segment, entry),
+                name=marker.get("name"),
+            )
+            for marker in markers
+        )
         metadata = {
             "kind": "speech",
             "segment_id": segment_id,
@@ -556,13 +622,27 @@ def _build_layout(
             "synthesis_key": entry["synthesis_key"],
             "audio_sha256": entry["audio_sha256"],
             "operations": _operation_payload(operations),
+            "markers": [dict(marker) for marker in markers],
         }
+        if entry.get("engine_metadata"):
+            metadata["engine_metadata"] = dict(entry["engine_metadata"])
+        if entry.get("warnings"):
+            metadata["warnings"] = list(entry["warnings"])
+        if entry.get("lowering_diagnostics"):
+            metadata["lowering_diagnostics"] = [
+                item.to_dict() if hasattr(item, "to_dict") else dict(item)
+                for item in entry["lowering_diagnostics"]
+            ]
+        if entry.get("plan_unit_id") is not None:
+            metadata["plan_unit_id"] = entry["plan_unit_id"]
+        metadata["directives"] = segment.directives.to_dict()
         if scope_id != "document":
             metadata["scope_id"] = scope_id
         items.append(
             AudioClip(
                 id=qualified_id,
                 source=source,
+                anchors=anchors,
                 operations=operations,
                 metadata=metadata,
             )
@@ -575,6 +655,7 @@ def _build_layout(
             "synthesis_key": entry["synthesis_key"],
             "audio_sha256": entry["audio_sha256"],
             "operations": _operation_payload(operations),
+            "markers": [dict(marker) for marker in markers],
         }
         if scope_id != "document":
             layout_item["scope_id"] = scope_id
@@ -614,7 +695,7 @@ def _build_layout(
             loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
             clip_policy=clip_policy,
         ),
-        producer={"readio": "project"},
+        producer={"readio": "project" if project is not None else "readio"},
         source={
             "project_id": project.manifest.project_id if project else None,
             "composition_id": composition_id(identity_payload),
@@ -635,6 +716,7 @@ def build_audio_job(
     true_peak_ceiling_dbtp: float | None = -1.0,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
+    output_sample_rate: int | None = None,
 ) -> tuple[AudioJob, dict[str, Any]]:
     scoped_plans = tuple(
         (scope, load_scope_plan(project, scope)) for scope in project.load_plan_index().scopes
@@ -674,6 +756,7 @@ def build_audio_job(
         clip_policy=clip_policy,
         composition=first_entry.get("composition", {}),
         scope_metadata=tuple(scope_metadata),
+        output_sample_rate=output_sample_rate,
     )
 
 
@@ -784,6 +867,7 @@ def compose_project(
     true_peak_ceiling_dbtp: float | None = -1.0,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
+    output_sample_rate: int | None = None,
     on_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
@@ -796,6 +880,7 @@ def compose_project(
             true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
             peak_policy=peak_policy,
             clip_policy=clip_policy,
+            output_sample_rate=output_sample_rate,
         )
         result = Composer().compose(job, on_progress=on_progress)
         if on_phase is not None:
@@ -815,6 +900,7 @@ def compose_artifacts(
     true_peak_ceiling_dbtp: float | None = -1.0,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
+    output_sample_rate: int | None = None,
     output: Path | None = None,
     on_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
@@ -856,7 +942,7 @@ def compose_artifacts(
             items=tuple(clips),
             schema_version=2,
             output=OutputPolicy(
-                sample_rate=clips[0].source.sample_rate or 24000,
+                sample_rate=output_sample_rate or clips[0].source.sample_rate,
                 channels=1,
                 loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
                 clip_policy=clip_policy,
@@ -875,6 +961,7 @@ def compose_artifacts(
         }
         segments = []
         for scope_id, scope_plan in plan_pairs:
+            markers_by_segment = _markers_by_segment(scope_plan, str(scope_id))
             for segment in scope_plan.segments:
                 artifact = by_id.get((str(scope_id), str(segment.id)))
                 if artifact is None:
@@ -885,6 +972,8 @@ def compose_artifacts(
                     "audio_sha256": artifact.audio_sha256,
                     "sample_rate": artifact.sample_rate,
                     "channels": artifact.channels,
+                    "word_timings": tuple(artifact.word_timings),
+                    "markers": markers_by_segment[str(segment.id)],
                     "frames": artifact.frames,
                     "speech_hash": artifact.speech_hash or artifact.content_hash,
                     "synthesis_key": artifact.synthesis_key,
@@ -908,6 +997,7 @@ def compose_artifacts(
             clip_policy=clip_policy,
             composition=composition,
             scope_metadata=scope_metadata,
+            output_sample_rate=output_sample_rate,
         )
     result = Composer().compose(job, on_progress=on_progress)
     if output is not None:

@@ -1,9 +1,8 @@
 """Tests for the engine-neutral execution spine.
 
 These tests verify:
-- render_from_plan_v2() exists and can be called
-- The engine receives UtterancePlan, not raw text
-- A fake engine can render through the full bounded path
+- The engine receives independent SpeechRequest values, never semantic plans
+- A fake engine renders through the full bounded path
 """
 
 from __future__ import annotations
@@ -11,11 +10,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import numpy as np
-from audiocompose import AudioBufferSource, AudioClip, AudioJob
 
 from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
-from readio.engines.base import EngineCapabilities, EngineSelection
+from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
 from readio.execution import execute_bounded_v2
 from readio.plan import (
@@ -50,7 +48,7 @@ class TestReadioPlanV2Structure:
     def test_plan_has_render_section(self) -> None:
         """ReadioPlanV2 should have a render section."""
         target = RenderTargetV2(id="model", language="en")
-        render = RenderPlanV2(engine="piper", target=target)
+        render = RenderPlanV2(engine="piper", default_target=target)
         plan = ReadioPlanV2(render=render)
         assert plan.render is not None
         assert plan.render.engine == "piper"
@@ -58,17 +56,17 @@ class TestReadioPlanV2Structure:
     def test_plan_render_has_target(self) -> None:
         """ReadioPlanV2 render section should have a target."""
         target = RenderTargetV2(id="model", language="en", voice="voice1")
-        render = RenderPlanV2(engine="piper", target=target)
+        render = RenderPlanV2(engine="piper", default_target=target)
         plan = ReadioPlanV2(render=render)
-        assert plan.render.target.id == "model"
-        assert plan.render.target.voice == "voice1"
+        assert plan.render.default_target.id == "model"
+        assert plan.render.default_target.voice == "voice1"
 
     def test_plan_render_has_options(self) -> None:
         """ReadioPlanV2 render section should have options."""
         target = RenderTargetV2(id="model", language="en")
         render = RenderPlanV2(
             engine="piper",
-            target=target,
+            default_target=target,
             options={"noise_scale": 0.5},
         )
         plan = ReadioPlanV2(render=render)
@@ -85,16 +83,16 @@ class TestEngineSelectionFromPlan:
         target = RenderTargetV2(id="model", language="en", voice="voice1")
         render = RenderPlanV2(
             engine="piper",
-            target=target,
+            default_target=target,
             options={"noise_scale": 0.5},
         )
 
         selection = EngineSelection(
             engine=render.engine,
-            target_id=render.target.id,
-            language=render.target.language,
-            voice=render.target.voice,
-            speaker=render.target.speaker,
+            target_id=render.default_target.id,
+            language=render.default_target.language,
+            voice=render.default_target.voice,
+            speaker=render.default_target.speaker,
             options=dict(render.options),
         )
 
@@ -113,7 +111,7 @@ class TestPlanNotReResolvedDuringExecution:
         target = RenderTargetV2(id="model", language="de", voice="thorsten")
         render = RenderPlanV2(
             engine="piper",
-            target=target,
+            default_target=target,
             rate=1.0,
             options={"noise_scale": 0.667},
         )
@@ -121,7 +119,7 @@ class TestPlanNotReResolvedDuringExecution:
 
         # The plan should be immutable
         assert plan.render.engine == "piper"
-        assert plan.render.target.id == "model"
+        assert plan.render.default_target.id == "model"
         assert plan.render.rate == 1.0
 
         # Modifying the plan should not affect the original
@@ -137,35 +135,30 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
         def __init__(self, adapter):
             self.adapter = adapter
 
-        def to_audio_job(self, plan, *, options):
-            self.adapter.received_plan = plan
-            self.adapter.received_options = dict(options)
-            unit = plan.units[0]
-            clip = AudioClip(
-                id=unit.id,
-                source=AudioBufferSource(np.ones(16, dtype=np.float32), 24000),
-                metadata={"plan_unit_id": unit.id},
+        def synthesize(self, request):
+            self.adapter.received_requests.append(request)
+            return RenderedSpeech(
+                id=request.id,
+                audio=np.ones(16, dtype=np.float32),
+                sample_rate=24000,
             )
-            return AudioJob(items=(clip,))
 
     class FakeAdapter:
         id = "fake"
 
         def __init__(self):
             self.resolve_calls = 0
-            self.planner_config_calls = 0
             self.open_calls = 0
             self.discover_calls = 0
-            self.received_plan = None
-            self.received_options = None
+            self.received_requests = []
 
         def version(self):
             return "fake-1"
 
         def capabilities(self):
-            return EngineCapabilities(id=self.id, ssmd_provider="fake")
+            return EngineCapabilities(id=self.id, voice_binding_namespace=self.id)
 
-        def discover(self, request):
+        def discover(self, _request):
             self.discover_calls += 1
             return ()
 
@@ -174,7 +167,7 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
             return (
                 EngineSelection(
                     engine=self.id,
-                    target_id=request.target_id or "fake-target",
+                    target_id=request.target_id or "fake-model",
                     language=request.language or "en-us",
                     voice=request.voice,
                     options=dict(request.options),
@@ -182,12 +175,15 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
                 (),
             )
 
-        def planner_config(self, selection, planning):
-            self.planner_config_calls += 1
+        def target_metadata(self, _selection):
+            return {"voices": ("fake-voice",)}
+
+        def canonical_synthesis_identity(self, selection):
+            return {"engine": self.id, "target_id": selection.target_id}
 
         def open(self, selection):
             self.open_calls += 1
-            assert selection.target_id == "fake-voice"
+            assert selection.target_id == "fake-model"
 
             @contextmanager
             def session():
@@ -214,7 +210,6 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
     assert resolved.plan.render.render_id
     assert adapter.resolve_calls == 1
     assert adapter.discover_calls == 0
-    assert adapter.planner_config_calls == 0
 
     class Sink:
         def __init__(self):
@@ -231,9 +226,10 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
     sink = Sink()
     result = execute_bounded_v2(resolved, sink)
     assert adapter.open_calls == 1
-    assert adapter.received_plan is resolved.semantic.plan
+    assert len(adapter.received_requests) == 1
+    assert adapter.received_requests[0].text == "hello world"
     assert sink.sample_rate == 24000
-    assert result.composition.items[0].item_id == resolved.semantic.plan.units[0].id
+    assert result.composition.items[0].item_id == adapter.received_requests[0].id
 
 
 def test_explicit_engine_switch_does_not_inherit_reader_voice() -> None:
@@ -249,16 +245,22 @@ def test_explicit_engine_switch_does_not_inherit_reader_voice() -> None:
 
 
 def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> None:
+    import readio.ssmd as legacy_ssmd
     from readio.config import VoiceProviderSettings
     from readio.document import document_from_text
     from readio.engines.base import EngineCapabilities, EngineSelection
     from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 
+    def reject_legacy_parser(*_args, **_kwargs):
+        raise AssertionError("plan.v2 must not reparse SSMD with Readio's legacy parser")
+
+    monkeypatch.setattr(legacy_ssmd, "parse_ssmd_09", reject_legacy_parser)
+
     class FakePiperAdapter:
         id = "fake-piper"
 
         def capabilities(self):
-            return EngineCapabilities(id=self.id, ssmd_provider="piper")
+            return EngineCapabilities(id=self.id, voice_binding_namespace="piper")
 
         def resolve(self, request):
             return (
@@ -301,3 +303,6 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
     decision = next(item for item in resolved.plan.decisions if item.field == "ssmd.bindings.guest")
     assert decision.value == "en_US-amy-medium"
     assert decision.origin == "project"
+    assert resolved.plan.render is not None
+    assert resolved.plan.render.role_bindings[0].role == "guest"
+    assert resolved.plan.render.role_bindings[0].target.id == "en_US-amy-medium"

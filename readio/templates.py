@@ -9,6 +9,7 @@ from pathlib import Path
 from .paths import safe_child
 
 _RESOURCE_PACKAGE = "readio.resources.templates"
+_SSMD_SUFFIXES = (".ssmd.md", ".ssmd")
 
 
 def packaged_template_names() -> tuple[str, ...]:
@@ -23,15 +24,22 @@ def packaged_template(name: str) -> str:
     return resource.read_text(encoding="utf-8")
 
 
+def _template_stem(name: str) -> str:
+    lowered = name.lower()
+    for suffix in _SSMD_SUFFIXES:
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 def template_filename(name: str) -> str:
-    return name if Path(name).suffix.lower() == ".ssmd" else f"{name}.ssmd"
+    return name if _template_stem(name) != name else f"{name}.ssmd"
 
 
 def template_path(directory: Path, name: str, *, require_exists: bool = True) -> Path:
-    stem = Path(name).stem if Path(name).suffix.lower() == ".ssmd" else name
-    path = safe_child(directory, template_filename(stem))
+    path = safe_child(directory, template_filename(name))
     if require_exists and not path.is_file():
-        raise ValueError(f"template not found: {stem}")
+        raise ValueError(f"template not found: {_template_stem(name)}")
     return path
 
 
@@ -39,7 +47,9 @@ def list_templates(directory: Path) -> list[str]:
     if not directory.exists():
         raise ValueError(f"configured template directory does not exist: {directory}")
     return sorted(
-        path.stem for path in directory.iterdir() if path.is_file() and path.suffix == ".ssmd"
+        _template_stem(path.name)
+        for path in directory.iterdir()
+        if path.is_file() and _template_stem(path.name) != path.name
     )
 
 
@@ -89,7 +99,9 @@ def add_template(
 ) -> Path:
     target = template_path(directory, name, require_exists=False)
     if target.exists() and not force:
-        raise ValueError(f"template already exists: {target.stem}; use --force to replace it")
+        raise ValueError(
+            f"template already exists: {_template_stem(name)}; use --force to replace it"
+        )
     if content is None:
         if source is None:
             raise ValueError("template source is required")
@@ -103,13 +115,13 @@ def add_template(
 def remove_template(directory: Path, name: str) -> Path:
     target = template_path(directory, name)
     if not target.is_file() or target.is_symlink():
-        raise ValueError(f"template not found: {Path(name).stem}")
+        raise ValueError(f"template not found: {_template_stem(name)}")
     target.unlink()
     return target
 
 
 def reset_template(directory: Path, name: str) -> Path:
-    stem = Path(name).stem
+    stem = _template_stem(name)
     if stem not in packaged_template_names():
         raise ValueError(f"unknown packaged template: {stem}")
     target = template_path(directory, stem, require_exists=False)

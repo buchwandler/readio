@@ -62,7 +62,10 @@ def test_plan_group_exposes_only_project_subcommands() -> None:
 
 def test_plan_roles_json_reports_project_roles(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::\n',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
@@ -78,7 +81,10 @@ def test_plan_roles_json_reports_project_roles(tmp_path, monkeypatch, capsys) ->
 
 def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="unbound">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="unbound"}\nHello.\n:::\n',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
@@ -94,7 +100,10 @@ def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, 
 
 def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::\n',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     calls = {}
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
@@ -135,7 +144,10 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
 
 def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::\n',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     calls = {}
     mutation = ProjectRoleMutationResult(
@@ -222,7 +234,10 @@ def test_render_dry_run_json_still_emits_execution_plan(capsys) -> None:
 
 def test_render_dry_run_rejects_voice_discovery(tmp_path) -> None:
     source = tmp_path / "cast.ssmd"
-    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="host"}\nHello.\n:::\n',
+        encoding="utf-8",
+    )
     args = build_parser().parse_args(["render", str(source), "--dry-run", "--resolve-voices"])
     with pytest.raises(ValueError, match="not available during plan/dry-run"):
         args.func(args)

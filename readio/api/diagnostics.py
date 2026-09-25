@@ -26,9 +26,11 @@ if TYPE_CHECKING:
 _DEPENDENCIES = (
     "pykokoro",
     "pipersynth",
+    "pocketsynth",
     "utterplan",
     "audiocompose",
     "ssmd",
+    "onnxvoice",
     "sounddevice",
     "soundfile",
 )

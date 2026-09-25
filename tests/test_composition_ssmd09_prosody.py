@@ -3,19 +3,23 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
-from audiocompose import AudioJob, Gain, PitchShift, RatePitchEnvelope, Tempo
+from audiocompose import AudioJob, Composer, Gain, PitchShift, RatePitchEnvelope, Tempo
+from utterplan import Marker
 
 from readio.document import document_from_text
+from readio.engines.base import SpeechWordTiming
 from readio.errors import InputError
 from readio.planning.compiler import compile_semantic_plan
 from readio.planning.policy import PlanningPolicy
 from readio.stages.composition import (
     _build_layout,
+    _markers_by_segment,
     _segment_voice_identity,
     _ssmd_pitch_semitones,
     _ssmd_rate_factor,
@@ -277,3 +281,59 @@ def test_zero_duration_transition_is_deterministic_and_affects_identity(tmp_path
         entry["prosody_transitions"] = extended
     _, extended_identity = _compose(entries)
     assert identity["composition_id"] != extended_identity["composition_id"]
+
+
+def test_plan_aware_job_preserves_timing_anchor_and_resamples_output_rate():
+    plan = _plan()
+    segment = plan.segments[0]
+    segment = replace(
+        segment,
+        directives=replace(segment.directives, prosody=None),
+    )
+    marker = Marker(
+        id="marker-1",
+        name="chapter-one",
+        spoken_position=segment.spoken_start + 5,
+    )
+    plan = replace(plan, segments=(segment, *plan.segments[1:]), markers=(marker,))
+    audio = np.sin(np.linspace(0.0, 8.0 * math.pi, 22050, dtype=np.float32))
+    entry = {
+        "scope_id": "document",
+        "cache_path": None,
+        "audio": audio,
+        "audio_sha256": hashlib.sha256(audio.tobytes()).hexdigest(),
+        "sample_rate": 22050,
+        "channels": 1,
+        "frames": len(audio),
+        "speech_hash": "speech-1",
+        "synthesis_key": "synthesis-1",
+        "composition": {"rate": 1.1},
+        "voice_identity": "voice-1",
+        "word_timings": (
+            SpeechWordTiming(
+                text=segment.text,
+                char_start=0,
+                char_end=10,
+                start_sample=0,
+                end_sample=len(audio),
+            ),
+        ),
+        "markers": _markers_by_segment(plan)[segment.id],
+    }
+
+    job, _identity = _build_layout(
+        None,
+        [(segment, entry)],
+        target_lufs=None,
+        true_peak_ceiling_dbtp=-1.0,
+        peak_policy="reduce_gain",
+        clip_policy="clamp",
+        output_sample_rate=16000,
+    )
+    composed = Composer().compose(job)
+
+    assert job.output.sample_rate == 16000
+    assert job.items[0].anchors[0].sample_offset == round(len(audio) / 2)
+    assert composed.sample_rate == 16000
+    assert composed.markers[0].id == "marker-1"
+    assert composed.markers[0].sample_offset == round(round((len(audio) / 2) / 1.1) * 16000 / 22050)

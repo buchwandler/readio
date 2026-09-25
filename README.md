@@ -1,6 +1,6 @@
 # readio
 
-`readio` is a terminal text to speech tool. It plays local speech with PyKokoro, renders bounded memory WAV, MP3, M4A, or OGG files, and publishes generated or caller-provided audio through the external `save-to-spotify` CLI.
+`readio` is a terminal text-to-speech tool. It plans speech with UtterPlan, resolves engine targets, and owns segment synthesis orchestration, AudioCompose timelines, and output. It plays local speech, renders WAV, MP3, M4A, or OGG files, and can publish completed audio through the external `save-to-spotify` CLI.
 
 ## Install
 
@@ -14,7 +14,7 @@ For GPU ONNX Runtime:
 python -m pip install -e ".[gpu]"
 ```
 
-PyKokoro may download model and voice assets on first use. Spotify publishing requires the separately installed `save-to-spotify` executable and its authenticated session. Readio never reads Spotify credential files.
+Engine adapters may download target and voice assets on first use. Spotify publishing requires the separately installed `save-to-spotify` executable and its authenticated session. Readio never reads Spotify credential files.
 
 ### Optional spaCy linguistic planning
 
@@ -44,7 +44,7 @@ readio speak --file notes.md --select paragraph:3
 producer-command | readio speak --live
 ```
 
-A single existing positional token is also treated as a file path by `speak`, `render`, and `spotify publish`, including `.ssmd` and Markdown files:
+A single existing positional token is also treated as a file path by `speak`, `render`, and `spotify publish`, including `.ssmd`, `.ssmd.md`, and Markdown files:
 
 ```bash
 readio speak README.md
@@ -54,7 +54,7 @@ readio spotify publish episode.ssmd --title "Episode"
 
 For scripts, prefer the explicit `--file PATH` form. A missing path-like token fails instead of being spoken as a filename. Use `--input-format text` to force an existing filename to remain literal text.
 
-Readio parses `.md`, `.markdown`, `.mdown`, and `.mkd` as Markdown before synthesis. Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Ordinary Markdown is isolated from SSMD controls; use `.ssmd` when explicit voices, rate, volume, pitch, breaks, or markers are required.
+Readio parses `.ssmd` and `.ssmd.md` as SSMD. It parses `.md`, `.markdown`, `.mdown`, and `.mkd` as Markdown before synthesis. Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Ordinary Markdown is isolated from SSMD controls; use an SSMD extension when explicit voices, rate, volume, pitch, breaks, or markers are required.
 
 Markdown can also be supplied explicitly through stdin or literal input:
 
@@ -85,14 +85,11 @@ The configuration contains reader settings, SSMD defaults, provider-specific voi
 
 ### Model discovery and language defaults
 
-PyKokoro >=0.9.11,<0.10 is the runtime contract and owns the model, language, voice, quality, frontend, and named-lexicon catalog. Readio also requires OnnxVoice >=0.1.6,<0.2 for the runtime model and timing integration. Discovery is metadata-only and does not download model weights:
-Readio v0.2.5 is tested against PyKokoro 0.9.11.
+Readio uses one registry for `pykokoro`, `piper`, and `pocket`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to see whether an engine package and its required API are available.
 
-Readio selects synthesis through an explicit engine registry. PyKokoro and Piper are the supported engines; engine identity is recorded separately from distribution provider metadata so future adapters can be added without changing selectors or configuration.
+The published PyPI releases currently do not form a compatible set with Readio's UtterPlan schema-v3 and AudioCompose v0.2 requirements. PyKokoro 0.9.10 requires SSMD below 0.9, while PiperSynth 0.1.3 and PocketSynth 0.1.0 require older UtterPlan and AudioCompose ranges. The optional engine extras therefore cannot currently be resolved alongside the core dependencies. Readio's source adapters target the documented published APIs where possible, and the doctor reports incompatible engine APIs instead of falling back to the retired pipeline path.
 
-For `readio voices list`, a registered engine/system name passed through `--model` is a shortcut when `--engine` is omitted: `piper` and `pipersynth` select Piper, while `pykokoro` and `kokoro` select PyKokoro. Concrete model IDs and Piper voice targets remain `--model` filters; when `--engine` is present, `--model` is always treated as a concrete filter.
-
-The canonical engine IDs are `pykokoro` and `piper`. The alias `pipersynth` is accepted as a compatibility alias for `piper`.
+`readio voices list` accepts engine IDs and concrete target IDs. The canonical engine IDs are `pykokoro`, `piper`, and `pocket`; `kokoro` and `pipersynth` remain aliases.
 
 ```bash
 readio models list --language de --offline
@@ -110,13 +107,23 @@ Piper voice bundles are discovered through PiperSynth without loading ONNX durin
 readio voices list --engine piper --lang de
 readio voices list --model piper --lang de
 readio voices list --engine piper --model de_DE-thorsten-medium --lang de
-readio render --engine piper --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
+readio render --engine piper --voice de_DE-thorsten-medium --lang de --dry-run --json "Hallo Welt"
 readio speak --engine piper --voice de_DE-thorsten-medium --lang de "Hallo Welt"
-readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest -o article.wav --text "Hallo Welt"
-readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run --json --text "Hallo Welt"
+readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest -o article.wav "Hallo Welt"
+readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run --json "Hallo Welt"
 ```
 
-Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Live rendering depends on the selected engine's declared capability. Piper currently does not support live mode; use bounded input.
+Pocket targets are bundle IDs. Select a predefined voice or provide a reference WAV, then tune only the Pocket-specific generation controls you need:
+
+```bash
+readio voices list --engine pocket --lang en-us
+readio render --engine pocket --model BUNDLE_ID --voice VOICE --precision int8 "Hello"
+readio render --engine pocket --model BUNDLE_ID --voice-file reference.wav --temperature 0.6 --lsd-steps 3 "Hello"
+```
+
+Reference voice files are user or project assets. Readio records their content hash in `readio.plan.v2`; local paths are not included in the acoustic render identity. Piper's published text API does not accept Readio token or pronunciation annotations, so explicit pronunciation directives are diagnosed instead of silently discarded.
+
+Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Live rendering depends on the selected engine's declared capability.
 
 Use `--refresh` to refresh registry metadata only. `--offline --refresh` is invalid. Offline metadata requires a cached registry; offline synthesis additionally requires cached model and voice assets.
 
@@ -130,7 +137,7 @@ readio render --lang de --file notes.md
 ```
 
 When a model is selected, Readio fills its normalized source, default voice, and preferred quality, then validates language compatibility, voice roster, quality, named lexicons, and experimental frontend permission before saving. `--no-lexicons` selects explicit provider-only pronunciation (`lexicons=[]`); `--auto-lexicons` returns to engine language defaults (`lexicons=null`). Repeat `--lexicon` to preserve ordered layered lookup.
-Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave pause timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. A persisted `reader.pause_mode` remains the default for that installation.
+Readio owns pause placement. Its `pause_mode` defaults to `auto`; `tts` leaves natural sentence timing to the engine, while `manual` uses explicit semantic boundary pauses. A persisted `reader.pause_mode` remains the default for that installation.
 Named lexicons use engine selectors, not backend asset IDs:
 crane = named selection token
 de-de:crane = language-qualified Lexphon asset resolved downstream
@@ -318,16 +325,17 @@ readio -vv render episode.ssmd -o episode.mp3
 readio speak "literal --verbose" --
 ```
 
-`-v` shows timestamped lifecycle records at INFO level. `-vv` enables DEBUG-level Readio and PyKokoro details; additional repetitions are clamped to DEBUG. Verbose records always go to stderr, so ordinary output and `--json` results remain on stdout and stay machine-parseable. `--progress` is a separate user-facing progress control. When verbose mode and progress are combined, progress uses line-oriented stderr records instead of in-place terminal rewriting. Logs can contain paths and model or voice identifiers, so review them before sharing and never treat verbose mode as permission to expose document text, audio, or credentials.
+`-v` shows timestamped lifecycle records at INFO level. `-vv` enables DEBUG-level Readio and selected engine details; additional repetitions are clamped to DEBUG. Verbose records always go to stderr, so ordinary output and `--json` results remain on stdout and stay machine-parseable. `--progress` is a separate user-facing progress control. When verbose mode and progress are combined, progress uses line-oriented stderr records instead of in-place terminal rewriting. Logs can contain paths and model or voice identifiers, so review them before sharing and never treat verbose mode as permission to expose document text, audio, or credentials.
 When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the encoder. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
 
 M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 and OGG use the installed SoundFile/libsndfile codecs.
 
 ## SSMD consumption and authoring checks
 
-For `.ssmd` inputs, Readio requires the strict SSMD 0.9 parser and passes PyKokoro 0.9 an `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan once, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD.
 
-Readio accepts SSMD 0.9.x and Utterplan 0.3.x/schema v3 only. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Existing project plans using Utterplan schema v1 or v2 are stale and must be rebuilt from valid SSMD 0.9 or plain text. This does not change Readio's own `readio.plan.v2` response schema.
+Readio accepts SSMD 0.9.x and UtterPlan 0.3.x/schema v3 only. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Existing project plans using UtterPlan schema v1 or v2 are stale and must be rebuilt from valid SSMD 0.9 or plain text. This does not change Readio's own `readio.plan.v2` response schema.
+
 
 Inspect a document before rendering:
 
@@ -415,7 +423,7 @@ readio synth
 readio synth --engine pykokoro  # this run only
 ```
 
-PyKokoro uses runtime voice bindings and can switch voices within its loaded pipeline. Piper is target-bound: Readio resolves each role to a Piper voice bundle, validates all targets before opening a model, then routes speech segments through one reusable session per distinct target. Multi-target progress shows the role-to-voice map and reports each model load separately. The semantic plan stays symbolic and unchanged by role bindings.
+PyKokoro and Pocket use request-scoped voice selection; Piper is target-bound. Readio resolves roles, validates concrete targets before opening sessions, and reuses one session per target. Project role bindings affect synthesis, not the semantic plan identity.
 
 ## Persistent incremental projects
 

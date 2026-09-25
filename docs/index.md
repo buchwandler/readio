@@ -1,6 +1,6 @@
 # Readio documentation
 
-Readio is a terminal text-to-speech tool. It reads plain text or SSMD documents with PyKokoro, plays speech locally, renders WAV, MP3, M4A, or OGG files, and can publish completed audio through `save-to-spotify`.
+Readio is a terminal text-to-speech tool. It reads plain text or SSMD, resolves neutral synthesis requests through registered engines, composes audio timelines with AudioCompose, and publishes completed audio through `save-to-spotify`.
 
 ## Documentation map
 
@@ -32,7 +32,7 @@ Use the GPU extra when a GPU-enabled ONNX Runtime is available:
 python -m pip install -e ".[gpu]"
 ```
 
-PyKokoro may download model and voice assets the first time it is used. Spotify publishing additionally requires the separately installed and authenticated `save-to-spotify` executable.
+Engine packages may download model, voice, or bundle assets on first use. Spotify publishing additionally requires the separately installed and authenticated `save-to-spotify` executable.
 
 ## Quick start
 
@@ -57,7 +57,7 @@ WAV is the default. An output suffix selects the encoder, while `--format` selec
 
 With no explicit output path, Readio writes a uniquely named file below the configured output directory. Existing files are not overwritten unless `--force` is supplied for an explicit path.
 
-Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`, or `.mkd` are parsed before synthesis; use `--input-format markdown` for Markdown from stdin or literal text:
+Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`, or `.mkd` are parsed before synthesis; `.ssmd.md` is detected as SSMD before its `.md` suffix. Use `--input-format markdown` for Markdown from stdin or literal text:
 
 ```bash
 readio speak --file README.md
@@ -65,7 +65,7 @@ readio render --file docs/design.md
 cat README.md | readio speak --input-format markdown
 ```
 
-Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter become speech-friendly text. Markdown styling does not create SSMD prosody. Use `.ssmd` for explicit voices, rate, volume, pitch, breaks, or markers; use `--input-format text` to force literal reading of a Markdown-looking file.
+Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter become speech-friendly text. Markdown styling does not create SSMD prosody. Use `.ssmd` or `.ssmd.md` for explicit voices, rate, volume, pitch, breaks, or markers; use `--input-format text` to force literal reading of a Markdown-looking file.
 
 ## Input and rendering
 
@@ -83,23 +83,30 @@ For non-live input, `--select` can be `all`, `last-paragraph`, or `paragraph:N`.
 Synthesis options are available on all three commands:
 
 ```text
---voice VOICE       PyKokoro voice ID
---lang LANGUAGE     language code, such as en-us
---lexicon NAME     named PyKokoro lexicon; repeat for ordered layers
---no-lexicons      explicit provider-only pronunciation
---auto-lexicons    restore automatic language-default lexicons
---g2p-fallback MODE none, espeak, or goruut
---lexicon-data-policy POLICY auto or installed-only
---language-detection MODE off or auto
---detect-language LANG repeatable pronunciation-routing language
---speed NUMBER      speech speed multiplier
---spacy MODE              auto, off, sm, md, lg, or trf
---short-sentence MODE     auto, off, wrap, phrase, or randomized-phrase
---pause-mode MODE   auto (default), tts, or manual
---unit UNIT         sentence or paragraph
-```
+--voice VOICE             engine voice ID
+--voice-file PATH         PocketSynth reference WAV
+--engine ENGINE           pykokoro, piper, or pocket
+--model TARGET            model ID, Piper voice bundle, or Pocket bundle
+--precision int8|fp32     PocketSynth bundle precision
+--temperature FLOAT       PocketSynth generation temperature
+--lsd-steps INT           PocketSynth latent diffusion steps
+--max-frames INT          PocketSynth maximum generated frames
+--frames-after-eos INT    PocketSynth frames after end of sequence
+--lang LANGUAGE           language code, such as en-us
+--lexicon NAME            named lexicon when supported by the engine
+--no-lexicons             disable engine lexicons when supported
+--auto-lexicons            use automatic engine lexicons when supported
+--g2p-fallback MODE       none, espeak, or goruut where supported
+--lexicon-data-policy     auto or installed-only where supported
+--language-detection      off or auto where supported
+--detect-language LANG    repeatable pronunciation-routing hint
+--speed NUMBER            speech speed multiplier
+--spacy MODE              linguistic analysis policy
+--short-sentence MODE     short-sentence handling policy
+--pause-mode MODE         auto, tts, or manual
+--unit UNIT               sentence or paragraph
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration. The current compatibility contract requires SSMD >=0.9,<0.10 and Utterplan >=0.3,<0.4, and persists linguistic artifacts as Utterplan schema v3 inside Readio's `readio.plan.v2` response. The PyKokoro extra requires >=0.9.11,<0.10.
+Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, and persists linguistic artifacts as UtterPlan schema v3 inside Readio's `readio.plan.v2` response. The latest published PyKokoro, PiperSynth, and PocketSynth packages still declare dependency ranges that conflict with these core requirements. Their engine APIs are checked by `readio doctor`; incompatible published packages do not trigger fallback to the retired pipeline path.
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
 ```bash
@@ -115,9 +122,9 @@ readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 ```
 
-`models` reads PyKokoro's lightweight registry and supports `--offline`, `--refresh`, `--status`, and `--json`; it never loads model weights. `--refresh` updates metadata only and cannot be combined with `--offline`. Offline synthesis still needs cached model and voice assets. `--lexicon crane` selects a named lexicon; `de-de:crane` is the downstream Lexphon asset ID, while `de-crane` is an acoustic model ID.
-`--model-source github|huggingface` drives both discovery and runtime selection. Voices are model-scoped. The legacy global `reader.voice` applies only to unchanged default-reader use; a language override such as `--lang de` leaves voice selection to the active PyKokoro model unless explicitly set. SSMD preflight uses that same resolved model roster.
-Readio uses an explicit backend registry. PyKokoro is the implemented backend, while backend identity remains separate from distribution provider metadata. Use `--engine BACKEND` when selecting a registered backend. `readio lexicons list` and `readio lexicons show` expose backend-neutral selectors and their resolved asset metadata.
+`models`, `voices`, and `lexicons` enumerate targets from the unified engine registry. They are metadata-only and do not load model weights or instantiate ONNX runtimes. Offline mode uses cached catalogs; refresh updates catalog metadata only.
+`--model-source` applies only to engines that advertise distribution-source selection. Voice rosters are target-scoped where the engine exposes them, and lexicons are listed only for engines that support lexicon discovery. SSMD preflight validates role targets against the selected engine catalog.
+Readio uses `readio.engines` as its sole engine registry. The registered engines are `pykokoro`, `piper`, and `pocket`; aliases are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
 
 ## Synthesis planning
 
@@ -130,14 +137,16 @@ readio render --file notes.md --dry-run
 
 Keep the layers separate:
 
-- **Discovery** (`readio models`, `readio voices`, `readio lexicons`) enumerates what registered backends provide.
+- **Discovery** (`readio models`, `readio voices`, `readio lexicons`) enumerates what engines registered in `readio.engines` provide.
 - **Defaults** (`readio defaults`) persist validated per-language preferences.
-- **Planning** (`readio render --dry-run`) resolves one concrete request, including backend, model, source, quality, voice, lexicons, SSMD cast, output format/backend/path, and provenance. Generated output paths are allocated once by the plan and reused by the render.
+- **Planning** (`readio render --dry-run`) resolves one concrete request, including engine, target, source, quality, voice, lexicons, SSMD role bindings, output format/backend/path, and provenance. Generated output paths are allocated once by the plan and reused by the render.
 - **Project planning** (`readio plan`) builds engine-free semantic Utterplan artifacts and manages project-local SSMD roles. It does not resolve one-shot engine, model, or output choices.
 - **Render result** executes the plan; a plan that fails validation (for example `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`, `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
 
-Plans preserve the tokenizer tri-state: `lexicons: null` means PyKokoro language defaults, `lexicons: []` means no static lexicon layers, and a non-empty list means ordered named layers. Fallback and lexicon data policy are also carried unchanged into `TokenizerConfig`; SSMD `language_detection` hints are resolved into the plan before execution.
-Plans also preserve `synthesis.spacy` (`auto`, `off`, `sm`, `md`, `lg`, or `trf`) and `synthesis.short_sentence` (`auto`, `off`, `wrap`, `phrase`, or `randomized-phrase`). `auto` leaves backend selection to PyKokoro; explicit spaCy tiers require that exact compatible model, and short-sentence `wrap` avoids carrier-phrase retries when lower latency is preferred.
+Plans preserve engine-neutral render targets, request options, SSMD role bindings, and pronunciation-routing hints. Lexicon behavior is supplied only by engines that advertise lexicon support; unsupported explicit pronunciation semantics produce diagnostics before runtime startup.
+
+Planning policy stores UtterPlan linguistic options separately from engine render controls. Readio compiles one semantic plan, lowers its segments to requests, then delegates acoustic synthesis to the selected engine without passing the UtterPlan object to adapters.
+UtterPlan receives `synthesis.spacy` and `synthesis.short_sentence` as typed linguistic policy. Readio records those settings in the semantic plan; an engine adapter maps them only when the selected published engine API supports them.
 
 One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=VOICE_ID` for an invocation or `readio plan bind ROLE VOICE` for a project setting.
 
@@ -167,7 +176,7 @@ Bounded renders show phases, completed/total units, percentage, elapsed time, ap
 
 ## Verbose diagnostics
 
-Use `-v` for timestamped INFO lifecycle records and `-vv` for DEBUG details from Readio and PyKokoro:
+Use `-v` for timestamped INFO lifecycle records and `-vv` for DEBUG details from Readio and the selected engine:
 
 ```bash
 readio -v speak "Hello"
@@ -233,7 +242,7 @@ Automatic artifact names contain a UTC timestamp and random suffix. Explicit ing
 
 ## SSMD documents
 
-Files ending in `.ssmd` are parsed as SSMD. Readio runs consumer preflight before rendering when `ssmd.validate_before_render` is enabled:
+Files ending in `.ssmd` or `.ssmd.md` are parsed as SSMD. Readio runs consumer preflight before rendering when `ssmd.validate_before_render` is enabled:
 
 ```bash
 readio ssmd check episode.ssmd
@@ -272,7 +281,7 @@ readio doctor
 ```
 
 The local doctor is human-readable by default and supports `readio doctor --json`. It reports configuration, directories, dependencies, format availability, and the upstream executable/version probe without authentication or token access. Use `readio spotify doctor` for the explicit external integration check.
-If PyKokoro reports `cannot import name 'discover_models' from 'pykokoro'`, run `readio doctor --json` first. It reports the exact imported module path, distribution metadata version, module version, and root discovery symbol status, which distinguishes stale/mismatched package contents from an unavailable cached registry.
+If an engine reports `request API compatible: no`, run `readio doctor --json` to inspect the installed package version and adapter status. The runtime does not fall back to a legacy pipeline when the published API is incompatible.
 
 Run the test suite and lint checks from a development checkout:
 
