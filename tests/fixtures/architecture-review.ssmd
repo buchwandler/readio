@@ -1,4 +1,5 @@
 ---
+ssmd_version: '0.9'
 title: Architecture review
 pause_defaults:
   enabled: true
@@ -7,14 +8,8 @@ pause_defaults:
   voice_change: 300ms
 ---
 
-<div voice="moderator">
-Opening.
-</div>
+[Opening.]{voice="moderator"}
 
-<div voice="architect">
-Proposal.
-</div>
+[Proposal.]{voice="architect"}
 
-<div voice="skeptic">
-Challenge.
-</div>
+[Challenge.]{voice="skeptic"}

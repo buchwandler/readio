@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import math
+import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -22,13 +25,18 @@ from audiocompose import (
     LoudnessPolicy,
     OutputPolicy,
     PitchShift,
+    RatePitchEnvelope,
     Tempo,
 )
+from utterplan import parse_duration
 
+from ..errors import InputError
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..stages.speech_identity import segment_speech_hash, segment_synthesis_key
 from .planning import load_scope_plan
 from .synthesis import _valid_audio
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def composition_id(payload: Mapping[str, Any]) -> str:
@@ -40,7 +48,50 @@ def seconds_to_frames(seconds: float, sample_rate: int) -> int:
     return round(float(seconds) * sample_rate)
 
 
-def _numeric(value: Any, values: Mapping[str, float], default: float) -> float:
+_SSMD_RATE_FACTORS = {
+    "very-slow": 0.65,
+    "slow": 0.80,
+    "moderate": 0.90,
+    "normal": 1.00,
+    "brisk": 1.10,
+    "fast": 1.25,
+    "very-fast": 1.50,
+}
+_SSMD_PITCH_PERCENTAGES = {
+    "very-low": -20.0,
+    "low": -12.0,
+    "moderate-low": -6.0,
+    "normal": 0.0,
+    "moderate-high": 6.0,
+    "high": 12.0,
+    "very-high": 20.0,
+}
+_SSMD_VOLUME_DB = {
+    "silent": -60.0,
+    "x-soft": -12.0,
+    "soft": -6.0,
+    "medium": 0.0,
+    "loud": 6.0,
+    "x-loud": 12.0,
+}
+_SSMD_VOLUME_LEVEL_DB = {"0": -60.0, "1": -12.0, "2": -6.0, "3": 0.0, "4": 6.0, "5": 12.0}
+_APPLICATION_RATE_VALUES = {
+    "x-slow": 0.65,
+    "slow": 0.8,
+    "medium": 1.0,
+    "fast": 1.25,
+    "x-fast": 1.5,
+}
+_APPLICATION_PITCH_VALUES = {
+    "x-low": -4.0,
+    "low": -2.0,
+    "medium": 0.0,
+    "high": 2.0,
+    "x-high": 4.0,
+}
+
+
+def _application_numeric(value: Any, values: Mapping[str, float], default: float) -> float:
     if value is None:
         return default
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -48,47 +99,120 @@ def _numeric(value: Any, values: Mapping[str, float], default: float) -> float:
     return float(values.get(str(value).strip().lower(), default))
 
 
+def _unsupported_ssmd_prosody(field: str, value: object) -> InputError:
+    return InputError(
+        f"unsupported SSMD 0.9 {field} value: {value!r}",
+        code=f"composition.prosody.{field}_unsupported",
+        details={"field": field, "value": repr(value)},
+    )
+
+
+def _ssmd_rate_factor(value: object) -> float:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        natural = _SSMD_RATE_FACTORS.get(normalized)
+        if natural is not None:
+            return natural
+        match = re.fullmatch(r"([+-]?)(\d+(?:\.\d+)?)%", normalized)
+        if match is not None:
+            percentage = float(match.group(2))
+            factor = (
+                1.0 + percentage / 100.0
+                if match.group(1) == "+"
+                else 1.0 - percentage / 100.0
+                if match.group(1) == "-"
+                else percentage / 100.0
+            )
+            if math.isfinite(factor) and factor > 0.0:
+                return factor
+    raise _unsupported_ssmd_prosody("rate", value)
+
+
+def _ssmd_pitch_semitones(value: object) -> float:
+    percentage: float | None = None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        percentage = _SSMD_PITCH_PERCENTAGES.get(normalized)
+        if percentage is None:
+            match = re.fullmatch(r"([+-]?)(\d+(?:\.\d+)?)%", normalized)
+            if match is not None:
+                magnitude = float(match.group(2))
+                percentage = -magnitude if match.group(1) == "-" else magnitude
+    if percentage is not None:
+        ratio = 1.0 + percentage / 100.0
+        if math.isfinite(ratio) and ratio > 0.0:
+            return 12.0 * math.log2(ratio)
+    raise _unsupported_ssmd_prosody("pitch", value)
+
+
+def _ssmd_volume_db(value: object) -> float:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _SSMD_VOLUME_DB:
+            return _SSMD_VOLUME_DB[normalized]
+        if normalized in _SSMD_VOLUME_LEVEL_DB:
+            return _SSMD_VOLUME_LEVEL_DB[normalized]
+        match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)db", normalized)
+        if match is not None:
+            decibels = float(match.group(1))
+            if math.isfinite(decibels):
+                return decibels
+    raise _unsupported_ssmd_prosody("volume", value)
+
+
+def _effective_rate_factor(segment: Any, composition: Mapping[str, Any]) -> float:
+    directives = getattr(segment, "directives", None)
+    prosody = getattr(directives, "prosody", None)
+    value = getattr(prosody, "rate", None)
+    if value is not None:
+        return _ssmd_rate_factor(value)
+    return _application_numeric(
+        composition.get("rate", composition.get("speed")),
+        _APPLICATION_RATE_VALUES,
+        1.0,
+    )
+
+
+def _effective_pitch_semitones(segment: Any, composition: Mapping[str, Any]) -> float:
+    directives = getattr(segment, "directives", None)
+    prosody = getattr(directives, "prosody", None)
+    value = getattr(prosody, "pitch", None)
+    if value is not None:
+        return _ssmd_pitch_semitones(value)
+    return _application_numeric(
+        composition.get("pitch"),
+        _APPLICATION_PITCH_VALUES,
+        0.0,
+    )
+
+
 def _speech_operations(
-    segment: Any, composition: Mapping[str, Any] | None = None
+    segment: Any,
+    composition: Mapping[str, Any] | None = None,
+    *,
+    envelope: RatePitchEnvelope | None = None,
 ) -> tuple[Any, ...]:
     composition = composition or {}
     directives = getattr(segment, "directives", None)
     prosody = getattr(directives, "prosody", None)
     operations: list[Any] = []
-    rate_value = getattr(prosody, "rate", None)
-    if rate_value is None:
-        rate_value = composition.get("rate", composition.get("speed"))
-    rate = _numeric(
-        rate_value,
-        {"x-slow": 0.65, "slow": 0.8, "medium": 1.0, "fast": 1.25, "x-fast": 1.5},
-        1.0,
-    )
-    if rate != 1.0:
+    rate = _effective_rate_factor(segment, composition)
+    if (envelope is None or not envelope.rate) and rate != 1.0:
         operations.append(Tempo(rate))
-    pitch_value = getattr(prosody, "pitch", None)
-    if pitch_value is None:
-        pitch_value = composition.get("pitch")
-    pitch = _numeric(
-        pitch_value,
-        {"x-low": -4.0, "low": -2.0, "medium": 0.0, "high": 2.0, "x-high": 4.0},
-        0.0,
-    )
-    if pitch:
+    pitch = _effective_pitch_semitones(segment, composition)
+    if (envelope is None or not envelope.pitch_semitones) and pitch:
         operations.append(PitchShift(pitch))
+    if envelope is not None:
+        operations.append(envelope)
     volume_value = getattr(prosody, "volume", None)
-    if volume_value is None:
-        volume_value = composition.get("volume")
-    volume = _numeric(
-        volume_value,
-        {
-            "silent": -60.0,
-            "x-soft": -12.0,
-            "soft": -6.0,
-            "medium": 0.0,
-            "loud": 6.0,
-            "x-loud": 12.0,
-        },
-        0.0,
+    volume = (
+        _ssmd_volume_db(volume_value)
+        if volume_value is not None
+        else _application_numeric(
+            composition.get("volume"),
+            _SSMD_VOLUME_DB,
+            0.0,
+        )
     )
     if volume:
         operations.append(Gain(volume))
@@ -96,7 +220,7 @@ def _speech_operations(
     emphasis_value = getattr(emphasis, "level", None)
     if emphasis_value is None:
         emphasis_value = composition.get("emphasis")
-    emphasis_gain = _numeric(
+    emphasis_gain = _application_numeric(
         emphasis_value,
         {"reduced": -2.0, "moderate": 2.0, "strong": 4.0},
         0.0,
@@ -107,10 +231,80 @@ def _speech_operations(
     fade_in = getattr(audio, "fade_in", None)
     fade_out = getattr(audio, "fade_out", None)
     if fade_in is not None:
-        operations.append(FadeIn(_numeric(fade_in, {}, 0.0)))
+        operations.append(FadeIn(_application_numeric(fade_in, {}, 0.0)))
     if fade_out is not None:
-        operations.append(FadeOut(_numeric(fade_out, {}, 0.0)))
+        operations.append(FadeOut(_application_numeric(fade_out, {}, 0.0)))
     return tuple(operations)
+
+
+def _segment_voice_reference(segment: Any) -> str | None:
+    directives = getattr(segment, "directives", None)
+    voice = getattr(directives, "voice", None)
+    reference = (
+        voice.get("reference") if isinstance(voice, Mapping) else getattr(voice, "reference", None)
+    )
+    return reference if isinstance(reference, str) and reference else None
+
+
+def _segment_voice_identity(
+    profile: Mapping[str, Any] | None, plan: Any, scope_id: str, segment: Any
+) -> str:
+    profile_payload = profile or {}
+    canonical = profile_payload.get("canonical", {})
+    canonical = canonical if isinstance(canonical, Mapping) else {}
+    reference = _segment_voice_reference(segment)
+    if reference is not None:
+        scoped_bindings = canonical.get("bindings_by_scope", {})
+        if isinstance(scoped_bindings, Mapping):
+            bindings = scoped_bindings.get(scope_id, {})
+            if isinstance(bindings, Mapping) and isinstance(bindings.get(reference), str):
+                return f"target:{bindings[reference]}"
+        project_bindings = profile_payload.get("project_voice_bindings", {})
+        provider = (
+            project_bindings.get("provider") if isinstance(project_bindings, Mapping) else None
+        )
+        metadata = getattr(plan, "document_metadata", {})
+        document_bindings = (
+            metadata.get("voice_bindings", {}) if isinstance(metadata, Mapping) else {}
+        )
+        if isinstance(document_bindings, Mapping):
+            if provider is not None and isinstance(document_bindings.get(provider), Mapping):
+                target = document_bindings[provider].get(reference)
+            else:
+                target = document_bindings.get(reference)
+                if target is None and len(document_bindings) == 1:
+                    only_bindings = next(iter(document_bindings.values()))
+                    target = (
+                        only_bindings.get(reference) if isinstance(only_bindings, Mapping) else None
+                    )
+            if isinstance(target, str):
+                return f"target:{target}"
+        project_role_bindings = (
+            project_bindings.get("bindings", {}) if isinstance(project_bindings, Mapping) else {}
+        )
+        if isinstance(project_role_bindings, Mapping):
+            target = project_role_bindings.get(reference)
+            if isinstance(target, str):
+                return f"target:{target}"
+        return f"role:{reference}"
+
+    target = canonical.get("target_id") or canonical.get("voice")
+    targets = canonical.get("targets")
+    if target is None and isinstance(targets, Mapping) and len(targets) == 1:
+        target = next(iter(targets))
+    selections = canonical.get("selections")
+    if target is None and isinstance(selections, Mapping) and len(selections) == 1:
+        selection = next(iter(selections.values()))
+        if isinstance(selection, Mapping):
+            target = selection.get("target_id") or selection.get("voice")
+    if isinstance(target, str) and target:
+        return f"target:{target}"
+    return f"profile:{hashlib.sha256(canonical_json(dict(canonical))).hexdigest()}"
+
+
+def _transition_seconds(policy: Mapping[str, Any], field: str) -> float:
+    value = policy.get(field)
+    return float(parse_duration(value)) if value is not None else 0.0
 
 
 def _operation_payload(operations: tuple[Any, ...]) -> list[dict[str, Any]]:
@@ -168,6 +362,12 @@ def _cache_entries(
             "channels": checked[1],
             "frames": checked[2],
             "composition": dict(profile.get("composition", {})),
+            "prosody_transitions": (
+                plan.document_metadata.get("prosody_transitions")
+                if isinstance(getattr(plan, "document_metadata", None), Mapping)
+                else None
+            ),
+            "voice_identity": _segment_voice_identity(profile, plan, scope_id, segment),
         }
     return entries
 
@@ -213,6 +413,11 @@ def _build_layout(
     items: list[Any] = []
     layout: list[dict[str, Any]] = []
     seen_events: set[str] = set()
+    transition_policies: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    warned_volume_scopes: set[str] = set()
+    previous_scope_id: str | None = None
+    previous_prosody: tuple[float, float, str] | None = None
 
     def append_silence(segment: Any, entry: Mapping[str, Any], side: str, pause: Any) -> None:
         seconds, event_ids = _pause_seconds(pause)
@@ -258,10 +463,72 @@ def _build_layout(
 
     for segment, entry in segments:
         scope_id = str(entry.get("scope_id", "document"))
+        if scope_id != previous_scope_id:
+            previous_scope_id = scope_id
+            previous_prosody = None
+        transition_value = entry.get("prosody_transitions")
+        transition_policy: dict[str, Any] | None = None
+        transition_enabled = False
+        same_voice_only = True
+        rate_duration = 0.0
+        pitch_duration = 0.0
+        if transition_value is not None:
+            if not isinstance(transition_value, Mapping):
+                raise InputError(
+                    "invalid Utterplan prosody_transitions metadata",
+                    code="composition.prosody_transitions_invalid",
+                )
+            transition_policy = dict(transition_value)
+            transition_policies[scope_id] = transition_policy
+            enabled_value = transition_policy.get("enabled", True)
+            same_voice_value = transition_policy.get("same_voice_only", True)
+            if not isinstance(enabled_value, bool) or not isinstance(same_voice_value, bool):
+                raise InputError(
+                    "invalid Utterplan prosody_transitions metadata",
+                    code="composition.prosody_transitions_invalid",
+                )
+            transition_enabled = enabled_value
+            same_voice_only = same_voice_value
+            rate_duration = _transition_seconds(transition_policy, "rate")
+            pitch_duration = _transition_seconds(transition_policy, "pitch")
+            volume_duration = _transition_seconds(transition_policy, "volume")
+            if (
+                transition_enabled
+                and volume_duration > 0.0
+                and scope_id not in warned_volume_scopes
+            ):
+                warning = (
+                    "AudioJob v2 does not support continuous volume transitions; "
+                    f"using static volume for scope {scope_id!r}."
+                )
+                warnings.append(warning)
+                warned_volume_scopes.add(scope_id)
+                _LOGGER.warning("%s", warning)
         segment_id = str(segment.id)
         qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
         append_silence(segment, entry, "before", getattr(segment, "pause_before", None))
-        operations = _speech_operations(segment, composition or entry.get("composition", {}))
+        segment_composition = composition or entry.get("composition", {})
+        rate = _effective_rate_factor(segment, segment_composition)
+        pitch = _effective_pitch_semitones(segment, segment_composition)
+        voice_identity = entry.get("voice_identity") or _segment_voice_identity(
+            None, None, scope_id, segment
+        )
+        envelope = None
+        if transition_enabled and previous_prosody is not None:
+            previous_rate, previous_pitch, previous_voice = previous_prosody
+            same_voice = not same_voice_only or previous_voice == voice_identity
+            if same_voice and (previous_rate != rate or previous_pitch != pitch):
+                clip_seconds = int(entry["frames"]) / int(entry["sample_rate"])
+                envelope = RatePitchEnvelope.transition(
+                    from_rate=previous_rate,
+                    to_rate=rate,
+                    rate_seconds=min(rate_duration, clip_seconds),
+                    from_semitones=previous_pitch,
+                    to_semitones=pitch,
+                    pitch_seconds=min(pitch_duration, clip_seconds),
+                )
+        operations = _speech_operations(segment, segment_composition, envelope=envelope)
+        previous_prosody = (rate, pitch, voice_identity)
         if project is None:
             part = None
         elif scope_id == "document":
@@ -323,6 +590,10 @@ def _build_layout(
         },
         "clip_policy": clip_policy,
     }
+    if transition_policies:
+        policy_payload["prosody_transitions"] = {
+            scope_id: transition_policies[scope_id] for scope_id in sorted(transition_policies)
+        }
     identity_payload = {
         "schema": "readio.composition.v2",
         "items": layout,
@@ -336,6 +607,7 @@ def _build_layout(
         ]
     job = AudioJob(
         items=tuple(items),
+        schema_version=2,
         output=OutputPolicy(
             sample_rate=sample_rate,
             channels=1,
@@ -352,6 +624,7 @@ def _build_layout(
         "identity_payload": identity_payload,
         "composition_id": composition_id(identity_payload),
         "layout": layout,
+        "warnings": warnings,
     }
 
 
@@ -408,7 +681,7 @@ def _write_composition_result(
     project: Project, job: AudioJob, identity: Mapping[str, Any], result: Any
 ) -> dict[str, Any]:
     audiojob_path = project.paths["composition_audiojob"]
-    job.save(audiojob_path)
+    audiojob_manifest = Path(job.save(audiojob_path))
     master = project.paths["composition_master"]
     temporary = master.with_name(f".{master.name}.tmp")
     sf.write(temporary, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
@@ -471,13 +744,14 @@ def _write_composition_result(
             "schema_version": 2,
             "composition_id": identity["composition_id"],
             "identity_payload": identity["identity_payload"],
+            "warnings": list(identity.get("warnings", [])),
             "synthesis_trace_sha256": (
                 hash_file(project.paths["synthesis_trace"])
                 if project.paths["synthesis_trace"].is_file()
                 else None
             ),
             "synthesis_profile_id": read_json(project.paths["synthesis_profile"]).get("profile_id"),
-            "audiojob_sha256": hash_file(audiojob_path),
+            "audiojob_sha256": hash_file(audiojob_manifest),
             "master_sha256": master_sha,
             "timeline_sha256": hash_file(project.paths["composition_timeline"]),
             "sample_rate": result.sample_rate,
@@ -499,6 +773,7 @@ def _write_composition_result(
         "sample_rate": result.sample_rate,
         "frames": len(result.audio),
         "items": len(result.items),
+        "warnings": list(identity.get("warnings", [])),
     }
 
 
@@ -533,6 +808,7 @@ def compose_artifacts(
     *,
     plan: Any | None = None,
     composition: Mapping[str, Any] | None = None,
+    synthesis_profile: Mapping[str, Any] | None = None,
     plans: Any | None = None,
     scope_metadata: tuple[Mapping[str, Any], ...] = (),
     target_lufs: float | None = None,
@@ -578,6 +854,7 @@ def compose_artifacts(
             )
         job = AudioJob(
             items=tuple(clips),
+            schema_version=2,
             output=OutputPolicy(
                 sample_rate=clips[0].source.sample_rate or 24000,
                 channels=1,
@@ -611,6 +888,15 @@ def compose_artifacts(
                     "frames": artifact.frames,
                     "speech_hash": artifact.speech_hash or artifact.content_hash,
                     "synthesis_key": artifact.synthesis_key,
+                    "composition": dict(composition or {}),
+                    "prosody_transitions": (
+                        scope_plan.document_metadata.get("prosody_transitions")
+                        if isinstance(getattr(scope_plan, "document_metadata", None), Mapping)
+                        else None
+                    ),
+                    "voice_identity": _segment_voice_identity(
+                        synthesis_profile, scope_plan, str(scope_id), segment
+                    ),
                 }
                 segments.append((segment, entry))
         job, identity = _build_layout(
@@ -635,6 +921,7 @@ def compose_artifacts(
         "items": len(result.items),
         "output": output,
         "composition_id": identity["composition_id"],
+        "warnings": list(identity.get("warnings", [])),
     }
 
 

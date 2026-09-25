@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from readio.ssmd import parse_ssmd_09
+
 GUIDE_DIR = Path(__file__).parents[1] / "llm-guides" / "ssmd"
 EXPECTED_GUIDES = {
     "general-narration.md",
@@ -66,6 +68,9 @@ def test_guides_have_required_identity_and_sections():
         assert len(re.findall(r"^# (?!#)", text, flags=re.MULTILINE)) == 1
         h1 = re.search(r"^# (.+)$", text, flags=re.MULTILINE).group(1)
         assert "Readio" in h1 and "SSMD" in h1
+        assert "ssmd_version: '0.9'" in section(text, "Target runtime"), path.name
+        assert "ssmd_version: '0.9'" in section(text, "Recommended default header"), path.name
+        assert "ssmd_version: '0.9'" in section(text, "Minimal pattern example"), path.name
         headings = set(re.findall(r"^## (.+)$", text, flags=re.MULTILINE))
         assert REQUIRED_SECTIONS <= headings, path.name
 
@@ -94,9 +99,10 @@ def test_compatibility_and_shared_sections_do_not_drift():
     texts = [text for _, text in guide_texts()]
     for text in texts:
         target = section(text, "Target runtime")
-        assert "Readio 0.2.x" in target
-        assert "SSMD >=0.8.7,<0.9" in target
-        assert "PyKokoro >=0.9.9,<0.10 (Readio v0.2.3 tested with 0.9.9)" in target
+        assert "Readio with SSMD 0.9 and Utterplan 0.3 support" in target
+        assert "SSMD >=0.9.0,<0.10" in target
+        assert "Utterplan >=0.3.0,<0.4" in target
+        assert "PyKokoro with Utterplan schema-v3 support" in target
     for heading in SHARED_SECTIONS:
         assert len({section(text, heading) for text in texts}) == 1, heading
 
@@ -118,6 +124,10 @@ def test_minimal_examples_parse_with_ssmd_when_available():
         blocks = re.findall(r"```ssmd\n(.*?)```", minimal, flags=re.DOTALL)
         assert len(blocks) == 1, path.name
         example = blocks[0]
+        assert "ssmd_version: '0.9'" in example, path.name
+        all_ssmd_blocks = re.findall(r"```ssmd\n(.*?)```", text, flags=re.DOTALL)
+        for ssmd_source in all_ssmd_blocks:
+            parse_ssmd_09(ssmd_source)
         assert not re.search(r"<[^>]*\.\.\.[^>]*>", example)
         assert not any(voice_id in example for voice_id in KNOWN_DEFAULT_VOICE_IDS)
         ssmd.parse_ssmd(example, strict_parse=True)

@@ -285,7 +285,10 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
     request = PlanRequest(
         operation="render",
         input=InputRequest(
-            document=document_from_text('<div voice="guest">Hello.</div>', input_format="ssmd")
+            document=document_from_text(
+                '---\nssmd_version: "0.9"\n---\n:::{voice="guest"}\nHello.\n:::',
+                input_format="ssmd",
+            )
         ),
         synthesis=SynthesisRequest(engine="fake-piper", voice="en_US-amy-medium"),
         output=OutputRequest(mode="file"),

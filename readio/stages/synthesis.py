@@ -352,6 +352,7 @@ def _project_scope_voice_bindings(
             additional_bindings=invocation_bindings,
             project_bindings=project_bindings,
             provider=provider,
+            source_path=project.path(scope.path),
         )
         unresolved = next((item for item in resolved if item.voice is None), None)
         if unresolved is not None:

@@ -265,6 +265,7 @@ def render_to_audio_job(
 
     return AudioJob(
         items=tuple(items),
+        schema_version=2,
         output=OutputPolicy(sample_rate=sample_rate),
     )
 

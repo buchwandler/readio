@@ -13,6 +13,7 @@ import yaml
 
 from .config import ReadioConfig
 from .errors import SSMDInputError
+from .ssmd import parse_ssmd_09
 
 
 class SSMDAuthoringError(SSMDInputError):
@@ -92,31 +93,22 @@ def run_ssmd_json(args: Sequence[str], *, config_path: Path) -> dict[str, Any]:
 def roundtrip_check(path: Path, cfg: ReadioConfig) -> Mapping[str, Any]:
     source = path.expanduser()
     config_path: Path | None = None
-    prepared_path: Path | None = None
     provider = cfg.ssmd.voice_provider
     try:
+        parse_ssmd_09(source.read_text(encoding="utf-8"), source_path=source)
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", prefix="readio-ssmd-authoring-", delete=False
         ) as handle:
             yaml.safe_dump(build_ssmd_config(cfg), handle, sort_keys=False)
             config_path = Path(handle.name)
-        with tempfile.NamedTemporaryFile(
-            suffix=".ssmd", prefix="readio-ssmd-authoring-", delete=False
-        ) as handle:
-            prepared_path = Path(handle.name)
-        prepared_path.unlink()
-        create_args = [
-            "create",
+        lint_args = [
+            "lint",
             str(source),
-            "-o",
-            str(prepared_path),
+            "--dialect",
+            "0.9",
             "--voice-provider",
             provider,
         ]
-        if cfg.ssmd.fail_on_warn:
-            create_args.append("--fail-on-warn")
-        run_ssmd_json(create_args, config_path=config_path)
-        lint_args = ["lint", str(prepared_path), "--voice-provider", provider]
         if cfg.ssmd.fail_on_warn:
             lint_args.append("--fail-on-warn")
         lint_args.append("--roundtrip")
@@ -124,8 +116,6 @@ def roundtrip_check(path: Path, cfg: ReadioConfig) -> Mapping[str, Any]:
     finally:
         if config_path is not None:
             config_path.unlink(missing_ok=True)
-        if prepared_path is not None:
-            prepared_path.unlink(missing_ok=True)
 
 
 def materialize_voice_bindings(
@@ -142,6 +132,8 @@ def materialize_voice_bindings(
         raise SSMDAuthoringError("at least one --voice-bind value is required")
     if in_place and output is not None and output.expanduser() != source:
         raise SSMDAuthoringError("--in-place cannot be combined with a different output path")
+    source_text = source.read_text(encoding="utf-8")
+    parsed = parse_ssmd_09(source_text, source_path=source)
     target = (
         source if in_place else (output or source.with_name(f"{source.stem}.bound{source.suffix}"))
     )
@@ -150,12 +142,11 @@ def materialize_voice_bindings(
         raise SSMDAuthoringError("refusing to overwrite the SSMD source; use --in-place explicitly")
     if target.exists() and target != source:
         raise SSMDAuthoringError(f"output already exists: {target}; choose another path")
-    try:
-        front_matter = ssmd_api.parse_front_matter(source.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise SSMDAuthoringError(f"invalid SSMD source: {exc}") from exc
+    front_matter = ssmd_api.parse_front_matter(source_text)
     generated = {"voice_bindings": {provider: dict(bindings)}}
-    merged = ssmd_api.merge_generated_header(front_matter.data, generated)
+    if "ssmd_version" not in parsed.header:
+        generated["ssmd_version"] = "0.9"
+    merged = ssmd_api.merge_generated_header(dict(parsed.header), generated)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         ssmd_api.serialize_front_matter(merged, front_matter.body),

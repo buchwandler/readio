@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from utterplan import UtterancePlan
 
 from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
@@ -15,7 +16,7 @@ from readio.planning.policy import PlanningPolicy, _linguistics_from_spacy_polic
 from readio.project import init_project
 from readio.stages.planning import (
     PlanSchemaMismatchError,
-    load_utterplan_v2,
+    load_utterplan_v3,
     plan_project,
     semantic_status,
 )
@@ -47,15 +48,15 @@ def test_spacy_policy_rejects_unknown_value() -> None:
         _linguistics_from_spacy_policy("xx")
 
 
-def test_plan_persists_v2_tokens_and_linguistic_runs() -> None:
+def test_plan_persists_v3_tokens_and_linguistic_runs() -> None:
     compiled = compile_semantic_plan(
         document_from_text("Hello world."),
         planning=PlanningPolicy(spacy_policy="off"),
     )
     data = json.loads(compiled.plan.to_json())
 
-    assert compiled.plan.schema_version == 2
-    assert data["schema_version"] == 2
+    assert compiled.plan.schema_version == 3
+    assert data["schema_version"] == 3
     assert data["linguistic_runs"]
     assert data["tokens"]
     assert all("token_indices" in segment for segment in data["segments"])
@@ -118,34 +119,58 @@ def test_fake_spacy_annotations_and_provenance_are_persisted(
     assert compiled.plan.linguistic_runs[0].provider_version == "3.8.0"
 
 
-def test_schema_v2_loader_round_trip_and_rejection(tmp_path: Path) -> None:
+def test_schema_v3_loader_round_trip(tmp_path: Path) -> None:
     compiled = compile_semantic_plan(
         document_from_text("Hello."), planning=PlanningPolicy(spacy_policy="off")
     )
     path = tmp_path / "plan.json"
     path.write_text(compiled.plan.to_json(), encoding="utf-8")
-    loaded = load_utterplan_v2(path)
+    loaded = load_utterplan_v3(path)
 
     assert loaded.plan_id == compiled.plan.plan_id
     assert loaded.tokens == compiled.plan.tokens
     assert loaded.linguistic_runs == compiled.plan.linguistic_runs
 
-    data = json.loads(path.read_text(encoding="utf-8"))
-    data["schema_version"] = 1
+
+@pytest.mark.parametrize(
+    ("stored", "has_schema_version"),
+    [(1, True), (2, True), (4, True), (None, True), (3.0, True), (True, True), (None, False)],
+)
+def test_schema_v3_loader_rejects_unsupported_versions_before_upstream_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stored: object,
+    has_schema_version: bool,
+) -> None:
+    compiled = compile_semantic_plan(
+        document_from_text("Hello."), planning=PlanningPolicy(spacy_policy="off")
+    )
+    data = json.loads(compiled.plan.to_json())
+    if has_schema_version:
+        data["schema_version"] = stored
+    else:
+        data.pop("schema_version")
+    path = tmp_path / "plan.json"
     path.write_text(json.dumps(data), encoding="utf-8")
+
+    def unexpected_load(cls: type[UtterancePlan], payload: dict[str, object]) -> UtterancePlan:
+        pytest.fail("UtterancePlan.from_dict must not run for unsupported Readio schemas")
+
+    monkeypatch.setattr(UtterancePlan, "from_dict", classmethod(unexpected_load))
     with pytest.raises(PlanSchemaMismatchError) as error:
-        load_utterplan_v2(path)
-    assert error.value.stored == 1
+        load_utterplan_v3(path)
+    assert error.value.stored == stored
 
 
-def test_schema_mismatch_is_stale_and_actionable(tmp_path: Path) -> None:
+@pytest.mark.parametrize("stored", [1, 2])
+def test_schema_mismatch_is_stale_and_actionable(tmp_path: Path, stored: int) -> None:
     source = tmp_path / "episode.txt"
     source.write_text("Hello.", encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
     plan_project(project, ReadioConfig(reader=ReaderSettings(spacy="off")))
     path = project.root / "plan" / "document.utterplan.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    data["schema_version"] = 1
+    data["schema_version"] = stored
     path.write_text(json.dumps(data), encoding="utf-8")
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
     index["scopes"][0]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -153,8 +178,8 @@ def test_schema_mismatch_is_stale_and_actionable(tmp_path: Path) -> None:
 
     status = semantic_status(project)[-1]
     assert status["reason"] == "plan.artifact.schema_mismatch"
-    assert status["stored"] == 1
-    assert status["required"] == 2
+    assert status["stored"] == stored
+    assert status["required"] == 3
     assert status["action"] == "run readio plan"
 
 
@@ -173,7 +198,7 @@ def test_linguistic_annotation_changes_only_affected_unit_hash() -> None:
 
     assert changed.units[0].content_hash != plan.units[0].content_hash
     assert changed.units[1].content_hash == plan.units[1].content_hash
-    assert SemanticPlanRef().schema_version == 2
+    assert SemanticPlanRef().schema_version == 3
 
 
 def test_plan_render_sessions_forward_acoustic_options_only() -> None:

@@ -562,6 +562,7 @@ def preview_project(
         peak_policy=options.peak_policy,
         clip_policy=options.clip_policy,
         composition=synthesis["profile"].payload.get("composition", {}),
+        synthesis_profile=synthesis["profile"].payload,
         output=output,
         on_progress=on_composition_progress,
         on_phase=on_phase,

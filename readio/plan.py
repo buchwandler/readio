@@ -38,10 +38,10 @@ from .markdown import markdown_to_speech
 from .models import ModelDiscoveryError, get_model_info, language_matches
 from .voices import resolve_voice_selector
 
-SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 2
+SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
 if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
     raise RuntimeError(
-        "Readio supports Utterplan schema v2; "
+        "Readio supports Utterplan schema v3; "
         f"installed Utterplan reports schema {CURRENT_SCHEMA_VERSION}"
     )
 
@@ -1398,6 +1398,8 @@ def _plan_ssmd(
     model_plan: ModelPlan | None,
     voice_bindings: Mapping[str, str],
     project_voice_bindings: Mapping[str, str],
+    parsed_ssmd: Any | None = None,
+    ssmd_parse_failed: bool = False,
 ) -> tuple[SSMDPlan, list[PlanDiagnostic], list[ResolutionDecision]]:
     """Resolve the SSMD cast through the shared ``resolve_voice_references``.
 
@@ -1441,6 +1443,12 @@ def _plan_ssmd(
             diagnostics,
             decisions,
         )
+    if ssmd_parse_failed:
+        return (
+            SSMDPlan(enabled=True, provider=provider, bindings=(), unresolved=()),
+            diagnostics,
+            decisions,
+        )
 
     try:
         resolved = resolve_voice_references(
@@ -1449,6 +1457,8 @@ def _plan_ssmd(
             available_voices=available_voices,
             additional_bindings=dict(voice_bindings) if voice_bindings else None,
             project_bindings=(dict(project_voice_bindings) if project_voice_bindings else None),
+            source_path=input_doc.source_path,
+            parsed=parsed_ssmd,
         )
     except SSMDInputError as exc:
         diagnostics.append(
@@ -1682,18 +1692,30 @@ def resolve_plan(
     has_fatal_input = any(d.severity == "error" for d in input_diags)
 
     document_language_detection: tuple[str, tuple[str, ...]] | None = None
+    parsed_ssmd = None
+    ssmd_parse_failed = False
     if effective_doc.format == "ssmd":
-        from .ssmd import language_detection_hint
+        from .ssmd import language_detection_hint, parse_ssmd_09
 
         try:
-            document_language_detection = language_detection_hint(effective_doc.text)
+            parsed_ssmd = parse_ssmd_09(effective_doc.text, source_path=effective_doc.source_path)
+            document_language_detection = language_detection_hint(
+                effective_doc.text,
+                source_path=effective_doc.source_path,
+                parsed=parsed_ssmd,
+            )
         except SSMDInputError as exc:
+            ssmd_parse_failed = parsed_ssmd is None
             all_diagnostics.append(
                 PlanDiagnostic(
-                    code="ssmd.language_detection_invalid",
+                    code=(
+                        "ssmd_parse_error"
+                        if ssmd_parse_failed
+                        else "ssmd.language_detection_invalid"
+                    ),
                     severity="error",
                     message=str(exc),
-                    field="synthesis.language_detection",
+                    field=("input" if ssmd_parse_failed else "synthesis.language_detection"),
                     source_path=effective_doc.source_path,
                 )
             )
@@ -1751,6 +1773,8 @@ def resolve_plan(
         model_plan=model_plan,
         voice_bindings=request.voice_bindings,
         project_voice_bindings=request.project_voice_bindings,
+        parsed_ssmd=parsed_ssmd,
+        ssmd_parse_failed=ssmd_parse_failed,
     )
     all_diagnostics.extend(ssmd_diags)
     all_decisions.extend(ssmd_decisions)
@@ -1819,18 +1843,30 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     decisions: list[ResolutionDecision] = []
 
     document_language_detection: tuple[str, tuple[str, ...]] | None = None
+    parsed_ssmd = None
+    ssmd_parse_failed = False
     if effective_doc.format == "ssmd":
-        from .ssmd import language_detection_hint
+        from .ssmd import language_detection_hint, parse_ssmd_09
 
         try:
-            document_language_detection = language_detection_hint(effective_doc.text)
+            parsed_ssmd = parse_ssmd_09(effective_doc.text, source_path=effective_doc.source_path)
+            document_language_detection = language_detection_hint(
+                effective_doc.text,
+                source_path=effective_doc.source_path,
+                parsed=parsed_ssmd,
+            )
         except SSMDInputError as exc:
+            ssmd_parse_failed = parsed_ssmd is None
             diagnostics.append(
                 PlanDiagnostic(
-                    code="ssmd.language_detection_invalid",
+                    code=(
+                        "ssmd_parse_error"
+                        if ssmd_parse_failed
+                        else "ssmd.language_detection_invalid"
+                    ),
                     severity="error",
                     message=str(exc),
-                    field="synthesis.language_detection",
+                    field=("input" if ssmd_parse_failed else "synthesis.language_detection"),
                     source_path=effective_doc.source_path,
                 )
             )
@@ -2026,7 +2062,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     )
     ssmd_bindings: list[VoiceBindingPlan] = []
     ssmd_unresolved: list[str] = []
-    if effective_doc.format == "ssmd":
+    if effective_doc.format == "ssmd" and not ssmd_parse_failed:
         from .ssmd import resolve_voice_references
 
         try:
@@ -2039,6 +2075,8 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                 additional_bindings=dict(request.voice_bindings),
                 project_bindings=dict(request.project_voice_bindings),
                 provider=ssmd_provider,
+                source_path=effective_doc.source_path,
+                parsed=parsed_ssmd,
             )
             for item in resolved_refs:
                 if item.voice is None:

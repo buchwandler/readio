@@ -1,5 +1,8 @@
+---
+ssmd_version: '0.9'
+---
 # Briefing
 
-<div voice="narrator">
+:::{voice="narrator"}
 Write the briefing here.
-</div>
+:::

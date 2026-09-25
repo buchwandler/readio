@@ -25,11 +25,14 @@ from readio.plan import (
 from readio.ssmd import analyze_ssmd, build_ssmd_render_config, resolve_voice_references
 
 DOCUMENT_BOUND = """---
+ssmd_version: '0.9'
 voice_bindings:
   kokoro:
     host: af_bella
 ---
-<div voice="host">Document wins.</div>
+:::{voice="host"}
+Document wins.
+:::
 """
 
 
@@ -52,19 +55,19 @@ CASES = [
         id="document-binding",
     ),
     pytest.param(
-        '<div voice="host">Invocation wins over role.</div>',
+        ':::{voice="host"}\nInvocation wins over role.\n:::',
         {"host": "af_bella"},
         {"host": ("af_bella", "cli")},
         id="invocation-binding",
     ),
     pytest.param(
-        '<div voice="host">Configured role.</div>',
+        ':::{voice="host"}\nConfigured role.\n:::',
         None,
         {"host": ("af_sarah", "config.voice_role")},
         id="configured-role",
     ),
     pytest.param(
-        '<div voice="af_sarah">Direct voice reference.</div>',
+        ':::{voice="af_sarah"}\nDirect voice reference.\n:::',
         None,
         {"af_sarah": ("af_sarah", "direct")},
         id="direct-voice",
@@ -76,7 +79,7 @@ CASES = [
         id="precedence-document-over-invocation-and-role",
     ),
     pytest.param(
-        '<div voice="host">Invocation beats the configured role.</div>',
+        ':::{voice="host"}\nInvocation beats the configured role.\n:::',
         {"host": "af_bella"},
         {"host": ("af_bella", "cli")},
         id="precedence-invocation-over-role",
@@ -137,7 +140,7 @@ def test_ssmd_binding_views_agree(name, text, bindings, expected) -> None:
 
 def test_unresolved_reference_is_unresolved_in_every_view() -> None:
     cfg = ReadioConfig()
-    text = '<div voice="unknown_role">Nobody bound this role.</div>'
+    text = ':::{voice="unknown_role"}\nNobody bound this role.\n:::'
 
     resolved = resolve_voice_references(text, cfg)
     assert [item.reference for item in resolved if item.voice is None] == ["unknown_role"]
@@ -150,3 +153,14 @@ def test_unresolved_reference_is_unresolved_in_every_view() -> None:
 
     analysis = analyze_ssmd(text, cfg)
     assert analysis.unresolved_references == ("unknown_role",)
+
+
+def test_plan_rejects_legacy_ssmd_before_voice_resolution() -> None:
+    plan = resolve_plan(
+        ReadioConfig(),
+        _ssmd_request('<div voice="host">Legacy.</div>'),
+    )
+
+    parse_errors = [item for item in plan.diagnostics if item.code == "ssmd_parse_error"]
+    assert len(parse_errors) == 1
+    assert plan.ssmd.bindings == ()

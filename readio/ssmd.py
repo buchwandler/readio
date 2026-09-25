@@ -31,6 +31,97 @@ class Diagnostic:
 
 
 @dataclass(frozen=True, slots=True)
+class VoiceReferenceUse:
+    reference: str
+    count: int
+    lines: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedSSMD09:
+    structure: Any
+    voice_references: tuple[VoiceReferenceUse, ...]
+
+    @property
+    def header(self) -> Mapping[str, Any]:
+        return self.structure.header
+
+    @property
+    def annotations(self) -> tuple[Any, ...]:
+        return tuple(self.structure.annotations)
+
+    @property
+    def events(self) -> tuple[Any, ...]:
+        return tuple(self.structure.events)
+
+
+def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09:
+    try:
+        structure = ssmd_api.parse_structure(
+            text,
+            default_lang=None,
+            parse_yaml_header=True,
+            resolve_defaults=False,
+            dialect="0.9",
+        )
+    except Exception as exc:
+        raise SSMDInputError(f"SSMD 0.9 input is required: {exc}", source_path=source_path) from exc
+
+    errors = [item for item in structure.diagnostics if item.severity == "error"]
+    if errors:
+        diagnostic = errors[0]
+        details = {
+            "diagnostics": [
+                {
+                    "code": item.code,
+                    "severity": item.severity,
+                    "message": item.message,
+                    "source_start": item.source_start,
+                    "source_end": item.source_end,
+                    "line": item.line,
+                    "column": item.column,
+                }
+                for item in errors
+            ]
+        }
+        raise SSMDInputError(
+            f"SSMD 0.9 input is required: {diagnostic.message} ({diagnostic.code})",
+            source_path=source_path,
+            details=details,
+        )
+
+    grouped: dict[str, list[tuple[int, int | None]]] = {}
+    annotations = sorted(
+        enumerate(structure.annotations),
+        key=lambda pair: (
+            pair[1].source_start if pair[1].source_start is not None else len(text) + pair[0],
+            pair[0],
+        ),
+    )
+    for index, annotation in annotations:
+        reference = annotation.attrs.get("voice")
+        if not isinstance(reference, str) or not reference:
+            continue
+        source_start = annotation.source_start
+        order = source_start if source_start is not None else len(text) + index
+        line = text.count("\n", 0, source_start) + 1 if source_start is not None else None
+        grouped.setdefault(reference, []).append((order, line))
+
+    references = tuple(
+        VoiceReferenceUse(
+            reference=reference,
+            count=len(uses),
+            lines=tuple(line for _, line in uses if line is not None),
+        )
+        for reference, uses in grouped.items()
+    )
+    return ParsedSSMD09(
+        structure=structure,
+        voice_references=references,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedVoiceReference:
     """A single voice reference resolved against available bindings."""
 
@@ -53,6 +144,8 @@ def resolve_voice_references(
     additional_bindings: Mapping[str, str] | None = None,
     project_bindings: Mapping[str, str] | None = None,
     provider: str | None = None,
+    source_path: Path | None = None,
+    parsed: ParsedSSMD09 | None = None,
 ) -> tuple[ResolvedVoiceReference, ...]:
     """Resolve every SSMD voice reference with origin/locator tracking.
 
@@ -67,15 +160,12 @@ def resolve_voice_references(
 
     settings = cfg.voices.get(provider)
 
-    # Parse SSMD to get references
-    try:
-        ssmd_api.parse_ssmd(text, strict_parse=True)
-        references = ssmd_api.extract_voice_references(text)
-    except Exception as exc:
-        raise SSMDInputError(f"SSMD consumer parse failed: {exc}") from exc
-
+    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
+    references = parsed.voice_references
     # Gather binding sources
-    document = document_voice_bindings(text).get(provider, {})
+    document = document_voice_bindings(text, source_path=source_path, parsed=parsed).get(
+        provider, {}
+    )
     runtime = dict(additional_bindings or {})
     project = dict(project_bindings or {})
     configured_roles = settings.roles if settings is not None else {}
@@ -237,12 +327,15 @@ class SSMDPreflightResult:
         )
 
 
-def language_detection_hint(text: str) -> tuple[str, tuple[str, ...]] | None:
-    """Return the SSMD language-detection hint, if one is present."""
-    try:
-        header = ssmd_api.parse_front_matter(text).data
-    except Exception as exc:
-        raise SSMDInputError(f"invalid SSMD front matter: {exc}") from exc
+def language_detection_hint(
+    text: str,
+    *,
+    source_path: Path | None = None,
+    parsed: ParsedSSMD09 | None = None,
+) -> tuple[str, tuple[str, ...]] | None:
+    """Return the SSMD language-detection hint from a validated 0.9 parse."""
+    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
+    header = parsed.header
     raw = header.get("language_detection")
     if raw is None:
         return None
@@ -253,43 +346,69 @@ def language_detection_hint(text: str) -> tuple[str, tuple[str, ...]] | None:
         mode = str(raw.get("mode", "off")).strip().lower()
         languages = raw.get("languages", ())
     else:
-        raise SSMDInputError("SSMD front matter language_detection must be a string or mapping")
+        raise SSMDInputError(
+            "SSMD front matter language_detection must be a string or mapping",
+            source_path=source_path,
+        )
     if mode not in {"off", "auto"}:
-        raise SSMDInputError("SSMD language_detection.mode must be 'off' or 'auto'")
+        raise SSMDInputError(
+            "SSMD language_detection.mode must be 'off' or 'auto'",
+            source_path=source_path,
+        )
     if isinstance(languages, str):
         languages = [languages]
     if not isinstance(languages, (list, tuple)) or any(
         not isinstance(item, str) for item in languages
     ):
-        raise SSMDInputError("SSMD language_detection.languages must be a list of strings")
+        raise SSMDInputError(
+            "SSMD language_detection.languages must be a list of strings",
+            source_path=source_path,
+        )
     normalized = tuple(item.strip().lower().replace("_", "-") for item in languages)
     if any(not item for item in normalized):
-        raise SSMDInputError("SSMD language_detection.languages must be non-empty")
+        raise SSMDInputError(
+            "SSMD language_detection.languages must be non-empty",
+            source_path=source_path,
+        )
     if len(normalized) != len(set(normalized)):
-        raise SSMDInputError("SSMD language_detection.languages must not contain duplicates")
+        raise SSMDInputError(
+            "SSMD language_detection.languages must not contain duplicates",
+            source_path=source_path,
+        )
     return mode, normalized
 
 
-def document_voice_bindings(text: str) -> dict[str, dict[str, str]]:
-    """Read and normalize document-local voice bindings through SSMD's API."""
-
-    try:
-        header = ssmd_api.parse_front_matter(text).data
-    except Exception as exc:
-        raise SSMDInputError(f"invalid SSMD front matter: {exc}") from exc
+def document_voice_bindings(
+    text: str,
+    *,
+    source_path: Path | None = None,
+    parsed: ParsedSSMD09 | None = None,
+) -> dict[str, dict[str, str]]:
+    """Read document bindings from a strict 0.9 structural parse."""
+    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
+    header = parsed.header
 
     raw_bindings = header.get("voice_bindings", {})
     if raw_bindings is None:
         return {}
     if not isinstance(raw_bindings, Mapping):
-        raise SSMDInputError("SSMD front matter voice_bindings must be a mapping")
+        raise SSMDInputError(
+            "SSMD front matter voice_bindings must be a mapping",
+            source_path=source_path,
+        )
 
     normalized: dict[str, dict[str, str]] = {}
     for provider, values in raw_bindings.items():
         if not isinstance(provider, str) or not provider:
-            raise SSMDInputError("SSMD voice binding provider names must be non-empty strings")
+            raise SSMDInputError(
+                "SSMD voice binding provider names must be non-empty strings",
+                source_path=source_path,
+            )
         if not isinstance(values, Mapping):
-            raise SSMDInputError(f"SSMD voice_bindings.{provider} must be a mapping")
+            raise SSMDInputError(
+                f"SSMD voice_bindings.{provider} must be a mapping",
+                source_path=source_path,
+            )
         provider_bindings: dict[str, str] = {}
         for reference, target in values.items():
             if (
@@ -299,7 +418,8 @@ def document_voice_bindings(text: str) -> dict[str, dict[str, str]]:
                 or not target
             ):
                 raise SSMDInputError(
-                    f"SSMD voice_bindings.{provider} must map non-empty roles to voice IDs"
+                    f"SSMD voice_bindings.{provider} must map non-empty roles to voice IDs",
+                    source_path=source_path,
                 )
             provider_bindings[reference] = target
         normalized[provider] = provider_bindings
@@ -345,14 +465,25 @@ def default_role_bindings(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
+    *,
+    source_path: Path | None = None,
+    parsed: ParsedSSMD09 | None = None,
 ) -> dict[str, dict[str, str]]:
     """Effective non-document bindings derived from voice-reference resolution."""
     provider = cfg.ssmd.voice_provider
-    document = document_voice_bindings(text).get(provider, {})
+    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
+    document = document_voice_bindings(text, source_path=source_path, parsed=parsed).get(
+        provider, {}
+    )
     _, available = _available_voice_context(cfg, synthesis)
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
     resolved = resolve_voice_references(
-        text, cfg, available_voices=available, additional_bindings=runtime
+        text,
+        cfg,
+        available_voices=available,
+        additional_bindings=runtime,
+        source_path=source_path,
+        parsed=parsed,
     )
     defaults = {
         item.reference: item.voice
@@ -374,8 +505,13 @@ def build_ssmd_render_config(
     cfg: ReadioConfig,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
+    *,
+    source_path: Path | None = None,
+    parsed: ParsedSSMD09 | None = None,
 ) -> Any:
     """Build SSMD configuration through the selected synthesis backend."""
+    if parsed is None:
+        parse_ssmd_09(text, source_path=source_path)
     from .backends import get_backend
 
     backend = get_backend(getattr(cfg, "engine", "pykokoro"))
@@ -394,26 +530,37 @@ def analyze_ssmd(
     source_path: Path | None = None,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
+    parsed: ParsedSSMD09 | None = None,
 ) -> SSMDPreflightResult:
     """Analyze an SSMD document without raising for unresolved voice references."""
 
     provider = cfg.ssmd.voice_provider
+    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
-    try:
-        ssmd_api.parse_ssmd(text, strict_parse=True)
-        references = ssmd_api.extract_voice_references(text)
-    except Exception as exc:
-        raise SSMDInputError(f"SSMD consumer parse failed: {exc}", source_path=source_path) from exc
+    references = parsed.voice_references
 
-    document = document_voice_bindings(text).get(provider, {})
-    defaults = default_role_bindings(text, cfg, synthesis=synthesis).get(provider, {})
+    document = document_voice_bindings(text, source_path=source_path, parsed=parsed).get(
+        provider, {}
+    )
+    defaults = default_role_bindings(
+        text,
+        cfg,
+        synthesis=synthesis,
+        source_path=source_path,
+        parsed=parsed,
+    ).get(provider, {})
     diagnostics: list[Diagnostic] = []
     active_model, available = _available_voice_context(cfg, synthesis)
 
     # The binding decision comes from the shared primitive; this view only
     # translates its results into the historical preflight payload.
     resolved = resolve_voice_references(
-        text, cfg, available_voices=available, additional_bindings=runtime
+        text,
+        cfg,
+        available_voices=available,
+        additional_bindings=runtime,
+        source_path=source_path,
+        parsed=parsed,
     )
     for item in resolved:
         if (
@@ -542,15 +689,16 @@ def preflight_ssmd(
     source_path: Path | None = None,
     additional_bindings: Mapping[str, str] | None = None,
     synthesis: ResolvedSynthesis | None = None,
+    parsed: ParsedSSMD09 | None = None,
 ) -> SSMDPreflightResult:
     """Check an SSMD document with the same binding map used by the pipeline."""
-
     result = analyze_ssmd(
         text,
         cfg,
         source_path=source_path,
         additional_bindings=additional_bindings,
         synthesis=synthesis,
+        parsed=parsed,
     )
     if not result.ok:
         raise _voice_resolution_error(result, cfg, source_path=source_path, synthesis=synthesis)

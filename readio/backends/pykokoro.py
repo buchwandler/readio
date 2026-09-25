@@ -240,7 +240,7 @@ class PyKokoroBackend:
         if mode is None and document is not None and document.format == "ssmd":
             from ..ssmd import language_detection_hint
 
-            hint = language_detection_hint(document.text)
+            hint = language_detection_hint(document.text, source_path=document.source_path)
             if hint is not None:
                 mode, languages = hint
         if mode is None:
@@ -269,7 +269,13 @@ class PyKokoroBackend:
             pause_mode=resolved.pause_mode,
         )
         ssmd = (
-            build_ssmd_render_config(document.text, cfg, ssmd_voice_bindings, resolved)
+            build_ssmd_render_config(
+                document.text,
+                cfg,
+                ssmd_voice_bindings,
+                resolved,
+                source_path=document.source_path,
+            )
             if document.format == "ssmd"
             else SSMDRenderConfig()
         )

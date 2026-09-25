@@ -27,7 +27,10 @@ def test_project_voice_binding_change_stales_synthesis_without_replanning_or_cac
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     project = update_project_manifest(
         project,
@@ -293,10 +296,11 @@ def _target_project(tmp_path, monkeypatch, bindings):
     cfg = ReadioConfig(reader=ReaderSettings(engine=adapter.id, voice="voice-n", spacy="off"))
     source = tmp_path / "target-project.ssmd"
     source.write_text(
-        '<div voice="narrator">N1.</div>\n'
-        '<div voice="guest">G1.</div>\n'
-        '<div voice="narrator">N2.</div>\n'
-        '<div voice="host">H1.</div>',
+        '---\nssmd_version: "0.9"\n---\n'
+        ':::{voice="narrator"}\nN1.\n:::\n'
+        ':::{voice="guest"}\nG1.\n:::\n'
+        ':::{voice="narrator"}\nN2.\n:::\n'
+        ':::{voice="host"}\nH1.\n:::',
         encoding="utf-8",
     )
     project = init_project(source, tmp_path / "target-project.readio")
@@ -423,7 +427,10 @@ def test_project_provider_selects_piper_instead_of_global_engine_or_voice(tmp_pa
     monkeypatch.setitem(_registry._adapters, "piper", adapter)
     cfg = ReadioConfig(reader=ReaderSettings(engine="pykokoro", voice="af_sarah", spacy="off"))
     source = tmp_path / "piper-default.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "piper-default.readio")
     project = update_project_manifest(
         project,
@@ -623,8 +630,8 @@ def test_project_synthesis_merges_document_voice_bindings_with_explicit_override
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
     source.write_text(
-        "---\nvoice_bindings:\n  kokoro:\n    narrator: af_heart\n---\n"
-        '<div voice="narrator">Hello.</div>\n<div voice="guest">Guest.</div>',
+        '---\nssmd_version: "0.9"\nvoice_bindings:\n  kokoro:\n    narrator: af_heart\n---\n'
+        ':::{voice="narrator"}\nHello.\n:::\n:::{voice="guest"}\nGuest.\n:::',
         encoding="utf-8",
     )
     project = init_project(source, tmp_path / "episode.readio")
@@ -667,7 +674,10 @@ def test_project_synthesis_forwards_effective_ssmd_voice_binding(tmp_path, monke
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     project = update_project_manifest(
         project,
@@ -699,7 +709,10 @@ def test_project_synthesis_cli_binding_overrides_project_binding(tmp_path, monke
     monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     project = update_project_manifest(
         project,
@@ -728,8 +741,8 @@ def test_project_synthesis_document_binding_overrides_project_and_cli(tmp_path, 
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
     source.write_text(
-        "---\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n"
-        '<div voice="narrator">Hello.</div>',
+        '---\nssmd_version: "0.9"\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n'
+        ':::{voice="narrator"}\nHello.\n:::',
         encoding="utf-8",
     )
     project = init_project(source, tmp_path / "episode.readio")
@@ -757,7 +770,10 @@ def test_synthesis_preview_and_project_render_share_project_voice_bindings(tmp_p
     monkeypatch.setitem(_registry._adapters, "fake", _Adapter())
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     project = update_project_manifest(
         project,
@@ -822,7 +838,10 @@ def test_project_request_uses_project_provider_and_suppresses_global_voice(tmp_p
     from readio.stages.synthesis import _project_request_with_voice_bindings
 
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     project = update_project_manifest(
         project,
@@ -854,7 +873,10 @@ def test_project_request_engine_override_uses_override_provider_without_mutating
     from readio.stages.synthesis import _project_request_with_voice_bindings
 
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="narrator">Hello.</div>', encoding="utf-8")
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::',
+        encoding="utf-8",
+    )
     project = init_project(source, tmp_path / "episode.readio")
     project = update_project_manifest(
         project,
@@ -928,8 +950,8 @@ def test_project_request_resolves_document_bindings_per_scope(tmp_path, monkeypa
         path = project.path(scope.path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            f"---\nvoice_bindings:\n  kokoro:\n    narrator: {voice}\n---\n"
-            '<div voice="narrator">Hello.</div>',
+            f'---\nssmd_version: "0.9"\nvoice_bindings:\n  kokoro:\n    narrator: {voice}\n---\n'
+            ':::{voice="narrator"}\nHello.\n:::',
             encoding="utf-8",
         )
     project.paths["document_index"].write_text(

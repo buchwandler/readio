@@ -1,4 +1,4 @@
-"""Engine-neutral Utterplan v2 planning policy for Readio."""
+"""Engine-neutral Utterplan v3 planning policy for Readio."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from utterplan import LinguisticsConfig, PauseConfig, PlannerConfig, SSMDConfig
 
 
 def _linguistics_from_spacy_policy(policy: str | None) -> LinguisticsConfig:
-    """Translate Readio's spaCy policy into Utterplan v2 settings."""
+    """Translate Readio's spaCy policy into Utterplan v3 settings."""
     selected = policy or "auto"
     if selected == "off":
         return LinguisticsConfig(use_spacy=False, require_spacy=False)
@@ -46,7 +46,7 @@ class PlanningPolicy:
     diagnostics: bool = True
 
     def to_planner_config(self, engine_config: Any = None) -> PlannerConfig:
-        """Build the complete Utterplan v2 planner configuration."""
+        """Build the complete Utterplan v3 planner configuration."""
         if engine_config is not None:
             raise ValueError(
                 "engine-specific planner configuration is not accepted by Readio semantic planning"

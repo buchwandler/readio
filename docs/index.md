@@ -99,7 +99,7 @@ Synthesis options are available on all three commands:
 --unit UNIT         sentence or paragraph
 ```
 
-Runtime discovery and per-language defaults are separate from legacy provider role configuration. Readio v0.2.x uses the PyKokoro >=0.9.9,<0.10 public discovery and tokenizer contract. Readio v0.2.3 is tested with PyKokoro 0.9.9:
+Runtime discovery and per-language defaults are separate from legacy provider role configuration. The current compatibility contract requires SSMD >=0.9,<0.10 and Utterplan >=0.3,<0.4, and persists linguistic artifacts as Utterplan schema v3 inside Readio's `readio.plan.v2` response. The PyKokoro extra requires >=0.9.11,<0.10.
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
 ```bash

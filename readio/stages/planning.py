@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from utterplan import CURRENT_SCHEMA_VERSION, UtterancePlan
+from utterplan import UtterancePlan
 
 from ..document import InputDocument
 from ..markdown import markdown_to_speech
+from ..plan import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
 from ..planning.compiler import CompiledSemanticPlan, compile_semantic_plan
 from ..planning.policy import PlanningPolicy
 from ..project import (
@@ -49,7 +50,8 @@ class PlanSchemaMismatchError(ValueError):
     def __init__(self, stored: object) -> None:
         self.stored = stored
         super().__init__(
-            f"Utterplan schema {stored!r} is not supported; expected {CURRENT_SCHEMA_VERSION}"
+            f"Utterplan schema {stored!r} is not supported; "
+            f"expected {SUPPORTED_UTTERPLAN_SCHEMA_VERSION}"
         )
 
 
@@ -210,19 +212,19 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
     return resolved.compiled
 
 
-def load_utterplan_v2(path: Path) -> UtterancePlan:
-    """Load a Readio semantic plan without invoking Utterplan migration."""
+def load_utterplan_v3(path: Path) -> UtterancePlan:
+    """Load a Readio Utterplan v3 artifact without invoking schema migration."""
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("format") != "utterplan":
         raise ValueError("semantic plan artifact is not an Utterplan document")
     stored = data.get("schema_version")
-    if stored != CURRENT_SCHEMA_VERSION:
+    if type(stored) is not int or stored != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
         raise PlanSchemaMismatchError(stored)
     return UtterancePlan.from_dict(data)
 
 
 def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
-    return load_utterplan_v2(project.root / "plan" / scope.path)
+    return load_utterplan_v3(project.root / "plan" / scope.path)
 
 
 def load_primary_scope_plan(project: Project) -> UtterancePlan:
@@ -286,7 +288,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                     "reason": "plan.artifact.hash_mismatch",
                     "details": {"scope_id": scope.id},
                 }
-            plan = load_utterplan_v2(path)
+            plan = load_utterplan_v3(path)
         except PlanSchemaMismatchError as exc:
             return {
                 "state": "stale",
@@ -294,7 +296,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                 "details": {
                     "scope_id": scope.id,
                     "stored": exc.stored,
-                    "required": CURRENT_SCHEMA_VERSION,
+                    "required": SUPPORTED_UTTERPLAN_SCHEMA_VERSION,
                     "action": "run readio plan",
                 },
             }
@@ -460,7 +462,7 @@ __all__ = [
     "compile_project_scope",
     "load_primary_scope_plan",
     "load_scope_plan",
-    "load_utterplan_v2",
+    "load_utterplan_v3",
     "plan_document",
     "plan_project",
     "plan_project_scope",

@@ -153,7 +153,7 @@ def test_global_roles_persist_and_return_typed_bindings(tmp_path: Path, monkeypa
 def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> None:
     source = tmp_path / "roles.ssmd"
     source.write_text(
-        '---\ntitle: Roles\n---\n\n<div voice="api_speaker">Hello.</div>\n',
+        "---\nssmd_version: '0.9'\ntitle: Roles\n---\n\n[Hello.]{voice=\"api_speaker\"}\n",
         encoding="utf-8",
     )
     app = Readio(default_config())
@@ -188,7 +188,7 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
 def test_project_role_unbind_result_exposes_config_fallback(tmp_path: Path) -> None:
     source = tmp_path / "roles-with-fallback.ssmd"
     source.write_text(
-        '---\ntitle: Roles\n---\n\n<div voice="api_speaker">Hello.</div>\n',
+        "---\nssmd_version: '0.9'\ntitle: Roles\n---\n\n[Hello.]{voice=\"api_speaker\"}\n",
         encoding="utf-8",
     )
     config = default_config()
@@ -211,8 +211,8 @@ def test_project_role_unbind_result_exposes_config_fallback(tmp_path: Path) -> N
 def test_ssmd_service_checks_materializes_and_roundtrips(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "input.ssmd"
     source.write_text(
-        "---\nvoice_bindings:\n  kokoro:\n    speaker: missing_voice\n---\n"
-        '<div voice="speaker">Hello.</div>\n',
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    speaker: missing_voice\n---\n"
+        '[Hello.]{voice="speaker"}\n',
         encoding="utf-8",
     )
     app = Readio(default_config())
@@ -249,7 +249,7 @@ def test_ssmd_validate_raises_public_resolution_error_without_changing_check(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "unresolved.ssmd"
-    source.write_text('<div voice="speaker">Hello.</div>\n', encoding="utf-8")
+    source.write_text('[Hello.]{voice="speaker"}', encoding="utf-8")
     app = Readio(default_config())
 
     checked = app.ssmd.check(source)

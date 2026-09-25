@@ -1,9 +1,12 @@
+---
+ssmd_version: '0.9'
+---
 # Dialogue
 
-<div voice="host">
+:::{voice="host"}
 Opening.
-</div>
+:::
 
-<div voice="guest">
+:::{voice="guest"}
 Response.
-</div>
+:::

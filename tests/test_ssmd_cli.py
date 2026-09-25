@@ -13,7 +13,7 @@ from readio.config import PathSettings, ReadioConfig
 def test_ssmd_check_json_reports_consumer_and_bindings(monkeypatch, tmp_path: Path, capsys):
     source = tmp_path / "episode.ssmd"
     source.write_text(
-        '---\nvoice_bindings:\n  kokoro:\n    host: af_bella\n---\n<div voice="host">Hello.</div>',
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    host: af_bella\n---\n[Hello.]{voice=\"host\"}",
         encoding="utf-8",
     )
     cfg = ReadioConfig(
@@ -32,7 +32,7 @@ def test_ssmd_check_json_reports_consumer_and_bindings(monkeypatch, tmp_path: Pa
 
 def test_ssmd_cli_and_api_raise_identical_public_errors(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "unresolved.ssmd"
-    source.write_text('<div voice="speaker">Hello.</div>\n', encoding="utf-8")
+    source.write_text('[Hello.]{voice="speaker"}', encoding="utf-8")
     app = Readio(default_config())
     monkeypatch.setattr(cli, "_api_for", lambda _args: app)
     args = cli.build_parser().parse_args(["ssmd", "check", str(source)])

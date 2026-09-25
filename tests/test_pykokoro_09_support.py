@@ -196,7 +196,9 @@ def test_ssmd_language_detection_is_planned_and_forwarded(monkeypatch) -> None:
 
 
 def test_language_detection_hint_and_lexphon_asset_guidance() -> None:
-    assert language_detection_hint("---\nlanguage_detection: auto\n---\ntext") == ("auto", ())
+    assert language_detection_hint(
+        "---\nlanguage_detection:\n  mode: auto\n  languages: [de, en]\n---\ntext"
+    ) == ("auto", ("de", "en"))
     with pytest.raises(ModelDiscoveryError, match="underlying language-qualified Lexphon asset ID"):
         validate_language_settings(
             "de", LanguageSettings(model=MODEL.id, lexicons=("de-de:crane",)), MODEL

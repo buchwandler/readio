@@ -33,7 +33,7 @@ class TestSemanticPlanRef:
         """SemanticPlanRef should have correct default values."""
         ref = SemanticPlanRef()
         assert ref.format == "utterplan"
-        assert ref.schema_version == CURRENT_SCHEMA_VERSION == 2
+        assert ref.schema_version == CURRENT_SCHEMA_VERSION == 3
         assert ref.plan_id == ""
         assert ref.sha256 == ""
         assert ref.path is None
@@ -54,7 +54,7 @@ class TestSemanticPlanRef:
         ref = SemanticPlanRef(plan_id="test", sha256="hash")
         d = ref.to_dict()
         assert d["format"] == "utterplan"
-        assert d["schema_version"] == CURRENT_SCHEMA_VERSION == 2
+        assert d["schema_version"] == CURRENT_SCHEMA_VERSION == 3
         assert d["plan_id"] == "test"
         assert d["sha256"] == "hash"
         assert d["path"] is None

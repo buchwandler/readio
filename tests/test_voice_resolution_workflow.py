@@ -14,7 +14,7 @@ def test_fixture_collects_all_roles_and_runtime_bindings_pass():
     cfg = ReadioConfig()
     text = FIXTURE.read_text(encoding="utf-8")
     analysis = analyze_ssmd(text, cfg)
-    assert analysis.unresolved_references == ("architect", "moderator", "skeptic")
+    assert analysis.unresolved_references == ("moderator", "architect", "skeptic")
     assert {item.reference: item.count for item in analysis.unresolved_voice_references} == {
         "architect": 1,
         "moderator": 1,
@@ -39,10 +39,10 @@ def test_json_error_contains_complete_voice_diagnostic(monkeypatch, capsys):
     assert error.value.code == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["code"] == "ssmd.unresolved_voice_role"
-    assert payload["reference"] == "architect"
+    assert payload["reference"] == "moderator"
     assert [item["name"] for item in payload["references"]] == [
-        "architect",
         "moderator",
+        "architect",
         "skeptic",
     ]
     assert payload["available_voices"]
@@ -73,7 +73,7 @@ def test_json_resolve_never_prompts(monkeypatch, capsys):
 
 def test_central_voice_resolution_preserves_project_layer_precedence() -> None:
     cfg = ReadioConfig()
-    text = '<div voice="narrator">Hello.</div>'
+    text = '[Hello.]{voice="narrator"}'
 
     project = resolve_voice_references(text, cfg, project_bindings={"narrator": "af_heart"})[0]
     assert (project.voice, project.origin) == ("af_heart", "project")
@@ -88,8 +88,8 @@ def test_central_voice_resolution_preserves_project_layer_precedence() -> None:
     assert (invocation.voice, invocation.origin) == ("af_bella", "cli")
 
     document_text = (
-        "---\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n"
-        '<div voice="narrator">Hello.</div>'
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n"
+        '[Hello.]{voice="narrator"}'
     )
     document = resolve_voice_references(
         document_text,
@@ -99,5 +99,5 @@ def test_central_voice_resolution_preserves_project_layer_precedence() -> None:
     )[0]
     assert (document.voice, document.origin) == ("am_michael", "document")
 
-    direct = resolve_voice_references('<div voice="am_michael">Direct.</div>', cfg)[0]
+    direct = resolve_voice_references('[Direct.]{voice="am_michael"}', cfg)[0]
     assert (direct.voice, direct.origin) == ("am_michael", "direct")

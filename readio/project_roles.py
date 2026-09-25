@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import ssmd as ssmd_api
-
 from .config import ReadioConfig
 from .engines.registry import ssmd_provider_for_engine
 from .errors import ReadioError
@@ -19,7 +17,7 @@ from .project_settings import (
     with_project_voice_provider,
     without_project_voice_binding,
 )
-from .ssmd import document_voice_bindings, resolve_voice_references
+from .ssmd import document_voice_bindings, parse_ssmd_09, resolve_voice_references
 from .voices import resolve_voice_selector
 
 
@@ -118,11 +116,12 @@ def inspect_project_roles(
         if scope.input_format.casefold() != "ssmd":
             continue
         text = _scope_ssmd_text(project, scope)
-        front_matter = ssmd_api.parse_front_matter(text)
-        line_offset = text[: front_matter.source_end].count("\n") if front_matter.present else 0
-        ssmd_api.parse_ssmd(text, strict_parse=True)
-        references = ssmd_api.extract_voice_references(text)
-        document_bindings = document_voice_bindings(text).get(selected_provider, {})
+        source_path = project.path(scope.path)
+        parsed = parse_ssmd_09(text, source_path=source_path)
+        references = parsed.voice_references
+        document_bindings = document_voice_bindings(
+            text, source_path=source_path, parsed=parsed
+        ).get(selected_provider, {})
         resolutions = {
             item.reference: item
             for item in resolve_voice_references(
@@ -130,6 +129,8 @@ def inspect_project_roles(
                 cfg,
                 project_bindings=project_bindings,
                 provider=selected_provider,
+                source_path=source_path,
+                parsed=parsed,
             )
         }
         for use in references:
@@ -144,9 +145,7 @@ def inspect_project_roles(
                 },
             )
             role["uses"] += use.count
-            role["locations"].append(
-                RoleLocation(scope.id, tuple(line + line_offset for line in use.lines))
-            )
+            role["locations"].append(RoleLocation(scope.id, use.lines))
             if use.reference in document_bindings:
                 role["document_bindings"][scope.id] = document_bindings[use.reference]
             resolved = resolutions[use.reference]

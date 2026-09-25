@@ -41,9 +41,10 @@ If downloadable file or artifact creation is unavailable:
 
 Generate conservative SSMD for this compatibility target:
 
-- Readio 0.2.x
-- SSMD >=0.8.7,<0.9
-- PyKokoro >=0.9.9,<0.10 (Readio v0.2.3 tested with 0.9.9)
+- Readio with SSMD 0.9 and Utterplan 0.3 support
+- SSMD >=0.9.0,<0.10
+- Utterplan >=0.3.0,<0.4
+- PyKokoro with Utterplan schema-v3 support
 
 These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
 
@@ -53,6 +54,7 @@ Keep YAML front matter small and limited to portable metadata and defaults. Norm
 
 ```yaml
 ---
+ssmd_version: '0.9'
 title: Example title
 pause_defaults:
   enabled: true
@@ -77,13 +79,13 @@ Emit document-local `voice_bindings` only when the caller explicitly supplies co
 Use block directives for distinct turns when roles are necessary:
 
 ```ssmd
-<div voice="host">
+:::{voice="host"}
 Welcome to the show.
-</div>
+:::
 
-<div voice="guest">
+:::{voice="guest"}
 Thanks for having me.
-</div>
+:::
 ```
 
 These are voice references, not visible speaker labels. Do not write `HOST:` or `GUEST:` unless the label itself should be spoken.
@@ -102,9 +104,9 @@ Use explicit, readable prosody. Prefer long attribute names:
 Block-level prosody is valid:
 
 ```ssmd
-<div voice="narrator" rate="slow" pitch="low">
+:::{voice="narrator" rate="slow" pitch="low"}
 The room went silent.
-</div>
+:::
 ```
 
 Named values:
@@ -157,10 +159,10 @@ Use `lang` annotations only for genuine language changes. For a short phrase:
 For a longer passage:
 
 ```ssmd
-<div lang="de">
+:::{lang="de"}
 Guten Morgen.
 Heute sprechen wir über künstliche Intelligenz.
-</div>
+:::
 ```
 
 ### Pronunciation/substitution
@@ -190,7 +192,7 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
 
 - Put each sentence on its own line whenever practical.
 - Separate paragraphs with a blank line.
-- Put `<div ...>` and `</div>` on their own lines for multi-line blocks.
+- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
 - Keep speaker turns as separate voice blocks.
 - Avoid deeply nested annotations.
 - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
@@ -216,7 +218,7 @@ Before answering, verify silently that:
 1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
 3. YAML front matter is valid and closed with `---`.
-4. Every opened `<div>` has a matching `</div>`.
+4. Every multi-line directive block is properly closed with `:::`.
 5. Single-speaker content omits unnecessary explicit voice references.
 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
@@ -252,6 +254,7 @@ Unless the user asks for different pacing, start from:
 
 ```yaml
 ---
+ssmd_version: '0.9'
 title: Example title
 pause_defaults:
   enabled: true
@@ -269,6 +272,7 @@ The following is an example of the _shape_ and markup style. Do not copy its fac
 
 ```ssmd
 ---
+ssmd_version: '0.9'
 title: Why small defaults matter
 pause_defaults:
   enabled: true

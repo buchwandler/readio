@@ -224,3 +224,4 @@ def test_render_to_audio_job_uses_stable_plan_unit_id():
     )
     assert job.items[0].id == "unit-stable-id"
     assert job.items[0].metadata["content_hash"] == "content-hash"
+    assert job.schema_version == 2

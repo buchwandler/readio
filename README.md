@@ -26,7 +26,7 @@ python -m pip install "readio[spacy]"
 
 Install a compatible local spaCy language model separately. Readio never downloads models implicitly. The default `reader.spacy = "auto"` tries the best locally installed model and falls back to Utterplan's analyzer when none is available. The explicit `sm`, `md`, `lg`, and `trf` settings require the selected local model tier and fail if it is unavailable. `off` disables spaCy analysis.
 
-`readio plan` stores token annotations and linguistic provenance in the Utterplan v2 artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected backend's local frontend because they do not consume a persisted semantic plan.
+`readio plan` stores token annotations and linguistic provenance in the Utterplan schema v3 artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected backend's local frontend because they do not consume a persisted semantic plan.
 
 ## Python API
 
@@ -228,7 +228,7 @@ Planning, discovery, defaults, and render results are distinct layers:
   "planning": { "language": "de", "unit": "sentence", "pause_mode": "auto" },
   "semantic_plan": {
     "format": "utterplan",
-    "schema_version": 2,
+    "schema_version": 3,
     "plan_id": "...",
     "sha256": "...",
     "path": "plan/document.utterplan.json"
@@ -325,7 +325,9 @@ M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 
 
 ## SSMD consumption and authoring checks
 
-For `.ssmd` inputs, Readio parses the document through the supported SSMD 0.8.x API and passes a PyKokoro 0.9 `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+For `.ssmd` inputs, Readio requires the strict SSMD 0.9 parser and passes PyKokoro 0.9 an `SSMDRenderConfig` containing only missing Readio role defaults. Document `voice_bindings` remain authoritative, invocation `--voice-bind` values override configured provider roles, and concrete targets must belong to the active model roster. Normal `speak`, `render`, and `spotify` commands do not invoke `ssmd create`, rewrite the source, or require generic round-trip validation.
+
+Readio accepts SSMD 0.9.x and Utterplan 0.3.x/schema v3 only. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Existing project plans using Utterplan schema v1 or v2 are stale and must be rebuilt from valid SSMD 0.9 or plain text. This does not change Readio's own `readio.plan.v2` response schema.
 
 Inspect a document before rendering:
 

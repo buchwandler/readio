@@ -1,13 +1,16 @@
+---
+ssmd_version: '0.9'
+---
 # Episode title
 
-<div voice="host">
+:::{voice="host"}
 Introduce the topic here.
-</div>
+:::
 
-<div voice="analyst">
+:::{voice="analyst"}
 Provide the analysis here.
-</div>
+:::
 
-<div voice="host">
+:::{voice="host"}
 Close the episode here.
-</div>
+:::

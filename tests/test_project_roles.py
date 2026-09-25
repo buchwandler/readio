@@ -53,14 +53,12 @@ def test_project_voice_binding_provenance_is_order_independent() -> None:
 def test_discovers_source_roles_and_counts_before_semantic_plan_exists(tmp_path) -> None:
     expected_counts = {"narrator": 9, "host": 9, "guest": 11}
     lines = [
-        f'<div voice="{role}">Line {index}.</div>'
+        f'[Line {index}.]{{voice="{role}"}}'
         for role, count in expected_counts.items()
         for index in range(count)
     ]
     project = _project(tmp_path, "\n".join(lines))
-    project.paths["source"].write_text(
-        '<div voice="guest">Only current source.</div>', encoding="utf-8"
-    )
+    project.paths["source"].write_text('[Only current source.]{voice="guest"}', encoding="utf-8")
     assert not project.paths["plan_index"].exists()
 
     roles = _roles(project)
@@ -74,7 +72,7 @@ def test_discovers_source_roles_and_counts_before_semantic_plan_exists(tmp_path)
 def test_collects_all_sample_role_counts_and_config_fallback(tmp_path) -> None:
     expected_counts = {"narrator": 9, "host": 9, "guest": 11}
     lines = [
-        f'<div voice="{role}">Line {index}.</div>'
+        f'[Line {index}.]{{voice="{role}"}}'
         for role, count in expected_counts.items()
         for index in range(count)
     ]
@@ -90,7 +88,7 @@ def test_collects_all_sample_role_counts_and_config_fallback(tmp_path) -> None:
 
 
 def test_project_binding_overrides_config_role(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="narrator">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="narrator"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
@@ -108,8 +106,8 @@ def test_project_binding_overrides_config_role(tmp_path) -> None:
 
 def test_document_binding_overrides_project_binding(tmp_path) -> None:
     text = (
-        "---\nvoice_bindings:\n  kokoro:\n    narrator: af_bella\n---\n"
-        '<div voice="narrator">Hello.</div>'
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    narrator: af_bella\n---\n"
+        '[Hello.]{voice="narrator"}'
     )
     project = _project(tmp_path, text)
     project = update_project_manifest(
@@ -125,7 +123,7 @@ def test_document_binding_overrides_project_binding(tmp_path) -> None:
     assert narrator.origin == "document"
     assert narrator.document_binding == "af_bella"
     assert narrator.project_binding == "af_heart"
-    assert narrator.locations[0].lines == (6,)
+    assert narrator.locations[0].lines == (7,)
 
 
 def test_multiscope_document_bindings_report_mixed_values(tmp_path) -> None:
@@ -146,12 +144,12 @@ def test_multiscope_document_bindings_report_mixed_values(tmp_path) -> None:
     )
     bodies = (
         (
-            "---\nvoice_bindings:\n  kokoro:\n    narrator: af_sarah\n---\n"
-            '<div voice="narrator">One.</div>'
+            "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    narrator: af_sarah\n---\n"
+            '[One.]{voice="narrator"}'
         ),
         (
-            "---\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n"
-            '<div voice="narrator">Two.</div>'
+            "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    narrator: am_michael\n---\n"
+            '[Two.]{voice="narrator"}'
         ),
     )
     for scope, body in zip(scopes, bodies):
@@ -182,13 +180,13 @@ def test_multiscope_document_bindings_report_mixed_values(tmp_path) -> None:
     }
     assert narrator.effective_by_scope["chapter-0001"]["origin"] == "document"
     assert narrator.effective_by_scope["chapter-0002"]["voice"] == "am_michael"
-    assert narrator.locations[0].lines == (6,)
+    assert narrator.locations[0].lines == (7,)
 
 
 def test_direct_and_unresolved_references_are_reported_without_model_loading(tmp_path) -> None:
     project = _project(
         tmp_path,
-        '<div voice="am_michael">Direct.</div>\n<div voice="not-configured">Unresolved.</div>',
+        '[Direct.]{voice="am_michael"} [Unresolved.]{voice="not-configured"}',
     )
 
     roles = _roles(project)
@@ -202,7 +200,7 @@ def test_direct_and_unresolved_references_are_reported_without_model_loading(tmp
 def test_bind_stable_selector_persists_canonical_voice_without_editing_sources(
     tmp_path, monkeypatch
 ) -> None:
-    project = _project(tmp_path, '<div voice="narrator">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="narrator"}')
     cfg = ReadioConfig()
     source_before = project.paths["source"].read_bytes()
     document_before = project.paths["document_text"].read_bytes()
@@ -233,7 +231,7 @@ def test_bind_stable_selector_persists_canonical_voice_without_editing_sources(
 
 
 def test_bind_rejects_unknown_and_document_bound_roles(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="narrator">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="narrator"}')
     cfg = ReadioConfig()
 
     with pytest.raises(ProjectRoleError) as unknown:
@@ -243,8 +241,8 @@ def test_bind_rejects_unknown_and_document_bound_roles(tmp_path) -> None:
 
     bound_project = _project(
         tmp_path / "bound",
-        "---\nvoice_bindings:\n  kokoro:\n    narrator: af_sarah\n---\n"
-        '<div voice="narrator">Hello.</div>',
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    narrator: af_sarah\n---\n"
+        '[Hello.]{voice="narrator"}',
     )
     with pytest.raises(ProjectRoleError) as document_bound:
         bind_project_role(bound_project, cfg, "narrator", "af_heart")
@@ -254,7 +252,7 @@ def test_bind_rejects_unknown_and_document_bound_roles(tmp_path) -> None:
 
 
 def test_bind_rejects_selector_provider_mismatch(tmp_path, monkeypatch) -> None:
-    project = _project(tmp_path, '<div voice="narrator">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="narrator"}')
     monkeypatch.setattr(
         "readio.project_roles.resolve_voice_selector",
         lambda voice, **kwargs: SimpleNamespace(
@@ -268,7 +266,7 @@ def test_bind_rejects_selector_provider_mismatch(tmp_path, monkeypatch) -> None:
 
 
 def test_unbind_removes_only_project_override_and_reports_config_fallback(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="narrator">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="narrator"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
@@ -294,7 +292,7 @@ def test_unbind_removes_only_project_override_and_reports_config_fallback(tmp_pa
 
 
 def test_unbind_without_project_override_fails_clearly(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="narrator">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="narrator"}')
 
     with pytest.raises(ProjectRoleError) as missing:
         unbind_project_role(project, ReadioConfig(), "narrator")
@@ -303,7 +301,7 @@ def test_unbind_without_project_override_fails_clearly(tmp_path) -> None:
 
 
 def test_unique_project_binding_provider_is_inferred(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
@@ -319,7 +317,7 @@ def test_unique_project_binding_provider_is_inferred(tmp_path) -> None:
 
 
 def test_project_voice_provider_precedence(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_provider(
@@ -344,7 +342,7 @@ def test_project_voice_provider_precedence(tmp_path) -> None:
 def test_multiple_project_binding_providers_without_active_provider_are_ambiguous(
     tmp_path,
 ) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
@@ -363,7 +361,7 @@ def test_multiple_project_binding_providers_without_active_provider_are_ambiguou
 
 
 def test_empty_binding_namespace_is_not_inferred(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
@@ -388,7 +386,7 @@ def test_empty_binding_namespace_is_not_inferred(tmp_path) -> None:
 def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
     tmp_path, monkeypatch
 ) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_binding(
@@ -423,7 +421,7 @@ def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
 
 
 def test_project_roles_explicit_provider_overrides_active_provider(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_provider(
@@ -441,7 +439,7 @@ def test_project_roles_explicit_provider_overrides_active_provider(tmp_path) -> 
 
 
 def test_unbind_defaults_to_active_provider_and_removes_empty_namespace(tmp_path) -> None:
-    project = _project(tmp_path, '<div voice="guest">Hello.</div>')
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
         lambda manifest: with_project_voice_provider(
@@ -467,8 +465,8 @@ def test_unbind_defaults_to_active_provider_and_removes_empty_namespace(tmp_path
 
 def test_bind_checks_document_binding_in_selector_provider(tmp_path, monkeypatch) -> None:
     text = (
-        "---\nvoice_bindings:\n  piper:\n    guest: en_US-bryce-medium\n---\n"
-        '<div voice="guest">Hello.</div>'
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  piper:\n    guest: en_US-bryce-medium\n---\n"
+        '[Hello.]{voice="guest"}'
     )
     project = _project(tmp_path, text)
     monkeypatch.setattr(
