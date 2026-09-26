@@ -74,7 +74,21 @@ def test_lexicon_order_and_explicit_disable_are_render_options():
     assert disabled.to_dict()["render"]["options"]["lexicons"] == ()
 
 
-def test_reader_policy_overrides_are_in_planning_and_render_target():
+def test_reader_policy_overrides_are_in_planning_and_render_target(monkeypatch):
+    from utterplan.linguistics import LinguisticAnalysis, LinguisticResourcePool
+
+    # Isolate policy resolution from the optional, locally installed spaCy model.
+    class FakePool(LinguisticResourcePool):
+        def analyze(self, text, run, config):
+            return LinguisticAnalysis(
+                language=run.language,
+                text=text,
+                tokens=(),
+                provider="spacy",
+                model_name="en_core_web_lg",
+            )
+
+    monkeypatch.setattr("utterplan.planner.LinguisticResourcePool", FakePool)
     plan = resolve_plan(
         _config(pause_mode="manual"),
         _request(

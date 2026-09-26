@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 from project_support import assert_neutral_session_contract
@@ -10,6 +11,26 @@ from readio.engines.base import EngineSelection, PronunciationSpan, SpeechReques
 from readio.engines.pipersynth import PiperSynthEngineAdapter, PiperSynthEngineSession
 from readio.engines.pykokoro import PyKokoroEngineAdapter, PyKokoroEngineSession
 from readio.engines.selection import EngineRequest
+
+
+def _mock_pipersynth():
+    class NativeObject:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    module = ModuleType("pipersynth")
+    for name in (
+        "SynthesisRequest",
+        "SynthesisResult",
+        "SynthesisConfig",
+        "LinguisticToken",
+        "PronunciationOverride",
+        "VoiceLevelConfig",
+        "SynthesisInputTooLongError",
+    ):
+        setattr(module, name, NativeObject)
+    module.PiperVoice = NativeObject
+    return module
 
 
 def test_pykokoro_adapter_resolves_default_model_separately_from_voice() -> None:
@@ -133,8 +154,9 @@ def test_piper_adapter_maps_request_rate_to_native_length_scale() -> None:
     assert selection.options["length_scale"] == 0.5
 
 
-def test_piper_session_uses_one_published_request_api() -> None:
-    import pipersynth
+def test_piper_session_uses_one_published_request_api(monkeypatch) -> None:
+    pipersynth = _mock_pipersynth()
+    monkeypatch.setitem(sys.modules, "pipersynth", pipersynth)
 
     @dataclass(frozen=True)
     class _Config:
@@ -190,7 +212,8 @@ def test_piper_release_capabilities_claim_request_context_support() -> None:
 
 
 def test_piper_api_compatibility_checks_published_voice_signature(monkeypatch) -> None:
-    import pipersynth
+    pipersynth = _mock_pipersynth()
+    monkeypatch.setitem(sys.modules, "pipersynth", pipersynth)
 
     class _PublishedVoice:
         def synthesize(self, request, *, config=None):
@@ -202,7 +225,8 @@ def test_piper_api_compatibility_checks_published_voice_signature(monkeypatch) -
 
 
 def test_piper_api_compatibility_rejects_legacy_text_signature(monkeypatch) -> None:
-    import pipersynth
+    pipersynth = _mock_pipersynth()
+    monkeypatch.setitem(sys.modules, "pipersynth", pipersynth)
 
     class _LegacyVoice:
         def synthesize(self, text, syn_config=None):

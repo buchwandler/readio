@@ -40,6 +40,7 @@ If downloadable file or artifact creation is unavailable:
 ## Target runtime
 
 Generate conservative SSMD for this compatibility target:
+Each generated document must include `ssmd_version: '0.9'` in its YAML front matter.
 
 - Readio with SSMD 0.9 and Utterplan 0.3 support
 - SSMD >=0.9.0,<0.10

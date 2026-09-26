@@ -52,7 +52,11 @@ def test_piper_discovery_maps_published_voice_metadata(monkeypatch):
             calls.update(language=language, refresh=refresh)
             return (metadata,)
 
-    monkeypatch.setattr("pipersynth.asset_manager.VoiceAssetManager", VoiceAssetManager)
+    piper_module = ModuleType("pipersynth")
+    asset_manager_module = ModuleType("pipersynth.asset_manager")
+    asset_manager_module.VoiceAssetManager = VoiceAssetManager
+    monkeypatch.setitem(sys.modules, "pipersynth", piper_module)
+    monkeypatch.setitem(sys.modules, "pipersynth.asset_manager", asset_manager_module)
     targets = PiperSynthEngineAdapter().discover(
         CatalogRequest(engine="piper", language="de", offline=True, refresh=True)
     )
