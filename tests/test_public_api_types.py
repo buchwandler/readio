@@ -102,10 +102,11 @@ def test_project_and_render_results_serialize_paths_and_nested_models(tmp_path: 
         json.loads(json.dumps(payload))
 
     assert status.stage("plan").state == "current"
-    assert status.to_dict()["project"]["root"] == str(project.root)
-    assert status.to_dict()["issues"][0]["source_path"] == str(tmp_path / "source.ssmd")
-    assert build.to_dict()["output_path"] == str(tmp_path / "out.wav")
+    assert status.to_dict()["project"]["root"] == project.root.as_posix()
+    assert status.to_dict()["issues"][0]["source_path"] == (tmp_path / "source.ssmd").as_posix()
+    assert build.to_dict()["output_path"] == (tmp_path / "out.wav").as_posix()
     assert render.to_dict()["summary"]["sample_count"] == 100
+    assert render.to_dict()["output_path"] == (tmp_path / "render.wav").as_posix()
 
 
 def test_public_event_fields_are_stable_and_frozen() -> None:

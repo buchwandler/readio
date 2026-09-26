@@ -182,7 +182,7 @@ def test_render_writes_owned_file_and_manifest(monkeypatch, tmp_path: Path) -> N
     assert result.manifest_schema == "readio.render-manifest.v2"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["schema"] == "readio.render-manifest.v2"
-    assert result.to_dict()["output_path"] == str(output)
+    assert result.to_dict()["output_path"] == output.as_posix()
 
 
 def test_speak_owns_and_finishes_its_playback_sink(monkeypatch) -> None:

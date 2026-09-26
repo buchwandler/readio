@@ -392,7 +392,7 @@ def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     }
     assert all(isinstance(item, PathDiagnostic) for item in report.paths)
     serialized = json.loads(json.dumps(report.to_dict()))
-    assert serialized["config_path"] == str(config_path)
+    assert serialized["config_path"] == config_path.as_posix()
     assert {item["name"] for item in serialized["paths"]} == {"templates", "ingest", "output"}
     assert not paths.templates.exists()
     assert not paths.ingest.exists()

@@ -19,7 +19,7 @@ def test_doctor_reports_ssmd_executable_provider_roles_paths_and_audio_formats(
     assert cli._cmd_doctor(None) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["voice_provider"] == "kokoro"
-    assert result["config_path"] == str(tmp_path / "config.toml")
+    assert result["config_path"] == (tmp_path / "config.toml").as_posix()
     paths = {item["name"]: item for item in result["paths"]}
     assert paths["output"]["exists"] is False
     assert {item["id"] for item in result["audio_formats"]} == {
