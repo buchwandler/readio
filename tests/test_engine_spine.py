@@ -44,6 +44,7 @@ def fake_pykokoro(monkeypatch: pytest.MonkeyPatch):
     ("policy", "expected_enabled", "expected_mode"),
     [
         (None, None, None),
+        ("auto", None, None),
         ("off", False, None),
         ("wrap", True, "wrap"),
         ("phrase", True, "phrase"),

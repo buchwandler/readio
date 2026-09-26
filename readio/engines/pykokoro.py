@@ -523,7 +523,9 @@ class PyKokoroEngineAdapter:
             )
             short_sentence = options.get("short_sentence")
             short_sentence_config = None
-            if short_sentence is not None:
+            # "auto" is a Readio policy, not a PyKokoro resolve mode. Leave
+            # the config unset so PyKokoro applies its own default.
+            if short_sentence is not None and short_sentence != "auto":
                 short_sentence_config = pykokoro.ShortSentenceConfig(
                     enabled=short_sentence != "off",
                     **({"resolve_mode": short_sentence} if short_sentence != "off" else {}),
