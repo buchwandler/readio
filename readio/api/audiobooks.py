@@ -2,26 +2,36 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 from .. import audiobook as audiobook_internal
 from .. import errors as core_errors
 from .. import jsonutil
 from .. import project as project_internal
+from ..stages import audiobook_export as audiobook_export_internal
 from . import errors as api_errors
 from .events import EventHandler, ReadioEvent, compose_event_handlers
 from .types import (
+    AUDIOBOOK_EXPORT_FORMAT,
+    SUPPORTED_AUDIOBOOK_FORMATS,
     AudiobookChapter,
+    AudiobookExportOptions,
+    AudiobookExportResult,
     AudiobookInspection,
     AudiobookProjectChapter,
     AudiobookProjectResult,
     Diagnostic,
+    ProjectLike,
     ProjectRef,
 )
 
 if TYPE_CHECKING:
     from .app import Readio
+
+
+T = TypeVar("T")
 
 
 class AudiobookService:
@@ -88,13 +98,67 @@ class AudiobookService:
             AudiobookProjectChapter(
                 number=cast(int, scope.source_number),
                 scope_id=scope.id,
-                title=scope.title,
+                title=scope.title or f"Chapter {scope.source_number or 1}",
                 level=scope.level or 1,
             )
             for scope in project.document_scopes()
         )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
         return AudiobookProjectResult(project=project_ref, source=source, chapters=selected)
+
+    def export(
+        self,
+        project: ProjectLike,
+        options: AudiobookExportOptions | None = None,
+        *,
+        on_event: EventHandler | None = None,
+    ) -> AudiobookExportResult:
+        options = options or AudiobookExportOptions()
+        if options.format not in SUPPORTED_AUDIOBOOK_FORMATS:
+            raise api_errors.InvalidRequestError(
+                f"unsupported audiobook export format: {options.format}",
+                code="audiobook.export.format_unsupported",
+            )
+        handler = self._handler(on_event)
+        operation = "audiobooks.export"
+        self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
+        project_path = project.root if isinstance(project, ProjectRef) else project
+        internal = self._call(lambda: project_internal.load_project(project_path))
+        self._notify(
+            handler, ReadioEvent(kind="stage.started", operation=operation, stage="export")
+        )
+        raw = self._call(
+            lambda: audiobook_export_internal.export_audiobook_project(
+                internal,
+                output=options.output,
+                title=options.title,
+                author=options.author,
+                cover=options.cover,
+                bitrate=options.bitrate,
+                force=options.force,
+            )
+        )
+        self._notify(
+            handler,
+            ReadioEvent(
+                kind="stage.completed",
+                operation=operation,
+                stage="export",
+                details={
+                    "format": AUDIOBOOK_EXPORT_FORMAT,
+                    "chapter_count": int(raw["chapter_count"]),
+                },
+            ),
+        )
+        self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
+        return AudiobookExportResult(
+            project=self._project_ref(internal),
+            output_path=Path(raw["path"]),
+            format=AUDIOBOOK_EXPORT_FORMAT,
+            output_sha256=str(raw["output_sha256"]),
+            export_id=str(raw["export_id"]),
+            chapter_count=int(raw["chapter_count"]),
+        )
 
     def _resolve_source(self, source: Path) -> Path:
         try:
@@ -136,7 +200,7 @@ class AudiobookService:
         message = str(payload.get("message") or payload.get("description") or code)
         return Diagnostic(
             code=code,
-            severity=cast(str, severity),
+            severity=cast(Literal["info", "warning", "error"], severity),
             message=message,
             details=cast(dict[str, jsonutil.JsonValue], payload),
         )
@@ -168,11 +232,19 @@ class AudiobookService:
                 code="event.handler_failed",
             ) from error
 
-    def _call(self, callback):
+    def _call(self, callback: Callable[[], T]) -> T:
         try:
             return callback()
         except core_errors.ReadioError:
             raise
+        except audiobook_export_internal.AudiobookExportError as error:
+            if error.code == "audiobook.export.output_exists":
+                raise api_errors.OutputError(
+                    str(error), details=error.details, code=error.code
+                ) from error
+            raise api_errors.ExecutionError(
+                str(error), details=error.details, code=error.code
+            ) from error
         except FileNotFoundError as error:
             raise api_errors.InputError(
                 str(error),

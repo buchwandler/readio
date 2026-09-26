@@ -11,8 +11,8 @@ import soundfile as sf
 from .errors import RenderError
 
 logger = logging.getLogger(__name__)
-AudioFormat = Literal["wav", "mp3", "m4a", "ogg"]
-SUPPORTED_AUDIO_FORMATS = ("wav", "mp3", "m4a", "ogg")
+AudioFormat = Literal["wav", "flac", "mp3", "m4a", "ogg", "opus"]
+SUPPORTED_AUDIO_FORMATS = ("wav", "flac", "mp3", "m4a", "ogg", "opus")
 _SUPPORTED_SUFFIXES = ", ".join(f".{name}" for name in SUPPORTED_AUDIO_FORMATS)
 
 
@@ -33,6 +33,13 @@ AUDIO_FORMATS: dict[AudioFormat, AudioFormatSpec] = {
         soundfile_format="WAV",
         soundfile_subtype="PCM_16",
     ),
+    "flac": AudioFormatSpec(
+        name="flac",
+        suffix=".flac",
+        backend="soundfile",
+        soundfile_format="FLAC",
+        soundfile_subtype="PCM_16",
+    ),
     "mp3": AudioFormatSpec(
         name="mp3",
         suffix=".mp3",
@@ -48,6 +55,7 @@ AUDIO_FORMATS: dict[AudioFormat, AudioFormatSpec] = {
         soundfile_format="OGG",
         soundfile_subtype="VORBIS",
     ),
+    "opus": AudioFormatSpec(name="opus", suffix=".opus", backend="ffmpeg"),
 }
 
 
@@ -88,6 +96,7 @@ def resolve_audio_format(
             )
 
     if requested is not None and inferred is not None and requested != inferred:
+        assert output is not None
         raise ValueError(
             f"--format {requested} conflicts with output extension {output.suffix.lower()}"
         )
@@ -134,7 +143,9 @@ def ensure_audio_format_available(audio_format: AudioFormat) -> None:
     logger.debug("output.format.check format=%s backend=%s", audio_format, spec.backend)
     if spec.backend == "ffmpeg":
         if ffmpeg_executable() is None:
-            raise RenderError("M4A output requires FFmpeg; install ffmpeg and ensure it is on PATH")
+            raise RenderError(
+                f"{audio_format.upper()} output requires FFmpeg; install ffmpeg and ensure it is on PATH"
+            )
         return
     if not soundfile_format_available(audio_format):
         raise RenderError(

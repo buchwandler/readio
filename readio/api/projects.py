@@ -298,6 +298,7 @@ class ProjectService:
                 audio_format=options.format,
                 bitrate=options.bitrate,
                 output=options.output,
+                force=options.force,
             )
         )
         self._notify(
@@ -309,6 +310,7 @@ class ProjectService:
             output_path=Path(raw["path"]),
             format=str(raw["format"]),
             output_sha256=str(raw["output_sha256"]),
+            export_id=str(raw["export_id"]),
         )
 
     def build(

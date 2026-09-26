@@ -23,12 +23,12 @@ def test_wave_sink_appends_chunks_and_writes_pcm16(tmp_path: Path):
 
 @pytest.mark.parametrize(
     ("file_format", "subtype", "expected_format"),
-    [("MP3", "MPEG_LAYER_III", "MP3"), ("OGG", "VORBIS", "OGG")],
+    [("FLAC", "PCM_16", "FLAC"), ("MP3", "MPEG_LAYER_III", "MP3"), ("OGG", "VORBIS", "OGG")],
 )
 def test_soundfile_sink_writes_compressed_formats(
     tmp_path: Path, file_format: str, subtype: str, expected_format: str
 ):
-    suffix = ".mp3" if expected_format == "MP3" else ".ogg"
+    suffix = {"FLAC": ".flac", "MP3": ".mp3", "OGG": ".ogg"}[expected_format]
     path = tmp_path / f"audio{suffix}"
     with SoundFileSink(path, file_format=file_format, subtype=subtype) as sink:
         sink.write(np.zeros(2400, dtype=np.float32), 24000)

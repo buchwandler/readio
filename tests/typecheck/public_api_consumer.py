@@ -4,7 +4,10 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from readio.api import (
+    AUDIOBOOK_EXPORT_FORMAT,
     UNSET,
+    AudiobookExportOptions,
+    AudiobookExportResult,
     AudioSink,
     CatalogListing,
     ConfigurationInitResult,
@@ -136,3 +139,16 @@ def public_api_consumer(
     assert integration
     assert live_publish.audio_format == "wav"
     return plan, rendered, built, status, report
+
+
+def public_audiobook_consumer(
+    app: Readio, project: ProjectRef, cover: Path | None = None
+) -> AudiobookExportResult:
+    options = AudiobookExportOptions(
+        title="Typed audiobook",
+        cover=cover,
+        bitrate="96k",
+    )
+    result: AudiobookExportResult = app.audiobooks.export(project, options)
+    assert result.format == AUDIOBOOK_EXPORT_FORMAT
+    return result

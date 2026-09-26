@@ -42,6 +42,7 @@ readio plan
 readio synth --voice en-ko-01
 readio compose
 readio export --format m4a
+readio audiobook export . --format m4b --cover cover.jpg
 # Or run the complete incremental pipeline:
 readio render novel.readio --format m4a
 ```
@@ -52,7 +53,9 @@ Each selected chapter is extracted through the public `epub2text` chapter-docume
 
 The copied EPUB under `source/` records extraction provenance. Changing chapter Markdown does not trigger EPUB extraction and only invalidates affected planning and speech work. Changing the copied EPUB produces `source.stale.hash_changed`; reinitialize the project to use the changed source. Readio will not silently remap chapter numbers or refresh extracted documents. The EPUB is an ingestion format, not a direct `InputDocument` or an audiobook-specific build pipeline.
 
-M4B encoding and embedded container chapter metadata are non-goals of this first version. The project retains chapter boundaries in its timeline so a future generic export capability can use them.
+Audiobook projects support an audiobook-specific M4B export with embedded chapter metadata: `readio audiobook export PROJECT --format m4b`. Title and author default from the EPUB metadata; callers may override them. M4B uses AAC with a Readio default of 192k. Cover art is optional and explicit-only (`--cover image.jpg` or PNG); automatic EPUB cover extraction is not included because `epub2text` exposes no public cover-extraction API. The selected cover is hashed into export identity.
+
+M4B is deliberately excluded from generic `readio export`. Generic exports include FLAC and Opus; `.ogg` remains Ogg/Vorbis, while `.opus` is distinct. Changing the master, chapter timeline/title, resolved book metadata, cover, or bitrate invalidates only the M4B output, not planning or synthesis. Untracked or user-modified destination files require `--force`; unchanged Readio-owned outputs can be reused or replaced atomically.
 
 Projects preserve a source snapshot and normalized document, an engine-neutral
 `plan/document.utterplan.json`, `plan/index.json`, synthesis cache/trace,

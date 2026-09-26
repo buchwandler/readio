@@ -26,12 +26,16 @@ readio render manuscript.readio --format mp3
 
 The high-level command rebuilds only stale stages. Typical decisions are:
 
-| Change                              | Rebuilt stages                                           |
-| ----------------------------------- | -------------------------------------------------------- |
-| source sentence                     | plan, changed synthesis units, composition, export       |
-| voice/model/engine                  | synthesis units for the new profile, composition, export |
-| target LUFS or peak policy          | composition, export                                      |
-| MP3/M4A/OGG/WAV or encoder settings | export                                                   |
+| Change                                            | Rebuilt stages                                           |
+| ------------------------------------------------- | -------------------------------------------------------- |
+| source sentence                                   | plan, changed synthesis units, composition, export       |
+| voice/model/engine                                | synthesis units for the new profile, composition, export |
+| target LUFS or peak policy                        | composition, export                                      |
+| Generic WAV/FLAC/MP3/M4A/Ogg/Vorbis/Opus settings | export                                                   |
+
+`readio export` tracks each output independently. Its identity includes the master, format, and normalized effective encoder options: M4A defaults to 192k and Opus defaults to 96k. WAV and FLAC do not accept bitrate options. `.ogg` remains Ogg/Vorbis; `.opus` is separate.
+
+Audiobook M4B is a separate output identity created by `readio audiobook export PROJECT --format m4b`. It includes the composition master and timeline, resolved title/author, explicit cover hash, and AAC bitrate (192k by default). Changing only metadata, cover, or bitrate requires a new M4B encode, not replanning, resynthesis, or recomposition. A master/timeline change follows the normal composition invalidation path. Automatic cover extraction is not supported; pass a JPEG/PNG with `--cover`.
 
 `readio preview PROJECT --select paragraph:1-3 --voice VOICE -o preview.wav`
 uses the same synthesis and composition primitives for a selected range. It

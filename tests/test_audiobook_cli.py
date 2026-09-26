@@ -6,6 +6,7 @@ import pytest
 from audiobook_support import make_epub
 
 from readio import cli
+from readio.api import AudiobookExportResult, ProjectExportResult, ProjectRef
 from readio.audiobook import inspect_epub
 
 
@@ -75,3 +76,146 @@ def test_malformed_epub_json_error_has_no_partial_chapter_list(tmp_path, capsys)
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
     assert "could not read EPUB" in payload["error"]
+
+
+def test_audiobook_export_cli_uses_public_api_options(tmp_path, capsys, monkeypatch) -> None:
+    project_path = tmp_path / "book.readio"
+    output = tmp_path / "custom.m4b"
+    cover = tmp_path / "cover.png"
+    project = ProjectRef(
+        root=project_path,
+        project_id="project-id",
+        name="book",
+        kind="audiobook",
+        source_format="epub",
+    )
+    result = AudiobookExportResult(
+        project=project,
+        output_path=output,
+        format="m4b",
+        output_sha256="sha256:output",
+        export_id="sha256:export",
+        chapter_count=7,
+    )
+    captured = {}
+
+    class FakeAudiobooks:
+        def export(self, project_argument, options):
+            captured["project"] = project_argument
+            captured["options"] = options
+            return result
+
+    class FakeApp:
+        audiobooks = FakeAudiobooks()
+
+    monkeypatch.setattr(cli, "_api_for", lambda args: FakeApp())
+    payload = json.loads(
+        run_cli(
+            [
+                "audiobook",
+                "export",
+                "--format",
+                "m4b",
+                str(project_path),
+                "--title",
+                "Book title",
+                "--author",
+                "Book author",
+                "--cover",
+                str(cover),
+                "--bitrate",
+                "96k",
+                "--output",
+                str(output),
+                "--force",
+                "--json",
+            ],
+            capsys,
+        )
+    )
+
+    assert payload["ok"] is True
+    assert payload["format"] == "m4b"
+    assert payload["chapter_count"] == 7
+    assert captured["project"] == project_path
+    options = captured["options"]
+    assert options.format == "m4b"
+    assert options.title == "Book title"
+    assert options.author == "Book author"
+    assert options.cover == cover
+    assert options.bitrate == "96k"
+    assert options.output == output
+    assert options.force is True
+
+
+def test_export_cli_has_generic_flac_opus_but_not_m4b(tmp_path, capsys) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["export", "--help"])
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "flac" in help_text
+    assert "opus" in help_text
+    assert "m4b" not in help_text
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["audiobook", "export", "--help"])
+    assert exit_info.value.code == 0
+    audiobook_help = capsys.readouterr().out
+    assert "--cover" in audiobook_help
+    assert "M4B output path" in audiobook_help
+
+
+def test_generic_export_cli_forwards_flac_format_and_force(tmp_path, capsys, monkeypatch):
+    project_path = tmp_path / "book.readio"
+    output = tmp_path / "book.flac"
+    project = ProjectRef(
+        root=project_path,
+        project_id="project-id",
+        name="book",
+        kind="document",
+        source_format="epub",
+    )
+    result = ProjectExportResult(
+        project=project,
+        output_path=output,
+        format="flac",
+        output_sha256="sha256:output",
+        export_id="sha256:export",
+    )
+    captured = {}
+
+    class FakeProjects:
+        def export(self, project_argument, options):
+            captured["project"] = project_argument
+            captured["options"] = options
+            return result
+
+    class FakeApp:
+        projects = FakeProjects()
+
+    monkeypatch.setattr(cli, "_api_for", lambda args: FakeApp())
+    payload = json.loads(
+        run_cli(
+            [
+                "export",
+                str(project_path),
+                "--format",
+                "flac",
+                "--bitrate",
+                "320k",
+                "--output",
+                str(output),
+                "--force",
+                "--json",
+            ],
+            capsys,
+        )
+    )
+
+    assert payload["format"] == "flac"
+    assert captured["project"] == project_path
+    options = captured["options"]
+    assert options.format == "flac"
+    assert options.bitrate == "320k"
+    assert options.output == output
+    assert options.force is True

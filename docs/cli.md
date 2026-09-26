@@ -12,7 +12,8 @@ readio plan unbind ROLE [--project PROJECT]
 readio synth PROJECT [--engine ENGINE] [--voice VOICE] [--select SELECTOR]
 readio preview PROJECT --select SELECTOR [--voice VOICE] [-o PREVIEW.wav]
 readio compose PROJECT [--target-lufs FLOAT] [--progress | --no-progress] [--json]
-readio export PROJECT --format {wav,mp3,m4a,ogg}
+readio export PROJECT --format {wav,flac,mp3,m4a,ogg,opus} [--bitrate BITRATE] [--force]
+readio audiobook export PROJECT --format m4b [--title TITLE] [--author AUTHOR] [--cover IMAGE] [--bitrate BITRATE] [--force]
 readio status PROJECT [--json]
 readio render PROJECT --format FORMAT
 ```
@@ -71,7 +72,14 @@ readio audiobook init EPUB [--chapters SPEC] [-o PROJECT] [--json]
 
 Initialization copies the EPUB as provenance and writes each selected chapter as editable Markdown under `document/chapters/`. The Markdown is the semantic input. Editing it does not re-extract the EPUB. If the copied EPUB hash changes, status reports `source.stale.hash_changed`; reinitialize from the updated EPUB instead of silently remapping old chapter numbers. EPUB is not accepted as a direct `InputDocument` format and does not use a separate audiobook renderer.
 
-This first EPUB workflow does not implement M4B encoding or embedded container chapter metadata.
+Export the composed audiobook master with embedded chapter metadata using the audiobook-only command:
+
+```bash
+readio audiobook export PROJECT --format m4b --output book.m4b \
+  --title "Optional title" --author "Optional author" --cover cover.jpg --bitrate 96k
+```
+
+Title and author default from the project's EPUB metadata. `--cover` is optional and accepts an explicit JPEG/PNG file; automatic EPUB cover extraction is not supported in this release. M4B uses AAC with a Readio default bitrate of 192k. Existing unrelated output files require `--force`; unchanged Readio-owned outputs are safely reusable/replaced. Generic `readio export` supports FLAC and Opus; `.ogg` continues to mean Ogg/Vorbis.
 
 ## Persistent project status
 

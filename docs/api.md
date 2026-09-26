@@ -109,6 +109,9 @@ from pathlib import Path
 from readio.api import (
     CompositionOptions,
     ExportOptions,
+    AUDIOBOOK_EXPORT_FORMAT,
+    SUPPORTED_AUDIOBOOK_FORMATS,
+    AudiobookExportOptions,
     ProjectBuildRequest,
     Readio,
 )
@@ -126,7 +129,22 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
 
 `ProjectBuildRequest` carries the stage target, selection, synthesis settings, composition options, and export options. `PreviewRequest` controls a selection and temporary output for a preview. Every lifecycle method returns a typed result, and mutating operations accept `on_event`.
 
-`app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project. `create_project_result()` additionally returns the selected chapter numbers and scope IDs.
+`app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+
+```python
+book = app.projects.open(Path("novel.readio"))
+m4b = app.audiobooks.export(
+    book,
+    AudiobookExportOptions(
+        format=AUDIOBOOK_EXPORT_FORMAT,
+        cover=Path("cover.jpg"),  # optional explicit JPEG/PNG
+        bitrate="96k",
+    ),
+    on_event=handle_event,
+)
+```
+
+Title and author default from the project's EPUB metadata and can be overridden. The audiobook M4B AAC bitrate defaults to 192k; generic M4A also defaults to 192k and generic Opus to 96k. These are Readio defaults, not a claim of TTSForge default parity. M4B identity includes the master/timeline, resolved metadata, explicit cover hash, and effective bitrate.
 
 ## Discovery and roles
 

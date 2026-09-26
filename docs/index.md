@@ -53,9 +53,28 @@ readio render --file notes.md --format m4a
 readio render --file notes.md --format ogg
 ```
 
-WAV is the default. An output suffix selects the encoder, while `--format` selects the automatic output suffix or can be combined with a matching explicit suffix. Extensionless output is normalized to the selected format. M4A requires an `ffmpeg` executable on `PATH`; MP3 and OGG require matching SoundFile/libsndfile codec support.
+Render also supports PCM16 FLAC and Opus; `.ogg` is Ogg/Vorbis and `.opus` is separate:
+
+```bash
+readio render --file notes.md -o notes.flac
+readio render --file notes.md -o notes.opus
+```
+
+WAV is the default. An output suffix selects the encoder, while `--format` selects the automatic output suffix or can be combined with a matching explicit suffix. Extensionless output is normalized to the selected format. M4A and Opus require an `ffmpeg` executable on `PATH`; WAV/FLAC use PCM16, while MP3 and Ogg/Vorbis require matching SoundFile/libsndfile codec support.
 
 With no explicit output path, Readio writes a uniquely named file below the configured output directory. Existing files are not overwritten unless `--force` is supplied for an explicit path.
+
+## Persistent project exports
+
+Generic project export supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus. `.ogg` stays Vorbis; `.opus` is a separate format. Readio defaults M4A to 192k and Opus to 96k; those are Readio defaults and do not assert TTSForge parity.
+
+```bash
+readio export novel.readio --format flac
+readio export novel.readio --format opus --bitrate 96k
+readio audiobook export novel.readio --format m4b --cover cover.jpg
+```
+
+M4B is available only for audiobook projects through `readio audiobook export`. It muxes AAC audio and embedded chapters; title/author default from project metadata and cover art is explicit-only (JPEG/PNG). Readio's M4B AAC default is 192k.
 
 Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`, or `.mkd` are parsed before synthesis; `.ssmd.md` is detected as SSMD before its `.md` suffix. Use `--input-format markdown` for Markdown from stdin or literal text:
 

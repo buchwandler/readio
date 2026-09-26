@@ -13,6 +13,7 @@ from ..config import LanguageSettings, ReaderSettings, ReadioConfig
 from ..document import InputDocument as Document
 from ..document import document_from_file, document_from_text
 from ..engines.base import EngineCapabilities
+from ..formats import AudioFormat
 from ..jsonutil import JsonScalar, JsonValue, json_value
 from ..plan import (
     CompositionOptions,
@@ -23,6 +24,11 @@ from ..plan import (
     SynthesisRequest,
 )
 from ..plan import ReadioPlanV2 as ResolvedPlan
+
+AudiobookExportFormat = Literal["m4b"]
+AUDIOBOOK_EXPORT_FORMAT: AudiobookExportFormat = "m4b"
+SUPPORTED_AUDIOBOOK_FORMATS: tuple[AudiobookExportFormat, ...] = (AUDIOBOOK_EXPORT_FORMAT,)
+SUPPORTED_AUDIOBOOK_EXPORT_FORMATS = SUPPORTED_AUDIOBOOK_FORMATS
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +94,19 @@ class CatalogListing(Generic[T]):
 
 @dataclass(frozen=True, slots=True)
 class ExportOptions:
-    format: str = "wav"
+    format: AudioFormat = "wav"
     output: Path | None = None
+    bitrate: str | None = None
+    force: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AudiobookExportOptions:
+    format: AudiobookExportFormat = AUDIOBOOK_EXPORT_FORMAT
+    output: Path | None = None
+    title: str | None = None
+    author: str | None = None
+    cover: Path | None = None
     bitrate: str | None = None
     force: bool = False
 
@@ -340,6 +357,20 @@ class ProjectExportResult:
     output_path: Path
     format: str
     output_sha256: str
+    export_id: str
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class AudiobookExportResult:
+    project: ProjectRef
+    output_path: Path
+    format: AudiobookExportFormat
+    output_sha256: str
+    export_id: str
+    chapter_count: int
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -790,11 +821,18 @@ class DoctorReport:
 
 
 __all__ = [
+    "AUDIOBOOK_EXPORT_FORMAT",
+    "SUPPORTED_AUDIOBOOK_EXPORT_FORMATS",
+    "SUPPORTED_AUDIOBOOK_FORMATS",
     "UNSET",
+    "AudioFormat",
     "AudioFormatDiagnostic",
     "AudioFormatInfo",
     "AudioSink",
     "AudiobookChapter",
+    "AudiobookExportFormat",
+    "AudiobookExportOptions",
+    "AudiobookExportResult",
     "AudiobookInspection",
     "AudiobookProjectChapter",
     "AudiobookProjectResult",

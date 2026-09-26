@@ -1,6 +1,6 @@
 # readio
 
-`readio` is a terminal text-to-speech tool. It plans speech with UtterPlan, resolves engine targets, and owns segment synthesis orchestration, AudioCompose timelines, and output. It plays local speech, renders WAV, MP3, M4A, or OGG files, and can publish completed audio through the external `save-to-spotify` CLI.
+`readio` is a terminal text-to-speech tool. It plans speech with UtterPlan, resolves engine targets, and owns segment synthesis orchestration, AudioCompose timelines, and output. It plays local speech, renders WAV, FLAC, MP3, M4A, Ogg/Vorbis, or Opus files, exports audiobook M4B with embedded chapters, and can publish completed audio through the external `save-to-spotify` CLI.
 
 ## Install
 
@@ -302,6 +302,15 @@ readio render --file episode.ssmd --format m4a
 readio render "Hello" --format ogg
 ```
 
+Project exports support lossless FLAC and Opus in addition to the existing formats:
+
+```bash
+readio export project.readio --format flac
+readio export project.readio --format opus --bitrate 96k
+```
+
+`.ogg` remains Ogg/Vorbis; `.opus` selects Opus and is a separate format. Readio's generic Opus default is 96k; this is Readio's setting, not a claim of TTSForge default parity.
+
 ## Progress
 
 `render`, `synth`, `preview`, `compose`, project render, and `spotify` report low-noise progress on stderr. It is enabled automatically on an interactive terminal. Use `--progress` to force it or `--no-progress` to suppress it:
@@ -330,9 +339,9 @@ readio speak "literal --verbose" --
 ```
 
 `-v` shows timestamped lifecycle records at INFO level. `-vv` enables DEBUG-level Readio and selected engine details; additional repetitions are clamped to DEBUG. Verbose records always go to stderr, so ordinary output and `--json` results remain on stdout and stay machine-parseable. `--progress` is a separate user-facing progress control. When verbose mode and progress are combined, progress uses line-oriented stderr records instead of in-place terminal rewriting. Logs can contain paths and model or voice identifiers, so review them before sharing and never treat verbose mode as permission to expose document text, audio, or credentials.
-When `-o` is supplied, its `.wav`, `.mp3`, `.m4a`, or `.ogg` suffix selects the encoder. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
+When `-o` is supplied, `.wav`, `.flac`, `.mp3`, `.m4a`, `.ogg`, and `.opus` suffixes select the corresponding render encoder. `.ogg` means Ogg/Vorbis; `.opus` is distinct. Use `--format` when the output path is omitted or to select the automatic filename suffix. An explicit format and suffix must agree. Extensionless output paths receive the selected suffix, and unsupported suffixes fail before synthesis. Automatic names use the configured output directory and never overwrite an existing file. Explicit output remains atomic and requires `--force` for replacement.
 
-M4A output requires an `ffmpeg` executable on `PATH`. WAV uses PCM16, while MP3 and OGG use the installed SoundFile/libsndfile codecs.
+M4A and Opus require an `ffmpeg` executable on `PATH`. WAV and FLAC use PCM16; MP3 and Ogg/Vorbis use the installed SoundFile/libsndfile codecs.
 
 ## SSMD consumption and authoring checks
 
@@ -455,12 +464,14 @@ readio plan
 readio synth --voice en-ko-01
 readio compose
 readio export --format m4a
+readio audiobook export . --format m4b --cover cover.jpg
 # Or build all stale stages with:
 readio render novel.readio --format m4a
 ```
 
 Chapter numbers are the flat, 1-based order reported by `readio audiobook chapters`. Selection is saved during initialization, so later project commands do not need `--chapters`. Edit files under `document/chapters/` to change semantic inputs. Readio replans and resynthesizes only affected content. The copied EPUB is provenance; if it changes, status reports a stale source and the project must be reinitialized rather than silently reimported. EPUB is not a direct render input or a separate build pipeline.
 
-This first EPUB workflow preserves chapter boundaries in the project timeline, but does not implement M4B encoding or embedded container chapter metadata.
+Audiobook projects can be exported separately as M4B with embedded chapters: `readio audiobook export . --format m4b`. Title and author default from the EPUB project metadata and can be overridden with `--title` and `--author`. Readio's AAC bitrate default is 192k; use `--bitrate` to choose another supported bitrate.
 
+Cover art is explicit-only for this first release: pass `--cover cover.jpg` or a PNG path. Readio validates, hashes, attaches, and tracks the image, but does not extract a cover automatically because the installed `epub2text` public API has no cover-extraction API. M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus, never M4B.
 See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout, cache identities, status diagnostics, and invalidation matrix.

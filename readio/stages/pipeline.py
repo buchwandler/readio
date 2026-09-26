@@ -14,7 +14,7 @@ from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, hash_file, read_json
 from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
 from .composition import build_audio_job, compose_artifacts, compose_project
-from .export import export_project
+from .export import export_project, is_export_current, project_export_states
 from .planning import load_scope_plan, plan_project, semantic_status
 from .synthesis import synthesize_project
 
@@ -300,15 +300,16 @@ def project_status(project: Project) -> dict[str, Any]:
         }
     else:
         output = {"stage": "output", "state": "stale", "reason": "output.missing"}
-        output_state = project.root / "output" / "state.json"
-        if output_state.is_file():
-            try:
-                state = read_json(output_state)
-                path = project.root / str(state["path"])
+        try:
+            states = project_export_states(project)
+            current_master_sha = hash_file(project.paths["composition_master"])
+            for state in states:
+                stored_path = Path(str(state.get("path", "")))
+                path = stored_path if stored_path.is_absolute() else project.root / stored_path
                 if (
                     path.is_file()
                     and hash_file(path) == state.get("output_sha256")
-                    and state.get("master_sha256") == hash_file(project.paths["composition_master"])
+                    and state.get("master_sha256") == current_master_sha
                 ):
                     output = {
                         "stage": "output",
@@ -316,14 +317,16 @@ def project_status(project: Project) -> dict[str, Any]:
                         "reason": "current",
                         "format": state.get("audio_format"),
                     }
-                else:
+                    break
+            else:
+                if states:
                     output = {
                         "stage": "output",
                         "state": "stale",
                         "reason": "output.stale.composition_changed",
                     }
-            except (OSError, KeyError, ValueError):
-                output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
+        except (OSError, KeyError, TypeError, ValueError):
+            output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
     stages = [*rows, synthesis, composition, output]
     issues = [issue for row in stages if (issue := _stage_issue(row)) is not None]
     commands = {
@@ -448,26 +451,17 @@ def build_project(
         return {"project": str(project.root), "operations": operations, "output_path": None}
 
     export_options = request.export
-    audio_format = cast(AudioFormat, export_options.format)
+    audio_format = export_options.format
     target = export_options.output or (
         project.root / "output" / f"{project.manifest.name}.{audio_format}"
     )
     if not target.is_absolute():
         target = project.root / target
-    target_record = (
-        target.relative_to(project.root).as_posix()
-        if target == project.root or project.root in target.parents
-        else str(target)
-    )
-    output_state_path = project.root / "output" / "state.json"
-    output_state = read_json(output_state_path) if output_state_path.is_file() else {}
-    master_sha = hash_file(project.paths["composition_master"])
-    current_output = (
-        output_state.get("audio_format") == audio_format
-        and output_state.get("master_sha256") == master_sha
-        and output_state.get("path", target_record) == target_record
-        and target.is_file()
-        and hash_file(target) == output_state.get("output_sha256")
+    current_output = is_export_current(
+        project,
+        target,
+        audio_format=audio_format,
+        bitrate=export_options.bitrate,
     )
     if current_output:
         operations.append({"stage": "export", "action": "skipped", "path": target})
@@ -479,6 +473,7 @@ def build_project(
             audio_format=audio_format,
             bitrate=export_options.bitrate,
             output=target,
+            force=export_options.force,
         )
         operations.append({"stage": "export", "action": "rebuilt", **exported})
         report("export", "rebuilt")
@@ -503,7 +498,7 @@ def render_project(
         selection=selector,
         synthesis=synthesis or SynthesisRequest(language=cfg.reader.lang),
         composition=CompositionOptions(target_lufs=target_lufs),
-        export=ExportOptions(format=audio_format),
+        export=ExportOptions(format=cast(AudioFormat, audio_format)),
     )
     return build_project(
         project,

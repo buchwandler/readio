@@ -322,7 +322,7 @@ def test_render_and_spotify_parse_audio_format():
 
 def test_invalid_audio_format_is_rejected():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["render", "text", "--format", "flac"])
+        build_parser().parse_args(["render", "text", "--format", "m4b"])
 
 
 def test_live_rejects_file_and_selection():

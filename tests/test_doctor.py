@@ -24,9 +24,11 @@ def test_doctor_reports_ssmd_executable_provider_roles_paths_and_audio_formats(
     assert paths["output"]["exists"] is False
     assert {item["id"] for item in result["audio_formats"]} == {
         "wav",
+        "flac",
         "mp3",
         "m4a",
         "ogg",
+        "opus",
     }
 
     assert {"pykokoro", "piper", "pocket"}.issubset({item["id"] for item in result["engines"]})

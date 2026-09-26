@@ -470,7 +470,12 @@ def _cmd_compose(args: argparse.Namespace) -> int:
 def _cmd_export(args: argparse.Namespace) -> int:
     result = _api_for(args).projects.export(
         args.project or Path.cwd(),
-        public_api.ExportOptions(format=args.format, bitrate=args.bitrate, output=args.output),
+        public_api.ExportOptions(
+            format=args.format,
+            bitrate=args.bitrate,
+            output=args.output,
+            force=args.force,
+        ),
     )
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
@@ -606,6 +611,26 @@ def _cmd_audiobook_init(args: argparse.Namespace) -> int:
         for chapter in result.chapters:
             indentation = "  " * max(0, chapter.level - 1)
             print(f"  {chapter.number:>2} {indentation}{chapter.title}")
+    return 0
+
+
+def _cmd_audiobook_export(args: argparse.Namespace) -> int:
+    result = _api_for(args).audiobooks.export(
+        args.project or Path.cwd(),
+        public_api.AudiobookExportOptions(
+            format=args.format,
+            output=args.output,
+            title=args.title,
+            author=args.author,
+            cover=args.cover,
+            bitrate=args.bitrate,
+            force=args.force,
+        ),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
+    else:
+        print(result.output_path)
     return 0
 
 
@@ -1693,6 +1718,24 @@ def build_parser() -> argparse.ArgumentParser:
     audiobook_init.add_argument("--json", action="store_true")
     audiobook_init.set_defaults(func=_cmd_audiobook_init)
 
+    audiobook_export = audiobook_sub.add_parser(
+        "export", help="export an audiobook project master as M4B"
+    )
+    audiobook_export.add_argument("project", nargs="?", type=Path)
+    audiobook_export.add_argument(
+        "--format",
+        choices=public_api.SUPPORTED_AUDIOBOOK_FORMATS,
+        default=public_api.AUDIOBOOK_EXPORT_FORMAT,
+    )
+    audiobook_export.add_argument("--title")
+    audiobook_export.add_argument("--author")
+    audiobook_export.add_argument("--cover", type=Path, help="cover image (.jpg or .png)")
+    audiobook_export.add_argument("--bitrate", help="AAC target bitrate, default: 192k")
+    audiobook_export.add_argument("-o", "--output", type=Path, help="M4B output path")
+    audiobook_export.add_argument("--force", action="store_true", help="replace an existing output")
+    audiobook_export.add_argument("--json", action="store_true")
+    audiobook_export.set_defaults(func=_cmd_audiobook_export)
+
     status_cmd = sub.add_parser("status", help="show persistent project stage freshness")
     status_cmd.add_argument("project", nargs="?", type=Path)
     status_cmd.add_argument("--json", action="store_true")
@@ -1725,6 +1768,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_cmd.add_argument("--format", choices=public_api.SUPPORTED_AUDIO_FORMATS, default="wav")
     export_cmd.add_argument("--bitrate")
     export_cmd.add_argument("-o", "--output", type=Path)
+    export_cmd.add_argument("--force", action="store_true", help="replace an existing output")
     export_cmd.add_argument("--json", action="store_true")
     export_cmd.set_defaults(func=_cmd_export)
 

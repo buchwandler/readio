@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -12,7 +13,6 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
-from .audio import AudioSink
 from .errors import RenderError
 from .formats import AUDIO_FORMATS, AudioFormat, ffmpeg_executable
 
@@ -87,16 +87,43 @@ def _channel_count(audio: np.ndarray) -> int:
     return channels
 
 
+@dataclass(frozen=True, slots=True)
+class FFmpegEncodingSpec:
+    codec: str
+    muxer: str | None
+    default_bitrate: str | None
+    extra_args: tuple[str, ...] = ()
+
+
+FFMPEG_ENCODINGS: dict[AudioFormat, FFmpegEncodingSpec] = {
+    "m4a": FFmpegEncodingSpec(
+        codec="aac",
+        muxer="ipod",
+        default_bitrate="192k",
+        extra_args=("-movflags", "+faststart"),
+    ),
+    "opus": FFmpegEncodingSpec(
+        codec="libopus",
+        muxer="opus",
+        default_bitrate="96k",
+    ),
+}
+
+
 def build_ffmpeg_command(
     executable: str,
     path: Path,
     sample_rate: int,
     channels: int,
     audio_format: AudioFormat = "m4a",
+    bitrate: str | None = None,
 ) -> list[str]:
-    if audio_format != "m4a":
-        raise ValueError(f"FFmpeg output format is not supported: {audio_format}")
-    return [
+    try:
+        spec = FFMPEG_ENCODINGS[audio_format]
+    except KeyError as exc:
+        raise ValueError(f"FFmpeg output format is not supported: {audio_format}") from exc
+    effective_bitrate = bitrate or spec.default_bitrate
+    command = [
         executable,
         "-hide_banner",
         "-loglevel",
@@ -113,23 +140,33 @@ def build_ffmpeg_command(
         "pipe:0",
         "-vn",
         "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-movflags",
-        "+faststart",
-        "-f",
-        "ipod",
-        str(path),
+        spec.codec,
     ]
+    if effective_bitrate is not None:
+        command.extend(("-b:a", effective_bitrate))
+    command.extend(spec.extra_args)
+    if spec.muxer is not None:
+        command.extend(("-f", spec.muxer))
+    command.append(str(path))
+    return command
 
 
-class FFmpegM4ASink:
-    """Stream generated float32 PCM into an FFmpeg M4A encoder."""
+class FFmpegAudioSink:
+    """Stream float32 PCM through a format-configured FFmpeg encoder."""
 
-    def __init__(self, path: Path, *, executable: str | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        audio_format: AudioFormat,
+        *,
+        executable: str | None = None,
+        bitrate: str | None = None,
+    ) -> None:
         self.path = path
+        self.audio_format = audio_format
+        self._encoding = FFMPEG_ENCODINGS[audio_format]
         self._executable = executable or ffmpeg_executable()
+        self._bitrate = bitrate or self._encoding.default_bitrate
         self._process: Any = None
         self._stderr_file: Any = None
         self._sample_rate: int | None = None
@@ -144,7 +181,8 @@ class FFmpegM4ASink:
         if self._process is None:
             if self._executable is None:
                 raise RenderError(
-                    "M4A output requires FFmpeg; install ffmpeg and ensure it is on PATH"
+                    f"{self.audio_format.upper()} output requires FFmpeg; "
+                    "install ffmpeg and ensure it is on PATH"
                 )
             self._sample_rate = sample_rate
             self._channels = channels
@@ -154,6 +192,8 @@ class FFmpegM4ASink:
                 self.path,
                 sample_rate,
                 channels,
+                self.audio_format,
+                bitrate=self._bitrate,
             )
             try:
                 self._process = subprocess.Popen(
@@ -162,9 +202,10 @@ class FFmpegM4ASink:
                     stderr=self._stderr_file,
                 )
             except OSError as exc:
-                self._stderr_file.close()
-                self._stderr_file = None
-                raise RenderError(f"failed to start FFmpeg for M4A: {exc}") from exc
+                self._close_stderr()
+                raise RenderError(
+                    f"failed to start FFmpeg for {self.audio_format.upper()}: {exc}"
+                ) from exc
         elif sample_rate != self._sample_rate or channels != self._channels:
             raise ValueError("all rendered chunks must use the same sample rate and channel count")
 
@@ -172,7 +213,9 @@ class FFmpegM4ASink:
             assert self._process.stdin is not None
             self._process.stdin.write(np.asarray(audio, dtype="<f4", order="C").tobytes())
         except (BrokenPipeError, OSError) as exc:
-            raise RenderError(f"FFmpeg failed while encoding M4A: {exc}") from exc
+            raise RenderError(
+                f"FFmpeg failed while encoding {self.audio_format.upper()}: {exc}"
+            ) from exc
         self.sample_count += len(audio)
 
     def close(self) -> None:
@@ -189,7 +232,7 @@ class FFmpegM4ASink:
             if returncode:
                 detail = self._stderr_detail()
                 message = detail or f"process exited with status {returncode}"
-                raise RenderError(f"FFmpeg failed to encode M4A: {message}")
+                raise RenderError(f"FFmpeg failed to encode {self.audio_format.upper()}: {message}")
         finally:
             self._close_stderr()
 
@@ -198,7 +241,7 @@ class FFmpegM4ASink:
             return ""
         self._stderr_file.seek(0)
         lines = self._stderr_file.read().decode("utf-8", errors="replace").splitlines()
-        return lines[-1].strip() if lines else ""
+        return "\n".join(line.strip() for line in lines[-3:] if line.strip())
 
     def _close_stderr(self) -> None:
         if self._stderr_file is not None:
@@ -226,7 +269,7 @@ class FFmpegM4ASink:
         finally:
             self._close_stderr()
 
-    def __enter__(self) -> FFmpegM4ASink:  # noqa: PYI034
+    def __enter__(self) -> FFmpegAudioSink:  # noqa: PYI034
         return self
 
     def __exit__(
@@ -241,7 +284,9 @@ class FFmpegM4ASink:
             self.close()
 
 
-def create_audio_sink(path: Path, audio_format: AudioFormat) -> AudioSink:
+def create_audio_sink(
+    path: Path, audio_format: AudioFormat, *, bitrate: str | None = None
+) -> SoundFileSink | FFmpegAudioSink:
     spec = AUDIO_FORMATS[audio_format]
     if spec.backend == "soundfile":
         assert spec.soundfile_format is not None
@@ -252,7 +297,7 @@ def create_audio_sink(path: Path, audio_format: AudioFormat) -> AudioSink:
             subtype=spec.soundfile_subtype,
         )
     if spec.backend == "ffmpeg":
-        return FFmpegM4ASink(path)
+        return FFmpegAudioSink(path, audio_format, bitrate=bitrate)
     raise AssertionError(f"unknown audio backend: {spec.backend}")
 
 
