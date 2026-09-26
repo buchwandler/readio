@@ -3,9 +3,9 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 1
+  revision: 2
 entry_id: entry-0004
-release_version: v0.2.5
+release_version: v0.3.0
 kind: docs
 summary:
   Documented compose progress flags, stderr separation, approximate ETA scope,
