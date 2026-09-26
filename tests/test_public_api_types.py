@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from readio.api import (
+    AudiobookProjectChapter,
+    AudiobookProjectDescription,
     CompositionOptions,
     Diagnostic,
     DiscoveryOptions,
@@ -25,6 +27,7 @@ from readio.api import (
     StageOperation,
     StageStatus,
     SynthesisRequest,
+    SynthesisResolution,
     document_from_file,
     document_from_text,
 )
@@ -52,6 +55,46 @@ def test_public_request_defaults_and_document_helpers(tmp_path: Path) -> None:
     assert DiscoveryOptions().preference == "auto"
     assert ExportOptions().format == "wav"
     assert ProjectBuildRequest().target == "export"
+
+
+def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializable(
+    tmp_path: Path,
+) -> None:
+    project = ProjectRef(
+        root=tmp_path / "book.readio",
+        project_id="book-1",
+        name="Book",
+        kind="audiobook",
+        source_format="epub",
+    )
+    chapter = AudiobookProjectChapter(
+        number=3, scope_id="chapter-0003", title="Chapter Three", level=1
+    )
+    description = AudiobookProjectDescription(
+        project=project,
+        source=project.root / "source" / "book.epub",
+        chapters=(chapter,),
+    )
+    resolution = SynthesisResolution(
+        engine="pykokoro",
+        language="en-us",
+        voice="af_heart",
+        model="kokoro-v1",
+        model_source="github",
+        quality="fp32",
+        speed=1.0,
+        unit="paragraph",
+        pause_mode="auto",
+        voice_level="off",
+        provider="kokoro",
+    )
+
+    description_payload = json.loads(json.dumps(description.to_dict()))
+    resolution_payload = json.loads(json.dumps(resolution.to_dict()))
+    assert description_payload["chapters"][0]["scope_id"] == "chapter-0003"
+    assert resolution_payload["model_source"] == "github"
+    with pytest.raises(FrozenInstanceError):
+        resolution.engine = "piper"  # type: ignore[misc]
 
 
 def test_synthesis_engine_options_are_json_compatible_and_frozen() -> None:

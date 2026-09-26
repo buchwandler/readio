@@ -10,6 +10,7 @@ from .. import audiobook as audiobook_internal
 from .. import errors as core_errors
 from .. import jsonutil
 from .. import project as project_internal
+from ..project_model import ProjectFormatError as InternalProjectFormatError
 from ..stages import audiobook_export as audiobook_export_internal
 from . import errors as api_errors
 from .events import EventHandler, ReadioEvent, compose_event_handlers
@@ -21,6 +22,7 @@ from .types import (
     AudiobookExportResult,
     AudiobookInspection,
     AudiobookProjectChapter,
+    AudiobookProjectDescription,
     AudiobookProjectResult,
     Diagnostic,
     ProjectLike,
@@ -32,6 +34,26 @@ if TYPE_CHECKING:
 
 
 T = TypeVar("T")
+
+
+def _audiobook_chapters(
+    project: project_internal.Project,
+) -> tuple[AudiobookProjectChapter, ...]:
+    chapters = []
+    for scope in project.document_scopes():
+        if scope.source_number is None:
+            raise InternalProjectFormatError(
+                f"audiobook project scope {scope.id!r} has no source chapter number"
+            )
+        chapters.append(
+            AudiobookProjectChapter(
+                number=scope.source_number,
+                scope_id=scope.id,
+                title=scope.title or f"Chapter {scope.source_number}",
+                level=scope.level or 1,
+            )
+        )
+    return tuple(chapters)
 
 
 class AudiobookService:
@@ -94,17 +116,24 @@ class AudiobookService:
             lambda: audiobook_internal.init_audiobook_project(source, output, chapters)
         )
         project_ref = self._project_ref(project)
-        selected = tuple(
-            AudiobookProjectChapter(
-                number=cast(int, scope.source_number),
-                scope_id=scope.id,
-                title=scope.title or f"Chapter {scope.source_number or 1}",
-                level=scope.level or 1,
-            )
-            for scope in project.document_scopes()
-        )
+        selected = _audiobook_chapters(project)
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
         return AudiobookProjectResult(project=project_ref, source=source, chapters=selected)
+
+    def describe_project(self, project: ProjectLike) -> AudiobookProjectDescription:
+        """Describe the persisted chapter scope of an existing audiobook project."""
+        project_path = project.root if isinstance(project, ProjectRef) else project
+        internal = self._call(lambda: project_internal.load_project(project_path))
+        if internal.manifest.kind != "audiobook":
+            raise api_errors.InvalidRequestError(
+                "project is not an audiobook project",
+                code="audiobook.project_kind_invalid",
+            )
+        return AudiobookProjectDescription(
+            project=self._project_ref(internal),
+            source=internal.path(internal.manifest.source_path),
+            chapters=self._call(lambda: _audiobook_chapters(internal)),
+        )
 
     def export(
         self,
@@ -251,6 +280,17 @@ class AudiobookService:
                 source_path=Path(error.filename) if error.filename else None,
                 code="input.not_found",
             ) from error
+        except InternalProjectFormatError as error:
+            raise api_errors.ProjectFormatError(str(error), code="project.invalid") from error
+        except project_internal.ProjectError as error:
+            message = str(error)
+            if "locked" in message.lower():
+                raise api_errors.ProjectConflictError(message, code="project.locked") from error
+            if "not a Readio project" in message:
+                raise api_errors.ProjectNotFoundError(message, code="project.not_found") from error
+            if "already exists" in message:
+                raise api_errors.ProjectConflictError(message, code="project.conflict") from error
+            raise api_errors.ProjectError(message, code="project.invalid") from error
         except (TypeError, ValueError, KeyError) as error:
             message = str(error)
             if "already exists" in message:

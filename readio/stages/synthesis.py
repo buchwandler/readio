@@ -441,6 +441,17 @@ def _resolve_profile(
     return resolved, adapter, profile
 
 
+def resolve_project_synthesis(
+    project: Project, cfg: Any, request: PlanRequest | None = None
+) -> tuple[PlanRequest, Any, Any, SynthesisProfile]:
+    """Resolve a project's effective engine selection without synthesis side effects."""
+    effective_request = _project_request_with_voice_bindings(
+        project, cfg, _request_for_project(project, cfg, request)
+    )
+    resolved, adapter, profile = _resolve_profile(project, cfg, effective_request)
+    return effective_request, resolved, adapter, profile
+
+
 def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEvent) -> None:
     if on_event is not None:
         on_event(event)
@@ -886,10 +897,7 @@ def synthesize_project(
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
-        request = _project_request_with_voice_bindings(
-            project, cfg, _request_for_project(project, cfg, request)
-        )
-        resolved, adapter, profile = _resolve_profile(project, cfg, request)
+        request, resolved, adapter, profile = resolve_project_synthesis(project, cfg, request)
         route = _build_project_synthesis_route(
             project,
             cfg,

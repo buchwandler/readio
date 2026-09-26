@@ -13,7 +13,7 @@ from ..stages.composition import compose_project
 from ..stages.export import export_project
 from ..stages.pipeline import _project_request, build_project, preview_project, project_status
 from ..stages.planning import plan_project
-from ..stages.synthesis import synthesize_project
+from ..stages.synthesis import resolve_project_synthesis, synthesize_project
 from .errors import (
     ExecutionError,
     ProjectConflictError,
@@ -51,6 +51,7 @@ from .types import (
     StageOperation,
     StageStatus,
     SynthesisRequest,
+    SynthesisResolution,
 )
 
 if TYPE_CHECKING:
@@ -170,6 +171,48 @@ class ProjectService:
             for planned in result.scopes
         )
         return ProjectPlanResult(self._ref(internal), scopes)
+
+    def resolve_synthesis(
+        self,
+        project: ProjectLike,
+        request: SynthesisRequest | None = None,
+        *,
+        voice_bindings: Mapping[str, str] | None = None,
+    ) -> SynthesisResolution:
+        """Resolve effective project synthesis settings without rendering audio."""
+        internal = self._load(project)
+        request = request or SynthesisRequest()
+        project_request = _project_request(
+            internal, self._app.config, request, voice_bindings=voice_bindings
+        )
+        _effective_request, resolved, adapter, _profile = self._call(
+            lambda: resolve_project_synthesis(internal, self._app.config, project_request)
+        )
+        selection = resolved.selection
+        if selection is None:
+            raise ValueError("project synthesis has no effective engine selection")
+        options = selection.options
+        diagnostics = tuple(
+            Diagnostic.from_plan(item)
+            for item in resolved.plan.diagnostics
+            if item.severity != "error"
+        )
+        return SynthesisResolution(
+            engine=selection.engine,
+            language=selection.language,
+            voice=selection.voice,
+            model=str(selection.metadata.get("model") or selection.target_id),
+            model_source=cast(str | None, options.get("model_source")),
+            quality=cast(str | None, options.get("quality")),
+            speed=float(options.get("speed", self._app.config.reader.speed)),
+            unit=resolved.plan.planning.unit,
+            pause_mode=resolved.plan.planning.pause_mode,
+            voice_level=cast(str | None, options.get("voice_level")),
+            spacy=resolved.plan.planning.spacy,
+            short_sentence=cast(str | None, options.get("short_sentence")),
+            provider=adapter.capabilities().voice_binding_namespace,
+            diagnostics=diagnostics,
+        )
 
     def synthesize(
         self,

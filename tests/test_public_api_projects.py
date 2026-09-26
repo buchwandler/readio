@@ -11,23 +11,31 @@ from project_support import Adapter
 from readio.api import (
     AudiobookChapter,
     AudiobookInspection,
+    AudiobookProjectDescription,
     AudiobookProjectResult,
     CompositionOptions,
     ExportOptions,
+    InvalidRequestError,
     PreviewRequest,
     ProjectBuildRequest,
     ProjectBuildResult,
     ProjectConflictError,
+    ProjectFormatError,
     ProjectNotFoundError,
     ProjectPlanResult,
     ProjectRef,
     ProjectStatus,
     ProjectSynthesisResult,
     Readio,
+    SynthesisResolution,
 )
-from readio.config import ReaderSettings, ReadioConfig
+from readio.config import LanguageSettings, ReaderSettings, ReadioConfig, VoiceProviderSettings
 from readio.engines.registry import _registry
 from readio.plan import SynthesisRequest
+
+
+def _project_snapshot(root: Path) -> dict[Path, bytes]:
+    return {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
 
 
 def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
@@ -145,6 +153,200 @@ def test_audiobook_inspection_and_project_creation_are_typed(tmp_path: Path) -> 
     assert isinstance(creation, AudiobookProjectResult)
     assert creation.selected_chapters == 2
     assert [chapter.number for chapter in creation.chapters] == [2, 3]
+
+
+def test_describe_reopened_audiobook_project_returns_persisted_chapters(tmp_path: Path) -> None:
+    source = tmp_path / "book.epub"
+    make_epub(source)
+    app = Readio(ReadioConfig())
+    created = app.audiobooks.create_project_result(
+        source, chapters="2-3", output=tmp_path / "book.readio"
+    )
+    reopened = app.projects.open(created.project.root)
+
+    description = app.audiobooks.describe_project(reopened)
+
+    assert isinstance(description, AudiobookProjectDescription)
+    assert description.project == created.project
+    assert description.source == created.project.root / "source" / "book.epub"
+    assert description.chapters == created.chapters
+    payload = json.loads(json.dumps(description.to_dict()))
+    assert [chapter["number"] for chapter in payload["chapters"]] == [2, 3]
+    assert [chapter["scope_id"] for chapter in payload["chapters"]] == [
+        "chapter-0002",
+        "chapter-0003",
+    ]
+    assert all(chapter["title"] and chapter["level"] for chapter in payload["chapters"])
+
+
+def test_describe_project_rejects_non_audiobook_and_translates_load_errors(
+    tmp_path: Path,
+) -> None:
+    app = Readio(ReadioConfig())
+    source = tmp_path / "document.txt"
+    source.write_text("Not an audiobook.", encoding="utf-8")
+    document_project = app.projects.create(source, output=tmp_path / "document.readio")
+    with pytest.raises(InvalidRequestError) as wrong_kind:
+        app.audiobooks.describe_project(document_project)
+    assert wrong_kind.value.code == "audiobook.project_kind_invalid"
+
+    with pytest.raises(ProjectNotFoundError) as missing:
+        app.audiobooks.describe_project(tmp_path / "missing.readio")
+    assert missing.value.code == "project.not_found"
+
+    epub = tmp_path / "book.epub"
+    make_epub(epub)
+    audiobook = app.audiobooks.create_project(epub, output=tmp_path / "book.readio")
+    (audiobook.root / "document" / "index.json").write_text("{", encoding="utf-8")
+    with pytest.raises(ProjectFormatError) as corrupt:
+        app.audiobooks.describe_project(audiobook)
+    assert corrupt.value.code == "project.invalid"
+
+
+def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    config = ReadioConfig(
+        reader=ReaderSettings(
+            engine="fake",
+            voice="reader-voice",
+            lang="en-us",
+            speed=1.25,
+            unit="sentence",
+            pause_mode="manual",
+            voice_level="calibrated",
+        ),
+        languages={
+            "en-us": LanguageSettings(
+                engine="fake",
+                model="profile-model",
+                source="profile-source",
+                quality="profile-quality",
+                voice="profile-voice",
+            )
+        },
+    )
+    app = Readio(config)
+    source = tmp_path / "preflight.txt"
+    source.write_text("Preflight only.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "preflight.readio")
+    before = _project_snapshot(project.root)
+
+    resolution = app.projects.resolve_synthesis(project)
+
+    assert isinstance(resolution, SynthesisResolution)
+    assert resolution.engine == "fake"
+    assert resolution.language == "en-us"
+    assert resolution.voice == "reader-voice"
+    assert resolution.model == "profile-model"
+    assert resolution.model_source == "profile-source"
+    assert resolution.quality == "profile-quality"
+    assert resolution.speed == 1.25
+    assert resolution.unit == "sentence"
+    assert resolution.pause_mode == "manual"
+    assert resolution.voice_level == "calibrated"
+    assert resolution.provider == "fake"
+    assert adapter.open_calls == 0
+    assert _project_snapshot(project.root) == before
+    assert json.loads(json.dumps(resolution.to_dict()))["model"] == "profile-model"
+
+
+def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(
+        ReadioConfig(
+            reader=ReaderSettings(engine="fake", voice="reader-voice"),
+            voices={"fake": VoiceProviderSettings(ids=("bound-voice", "project-voice"), roles={})},
+        )
+    )
+    source = tmp_path / "voices.ssmd"
+    source.write_text(
+        "---\nssmd_version: '0.9'\n---\n[Bound voice.]{voice=\"narrator\"}",
+        encoding="utf-8",
+    )
+    project = app.projects.create(source, output=tmp_path / "voices.readio")
+
+    request = SynthesisRequest(
+        engine="fake",
+        language="fr-fr",
+        model="explicit-model",
+        model_source="explicit-source",
+        quality="explicit-quality",
+        speed=1.75,
+        voice_level="off",
+        unit="paragraph",
+        pause_mode="tts",
+        spacy="off",
+        short_sentence="phrase",
+    )
+    resolution = app.projects.resolve_synthesis(
+        project, request, voice_bindings={"narrator": "bound-voice"}
+    )
+
+    assert resolution.language == "fr-fr"
+    assert resolution.voice == "bound-voice"
+    assert resolution.model == "explicit-model"
+    assert resolution.model_source == "explicit-source"
+    assert resolution.quality == "explicit-quality"
+    assert resolution.speed == 1.75
+    assert resolution.voice_level == "off"
+    assert resolution.unit == "paragraph"
+    assert resolution.pause_mode == "tts"
+    assert resolution.spacy == "off"
+    assert resolution.short_sentence == "phrase"
+    assert adapter.open_calls == 0
+    app.roles.bind_project(project, "narrator", "project-voice", provider="fake")
+    persisted = app.projects.resolve_synthesis(project, SynthesisRequest(engine="fake"))
+    assert persisted.voice == "project-voice"
+    assert adapter.open_calls == 0
+
+
+def test_resolve_synthesis_matches_actual_profile_and_rejects_invalid_voice(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "parity.txt"
+    source.write_text("Execution parity.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "parity.readio")
+    app.projects.plan(project)
+    request = SynthesisRequest(engine="fake", voice="fake-voice", speed=1.4)
+    before = _project_snapshot(project.root)
+
+    resolution = app.projects.resolve_synthesis(project, request)
+
+    assert _project_snapshot(project.root) == before
+    assert adapter.open_calls == 0
+    result = app.projects.synthesize(project, request)
+    profile = json.loads((project.root / "synthesis" / "profile.json").read_text())
+    canonical = profile["canonical"]
+
+    assert result.profile_id == profile["profile_id"]
+    assert resolution.engine == canonical["engine"]
+    actual_selection = canonical.get("targets", {}).get(resolution.voice, canonical)
+    assert resolution.model == actual_selection["target_id"]
+    assert resolution.voice == actual_selection["voice"]
+    assert adapter.open_calls == 1
+
+    original_resolve = adapter.resolve
+
+    def reject_bad_voice(engine_request):
+        if engine_request.voice == "invalid-selector":
+            raise ValueError("unknown voice selector 'invalid-selector'")
+        return original_resolve(engine_request)
+
+    monkeypatch.setattr(adapter, "resolve", reject_bad_voice)
+    with pytest.raises(InvalidRequestError, match="unknown voice selector") as invalid:
+        app.projects.resolve_synthesis(
+            project, SynthesisRequest(engine="fake", voice="invalid-selector")
+        )
+    assert invalid.value.code == "request.invalid"
 
 
 def test_project_errors_are_translated_to_public_types(tmp_path: Path) -> None:

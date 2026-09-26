@@ -220,6 +220,27 @@ class AudiobookProjectResult:
 
 
 @dataclass(frozen=True, slots=True)
+class AudiobookProjectDescription:
+    """Persisted chapter scope for an existing audiobook project."""
+
+    project: ProjectRef
+    source: Path
+    chapters: tuple[AudiobookProjectChapter, ...]
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(
+            dict[str, JsonValue],
+            json_value(
+                {
+                    "project": self.project.to_dict(),
+                    "source": self.source,
+                    "chapters": self.chapters,
+                }
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AudiobookChapter:
     number: int
     source_id: str
@@ -334,6 +355,29 @@ class ProjectSynthesisResult:
     rendered: int
     activated: bool
     selected_units: int = 0
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class SynthesisResolution:
+    """Effective project synthesis settings resolved without rendering audio."""
+
+    engine: str
+    language: str
+    voice: str | None
+    model: str | None
+    model_source: str | None
+    quality: str | None
+    speed: float
+    unit: str
+    pause_mode: str
+    voice_level: str | None
+    spacy: str | None = None
+    short_sentence: str | None = None
+    provider: str | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -835,6 +879,7 @@ __all__ = [
     "AudiobookExportResult",
     "AudiobookInspection",
     "AudiobookProjectChapter",
+    "AudiobookProjectDescription",
     "AudiobookProjectResult",
     "CompositionOptions",
     "ConfigurationInitResult",
@@ -893,6 +938,7 @@ __all__ = [
     "StageOperation",
     "StageStatus",
     "SynthesisRequest",
+    "SynthesisResolution",
     "SynthesisTargetInfo",
     "TargetQuery",
     "TemplateInfo",

@@ -130,6 +130,27 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
 `ProjectBuildRequest` carries the stage target, selection, synthesis settings, composition options, and export options. `PreviewRequest` controls a selection and temporary output for a preview. Every lifecycle method returns a typed result, and mutating operations accept `on_event`.
 
 `app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+`describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
+
+`app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, and supported planning/provider settings. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
+
+Resolution is for preflight, validation, and UI display. It does not render audio, open an engine session, activate a profile, or mutate persistent synthesis/build state. It reports the same effective selection semantics used by actual project synthesis.
+
+```python
+from pathlib import Path
+from readio.api import Readio, SynthesisRequest
+
+app = Readio()
+project = app.projects.open(Path("novel.readio"))
+book = app.audiobooks.describe_project(project)
+for chapter in book.chapters:
+    print(chapter.number, chapter.title, chapter.scope_id)
+
+request = SynthesisRequest(voice="af_heart", speed=1.0)
+resolved = app.projects.resolve_synthesis(project, request)
+print(resolved.engine, resolved.language, resolved.voice)
+print(resolved.model, resolved.model_source, resolved.quality)
+```
 
 ```python
 book = app.projects.open(Path("novel.readio"))

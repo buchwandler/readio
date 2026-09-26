@@ -19,6 +19,8 @@ def test_public_import_surface_and_typing_marker() -> None:
     assert "PlanRequest" in readio.api.__all__
     assert "ConfigurationInitResult" in readio.api.__all__
     assert "LanguageProfileResolution" in readio.api.__all__
+    assert "AudiobookProjectDescription" in readio.api.__all__
+    assert "SynthesisResolution" in readio.api.__all__
     assert "LanguageProfilePatch" in readio.api.__all__
     assert "ProjectRoleMutationResult" in readio.api.__all__
     assert "ReadioEvent" in readio.api.__all__
