@@ -69,7 +69,9 @@ def test_guides_have_required_identity_and_sections():
         h1 = re.search(r"^# (.+)$", text, flags=re.MULTILINE).group(1)
         assert "Readio" in h1 and "SSMD" in h1
         assert "ssmd_version: '0.9'" in section(text, "Target runtime"), path.name
-        assert "ssmd_version: '0.9'" in section(text, "Recommended default header"), path.name
+        assert re.search(
+            r"(?m)^ssmd_version: (?:'0\.9'|\"0\.9\")$", section(text, "Recommended default header")
+        ), path.name
         assert "ssmd_version: '0.9'" in section(text, "Minimal pattern example"), path.name
         headings = set(re.findall(r"^## (.+)$", text, flags=re.MULTILINE))
         assert REQUIRED_SECTIONS <= headings, path.name
