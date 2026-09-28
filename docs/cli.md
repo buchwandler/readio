@@ -1,5 +1,20 @@
 # CLI reference: project pipeline
 
+## Getting help
+
+```bash
+readio
+readio --help
+readio render --help
+readio audiobook --help
+```
+
+Running `readio` without arguments prints the root command overview. Use `-h` or `--help` on the root command and on individual commands.
+
+Command groups show their child-command help when invoked without a child. `readio plan` is the intentional exception: it builds a plan for the current project.
+
+Use `readio engines` to list known synthesis engines and `readio formats` to list generic audio and audiobook output formats. Both commands support `--json`.
+
 ## Project lifecycle
 
 ```text

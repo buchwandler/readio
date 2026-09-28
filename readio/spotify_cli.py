@@ -29,6 +29,7 @@ from .api.integrations.spotify import (
     SpotifyService,
     SpotifyUploadRequest,
 )
+from .cli_help import show_help
 from .progress import TerminalProgress
 
 logger = logging.getLogger(__name__)
@@ -440,9 +441,12 @@ def cmd_spotify_doctor(args: argparse.Namespace) -> int:
 
 def add_spotify_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     spotify = subparsers.add_parser(
-        "spotify", help="render, upload, and inspect media through save-to-spotify"
+        "spotify", help="Publish and inspect media through save-to-spotify."
     )
-    spotify_sub = spotify.add_subparsers(dest="spotify_command", required=True)
+    spotify.set_defaults(func=show_help, _help_parser=spotify)
+    spotify_sub = spotify.add_subparsers(
+        dest="spotify_command", required=False, title="Commands", metavar="COMMAND"
+    )
 
     publish = spotify_sub.add_parser("publish", help="render Readio input and publish an episode")
     _add_input_options(publish)

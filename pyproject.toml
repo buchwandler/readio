@@ -23,6 +23,7 @@ dependencies = [
   "markdown-it-py>=3.0,<5.0",
   "epub2text>=0.2.8,<0.3",
   "mdit-py-plugins>=0.4,<1.0",
+  "rich-argparse>=1.7,<2",
 ]
 [project.optional-dependencies]
 kokoro = ['pykokoro[playback]>=0.10.0,<0.11']

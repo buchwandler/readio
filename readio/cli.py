@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from . import __version__, cli_adapter
 from . import api as public_api
+from .cli_help import ReadioArgumentParser, show_help
 from .cli_present import format_plan_human
 from .jsonutil import json_value as _json_value
 from .logging_config import MAX_VERBOSITY, configure_logging
@@ -1595,6 +1596,66 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_engines(args: argparse.Namespace) -> int:
+    engines = _api_for(args).catalog.engines()
+    if args.json:
+        print(
+            json.dumps(
+                {"ok": True, "engines": [engine.to_dict() for engine in engines]},
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print(f"{'ENGINE':<10} {'VERSION':<8} {'STATUS':<20} DEPENDENCY")
+    for engine in engines:
+        if engine.runnable:
+            status = "ready"
+        elif not engine.installed:
+            status = "missing_dependency"
+        else:
+            status = "unavailable"
+        print(
+            f"{engine.id:<10} {engine.version or '-':<8} {status:<20} "
+            f"{engine.missing_dependency or '-'}"
+        )
+    return 0
+
+
+def _cmd_formats(args: argparse.Namespace) -> int:
+    audio_formats = _api_for(args).catalog.audio_formats()
+    audiobook_formats = [
+        {"id": format_id, "suffix": f".{format_id}"}
+        for format_id in public_api.SUPPORTED_AUDIOBOOK_FORMATS
+    ]
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "audio": [item.to_dict() for item in audio_formats],
+                    "audiobook": audiobook_formats,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print("Generic audio formats")
+    print(f"{'FORMAT':<8} {'SUFFIX':<8} STATUS")
+    for item in audio_formats:
+        status = "available" if item.available else "unavailable"
+        print(f"{item.id:<8} {item.suffix:<8} {status}")
+        if not item.available and item.reason:
+            print(f"  {item.reason}")
+    print()
+    print("Audiobook formats")
+    print(f"{'FORMAT':<8} SUFFIX")
+    for item in audiobook_formats:
+        print(f"{item['id']:<8} {item['suffix']}")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace | None) -> int:
     report = _api_for(args or argparse.Namespace()).diagnostics.run()
     if args is None or getattr(args, "json", False):
@@ -1611,7 +1672,13 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="readio", description="Stream text to PyKokoro TTS")
+    parser = ReadioArgumentParser(
+        prog="readio",
+        usage="%(prog)s [OPTIONS] COMMAND [ARGS]...",
+        description=(
+            "Plan, synthesize, compose, and export speech and audiobooks with multiple TTS engines."
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "-v",
@@ -1620,14 +1687,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="show internal diagnostics; repeat (-vv) for debug-level detail",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="request machine-readable output when supported by the selected command",
+    )
+    sub = parser.add_subparsers(dest="command", required=True, title="Commands", metavar="COMMAND")
 
-    speak = sub.add_parser("speak", help="read text aloud")
+    speak = sub.add_parser("speak", help="Play text or a document as speech.")
     _add_input_options(speak)
     _add_runtime_options(speak)
     speak.set_defaults(func=_cmd_speak)
 
-    render = sub.add_parser("render", help="render text to an audio file")
+    render = sub.add_parser("render", help="Render text or a document to an audio file.")
     _add_input_options(render)
     _add_audio_output_options(render)
     render.add_argument(
@@ -1656,7 +1728,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_cmd = sub.add_parser(
         "plan",
-        help="build a project plan or inspect and bind its SSMD roles",
+        help="Build project speech plans and manage project role voices.",
     )
     plan_cmd.add_argument("--json", action="store_true", help="emit JSON output")
     plan_cmd.set_defaults(func=_cmd_plan_build, project=None)
@@ -1693,19 +1765,25 @@ def build_parser() -> argparse.ArgumentParser:
     plan_unbind.add_argument("--project", type=Path)
     plan_unbind.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     plan_unbind.set_defaults(func=_cmd_plan_unbind)
-    project_cmd = sub.add_parser("project", help="create or maintain a persistent Readio project")
-    project_sub = project_cmd.add_subparsers(dest="project_command", required=True)
+    project_cmd = sub.add_parser("project", help="Create and manage persistent Readio projects.")
+    project_cmd.set_defaults(func=show_help, _help_parser=project_cmd)
+    project_sub = project_cmd.add_subparsers(
+        dest="project_command", required=False, title="Commands", metavar="COMMAND"
+    )
     project_init = project_sub.add_parser(
         "init", help="initialize a project from a source document"
     )
     project_init.add_argument("source", type=Path)
     project_init.add_argument("-o", "--output", type=Path)
     project_init.add_argument("--json", action="store_true")
-    project_cmd.set_defaults(func=_cmd_project)
+    project_init.set_defaults(func=_cmd_project)
     audiobook_cmd = sub.add_parser(
-        "audiobook", help="inspect EPUB chapters and initialize audiobook projects"
+        "audiobook", help="Inspect EPUBs and create/export audiobook projects."
     )
-    audiobook_sub = audiobook_cmd.add_subparsers(dest="audiobook_command", required=True)
+    audiobook_cmd.set_defaults(func=show_help, _help_parser=audiobook_cmd)
+    audiobook_sub = audiobook_cmd.add_subparsers(
+        dest="audiobook_command", required=False, title="Commands", metavar="COMMAND"
+    )
     audiobook_chapters = audiobook_sub.add_parser("chapters", help="list selectable EPUB chapters")
     audiobook_chapters.add_argument("source", type=Path)
     audiobook_chapters.add_argument("--json", action="store_true")
@@ -1737,12 +1815,14 @@ def build_parser() -> argparse.ArgumentParser:
     audiobook_export.add_argument("--json", action="store_true")
     audiobook_export.set_defaults(func=_cmd_audiobook_export)
 
-    status_cmd = sub.add_parser("status", help="show persistent project stage freshness")
+    status_cmd = sub.add_parser(
+        "status", help="Show project pipeline state and recommended next actions."
+    )
     status_cmd.add_argument("project", nargs="?", type=Path)
     status_cmd.add_argument("--json", action="store_true")
     status_cmd.set_defaults(func=_cmd_status)
 
-    synth_cmd = sub.add_parser("synth", help="incrementally synthesize a Readio project")
+    synth_cmd = sub.add_parser("synth", help="Synthesize missing or stale project speech.")
     synth_cmd.add_argument("project", nargs="?", type=Path)
     synth_cmd.add_argument("--select", default="all")
     _add_synthesis_options(synth_cmd)
@@ -1751,7 +1831,9 @@ def build_parser() -> argparse.ArgumentParser:
     synth_cmd.add_argument("--json", action="store_true")
     synth_cmd.set_defaults(func=_cmd_synth)
 
-    compose_cmd = sub.add_parser("compose", help="compose persisted project synthesis audio")
+    compose_cmd = sub.add_parser(
+        "compose", help="Assemble synthesized project audio into a master."
+    )
     compose_cmd.add_argument("project", nargs="?", type=Path)
     compose_cmd.add_argument("--target-lufs", type=float)
     compose_cmd.add_argument("--sample-rate", type=int)
@@ -1764,7 +1846,7 @@ def build_parser() -> argparse.ArgumentParser:
     compose_cmd.add_argument("--json", action="store_true")
     compose_cmd.set_defaults(func=_cmd_compose)
 
-    export_cmd = sub.add_parser("export", help="encode a composed project master")
+    export_cmd = sub.add_parser("export", help="Encode a composed project master.")
     export_cmd.add_argument("project", nargs="?", type=Path)
     export_cmd.add_argument("--format", choices=public_api.SUPPORTED_AUDIO_FORMATS, default="wav")
     export_cmd.add_argument("--bitrate")
@@ -1773,7 +1855,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_cmd.add_argument("--json", action="store_true")
     export_cmd.set_defaults(func=_cmd_export)
 
-    preview_cmd = sub.add_parser("preview", help="synthesize and compose a selected project range")
+    preview_cmd = sub.add_parser("preview", help="Render a selected project range for review.")
     preview_cmd.add_argument("project", nargs="?", type=Path)
     preview_cmd.add_argument("--select", default="first:3")
     preview_cmd.add_argument("--target-lufs", type=float)
@@ -1789,8 +1871,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_spotify_parser(sub)
 
-    models = sub.add_parser("models", help="discover PyKokoro runtime models")
-    models_sub = models.add_subparsers(dest="models_command", required=True)
+    models = sub.add_parser("models", help="List synthesis models and targets.")
+    models.set_defaults(func=show_help, _help_parser=models)
+    models_sub = models.add_subparsers(
+        dest="models_command", required=False, title="Commands", metavar="COMMAND"
+    )
     models_list = models_sub.add_parser("list", help="list registry models and capabilities")
     models_list.add_argument("--language")
     models_list.add_argument("--status")
@@ -1811,8 +1896,19 @@ def build_parser() -> argparse.ArgumentParser:
     models_show.add_argument("--refresh", action="store_true")
     models_show.set_defaults(func=_cmd_models)
 
-    lexicons = sub.add_parser("lexicons", help="discover named synthesis lexicons")
-    lexicons_sub = lexicons.add_subparsers(dest="lexicons_command", required=True)
+    engines = sub.add_parser("engines", help="Show synthesis engines known to Readio.")
+    engines.add_argument("--json", action="store_true", help="emit one JSON result object")
+    engines.set_defaults(func=_cmd_engines)
+
+    formats = sub.add_parser("formats", help="List generic and audiobook output formats.")
+    formats.add_argument("--json", action="store_true", help="emit one JSON result object")
+    formats.set_defaults(func=_cmd_formats)
+
+    lexicons = sub.add_parser("lexicons", help="List named pronunciation lexicons.")
+    lexicons.set_defaults(func=show_help, _help_parser=lexicons)
+    lexicons_sub = lexicons.add_subparsers(
+        dest="lexicons_command", required=False, title="Commands", metavar="COMMAND"
+    )
     lexicons_list = lexicons_sub.add_parser("list", help="list named lexicon selectors")
     lexicons_list.add_argument("--lang", "--language", dest="language")
     lexicons_list.add_argument("--model")
@@ -1837,8 +1933,11 @@ def build_parser() -> argparse.ArgumentParser:
     lexicons_show.add_argument("--json", action="store_true")
     lexicons_show.set_defaults(func=_cmd_lexicons)
 
-    defaults = sub.add_parser("defaults", help="manage per-language synthesis defaults")
-    defaults_sub = defaults.add_subparsers(dest="defaults_command", required=True)
+    defaults = sub.add_parser("defaults", help="Manage per-language synthesis defaults.")
+    defaults.set_defaults(func=show_help, _help_parser=defaults)
+    defaults_sub = defaults.add_subparsers(
+        dest="defaults_command", required=False, title="Commands", metavar="COMMAND"
+    )
     defaults_list = defaults_sub.add_parser("list", help="list persisted language defaults")
     defaults_list.add_argument("--json", action="store_true")
     defaults_list.set_defaults(func=_cmd_defaults)
@@ -1886,8 +1985,11 @@ def build_parser() -> argparse.ArgumentParser:
     defaults_reset.add_argument("--json", action="store_true")
     defaults_reset.set_defaults(func=_cmd_defaults)
 
-    voices = sub.add_parser("voices", help="discover runnable voices and short selectors")
-    voices_sub = voices.add_subparsers(dest="voices_command", required=True)
+    voices = sub.add_parser("voices", help="List and inspect runnable voices.")
+    voices.set_defaults(func=show_help, _help_parser=voices)
+    voices_sub = voices.add_subparsers(
+        dest="voices_command", required=False, title="Commands", metavar="COMMAND"
+    )
     voices_list = voices_sub.add_parser("list", help="list runnable registry voices")
     voices_list.add_argument(
         "--lang",
@@ -1926,8 +2028,11 @@ def build_parser() -> argparse.ArgumentParser:
     voices_show.add_argument("--json", action="store_true")
     voices_show.set_defaults(func=_cmd_voices)
 
-    roles = sub.add_parser("roles", help="manage persistent SSMD role bindings")
-    roles_sub = roles.add_subparsers(dest="roles_command", required=True)
+    roles = sub.add_parser("roles", help="Manage persistent SSMD role bindings.")
+    roles.set_defaults(func=show_help, _help_parser=roles)
+    roles_sub = roles.add_subparsers(
+        dest="roles_command", required=False, title="Commands", metavar="COMMAND"
+    )
     roles_list = roles_sub.add_parser("list", help="list configured logical roles")
     roles_list.add_argument("--provider")
     roles_list.add_argument("--json", action="store_true")
@@ -1960,8 +2065,11 @@ def build_parser() -> argparse.ArgumentParser:
     legacy_unbind.add_argument("--json", action="store_true")
     legacy_unbind.set_defaults(func=_cmd_roles, roles_command="unbind", legacy_roles=True)
 
-    ssmd = sub.add_parser("ssmd", help="inspect SSMD documents")
-    ssmd_sub = ssmd.add_subparsers(dest="ssmd_command", required=True)
+    ssmd = sub.add_parser("ssmd", help="Validate and author SSMD documents.")
+    ssmd.set_defaults(func=show_help, _help_parser=ssmd)
+    ssmd_sub = ssmd.add_subparsers(
+        dest="ssmd_command", required=False, title="Commands", metavar="COMMAND"
+    )
     bind = ssmd_sub.add_parser("bind", help="materialize explicit voice bindings")
     bind.add_argument("file", type=Path)
     bind.add_argument("--voice-bind", action="append", default=[], metavar="ROLE=VOICE_ID")
@@ -1976,54 +2084,80 @@ def build_parser() -> argparse.ArgumentParser:
     _add_voice_resolution_options(check)
     check.set_defaults(func=_cmd_ssmd)
 
-    cfg = sub.add_parser("config", help="manage persistent configuration")
-    cfg_sub = cfg.add_subparsers(dest="config_command", required=True)
-    cfg_sub.add_parser("path", help="print config path")
-    cfg_sub.add_parser("show", help="show effective persisted config as JSON")
-    init = cfg_sub.add_parser("init", help="write the default config")
+    cfg = sub.add_parser("config", help="Inspect and update Readio configuration.")
+    cfg.set_defaults(func=show_help, _help_parser=cfg)
+    cfg_sub = cfg.add_subparsers(
+        dest="config_command", required=False, title="Commands", metavar="COMMAND"
+    )
+    cfg_path = cfg_sub.add_parser("path", help="Print the configuration file path.")
+    cfg_path.set_defaults(func=_cmd_config)
+    cfg_show = cfg_sub.add_parser("show", help="Show effective configuration as JSON.")
+    cfg_show.set_defaults(func=_cmd_config)
+    init = cfg_sub.add_parser("init", help="Write the default configuration.")
     init.add_argument("--force", action="store_true")
-    cfg_sub.add_parser("validate", help="validate the effective configuration")
-    set_cmd = cfg_sub.add_parser("set", help="set one dotted config key")
+    init.set_defaults(func=_cmd_config)
+    cfg_validate = cfg_sub.add_parser("validate", help="Validate the effective configuration.")
+    cfg_validate.set_defaults(func=_cmd_config)
+    set_cmd = cfg_sub.add_parser("set", help="Set one dotted configuration key.")
     set_cmd.add_argument("key")
     set_cmd.add_argument("value")
-    cfg.set_defaults(func=_cmd_config)
+    set_cmd.set_defaults(func=_cmd_config)
 
-    template = sub.add_parser("template", help="manage user templates")
-    template_sub = template.add_subparsers(dest="template_command", required=True)
-    path_cmd = template_sub.add_parser("path")
+    template = sub.add_parser("template", help="Manage user SSMD templates.")
+    template.set_defaults(func=show_help, _help_parser=template)
+    template_sub = template.add_subparsers(
+        dest="template_command", required=False, title="Commands", metavar="COMMAND"
+    )
+    path_cmd = template_sub.add_parser(
+        "path", help="Show the template directory or one template path."
+    )
     path_cmd.add_argument("name", nargs="?")
-    template_sub.add_parser("list")
-    validate_template = template_sub.add_parser("validate")
+    path_cmd.set_defaults(func=_cmd_template)
+    template_list = template_sub.add_parser("list", help="List installed templates.")
+    template_list.set_defaults(func=_cmd_template)
+    validate_template = template_sub.add_parser(
+        "validate", help="Validate one template or all installed templates."
+    )
     validate_template.add_argument("name", nargs="?")
     validate_template.add_argument("--all", action="store_true")
     validate_template.add_argument("--roundtrip", action="store_true")
     validate_template.add_argument("--json", action="store_true")
-    show_cmd = template_sub.add_parser("show")
+    validate_template.set_defaults(func=_cmd_template)
+    show_cmd = template_sub.add_parser("show", help="Show one template.")
     show_cmd.add_argument("name")
-    add_cmd = template_sub.add_parser("add")
+    show_cmd.set_defaults(func=_cmd_template)
+    add_cmd = template_sub.add_parser("add", help="Add a user template.")
     add_cmd.add_argument("name")
     add_cmd.add_argument("--file", type=Path)
     add_cmd.add_argument("--force", action="store_true")
-    remove_cmd = template_sub.add_parser("remove")
+    add_cmd.set_defaults(func=_cmd_template)
+    remove_cmd = template_sub.add_parser("remove", help="Remove a user template.")
     remove_cmd.add_argument("name")
-    reset_cmd = template_sub.add_parser("reset")
+    remove_cmd.set_defaults(func=_cmd_template)
+    reset_cmd = template_sub.add_parser("reset", help="Reset one or all user templates.")
     reset_cmd.add_argument("name", nargs="?")
     reset_cmd.add_argument("--all", action="store_true")
-    use_cmd = template_sub.add_parser("use")
+    reset_cmd.set_defaults(func=_cmd_template)
+    use_cmd = template_sub.add_parser("use", help="Create an ingest file from a template.")
     use_cmd.add_argument("name_template")
     use_cmd.add_argument("--name")
-    template.set_defaults(func=_cmd_template)
+    use_cmd.set_defaults(func=_cmd_template)
 
-    ingest = sub.add_parser("ingest", help="manage ingest files")
-    ingest_sub = ingest.add_subparsers(dest="ingest_command", required=True)
-    ingest_sub.add_parser("path")
-    new_cmd = ingest_sub.add_parser("new")
+    ingest = sub.add_parser("ingest", help="Manage Readio ingest files.")
+    ingest.set_defaults(func=show_help, _help_parser=ingest)
+    ingest_sub = ingest.add_subparsers(
+        dest="ingest_command", required=False, title="Commands", metavar="COMMAND"
+    )
+    ingest_path = ingest_sub.add_parser("path", help="Show the ingest directory.")
+    ingest_path.set_defaults(func=_cmd_ingest)
+    new_cmd = ingest_sub.add_parser("new", help="Create a new ingest file.")
     new_cmd.add_argument("--name")
     new_cmd.add_argument("--template")
-    ingest_sub.add_parser("list")
-    ingest.set_defaults(func=_cmd_ingest)
+    new_cmd.set_defaults(func=_cmd_ingest)
+    ingest_list = ingest_sub.add_parser("list", help="List ingest files.")
+    ingest_list.set_defaults(func=_cmd_ingest)
 
-    doctor = sub.add_parser("doctor", help="check runtime dependencies and storage")
+    doctor = sub.add_parser("doctor", help="Check dependencies, engines, paths, and formats.")
     doctor.set_defaults(func=_cmd_doctor)
     doctor.add_argument("--json", action="store_true", help="emit one JSON result object")
     return parser
@@ -2065,6 +2199,9 @@ def _log_command_error(args: argparse.Namespace, exc: Exception) -> None:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if not raw_argv:
+        parser.print_help()
+        raise SystemExit(0)
     normalized_argv, global_options = _extract_global_options(raw_argv)
     args = parser.parse_args(normalized_argv)
     if global_options.json:

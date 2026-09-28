@@ -32,6 +32,18 @@ Install a compatible local spaCy language model separately. Readio never downloa
 
 Use `readio.api` from Python applications for typed synchronous speech, project, catalog, configuration, and diagnostics services. Start with the [Python API guide](docs/api.md) and executable [planning example](examples/python_api.py).
 
+## CLI help and discovery
+
+```bash
+readio
+readio --help
+readio COMMAND --help
+readio engines
+readio formats
+```
+
+Running `readio` without arguments shows the command overview. `readio engines` lists known synthesis backends, and `readio formats` lists generic audio and audiobook output formats. See [CLI reference](docs/cli.md) for help behavior and examples.
+
 ## Playback
 
 ```bash

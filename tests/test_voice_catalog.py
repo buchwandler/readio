@@ -81,9 +81,12 @@ def test_catalog_consumes_packaged_onnxvoice_en_us_registry() -> None:
     )
     v1_0_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.0")
     v1_1_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.1-zh")
-    details = lambda voices: tuple(
-        VoiceMetadata(voice, "unknown", "en", "en-US", "American English") for voice in voices
-    )
+
+    def details(voices: tuple[str, ...]) -> tuple[VoiceMetadata, ...]:
+        return tuple(
+            VoiceMetadata(voice, "unknown", "en", "en-US", "American English") for voice in voices
+        )
+
     catalog = build_voice_catalog(
         (
             model("v1.0", v1_0_voices, details(v1_0_voices)),
