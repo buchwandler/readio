@@ -1,0 +1,1067 @@
+ .../data/ledgers/main/events/events.jsonl          |   6 +
+ .../main/releases/v0.3.1/audit/commit-audit.yaml   |  56 ++
+ .../main/releases/v0.3.1/entries/entry-0001.md     |  37 ++
+ .../data/ledgers/main/releases/v0.3.1/release.md   |  27 +
+ .../releaseledger/work/v0.3.1/audit-decisions.yaml |  20 +
+ .ledger/releaseledger/work/v0.3.1/audit.yaml       |  40 ++
+ .ledger/releaseledger/work/v0.3.1/entries.yaml     |  32 +
+ .../work/v0.3.1/evidence/86a3aec.patch             | 706 +++++++++++++++++++++
+ .../work/v0.3.1/evidence/manifest.json             |  36 ++
+ .ledger/releaseledger/work/v0.3.1/range.json       |  13 +
+ docs/changelog.md                                  |   8 +
+ 11 files changed, 981 insertions(+)
+
+diff --git a/.ledger/releaseledger/data/ledgers/main/events/events.jsonl b/.ledger/releaseledger/data/ledgers/main/events/events.jsonl
+index 3a853a8..afb66c5 100644
+--- a/.ledger/releaseledger/data/ledgers/main/events/events.jsonl
++++ b/.ledger/releaseledger/data/ledgers/main/events/events.jsonl
+@@ -87,3 +87,9 @@
+ {"data":{"kind":"docs","status":"accepted"},"entry_id":"entry-0004","event":"entry.added","event_id":"event-0087","record_revisions":{"entry:v0.2.5/entry-0004":1,"release:v0.2.5":5},"release_version":"v0.2.5","schema_version":2}
+ {"data":{"audit_rewritten":false,"old_release_version":"v0.2.5","reason":null,"replace_canceled_target":false,"rewrote_successors":false},"event":"release.renamed","event_id":"event-0088","record_revisions":{"entry:v0.3.0/entry-0001":3,"entry:v0.3.0/entry-0002":3,"entry:v0.3.0/entry-0003":2,"entry:v0.3.0/entry-0004":2,"release:v0.3.0":6},"release_version":"v0.3.0","schema_version":2}
+ {"data":{"released_at":"2026-09-26"},"event":"release.finalized","event_id":"event-0089","record_revisions":{"release:v0.3.0":7},"release_version":"v0.3.0","schema_version":2}
++{"data":{"status":"planned"},"event":"release.created","event_id":"event-0090","record_revisions":{"release:v0.3.1":1},"release_version":"v0.3.1","schema_version":2}
++{"data":{"fields":["git_base_ref","git_base_sha","git_commit_count","git_head_ref","git_head_sha","git_range"]},"event":"release.updated","event_id":"event-0091","record_revisions":{"release:v0.3.1":2},"release_version":"v0.3.1","schema_version":2}
++{"data":{"row_count":1},"event":"audit.created","event_id":"event-0092","record_revisions":{"commit_audit_sheet":1},"release_version":"v0.3.1","schema_version":2}
++{"data":{"updated_rows":1},"event":"audit.updated","event_id":"event-0093","record_revisions":{"commit_audit_sheet":2},"release_version":"v0.3.1","schema_version":2}
++{"data":{"entry_ids":["entry-0001"],"synced_audit_rows":1},"event":"entry.batch_added","event_id":"event-0094","record_revisions":{"commit_audit_sheet":3,"entry:v0.3.1/entry-0001":1,"release:v0.3.1":3},"release_version":"v0.3.1","schema_version":2}
++{"data":{"released_at":"2026-09-26"},"event":"release.finalized","event_id":"event-0095","record_revisions":{"release:v0.3.1":4},"release_version":"v0.3.1","schema_version":2}
+diff --git a/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/audit/commit-audit.yaml b/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/audit/commit-audit.yaml
+new file mode 100644
+index 0000000..9dcfd16
+--- /dev/null
++++ b/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/audit/commit-audit.yaml
+@@ -0,0 +1,56 @@
++schema_version: 1
++object_type: commit_audit_sheet
++versioning:
++  schema_version: 1
++  revision: 3
++release_version: v0.3.1
++git_base_ref: v0.3.0
++git_base_sha: b00d42ac1b78971c18349253e1bc566ba9032ca1
++git_head_ref: HEAD
++git_head_sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++git_range: b00d42ac1b78971c18349253e1bc566ba9032ca1..86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++commit_count: 1
++rows:
++  - sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    source_ref: git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    short_sha: 86a3aec
++    changed_paths:
++      - .taskledger/ledgers/main/indexes/active_locks.json
++      - .taskledger/ledgers/main/indexes/dependencies.json
++      - .taskledger/ledgers/main/indexes/introductions.json
++      - docs/api.md
++      - readio/api/__init__.py
++      - readio/api/audiobooks.py
++      - readio/api/projects.py
++      - readio/api/types.py
++      - readio/stages/synthesis.py
++      - tests/test_public_api_imports.py
++      - tests/test_public_api_projects.py
++      - tests/test_public_api_types.py
++    stats:
++      files_changed: 12
++      insertions: 427
++      deletions: 15
++    inspected: true
++    inspected_paths:
++      - docs/api.md
++      - readio/api/__init__.py
++      - readio/api/audiobooks.py
++      - readio/api/projects.py
++      - readio/api/types.py
++      - readio/stages/synthesis.py
++      - tests/test_public_api_imports.py
++      - tests/test_public_api_projects.py
++      - tests/test_public_api_types.py
++    observed_behavior:
++      Added public APIs for describing persisted audiobook chapters
++      and resolving effective synthesis settings without rendering audio; documented
++      both APIs and covered serialization, validation, request overrides, and no-mutation
++      behavior with tests. Releaseledger index files in .taskledger were excluded from
++      inspection per the release workflow boundary.
++    public_impact: public
++    decision: accepted
++    stale: false
++    evidence_subject: "feat: audiobook api improved"
++    target_entry_id: entry-0001
++    notes: Public API additions; .taskledger index artifacts are not release behavior.
+diff --git a/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/entries/entry-0001.md b/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/entries/entry-0001.md
+new file mode 100644
+index 0000000..4eec068
+--- /dev/null
++++ b/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/entries/entry-0001.md
+@@ -0,0 +1,37 @@
++---
++schema_version: 2
++object_type: release_entry
++versioning:
++  schema_version: 1
++  revision: 1
++entry_id: entry-0001
++release_version: v0.3.1
++kind: added
++summary:
++  Added audiobook chapter descriptions and non-rendering synthesis resolution
++  to the public API
++status: accepted
++audience: null
++scopes: []
++source_refs:
++  - git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++paths:
++  - docs/api.md
++  - readio/api/__init__.py
++  - readio/api/audiobooks.py
++  - readio/api/projects.py
++  - readio/api/types.py
++  - readio/stages/synthesis.py
++  - tests/test_public_api_imports.py
++  - tests/test_public_api_projects.py
++  - tests/test_public_api_types.py
++issues: []
++prs: []
++sources:
++  - git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++contributors:
++  - "@holgern"
++breaking: false
++internal: false
++order: 1
++---
+diff --git a/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/release.md b/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/release.md
+new file mode 100644
+index 0000000..cf7d2de
+--- /dev/null
++++ b/.ledger/releaseledger/data/ledgers/main/releases/v0.3.1/release.md
+@@ -0,0 +1,27 @@
++---
++schema_version: 2
++object_type: release
++versioning:
++  schema_version: 1
++  revision: 4
++version: v0.3.1
++status: released
++history_state: curated
++title: null
++released_at: "2026-09-26"
++previous_version: v0.3.0
++cancel_reason: null
++superseded_by: null
++changelog_file: docs/changelog.md
++boundary_ref: null
++source_refs: []
++source_count: null
++entry_count: 1
++artifact_count: 0
++git_base_ref: v0.3.0
++git_base_sha: b00d42ac1b78971c18349253e1bc566ba9032ca1
++git_head_ref: HEAD
++git_head_sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++git_range: b00d42ac1b78971c18349253e1bc566ba9032ca1..86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++git_commit_count: 1
++---
+diff --git a/.ledger/releaseledger/work/v0.3.1/audit-decisions.yaml b/.ledger/releaseledger/work/v0.3.1/audit-decisions.yaml
+new file mode 100644
+index 0000000..1948fbf
+--- /dev/null
++++ b/.ledger/releaseledger/work/v0.3.1/audit-decisions.yaml
+@@ -0,0 +1,20 @@
++rows:
++  - sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    inspected: true
++    inspected_paths:
++      - docs/api.md
++      - readio/api/__init__.py
++      - readio/api/audiobooks.py
++      - readio/api/projects.py
++      - readio/api/types.py
++      - readio/stages/synthesis.py
++      - tests/test_public_api_imports.py
++      - tests/test_public_api_projects.py
++      - tests/test_public_api_types.py
++    observed_behavior: Added public APIs for describing persisted audiobook chapters and resolving effective synthesis settings without rendering audio; documented both APIs and covered serialization, validation, request overrides, and no-mutation behavior with tests. Releaseledger index files in .taskledger were excluded from inspection per the release workflow boundary.
++    public_impact: public
++    decision: accepted
++    target_entry_key: null
++    target_entry_id: null
++    notes: Public API additions; .taskledger index artifacts are not release behavior.
++    stale: false
+diff --git a/.ledger/releaseledger/work/v0.3.1/audit.yaml b/.ledger/releaseledger/work/v0.3.1/audit.yaml
+new file mode 100644
+index 0000000..902ee70
+--- /dev/null
++++ b/.ledger/releaseledger/work/v0.3.1/audit.yaml
+@@ -0,0 +1,40 @@
++schema_version: 1
++object_type: commit_audit_sheet
++versioning:
++  schema_version: 1
++  revision: 1
++release_version: v0.3.1
++git_base_ref: v0.3.0
++git_base_sha: b00d42ac1b78971c18349253e1bc566ba9032ca1
++git_head_ref: HEAD
++git_head_sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++git_range: b00d42ac1b78971c18349253e1bc566ba9032ca1..86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++commit_count: 1
++rows:
++  - sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    source_ref: git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    short_sha: 86a3aec
++    changed_paths:
++      - .taskledger/ledgers/main/indexes/active_locks.json
++      - .taskledger/ledgers/main/indexes/dependencies.json
++      - .taskledger/ledgers/main/indexes/introductions.json
++      - docs/api.md
++      - readio/api/__init__.py
++      - readio/api/audiobooks.py
++      - readio/api/projects.py
++      - readio/api/types.py
++      - readio/stages/synthesis.py
++      - tests/test_public_api_imports.py
++      - tests/test_public_api_projects.py
++      - tests/test_public_api_types.py
++    stats:
++      files_changed: 12
++      insertions: 427
++      deletions: 15
++    inspected: false
++    inspected_paths: []
++    observed_behavior: ""
++    public_impact: unknown
++    decision: needs_review
++    stale: false
++    evidence_subject: "feat: audiobook api improved"
+diff --git a/.ledger/releaseledger/work/v0.3.1/entries.yaml b/.ledger/releaseledger/work/v0.3.1/entries.yaml
+new file mode 100644
+index 0000000..f5e3bbe
+--- /dev/null
++++ b/.ledger/releaseledger/work/v0.3.1/entries.yaml
+@@ -0,0 +1,32 @@
++schema: releaseledger.entry-batch.v1
++operation: create
++schema_version: 1
++object_type: release_entry_batch
++release_version: v0.3.1
++git_base_ref: b00d42ac1b78971c18349253e1bc566ba9032ca1
++git_base_sha: b00d42ac1b78971c18349253e1bc566ba9032ca1
++git_head_ref: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++git_head_sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++include_merges: nontrivial
++entries:
++  - kind: added
++    summary: Added audiobook chapter descriptions and non-rendering synthesis resolution to the public API
++    status: accepted
++    source_refs:
++      - git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    paths:
++      - docs/api.md
++      - readio/api/__init__.py
++      - readio/api/audiobooks.py
++      - readio/api/projects.py
++      - readio/api/types.py
++      - readio/stages/synthesis.py
++      - tests/test_public_api_imports.py
++      - tests/test_public_api_projects.py
++      - tests/test_public_api_types.py
++    sources:
++      - git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
++    prs: []
++    issues: []
++    contributors:
++      - "@holgern"
+diff --git a/.ledger/releaseledger/work/v0.3.1/evidence/86a3aec.patch b/.ledger/releaseledger/work/v0.3.1/evidence/86a3aec.patch
+new file mode 100644
+index 0000000..6a3cd92
+--- /dev/null
++++ b/.ledger/releaseledger/work/v0.3.1/evidence/86a3aec.patch
+@@ -0,0 +1,706 @@
++ .taskledger/ledgers/main/indexes/active_locks.json |   1 +
++ .taskledger/ledgers/main/indexes/dependencies.json |   1 +
++ .../ledgers/main/indexes/introductions.json        |   1 +
++ docs/api.md                                        |  21 +++
++ readio/api/__init__.py                             |   4 +
++ readio/api/audiobooks.py                           |  58 +++++-
++ readio/api/projects.py                             |  45 ++++-
++ readio/api/types.py                                |  46 +++++
++ readio/stages/synthesis.py                         |  16 +-
++ tests/test_public_api_imports.py                   |   2 +
++ tests/test_public_api_projects.py                  | 204 ++++++++++++++++++++-
++ tests/test_public_api_types.py                     |  43 +++++
++ 12 files changed, 427 insertions(+), 15 deletions(-)
++
++diff --git a/.taskledger/ledgers/main/indexes/active_locks.json b/.taskledger/ledgers/main/indexes/active_locks.json
++new file mode 100644
++index 0000000..fe51488
++--- /dev/null
+++++ b/.taskledger/ledgers/main/indexes/active_locks.json
++@@ -0,0 +1 @@
+++[]
++diff --git a/.taskledger/ledgers/main/indexes/dependencies.json b/.taskledger/ledgers/main/indexes/dependencies.json
++new file mode 100644
++index 0000000..fe51488
++--- /dev/null
+++++ b/.taskledger/ledgers/main/indexes/dependencies.json
++@@ -0,0 +1 @@
+++[]
++diff --git a/.taskledger/ledgers/main/indexes/introductions.json b/.taskledger/ledgers/main/indexes/introductions.json
++new file mode 100644
++index 0000000..fe51488
++--- /dev/null
+++++ b/.taskledger/ledgers/main/indexes/introductions.json
++@@ -0,0 +1 @@
+++[]
++diff --git a/docs/api.md b/docs/api.md
++index 2eb8c70..36229ca 100644
++--- a/docs/api.md
+++++ b/docs/api.md
++@@ -130,6 +130,27 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
++ `ProjectBuildRequest` carries the stage target, selection, synthesis settings, composition options, and export options. `PreviewRequest` controls a selection and temporary output for a preview. Every lifecycle method returns a typed result, and mutating operations accept `on_event`.
++
++ `app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+++`describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
+++
+++`app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, and supported planning/provider settings. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
+++
+++Resolution is for preflight, validation, and UI display. It does not render audio, open an engine session, activate a profile, or mutate persistent synthesis/build state. It reports the same effective selection semantics used by actual project synthesis.
+++
+++```python
+++from pathlib import Path
+++from readio.api import Readio, SynthesisRequest
+++
+++app = Readio()
+++project = app.projects.open(Path("novel.readio"))
+++book = app.audiobooks.describe_project(project)
+++for chapter in book.chapters:
+++    print(chapter.number, chapter.title, chapter.scope_id)
+++
+++request = SynthesisRequest(voice="af_heart", speed=1.0)
+++resolved = app.projects.resolve_synthesis(project, request)
+++print(resolved.engine, resolved.language, resolved.voice)
+++print(resolved.model, resolved.model_source, resolved.quality)
+++```
++
++ ```python
++ book = app.projects.open(Path("novel.readio"))
++diff --git a/readio/api/__init__.py b/readio/api/__init__.py
++index bdde433..f16bc76 100644
++--- a/readio/api/__init__.py
+++++ b/readio/api/__init__.py
++@@ -77,6 +77,7 @@ from .types import (
++     AudiobookExportResult,
++     AudiobookInspection,
++     AudiobookProjectChapter,
+++    AudiobookProjectDescription,
++     AudiobookProjectResult,
++     AudioFormat,
++     AudioFormatDiagnostic,
++@@ -140,6 +141,7 @@ from .types import (
++     StageOperation,
++     StageStatus,
++     SynthesisRequest,
+++    SynthesisResolution,
++     SynthesisTargetInfo,
++     TargetQuery,
++     TemplateInfo,
++@@ -177,6 +179,7 @@ __all__ = [
++     "AudiobookExportResult",
++     "AudiobookInspection",
++     "AudiobookProjectChapter",
+++    "AudiobookProjectDescription",
++     "AudiobookProjectResult",
++     "CatalogDiscovery",
++     "CatalogListing",
++@@ -276,6 +279,7 @@ __all__ = [
++     "StageOperation",
++     "StageStatus",
++     "SynthesisRequest",
+++    "SynthesisResolution",
++     "SynthesisTarget",
++     "SynthesisTargetInfo",
++     "TargetQuery",
++diff --git a/readio/api/audiobooks.py b/readio/api/audiobooks.py
++index a52a8f7..8ce8bd2 100644
++--- a/readio/api/audiobooks.py
+++++ b/readio/api/audiobooks.py
++@@ -10,6 +10,7 @@ from .. import audiobook as audiobook_internal
++ from .. import errors as core_errors
++ from .. import jsonutil
++ from .. import project as project_internal
+++from ..project_model import ProjectFormatError as InternalProjectFormatError
++ from ..stages import audiobook_export as audiobook_export_internal
++ from . import errors as api_errors
++ from .events import EventHandler, ReadioEvent, compose_event_handlers
++@@ -21,6 +22,7 @@ from .types import (
++     AudiobookExportResult,
++     AudiobookInspection,
++     AudiobookProjectChapter,
+++    AudiobookProjectDescription,
++     AudiobookProjectResult,
++     Diagnostic,
++     ProjectLike,
++@@ -34,6 +36,26 @@ if TYPE_CHECKING:
++ T = TypeVar("T")
++
++
+++def _audiobook_chapters(
+++    project: project_internal.Project,
+++) -> tuple[AudiobookProjectChapter, ...]:
+++    chapters = []
+++    for scope in project.document_scopes():
+++        if scope.source_number is None:
+++            raise InternalProjectFormatError(
+++                f"audiobook project scope {scope.id!r} has no source chapter number"
+++            )
+++        chapters.append(
+++            AudiobookProjectChapter(
+++                number=scope.source_number,
+++                scope_id=scope.id,
+++                title=scope.title or f"Chapter {scope.source_number}",
+++                level=scope.level or 1,
+++            )
+++        )
+++    return tuple(chapters)
+++
+++
++ class AudiobookService:
++     """Inspect EPUB chapters and create ordinary chapter-scoped projects."""
++
++@@ -94,18 +116,25 @@ class AudiobookService:
++             lambda: audiobook_internal.init_audiobook_project(source, output, chapters)
++         )
++         project_ref = self._project_ref(project)
++-        selected = tuple(
++-            AudiobookProjectChapter(
++-                number=cast(int, scope.source_number),
++-                scope_id=scope.id,
++-                title=scope.title or f"Chapter {scope.source_number or 1}",
++-                level=scope.level or 1,
++-            )
++-            for scope in project.document_scopes()
++-        )
+++        selected = _audiobook_chapters(project)
++         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
++         return AudiobookProjectResult(project=project_ref, source=source, chapters=selected)
++
+++    def describe_project(self, project: ProjectLike) -> AudiobookProjectDescription:
+++        """Describe the persisted chapter scope of an existing audiobook project."""
+++        project_path = project.root if isinstance(project, ProjectRef) else project
+++        internal = self._call(lambda: project_internal.load_project(project_path))
+++        if internal.manifest.kind != "audiobook":
+++            raise api_errors.InvalidRequestError(
+++                "project is not an audiobook project",
+++                code="audiobook.project_kind_invalid",
+++            )
+++        return AudiobookProjectDescription(
+++            project=self._project_ref(internal),
+++            source=internal.path(internal.manifest.source_path),
+++            chapters=self._call(lambda: _audiobook_chapters(internal)),
+++        )
+++
++     def export(
++         self,
++         project: ProjectLike,
++@@ -251,6 +280,17 @@ class AudiobookService:
++                 source_path=Path(error.filename) if error.filename else None,
++                 code="input.not_found",
++             ) from error
+++        except InternalProjectFormatError as error:
+++            raise api_errors.ProjectFormatError(str(error), code="project.invalid") from error
+++        except project_internal.ProjectError as error:
+++            message = str(error)
+++            if "locked" in message.lower():
+++                raise api_errors.ProjectConflictError(message, code="project.locked") from error
+++            if "not a Readio project" in message:
+++                raise api_errors.ProjectNotFoundError(message, code="project.not_found") from error
+++            if "already exists" in message:
+++                raise api_errors.ProjectConflictError(message, code="project.conflict") from error
+++            raise api_errors.ProjectError(message, code="project.invalid") from error
++         except (TypeError, ValueError, KeyError) as error:
++             message = str(error)
++             if "already exists" in message:
++diff --git a/readio/api/projects.py b/readio/api/projects.py
++index 33a0980..fb605a7 100644
++--- a/readio/api/projects.py
+++++ b/readio/api/projects.py
++@@ -13,7 +13,7 @@ from ..stages.composition import compose_project
++ from ..stages.export import export_project
++ from ..stages.pipeline import _project_request, build_project, preview_project, project_status
++ from ..stages.planning import plan_project
++-from ..stages.synthesis import synthesize_project
+++from ..stages.synthesis import resolve_project_synthesis, synthesize_project
++ from .errors import (
++     ExecutionError,
++     ProjectConflictError,
++@@ -51,6 +51,7 @@ from .types import (
++     StageOperation,
++     StageStatus,
++     SynthesisRequest,
+++    SynthesisResolution,
++ )
++
++ if TYPE_CHECKING:
++@@ -171,6 +172,48 @@ class ProjectService:
++         )
++         return ProjectPlanResult(self._ref(internal), scopes)
++
+++    def resolve_synthesis(
+++        self,
+++        project: ProjectLike,
+++        request: SynthesisRequest | None = None,
+++        *,
+++        voice_bindings: Mapping[str, str] | None = None,
+++    ) -> SynthesisResolution:
+++        """Resolve effective project synthesis settings without rendering audio."""
+++        internal = self._load(project)
+++        request = request or SynthesisRequest()
+++        project_request = _project_request(
+++            internal, self._app.config, request, voice_bindings=voice_bindings
+++        )
+++        _effective_request, resolved, adapter, _profile = self._call(
+++            lambda: resolve_project_synthesis(internal, self._app.config, project_request)
+++        )
+++        selection = resolved.selection
+++        if selection is None:
+++            raise ValueError("project synthesis has no effective engine selection")
+++        options = selection.options
+++        diagnostics = tuple(
+++            Diagnostic.from_plan(item)
+++            for item in resolved.plan.diagnostics
+++            if item.severity != "error"
+++        )
+++        return SynthesisResolution(
+++            engine=selection.engine,
+++            language=selection.language,
+++            voice=selection.voice,
+++            model=str(selection.metadata.get("model") or selection.target_id),
+++            model_source=cast(str | None, options.get("model_source")),
+++            quality=cast(str | None, options.get("quality")),
+++            speed=float(options.get("speed", self._app.config.reader.speed)),
+++            unit=resolved.plan.planning.unit,
+++            pause_mode=resolved.plan.planning.pause_mode,
+++            voice_level=cast(str | None, options.get("voice_level")),
+++            spacy=resolved.plan.planning.spacy,
+++            short_sentence=cast(str | None, options.get("short_sentence")),
+++            provider=adapter.capabilities().voice_binding_namespace,
+++            diagnostics=diagnostics,
+++        )
+++
++     def synthesize(
++         self,
++         project: ProjectLike,
++diff --git a/readio/api/types.py b/readio/api/types.py
++index fcad39d..9fb2293 100644
++--- a/readio/api/types.py
+++++ b/readio/api/types.py
++@@ -219,6 +219,27 @@ class AudiobookProjectResult:
++         )
++
++
+++@dataclass(frozen=True, slots=True)
+++class AudiobookProjectDescription:
+++    """Persisted chapter scope for an existing audiobook project."""
+++
+++    project: ProjectRef
+++    source: Path
+++    chapters: tuple[AudiobookProjectChapter, ...]
+++
+++    def to_dict(self) -> dict[str, JsonValue]:
+++        return cast(
+++            dict[str, JsonValue],
+++            json_value(
+++                {
+++                    "project": self.project.to_dict(),
+++                    "source": self.source,
+++                    "chapters": self.chapters,
+++                }
+++            ),
+++        )
+++
+++
++ @dataclass(frozen=True, slots=True)
++ class AudiobookChapter:
++     number: int
++@@ -339,6 +360,29 @@ class ProjectSynthesisResult:
++         return cast(dict[str, JsonValue], json_value(self))
++
++
+++@dataclass(frozen=True, slots=True)
+++class SynthesisResolution:
+++    """Effective project synthesis settings resolved without rendering audio."""
+++
+++    engine: str
+++    language: str
+++    voice: str | None
+++    model: str | None
+++    model_source: str | None
+++    quality: str | None
+++    speed: float
+++    unit: str
+++    pause_mode: str
+++    voice_level: str | None
+++    spacy: str | None = None
+++    short_sentence: str | None = None
+++    provider: str | None = None
+++    diagnostics: tuple[Diagnostic, ...] = ()
+++
+++    def to_dict(self) -> dict[str, JsonValue]:
+++        return cast(dict[str, JsonValue], json_value(self))
+++
+++
++ @dataclass(frozen=True, slots=True)
++ class ProjectCompositionResult:
++     project: ProjectRef
++@@ -835,6 +879,7 @@ __all__ = [
++     "AudiobookExportResult",
++     "AudiobookInspection",
++     "AudiobookProjectChapter",
+++    "AudiobookProjectDescription",
++     "AudiobookProjectResult",
++     "CompositionOptions",
++     "ConfigurationInitResult",
++@@ -893,6 +938,7 @@ __all__ = [
++     "StageOperation",
++     "StageStatus",
++     "SynthesisRequest",
+++    "SynthesisResolution",
++     "SynthesisTargetInfo",
++     "TargetQuery",
++     "TemplateInfo",
++diff --git a/readio/stages/synthesis.py b/readio/stages/synthesis.py
++index 845f735..dde1921 100644
++--- a/readio/stages/synthesis.py
+++++ b/readio/stages/synthesis.py
++@@ -441,6 +441,17 @@ def _resolve_profile(
++     return resolved, adapter, profile
++
++
+++def resolve_project_synthesis(
+++    project: Project, cfg: Any, request: PlanRequest | None = None
+++) -> tuple[PlanRequest, Any, Any, SynthesisProfile]:
+++    """Resolve a project's effective engine selection without synthesis side effects."""
+++    effective_request = _project_request_with_voice_bindings(
+++        project, cfg, _request_for_project(project, cfg, request)
+++    )
+++    resolved, adapter, profile = _resolve_profile(project, cfg, effective_request)
+++    return effective_request, resolved, adapter, profile
+++
+++
++ def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEvent) -> None:
++     if on_event is not None:
++         on_event(event)
++@@ -886,10 +897,7 @@ def synthesize_project(
++         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
++         selection = resolve_project_selection(scoped_plans, selector)
++         selected_by_scope = {item.scope_id: item for item in selection.scopes}
++-        request = _project_request_with_voice_bindings(
++-            project, cfg, _request_for_project(project, cfg, request)
++-        )
++-        resolved, adapter, profile = _resolve_profile(project, cfg, request)
+++        request, resolved, adapter, profile = resolve_project_synthesis(project, cfg, request)
++         route = _build_project_synthesis_route(
++             project,
++             cfg,
++diff --git a/tests/test_public_api_imports.py b/tests/test_public_api_imports.py
++index 29aaa1e..d081814 100644
++--- a/tests/test_public_api_imports.py
+++++ b/tests/test_public_api_imports.py
++@@ -19,6 +19,8 @@ def test_public_import_surface_and_typing_marker() -> None:
++     assert "PlanRequest" in readio.api.__all__
++     assert "ConfigurationInitResult" in readio.api.__all__
++     assert "LanguageProfileResolution" in readio.api.__all__
+++    assert "AudiobookProjectDescription" in readio.api.__all__
+++    assert "SynthesisResolution" in readio.api.__all__
++     assert "LanguageProfilePatch" in readio.api.__all__
++     assert "ProjectRoleMutationResult" in readio.api.__all__
++     assert "ReadioEvent" in readio.api.__all__
++diff --git a/tests/test_public_api_projects.py b/tests/test_public_api_projects.py
++index dddca23..9a8c2a9 100644
++--- a/tests/test_public_api_projects.py
+++++ b/tests/test_public_api_projects.py
++@@ -11,25 +11,33 @@ from project_support import Adapter
++ from readio.api import (
++     AudiobookChapter,
++     AudiobookInspection,
+++    AudiobookProjectDescription,
++     AudiobookProjectResult,
++     CompositionOptions,
++     ExportOptions,
+++    InvalidRequestError,
++     PreviewRequest,
++     ProjectBuildRequest,
++     ProjectBuildResult,
++     ProjectConflictError,
+++    ProjectFormatError,
++     ProjectNotFoundError,
++     ProjectPlanResult,
++     ProjectRef,
++     ProjectStatus,
++     ProjectSynthesisResult,
++     Readio,
+++    SynthesisResolution,
++ )
++-from readio.config import ReaderSettings, ReadioConfig
+++from readio.config import LanguageSettings, ReaderSettings, ReadioConfig, VoiceProviderSettings
++ from readio.engines.registry import _registry
++ from readio.plan import SynthesisRequest
++
++
+++def _project_snapshot(root: Path) -> dict[Path, bytes]:
+++    return {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+++
+++
++ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
++     source = tmp_path / "source.txt"
++     source.write_text("A project API plan.", encoding="utf-8")
++@@ -147,6 +155,200 @@ def test_audiobook_inspection_and_project_creation_are_typed(tmp_path: Path) ->
++     assert [chapter.number for chapter in creation.chapters] == [2, 3]
++
++
+++def test_describe_reopened_audiobook_project_returns_persisted_chapters(tmp_path: Path) -> None:
+++    source = tmp_path / "book.epub"
+++    make_epub(source)
+++    app = Readio(ReadioConfig())
+++    created = app.audiobooks.create_project_result(
+++        source, chapters="2-3", output=tmp_path / "book.readio"
+++    )
+++    reopened = app.projects.open(created.project.root)
+++
+++    description = app.audiobooks.describe_project(reopened)
+++
+++    assert isinstance(description, AudiobookProjectDescription)
+++    assert description.project == created.project
+++    assert description.source == created.project.root / "source" / "book.epub"
+++    assert description.chapters == created.chapters
+++    payload = json.loads(json.dumps(description.to_dict()))
+++    assert [chapter["number"] for chapter in payload["chapters"]] == [2, 3]
+++    assert [chapter["scope_id"] for chapter in payload["chapters"]] == [
+++        "chapter-0002",
+++        "chapter-0003",
+++    ]
+++    assert all(chapter["title"] and chapter["level"] for chapter in payload["chapters"])
+++
+++
+++def test_describe_project_rejects_non_audiobook_and_translates_load_errors(
+++    tmp_path: Path,
+++) -> None:
+++    app = Readio(ReadioConfig())
+++    source = tmp_path / "document.txt"
+++    source.write_text("Not an audiobook.", encoding="utf-8")
+++    document_project = app.projects.create(source, output=tmp_path / "document.readio")
+++    with pytest.raises(InvalidRequestError) as wrong_kind:
+++        app.audiobooks.describe_project(document_project)
+++    assert wrong_kind.value.code == "audiobook.project_kind_invalid"
+++
+++    with pytest.raises(ProjectNotFoundError) as missing:
+++        app.audiobooks.describe_project(tmp_path / "missing.readio")
+++    assert missing.value.code == "project.not_found"
+++
+++    epub = tmp_path / "book.epub"
+++    make_epub(epub)
+++    audiobook = app.audiobooks.create_project(epub, output=tmp_path / "book.readio")
+++    (audiobook.root / "document" / "index.json").write_text("{", encoding="utf-8")
+++    with pytest.raises(ProjectFormatError) as corrupt:
+++        app.audiobooks.describe_project(audiobook)
+++    assert corrupt.value.code == "project.invalid"
+++
+++
+++def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
+++    tmp_path: Path, monkeypatch
+++) -> None:
+++    adapter = Adapter()
+++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+++    config = ReadioConfig(
+++        reader=ReaderSettings(
+++            engine="fake",
+++            voice="reader-voice",
+++            lang="en-us",
+++            speed=1.25,
+++            unit="sentence",
+++            pause_mode="manual",
+++            voice_level="calibrated",
+++        ),
+++        languages={
+++            "en-us": LanguageSettings(
+++                engine="fake",
+++                model="profile-model",
+++                source="profile-source",
+++                quality="profile-quality",
+++                voice="profile-voice",
+++            )
+++        },
+++    )
+++    app = Readio(config)
+++    source = tmp_path / "preflight.txt"
+++    source.write_text("Preflight only.", encoding="utf-8")
+++    project = app.projects.create(source, output=tmp_path / "preflight.readio")
+++    before = _project_snapshot(project.root)
+++
+++    resolution = app.projects.resolve_synthesis(project)
+++
+++    assert isinstance(resolution, SynthesisResolution)
+++    assert resolution.engine == "fake"
+++    assert resolution.language == "en-us"
+++    assert resolution.voice == "reader-voice"
+++    assert resolution.model == "profile-model"
+++    assert resolution.model_source == "profile-source"
+++    assert resolution.quality == "profile-quality"
+++    assert resolution.speed == 1.25
+++    assert resolution.unit == "sentence"
+++    assert resolution.pause_mode == "manual"
+++    assert resolution.voice_level == "calibrated"
+++    assert resolution.provider == "fake"
+++    assert adapter.open_calls == 0
+++    assert _project_snapshot(project.root) == before
+++    assert json.loads(json.dumps(resolution.to_dict()))["model"] == "profile-model"
+++
+++
+++def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
+++    tmp_path: Path, monkeypatch
+++) -> None:
+++    adapter = Adapter()
+++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+++    app = Readio(
+++        ReadioConfig(
+++            reader=ReaderSettings(engine="fake", voice="reader-voice"),
+++            voices={"fake": VoiceProviderSettings(ids=("bound-voice", "project-voice"), roles={})},
+++        )
+++    )
+++    source = tmp_path / "voices.ssmd"
+++    source.write_text(
+++        "---\nssmd_version: '0.9'\n---\n[Bound voice.]{voice=\"narrator\"}",
+++        encoding="utf-8",
+++    )
+++    project = app.projects.create(source, output=tmp_path / "voices.readio")
+++
+++    request = SynthesisRequest(
+++        engine="fake",
+++        language="fr-fr",
+++        model="explicit-model",
+++        model_source="explicit-source",
+++        quality="explicit-quality",
+++        speed=1.75,
+++        voice_level="off",
+++        unit="paragraph",
+++        pause_mode="tts",
+++        spacy="off",
+++        short_sentence="phrase",
+++    )
+++    resolution = app.projects.resolve_synthesis(
+++        project, request, voice_bindings={"narrator": "bound-voice"}
+++    )
+++
+++    assert resolution.language == "fr-fr"
+++    assert resolution.voice == "bound-voice"
+++    assert resolution.model == "explicit-model"
+++    assert resolution.model_source == "explicit-source"
+++    assert resolution.quality == "explicit-quality"
+++    assert resolution.speed == 1.75
+++    assert resolution.voice_level == "off"
+++    assert resolution.unit == "paragraph"
+++    assert resolution.pause_mode == "tts"
+++    assert resolution.spacy == "off"
+++    assert resolution.short_sentence == "phrase"
+++    assert adapter.open_calls == 0
+++    app.roles.bind_project(project, "narrator", "project-voice", provider="fake")
+++    persisted = app.projects.resolve_synthesis(project, SynthesisRequest(engine="fake"))
+++    assert persisted.voice == "project-voice"
+++    assert adapter.open_calls == 0
+++
+++
+++def test_resolve_synthesis_matches_actual_profile_and_rejects_invalid_voice(
+++    tmp_path: Path, monkeypatch
+++) -> None:
+++    adapter = Adapter()
+++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+++    source = tmp_path / "parity.txt"
+++    source.write_text("Execution parity.", encoding="utf-8")
+++    project = app.projects.create(source, output=tmp_path / "parity.readio")
+++    app.projects.plan(project)
+++    request = SynthesisRequest(engine="fake", voice="fake-voice", speed=1.4)
+++    before = _project_snapshot(project.root)
+++
+++    resolution = app.projects.resolve_synthesis(project, request)
+++
+++    assert _project_snapshot(project.root) == before
+++    assert adapter.open_calls == 0
+++    result = app.projects.synthesize(project, request)
+++    profile = json.loads((project.root / "synthesis" / "profile.json").read_text())
+++    canonical = profile["canonical"]
+++
+++    assert result.profile_id == profile["profile_id"]
+++    assert resolution.engine == canonical["engine"]
+++    actual_selection = canonical.get("targets", {}).get(resolution.voice, canonical)
+++    assert resolution.model == actual_selection["target_id"]
+++    assert resolution.voice == actual_selection["voice"]
+++    assert adapter.open_calls == 1
+++
+++    original_resolve = adapter.resolve
+++
+++    def reject_bad_voice(engine_request):
+++        if engine_request.voice == "invalid-selector":
+++            raise ValueError("unknown voice selector 'invalid-selector'")
+++        return original_resolve(engine_request)
+++
+++    monkeypatch.setattr(adapter, "resolve", reject_bad_voice)
+++    with pytest.raises(InvalidRequestError, match="unknown voice selector") as invalid:
+++        app.projects.resolve_synthesis(
+++            project, SynthesisRequest(engine="fake", voice="invalid-selector")
+++        )
+++    assert invalid.value.code == "request.invalid"
+++
+++
++ def test_project_errors_are_translated_to_public_types(tmp_path: Path) -> None:
++     app = Readio(ReadioConfig())
++     with pytest.raises(ProjectNotFoundError) as missing:
++diff --git a/tests/test_public_api_types.py b/tests/test_public_api_types.py
++index 0e1b7b0..8d4cae2 100644
++--- a/tests/test_public_api_types.py
+++++ b/tests/test_public_api_types.py
++@@ -7,6 +7,8 @@ from pathlib import Path
++ import pytest
++
++ from readio.api import (
+++    AudiobookProjectChapter,
+++    AudiobookProjectDescription,
++     CompositionOptions,
++     Diagnostic,
++     DiscoveryOptions,
++@@ -25,6 +27,7 @@ from readio.api import (
++     StageOperation,
++     StageStatus,
++     SynthesisRequest,
+++    SynthesisResolution,
++     document_from_file,
++     document_from_text,
++ )
++@@ -54,6 +57,46 @@ def test_public_request_defaults_and_document_helpers(tmp_path: Path) -> None:
++     assert ProjectBuildRequest().target == "export"
++
++
+++def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializable(
+++    tmp_path: Path,
+++) -> None:
+++    project = ProjectRef(
+++        root=tmp_path / "book.readio",
+++        project_id="book-1",
+++        name="Book",
+++        kind="audiobook",
+++        source_format="epub",
+++    )
+++    chapter = AudiobookProjectChapter(
+++        number=3, scope_id="chapter-0003", title="Chapter Three", level=1
+++    )
+++    description = AudiobookProjectDescription(
+++        project=project,
+++        source=project.root / "source" / "book.epub",
+++        chapters=(chapter,),
+++    )
+++    resolution = SynthesisResolution(
+++        engine="pykokoro",
+++        language="en-us",
+++        voice="af_heart",
+++        model="kokoro-v1",
+++        model_source="github",
+++        quality="fp32",
+++        speed=1.0,
+++        unit="paragraph",
+++        pause_mode="auto",
+++        voice_level="off",
+++        provider="kokoro",
+++    )
+++
+++    description_payload = json.loads(json.dumps(description.to_dict()))
+++    resolution_payload = json.loads(json.dumps(resolution.to_dict()))
+++    assert description_payload["chapters"][0]["scope_id"] == "chapter-0003"
+++    assert resolution_payload["model_source"] == "github"
+++    with pytest.raises(FrozenInstanceError):
+++        resolution.engine = "piper"  # type: ignore[misc]
+++
+++
++ def test_synthesis_engine_options_are_json_compatible_and_frozen() -> None:
++     request = SynthesisRequest(
++         engine="piper",
+diff --git a/.ledger/releaseledger/work/v0.3.1/evidence/manifest.json b/.ledger/releaseledger/work/v0.3.1/evidence/manifest.json
+new file mode 100644
+index 0000000..d524e77
+--- /dev/null
++++ b/.ledger/releaseledger/work/v0.3.1/evidence/manifest.json
+@@ -0,0 +1,36 @@
++{
++  "candidate_count": 1,
++  "candidates": [
++    {
++      "additions": 427,
++      "deletions": 15,
++      "patch_file": "86a3aec.patch",
++      "patch_sha256": "058bc6729cb106bd75ec14d34f1a62e2e85fb73fa9793fa04b9ca277b06bc09b",
++      "paths": [
++        ".taskledger/ledgers/main/indexes/active_locks.json",
++        ".taskledger/ledgers/main/indexes/dependencies.json",
++        ".taskledger/ledgers/main/indexes/introductions.json",
++        "docs/api.md",
++        "readio/api/__init__.py",
++        "readio/api/audiobooks.py",
++        "readio/api/projects.py",
++        "readio/api/types.py",
++        "readio/stages/synthesis.py",
++        "tests/test_public_api_imports.py",
++        "tests/test_public_api_projects.py",
++        "tests/test_public_api_types.py"
++      ],
++      "sha": "86a3aecedd9d31f8c36e2b85d8ec18aa833a2472",
++      "short_sha": "86a3aec",
++      "source_ref": "git:86a3aecedd9d31f8c36e2b85d8ec18aa833a2472"
++    }
++  ],
++  "git_base_ref": "b00d42ac1b78971c18349253e1bc566ba9032ca1",
++  "git_base_sha": "b00d42ac1b78971c18349253e1bc566ba9032ca1",
++  "git_head_ref": "86a3aecedd9d31f8c36e2b85d8ec18aa833a2472",
++  "git_head_sha": "86a3aecedd9d31f8c36e2b85d8ec18aa833a2472",
++  "include_merges": "nontrivial",
++  "object_type": "git_evidence_manifest",
++  "release_version": "v0.3.1",
++  "schema_version": 1
++}
+diff --git a/.ledger/releaseledger/work/v0.3.1/range.json b/.ledger/releaseledger/work/v0.3.1/range.json
+new file mode 100644
+index 0000000..a694631
+--- /dev/null
++++ b/.ledger/releaseledger/work/v0.3.1/range.json
+@@ -0,0 +1,13 @@
++{
++  "base_ref": "b00d42ac1b78971c18349253e1bc566ba9032ca1",
++  "base_sha": "b00d42ac1b78971c18349253e1bc566ba9032ca1",
++  "candidate_count": 1,
++  "commit_count": 1,
++  "head_ref": "86a3aecedd9d31f8c36e2b85d8ec18aa833a2472",
++  "head_sha": "86a3aecedd9d31f8c36e2b85d8ec18aa833a2472",
++  "include_merges": "nontrivial",
++  "kind": "git_range_summary",
++  "merge_commit_count": 0,
++  "merge_commits_skipped": 0,
++  "range": "b00d42ac1b78971c18349253e1bc566ba9032ca1..86a3aecedd9d31f8c36e2b85d8ec18aa833a2472"
++}
+diff --git a/docs/changelog.md b/docs/changelog.md
+index 4827b35..ff6b7de 100644
+--- a/docs/changelog.md
++++ b/docs/changelog.md
+@@ -2,6 +2,14 @@
+
+ > **Generated by releaseledger.** Manual edits may be overwritten. Update releaseledger entries and rebuild this file instead.
+
++## [v0.3.1] - 2026-09-26
++
++### Added
++
++- Added audiobook chapter descriptions and non-rendering synthesis resolution to the public API
++
++<!-- generated by releaseledger -->
++
+ ## [v0.3.0] - 2026-09-26
+
+ ### Changed

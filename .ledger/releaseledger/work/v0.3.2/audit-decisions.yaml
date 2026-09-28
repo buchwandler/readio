@@ -1,0 +1,43 @@
+rows:
+  - sha: 20c403748d0d85caf31bcbc2d107275c06010c36
+    inspected: true
+    inspected_paths:
+      - docs/changelog.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.1/entries/entry-0001.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.1/release.md
+    observed_behavior: Adds the generated v0.3.1 changelog section and its release metadata; it records prior-release behavior, not new v0.3.2 product behavior.
+    public_impact: docs
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: This commit adds the previously released v0.3.1 public API entry to the user-facing changelog.
+    stale: false
+  - sha: 0251443b706966ad97a118f3494246f20e005001
+    inspected: true
+    inspected_paths:
+      - docs/index.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/engines/pykokoro.py
+      - readio/plan.py
+      - readio/spotify_cli.py
+      - readio/stages/pipeline.py
+      - readio/synthesis.py
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_cli.py
+      - tests/test_config.py
+      - tests/test_engine_spine.py
+      - tests/test_incremental_project_render.py
+      - tests/test_plan.py
+      - tests/test_public_api_projects.py
+      - tests/test_spotify_cli.py
+    observed_behavior: Short-sentence synthesis now defaults to phrase handling and migrates legacy auto settings; project status reports readable explanations and actionable commands through the CLI and public API.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: Curated as two user-facing entries; the short-sentence entry owns this commit's source_ref.
+    stale: false

@@ -1,0 +1,666 @@
+ docs/index.md                              |  3 +-
+ readio/api/projects.py                     |  6 ++-
+ readio/api/types.py                        |  1 +
+ readio/cli.py                              | 25 +++++------
+ readio/config.py                           | 15 +++++--
+ readio/engines/pykokoro.py                 |  4 +-
+ readio/plan.py                             |  3 +-
+ readio/spotify_cli.py                      |  5 +++
+ readio/stages/pipeline.py                  | 44 ++++++++++++-------
+ readio/synthesis.py                        |  5 ++-
+ skill/readio/references/cli.md             |  4 +-
+ skill/readio/references/troubleshooting.md |  2 +-
+ tests/test_cli.py                          | 68 +++++++++++++++++++++++++++++-
+ tests/test_config.py                       | 19 ++++++++-
+ tests/test_engine_spine.py                 | 22 +++++++++-
+ tests/test_incremental_project_render.py   | 29 +++++++++++++
+ tests/test_plan.py                         | 27 ++++++++++++
+ tests/test_public_api_projects.py          | 21 +++++++++
+ tests/test_spotify_cli.py                  | 13 ++++++
+ 19 files changed, 271 insertions(+), 45 deletions(-)
+
+diff --git a/docs/index.md b/docs/index.md
+index c619e2a..11caf0d 100644
+--- a/docs/index.md
++++ b/docs/index.md
+@@ -122,10 +122,11 @@ Synthesis options are available on all three commands:
+ --speed NUMBER            speech speed multiplier
+ --voice-level MODE       off or calibrated voice-level handling
+ --spacy MODE              linguistic analysis policy
+---short-sentence MODE     short-sentence handling policy
++--short-sentence MODE     off, wrap, phrase, or randomized-phrase (default: phrase)
+ --pause-mode MODE         auto, tts, or manual
+ --unit UNIT               sentence or paragraph
+
++Readio's short-sentence default is `phrase`; Readio resolves the policy before engine adapters translate it to engine-native settings.
+ Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. Supported optional engine floors are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. The `kokoro`, `piper`, and `pocket` extras install these runtimes. `readio doctor` checks their strict request APIs; incompatible packages do not trigger fallback to retired pipeline paths.
+ Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
+
+diff --git a/readio/api/projects.py b/readio/api/projects.py
+index fb605a7..e72cb82 100644
+--- a/readio/api/projects.py
++++ b/readio/api/projects.py
+@@ -134,7 +134,11 @@ class ProjectService:
+             for row in raw["issues"]
+         )
+         actions = tuple(
+-            NextAction(stage=cast(StageName, row["stage"]), reason=str(row["reason"]))
++            NextAction(
++                stage=cast(StageName, row["stage"]),
++                reason=str(row["reason"]),
++                command=str(row["command"]) if row.get("command") else None,
++            )
+             for row in raw["next_actions"]
+         )
+         return ProjectStatus(self._ref(internal), stages, issues, actions)
+diff --git a/readio/api/types.py b/readio/api/types.py
+index 9fb2293..bbf859e 100644
+--- a/readio/api/types.py
++++ b/readio/api/types.py
+@@ -294,6 +294,7 @@ class StageStatus:
+ class NextAction:
+     stage: StageName
+     reason: str
++    command: str | None = None
+
+     def to_dict(self) -> dict[str, JsonValue]:
+         return cast(dict[str, JsonValue], json_value(self))
+diff --git a/readio/cli.py b/readio/cli.py
+index 15a3d2c..75e19a2 100644
+--- a/readio/cli.py
++++ b/readio/cli.py
+@@ -119,9 +119,9 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
+         "--short-sentence",
+         choices=public_api.SHORT_SENTENCE_POLICIES,
+         help=(
+-            "short-sentence synthesis strategy: auto uses the PyKokoro default; "
+-            "off disables handling; wrap uses lightweight phoneme context; "
+-            "phrase/randomized-phrase use carrier-phrase extraction"
++            "short-sentence synthesis strategy (default: phrase): off disables handling; "
++            "wrap uses lightweight phoneme context; phrase uses carrier-phrase extraction; "
++            "randomized-phrase uses randomized carrier-phrase extraction"
+         ),
+     )
+     parser.add_argument("--language-detection", choices=public_api.LANGUAGE_DETECTION_MODES)
+@@ -644,24 +644,25 @@ def _cmd_status(args: argparse.Namespace) -> int:
+         print(f"Readio project: {result.project.name}")
+         print(f"Root: {result.project.root}")
+         print(f"Source format: {result.project.source_format}\n")
++        message_by_reason = {issue.code: issue.message for issue in result.issues}
+         for row in result.stages:
+             reusable = row.details.get("reusable")
+             total = row.details.get("total")
+             details = f" ({reusable}/{total} units reusable)" if reusable is not None else ""
+             if row.blocked_by:
+                 details += f" blocked by {row.blocked_by}"
+-            print(f"{row.stage.upper():<12} {row.state:<7} {row.reason}{details}")
++            human_reason = (
++                "" if row.state == "current" else message_by_reason.get(row.reason, row.reason)
++            )
++            print(f"{row.stage.upper():<12} {row.state:<7} {human_reason}{details}".rstrip())
+         print()
+         if result.next_actions:
+-            stage = result.next_actions[0].stage
+-            commands = {
+-                "plan": "readio plan build",
+-                "synthesis": "readio synth",
+-                "composition": "readio compose",
+-                "export": "readio export",
+-            }
++            action = result.next_actions[0]
+             print("Next:")
+-            print(f"  {commands[stage]}")
++            if action.command:
++                print(f"  {action.command}")
++            else:
++                print(f"  {action.stage}: {action.reason}")
+         else:
+             print("Project is fully built.")
+     return 0
+diff --git a/readio/config.py b/readio/config.py
+index 2cf9aef..d74ab47 100644
+--- a/readio/config.py
++++ b/readio/config.py
+@@ -40,12 +40,12 @@ VOICE_LEVEL_MODES = ("off", "calibrated")
+ SPACY_POLICIES = ("auto", "off", "sm", "md", "lg", "trf")
+ SPACY_LEGACY_ALIASES = {"required": "sm"}
+ SHORT_SENTENCE_POLICIES = (
+-    "auto",
+     "off",
+     "wrap",
+     "phrase",
+     "randomized-phrase",
+ )
++DEFAULT_SHORT_SENTENCE_POLICY = "phrase"
+
+
+ @dataclass(frozen=True, slots=True)
+@@ -64,7 +64,7 @@ class ReaderSettings:
+     detect_languages: tuple[str, ...] | None = None
+
+     spacy: str = "auto"
+-    short_sentence: str = "auto"
++    short_sentence: str = DEFAULT_SHORT_SENTENCE_POLICY
+
+
+ ReaderConfig = ReaderSettings
+@@ -390,10 +390,19 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
+     return cfg
+
+
++def _migrate_legacy_reader_values(values: Mapping[str, Any]) -> dict[str, Any]:
++    migrated = dict(values)
++    short_sentence = migrated.get("short_sentence")
++    if isinstance(short_sentence, str) and short_sentence.strip().lower() == "auto":
++        migrated["short_sentence"] = DEFAULT_SHORT_SENTENCE_POLICY
++    return migrated
++
++
+ def _reader_from(values: Mapping[str, Any]) -> ReaderSettings:
++    migrated = _migrate_legacy_reader_values(values)
+     updates = {
+         key: _coerce_reader_value(key, value)
+-        for key, value in values.items()
++        for key, value in migrated.items()
+         if key in _READER_KEYS
+     }
+     return ReaderSettings(**updates)
+diff --git a/readio/engines/pykokoro.py b/readio/engines/pykokoro.py
+index dbd6736..711fd3c 100644
+--- a/readio/engines/pykokoro.py
++++ b/readio/engines/pykokoro.py
+@@ -523,9 +523,7 @@ class PyKokoroEngineAdapter:
+             )
+             short_sentence = options.get("short_sentence")
+             short_sentence_config = None
+-            # "auto" is a Readio policy, not a PyKokoro resolve mode. Leave
+-            # the config unset so PyKokoro applies its own default.
+-            if short_sentence is not None and short_sentence != "auto":
++            if short_sentence is not None:
+                 short_sentence_config = pykokoro.ShortSentenceConfig(
+                     enabled=short_sentence != "off",
+                     **({"resolve_mode": short_sentence} if short_sentence != "off" else {}),
+diff --git a/readio/plan.py b/readio/plan.py
+index 65fc547..81f0b7e 100644
+--- a/readio/plan.py
++++ b/readio/plan.py
+@@ -19,6 +19,7 @@ from typing import Any, Literal
+ from utterplan import CURRENT_SCHEMA_VERSION
+
+ from .config import (
++    DEFAULT_SHORT_SENTENCE_POLICY,
+     ReadioConfig,
+     language_profile,
+     normalize_language_key,
+@@ -705,7 +706,7 @@ def _resolve_synthesis_candidate(
+     short_sentence = normalize_short_sentence_policy(
+         request.short_sentence if request.short_sentence is not None else cfg.reader.short_sentence
+     )
+-    if request.short_sentence is not None or short_sentence != "auto":
++    if request.short_sentence is not None or short_sentence != DEFAULT_SHORT_SENTENCE_POLICY:
+         decisions.append(
+             ResolutionDecision(
+                 field="synthesis.short_sentence",
+diff --git a/readio/spotify_cli.py b/readio/spotify_cli.py
+index 6529f46..c33689c 100644
+--- a/readio/spotify_cli.py
++++ b/readio/spotify_cli.py
+@@ -135,6 +135,11 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
+     parser.add_argument(
+         "--short-sentence",
+         choices=SHORT_SENTENCE_POLICIES,
++        help=(
++            "short-sentence synthesis strategy (default: phrase): off disables handling; "
++            "wrap uses lightweight phoneme context; phrase uses carrier-phrase extraction; "
++            "randomized-phrase uses randomized carrier-phrase extraction"
++        ),
+     )
+     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
+     parser.add_argument(
+diff --git a/readio/stages/pipeline.py b/readio/stages/pipeline.py
+index 48bd149..eb1cecf 100644
+--- a/readio/stages/pipeline.py
++++ b/readio/stages/pipeline.py
+@@ -18,6 +18,34 @@ from .export import export_project, is_export_current, project_export_states
+ from .planning import load_scope_plan, plan_project, semantic_status
+ from .synthesis import synthesize_project
+
++_STAGE_REASON_MESSAGES = {
++    "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
++    "plan.stale.source_changed": "The source changed after planning.",
++    "synthesis.missing": "No active synthesis artifacts are available.",
++    "synthesis.invalid": "The stored synthesis state is invalid.",
++    "synthesis.profile.invalid": "The active synthesis profile is invalid.",
++    "synthesis.trace.profile_mismatch": (
++        "The synthesis trace does not match the active synthesis profile."
++    ),
++    "synthesis.stale.plan_changed": "Synthesis is blocked until the plan is rebuilt.",
++    "composition.missing": "No composition master has been created.",
++    "composition.invalid": "The stored composition state is invalid.",
++    "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
++    "composition.stale.timing_changed": "Composition timing or presentation changed.",
++    "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
++    "synthesis.stale.project_voice_bindings_changed": (
++        "Project voice bindings changed after the active synthesis was created."
++    ),
++    "output.missing": "No exported audio file exists for the current composition.",
++    "output.invalid": "The stored export state is invalid.",
++    "output.stale.composition_changed": "Output is blocked by stale composition.",
++    "source.stale.hash_changed": (
++        "EPUB source changed after initialization; reinitialize the audiobook project."
++    ),
++    "document.index.invalid": "The audiobook document index is invalid.",
++    "document.chapter.missing": "An indexed chapter Markdown input is missing.",
++}
++
+
+ def _project_request(
+     project: Project,
+@@ -202,24 +230,10 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
+ def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
+     if row["state"] == "current":
+         return None
+-    messages = {
+-        "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
+-        "plan.stale.source_changed": "The source changed after planning.",
+-        "synthesis.missing": "No active synthesis artifacts are available.",
+-        "synthesis.stale.plan_changed": "Synthesis is blocked until the plan is rebuilt.",
+-        "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
+-        "composition.stale.timing_changed": "Composition timing or presentation changed.",
+-        "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
+-        "synthesis.stale.project_voice_bindings_changed": "Project voice bindings changed after the active synthesis was created.",
+-        "output.stale.composition_changed": "Output is blocked by stale composition.",
+-        "source.stale.hash_changed": "EPUB source changed after initialization; reinitialize the audiobook project.",
+-        "document.index.invalid": "The audiobook document index is invalid.",
+-        "document.chapter.missing": "An indexed chapter Markdown input is missing.",
+-    }
+     return {
+         "code": row["reason"],
+         "stage": row["stage"],
+-        "message": messages.get(row["reason"], row["reason"]),
++        "message": _STAGE_REASON_MESSAGES.get(row["reason"], row["reason"]),
+     }
+
+
+diff --git a/readio/synthesis.py b/readio/synthesis.py
+index ff3b2e9..eaf1a8a 100644
+--- a/readio/synthesis.py
++++ b/readio/synthesis.py
+@@ -7,6 +7,7 @@ import math
+ from dataclasses import dataclass, replace
+
+ from .config import (
++    DEFAULT_SHORT_SENTENCE_POLICY,
+     LanguageSettings,
+     ReadioConfig,
+     language_profile,
+@@ -81,7 +82,7 @@ class ResolvedSynthesis:
+     unit: str
+     g2p_fallback: str | None = None
+     spacy: str = "auto"
+-    short_sentence: str = "auto"
++    short_sentence: str = DEFAULT_SHORT_SENTENCE_POLICY
+     lexicon_data_policy: str | None = None
+     language_detection: str | None = None
+     detect_languages: tuple[str, ...] | None = None
+@@ -205,7 +206,7 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
+
+     spacy = normalize_spacy_policy(request.spacy or cfg.reader.spacy)
+     short_sentence = normalize_short_sentence_policy(
+-        request.short_sentence or cfg.reader.short_sentence
++        request.short_sentence if request.short_sentence is not None else cfg.reader.short_sentence
+     )
+     if request.model is not None:
+         model = request.model
+diff --git a/skill/readio/references/cli.md b/skill/readio/references/cli.md
+index e1a9090..8e1873a 100644
+--- a/skill/readio/references/cli.md
++++ b/skill/readio/references/cli.md
+@@ -106,13 +106,13 @@ The shared synthesis options are available on `speak`, `render`, and `spotify pu
+
+ ```text
+ --spacy auto|off|sm|md|lg|trf
+---short-sentence auto|off|wrap|phrase|randomized-phrase
++--short-sentence off|wrap|phrase|randomized-phrase
+ --pause-mode auto|tts|manual
+ --speed FLOAT
+ --voice-level off|calibrated
+ ```
+
+-Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and phrase modes can perform carrier-phrase inference and retries. Persist these as `[reader] spacy` and `[reader] short_sentence`.
++Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `phrase` is Readio's default short-sentence strategy, resolved by Readio rather than inherited from PyKokoro. `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and `randomized-phrase` uses randomized carrier-phrase extraction. Persist these as `[reader] spacy` and `[reader] short_sentence`.
+ Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. Persist an installation-specific choice with `[reader] pause_mode` or `readio config set reader.pause_mode auto`; use an explicit CLI value when reproducibility requires it.
+
+ `--speed` is a finite positive synthesis multiplier, not a composition tempo. PyKokoro receives it directly, PiperSynth converts it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`. `--voice-level off|calibrated` selects engine voice-level handling. Both controls affect speech-cache identity.
+diff --git a/skill/readio/references/troubleshooting.md b/skill/readio/references/troubleshooting.md
+index 796e575..98aa158 100644
+--- a/skill/readio/references/troubleshooting.md
++++ b/skill/readio/references/troubleshooting.md
+@@ -75,7 +75,7 @@ If runtime reports an unavailable model such as `de_core_news_lg`, use `--spacy
+
+ ### Slow short-sentence synthesis
+
+-If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, use `--short-sentence wrap` for lower latency or `--short-sentence off` to bypass the workaround. `phrase` and `randomized-phrase` intentionally retain carrier-phrase extraction and may require additional inference calls.
++If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, note that `phrase` is Readio's default. If carrier-phrase retries are too expensive for a workload, use `--short-sentence wrap` for lower latency or `--short-sentence off` to bypass short-sentence handling. `randomized-phrase` also performs carrier-phrase extraction with randomized selection.
+
+ ## Render manifest failures
+
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index d5c6b1f..a64c0a1 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -15,9 +15,12 @@ from readio.api.speech import SpeechService
+ from readio.api.types import (
+     ConfigurationInitResult,
+     Diagnostic,
++    NextAction,
+     ProjectCompositionResult,
+     ProjectRef,
++    ProjectStatus,
+     RenderResult,
++    StageStatus,
+ )
+ from readio.audio import RenderSummary
+ from readio.cli import _validate_live, build_parser
+@@ -733,4 +736,67 @@ def test_status_discovers_project_from_nested_directory(tmp_path, monkeypatch, c
+     output = capsys.readouterr().out
+     assert "Readio project:" in output
+     assert str(project.root) in output
+-    assert "readio plan" in output
++    assert "Next:\n  readio plan\n" in output
++
++
++def test_short_sentence_cli_accepts_phrase_and_rejects_auto() -> None:
++    args = build_parser().parse_args(["speak", "No!", "--short-sentence", "phrase"])
++    assert args.short_sentence == "phrase"
++
++    with pytest.raises(SystemExit):
++        build_parser().parse_args(["speak", "No!", "--short-sentence", "auto"])
++
++
++def test_status_cli_renders_domain_command_and_human_issue(monkeypatch, capsys) -> None:
++    message = "No exported audio file exists for the current composition."
++    project = ProjectRef(Path("/tmp/book.readio"), "project-id", "book", "book", "text")
++    result = ProjectStatus(
++        project=project,
++        stages=(
++            StageStatus(stage="source", state="current", reason="current"),
++            StageStatus(stage="output", state="stale", reason="output.missing"),
++        ),
++        issues=(
++            Diagnostic(
++                code="output.missing",
++                severity="warning",
++                message=message,
++                field="output",
++                details={"reason": "output.missing"},
++            ),
++        ),
++        next_actions=(
++            NextAction(
++                stage="output",
++                reason="output.missing",
++                command="readio export --format mp3",
++            ),
++        ),
++    )
++
++    class Projects:
++        def open(self, _path):
++            return project
++
++        def status(self, _project):
++            return result
++
++    monkeypatch.setattr(cli, "_api_for", lambda _args: SimpleNamespace(projects=Projects()))
++    args = build_parser().parse_args(["status"])
++
++    assert cli._cmd_status(args) == 0
++    output = capsys.readouterr().out
++    assert message in output
++    assert "readio export --format mp3" in output
++    assert "output.missing" not in output
++    assert "current current" not in output
++    assert "readio: 'output'" not in output
++
++    json_args = build_parser().parse_args(["status", "--json"])
++    assert cli._cmd_status(json_args) == 0
++    payload = json.loads(capsys.readouterr().out)
++    assert payload["next_actions"][0] == {
++        "stage": "output",
++        "reason": "output.missing",
++        "command": "readio export --format mp3",
++    }
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 8ea845b..78db05e 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -75,7 +75,7 @@ def test_reader_policy_defaults() -> None:
+     cfg = ReaderConfig()
+     assert cfg.pause_mode == "auto"
+     assert cfg.spacy == "auto"
+-    assert cfg.short_sentence == "auto"
++    assert cfg.short_sentence == "phrase"
+
+
+ def test_reader_voice_level_and_finite_speed_are_validated(tmp_path: Path) -> None:
+@@ -93,7 +93,7 @@ def test_reader_voice_level_and_finite_speed_are_validated(tmp_path: Path) -> No
+ def test_reader_policies_round_trip(tmp_path: Path) -> None:
+     path = tmp_path / "policies.toml"
+     for spacy in ("auto", "off", "sm", "md", "lg", "trf"):
+-        for short_sentence in ("auto", "off", "wrap", "phrase", "randomized-phrase"):
++        for short_sentence in ("off", "wrap", "phrase", "randomized-phrase"):
+             cfg = ReaderConfig(spacy=spacy, short_sentence=short_sentence)
+             path.write_text(dumps_config(cfg), encoding="utf-8")
+             assert load_config(path).reader == cfg
+@@ -109,8 +109,23 @@ def test_legacy_required_spacy_migrates_to_sm(tmp_path: Path) -> None:
+     assert "required" not in dumped
+
+
++def test_legacy_short_sentence_auto_loads_as_phrase(tmp_path: Path) -> None:
++    path = tmp_path / "legacy.toml"
++    path.write_text('[reader]\nshort_sentence = "auto"\n', encoding="utf-8")
++
++    cfg = load_config(path)
++
++    assert cfg.reader.short_sentence == "phrase"
++    dumped = dumps_config(cfg)
++    assert 'short_sentence = "phrase"' in dumped
++    assert 'short_sentence = "auto"' not in dumped
++
++
+ def test_invalid_reader_policies_rejected() -> None:
+     with pytest.raises(ValueError):
+         set_config_value(ReaderConfig(), "spacy", "xl")
+     with pytest.raises(ValueError):
+         set_config_value(ReaderConfig(), "short_sentence", "fast")
++
++    with pytest.raises(ValueError, match="reader.short_sentence"):
++        set_config_value(ReaderConfig(), "short_sentence", "auto")
+diff --git a/tests/test_engine_spine.py b/tests/test_engine_spine.py
+index 549e3d1..949ffb8 100644
+--- a/tests/test_engine_spine.py
++++ b/tests/test_engine_spine.py
+@@ -6,8 +6,10 @@ from typing import ClassVar
+
+ import pytest
+
++from readio.config import ReadioConfig
+ from readio.engines.base import EngineSelection
+ from readio.engines.pykokoro import PyKokoroEngineAdapter
++from readio.synthesis import resolve_synthesis
+
+
+ class _NativeConfig:
+@@ -44,7 +46,6 @@ def fake_pykokoro(monkeypatch: pytest.MonkeyPatch):
+     ("policy", "expected_enabled", "expected_mode"),
+     [
+         (None, None, None),
+-        ("auto", None, None),
+         ("off", False, None),
+         ("wrap", True, "wrap"),
+         ("phrase", True, "phrase"),
+@@ -77,3 +78,22 @@ def test_pykokoro_adapter_maps_short_sentence_options(
+         assert short_sentence is not None
+         assert short_sentence.enabled is expected_enabled
+         assert getattr(short_sentence, "resolve_mode", None) == expected_mode
++
++
++def test_pykokoro_adapter_receives_resolved_readio_default(fake_pykokoro) -> None:
++    resolved = resolve_synthesis(ReadioConfig())
++    assert resolved.short_sentence == "phrase"
++
++    selection = EngineSelection(
++        engine="pykokoro",
++        target_id="v1.0",
++        language=resolved.language,
++        voice="af_heart",
++        options={"short_sentence": resolved.short_sentence},
++    )
++    with PyKokoroEngineAdapter().open(selection):
++        pass
++
++    short_sentence = fake_pykokoro.instances[0].config.short_sentence_config
++    assert short_sentence.enabled is True
++    assert short_sentence.resolve_mode == "phrase"
+diff --git a/tests/test_incremental_project_render.py b/tests/test_incremental_project_render.py
+index 4ac4c43..25a2c5f 100644
+--- a/tests/test_incremental_project_render.py
++++ b/tests/test_incremental_project_render.py
+@@ -6,8 +6,10 @@ from readio.config import ReaderSettings, ReadioConfig
+ from readio.document import document_from_text
+ from readio.engines.registry import _registry
+ from readio.project import init_project
++from readio.stages.composition import compose_project
+ from readio.stages.pipeline import project_status, render_project
+ from readio.stages.planning import plan_project, plan_project_scope
++from readio.stages.synthesis import synthesize_project
+
+
+ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
+@@ -88,6 +90,33 @@ def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatc
+     ]
+
+
++def test_status_suggests_export_for_current_composition_without_output(tmp_path, monkeypatch):
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
++    source = tmp_path / "book.txt"
++    source.write_text("Alpha.", encoding="utf-8")
++    project = init_project(source, tmp_path / "book.readio")
++
++    plan_project(project, cfg)
++    synthesize_project(project, cfg)
++    compose_project(project)
++
++    status = project_status(project)
++    stages = {row["stage"]: row for row in status["stages"]}
++    assert stages["composition"]["state"] == "current"
++    assert stages["output"]["reason"] == "output.missing"
++    assert status["next_actions"] == [
++        {
++            "stage": "output",
++            "command": "readio export --format mp3",
++            "reason": "output.missing",
++        }
++    ]
++    output_issue = next(issue for issue in status["issues"] if issue["code"] == "output.missing")
++    assert output_issue["message"] == "No exported audio file exists for the current composition."
++
++
+ def test_status_rejects_trace_profile_mismatch(tmp_path, monkeypatch):
+     adapter = Adapter()
+     monkeypatch.setitem(_registry._adapters, "fake", adapter)
+diff --git a/tests/test_plan.py b/tests/test_plan.py
+index 28c4771..d7759cd 100644
+--- a/tests/test_plan.py
++++ b/tests/test_plan.py
+@@ -4,6 +4,8 @@ from __future__ import annotations
+
+ from pathlib import Path
+
++import pytest
++
+ from readio.config import ReadioConfig, with_overrides
+ from readio.document import InputDocument
+ from readio.plan import (
+@@ -167,3 +169,28 @@ def test_plan_serialization_and_human_report_use_v2_sections():
+         section in text for section in ("Input", "Planning", "Semantic plan", "Render", "Output")
+     )
+     assert "Plan is executable" in text
++
++
++def test_short_sentence_default_and_explicit_override_resolution():
++    default_plan = resolve_plan(_config(), _request())
++    assert default_plan.render.options["short_sentence"] == "phrase"
++    assert not any(item.field == "synthesis.short_sentence" for item in default_plan.decisions)
++
++    explicit_plan = resolve_plan(
++        _config(),
++        _request(synthesis=SynthesisRequest(short_sentence="phrase")),
++    )
++    assert explicit_plan.render.options["short_sentence"] == "phrase"
++    decision = next(
++        item for item in explicit_plan.decisions if item.field == "synthesis.short_sentence"
++    )
++    assert decision.origin == "cli"
++    assert decision.locator == "request.short_sentence"
++
++
++def test_short_sentence_auto_request_is_rejected():
++    with pytest.raises(ValueError, match="reader.short_sentence"):
++        resolve_plan(
++            _config(),
++            _request(synthesis=SynthesisRequest(short_sentence="auto")),
++        )
+diff --git a/tests/test_public_api_projects.py b/tests/test_public_api_projects.py
+index 9a8c2a9..ad24290 100644
+--- a/tests/test_public_api_projects.py
++++ b/tests/test_public_api_projects.py
+@@ -388,3 +388,24 @@ def test_preview_is_typed_and_does_not_activate_synthesis(tmp_path: Path, monkey
+     assert json.loads(json.dumps(result.to_dict()))["items"] >= 0
+     after = profile_path.read_bytes() if profile_path.exists() else None
+     assert after == before
++
++
++def test_status_preserves_missing_output_command_in_public_api(tmp_path: Path, monkeypatch) -> None:
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
++    source = tmp_path / "status.txt"
++    source.write_text("Current composition.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "status.readio")
++
++    app.projects.plan(project)
++    app.projects.synthesize(project, SynthesisRequest(engine="fake", voice="fake-voice"))
++    app.projects.compose(project)
++
++    status = app.projects.status(project)
++    action = status.next_actions[0]
++    assert action.stage == "output"
++    assert action.reason == "output.missing"
++    assert action.command == "readio export --format mp3"
++    payload = json.loads(json.dumps(status.to_dict()))
++    assert payload["next_actions"][0]["command"] == "readio export --format mp3"
+diff --git a/tests/test_spotify_cli.py b/tests/test_spotify_cli.py
+index aa0b978..f37c6cf 100644
+--- a/tests/test_spotify_cli.py
++++ b/tests/test_spotify_cli.py
+@@ -148,3 +148,16 @@ def test_global_json_is_position_independent_in_main(monkeypatch, capsys):
+ def test_adapter_error_taxonomy_is_public():
+     assert issubclass(SpotifyCommandError, RuntimeError)
+     assert issubclass(SpotifyProtocolError, RuntimeError)
++
++
++def test_spotify_short_sentence_parser_rejects_auto() -> None:
++    parser = cli.build_parser()
++    parsed = parser.parse_args(
++        ["spotify", "publish", "No!", "--title", "Episode", "--short-sentence", "phrase"]
++    )
++    assert parsed.short_sentence == "phrase"
++
++    with pytest.raises(SystemExit):
++        parser.parse_args(
++            ["spotify", "publish", "No!", "--title", "Episode", "--short-sentence", "auto"]
++        )

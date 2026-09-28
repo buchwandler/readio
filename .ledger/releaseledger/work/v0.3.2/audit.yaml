@@ -1,0 +1,73 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 1
+release_version: v0.3.2
+git_base_ref: v0.3.1
+git_base_sha: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472
+git_head_ref: HEAD
+git_head_sha: 0251443b706966ad97a118f3494246f20e005001
+git_range: 86a3aecedd9d31f8c36e2b85d8ec18aa833a2472..0251443b706966ad97a118f3494246f20e005001
+commit_count: 2
+rows:
+  - sha: 20c403748d0d85caf31bcbc2d107275c06010c36
+    source_ref: git:20c403748d0d85caf31bcbc2d107275c06010c36
+    short_sha: 20c4037
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.1/audit/commit-audit.yaml
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.1/entries/entry-0001.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.1/release.md
+      - .ledger/releaseledger/work/v0.3.1/audit-decisions.yaml
+      - .ledger/releaseledger/work/v0.3.1/audit.yaml
+      - .ledger/releaseledger/work/v0.3.1/entries.yaml
+      - .ledger/releaseledger/work/v0.3.1/evidence/86a3aec.patch
+      - .ledger/releaseledger/work/v0.3.1/evidence/manifest.json
+      - .ledger/releaseledger/work/v0.3.1/range.json
+      - docs/changelog.md
+    stats:
+      files_changed: 11
+      insertions: 981
+      deletions: 0
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "doc: changelog"
+  - sha: 0251443b706966ad97a118f3494246f20e005001
+    source_ref: git:0251443b706966ad97a118f3494246f20e005001
+    short_sha: "0251443"
+    changed_paths:
+      - docs/index.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/engines/pykokoro.py
+      - readio/plan.py
+      - readio/spotify_cli.py
+      - readio/stages/pipeline.py
+      - readio/synthesis.py
+      - skill/readio/references/cli.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_cli.py
+      - tests/test_config.py
+      - tests/test_engine_spine.py
+      - tests/test_incremental_project_render.py
+      - tests/test_plan.py
+      - tests/test_public_api_projects.py
+      - tests/test_spotify_cli.py
+    stats:
+      files_changed: 19
+      insertions: 271
+      deletions: 45
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "feat: modify short sentence default and fix status"
