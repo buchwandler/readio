@@ -1,0 +1,48 @@
+{
+  "candidate_count": 2,
+  "candidates": [
+    {
+      "additions": 515,
+      "deletions": 58,
+      "patch_file": "3dbc57b.patch",
+      "patch_sha256": "c11205976f6407d0c7b2510800d8511d341e46298d5aded2a78a3abfcbd5a47a",
+      "paths": [
+        "README.md",
+        "docs/cli.md",
+        "pyproject.toml",
+        "readio/cli.py",
+        "readio/cli_help.py",
+        "readio/spotify_cli.py",
+        "tests/test_cli_help.py",
+        "tests/test_voice_catalog.py"
+      ],
+      "sha": "3dbc57bc393a396c67606b36fbde0960b5347187",
+      "short_sha": "3dbc57b",
+      "source_ref": "git:3dbc57bc393a396c67606b36fbde0960b5347187"
+    },
+    {
+      "additions": 125,
+      "deletions": 2,
+      "patch_file": "05f8940.patch",
+      "patch_sha256": "3391b37c242d54ea37702eaa217f082d9c69615c1e7750bfa6f7ffc243c6e736",
+      "paths": [
+        "docs/api.md",
+        "readio/api/projects.py",
+        "readio/api/types.py",
+        "tests/test_public_api_projects.py",
+        "tests/test_public_api_types.py"
+      ],
+      "sha": "05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d",
+      "short_sha": "05f8940",
+      "source_ref": "git:05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d"
+    }
+  ],
+  "git_base_ref": "fcf02b93783d26ec02252791a1642ea7bb3cc26a",
+  "git_base_sha": "fcf02b93783d26ec02252791a1642ea7bb3cc26a",
+  "git_head_ref": "05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d",
+  "git_head_sha": "05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d",
+  "include_merges": "nontrivial",
+  "object_type": "git_evidence_manifest",
+  "release_version": "v0.3.3",
+  "schema_version": 1
+}

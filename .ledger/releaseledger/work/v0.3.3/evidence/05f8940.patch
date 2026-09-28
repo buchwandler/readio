@@ -1,0 +1,211 @@
+ docs/api.md                       |  6 ++--
+ readio/api/projects.py            | 14 ++++++++++
+ readio/api/types.py               |  6 ++++
+ tests/test_public_api_projects.py | 43 +++++++++++++++++++++++++++++
+ tests/test_public_api_types.py    | 58 +++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 125 insertions(+), 2 deletions(-)
+
+diff --git a/docs/api.md b/docs/api.md
+index 36229ca..31a4453 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -132,9 +132,11 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
+ `app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+ `describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
+
+-`app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, and supported planning/provider settings. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
++`app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, planning/provider settings, and pronunciation/resource policies: lexicons, G2P fallback, lexicon data policy, language-detection mode and languages, and experimental-option permission. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
+
+-Resolution is for preflight, validation, and UI display. It does not render audio, open an engine session, activate a profile, or mutate persistent synthesis/build state. It reports the same effective selection semantics used by actual project synthesis.
++`lexicons` preserves three states: `None` means automatic or inherited behavior, an empty tuple means static lexicon layers were explicitly disabled, and a non-empty tuple lists selected layers. These fields expose resolved request/profile values; preflight does not materialize backend runtime defaults that were not resolved.
++
++Resolution is read-only and intended for preflight, validation, and UI display. It does not render audio, open an engine session, activate a profile, or mutate project configuration, profile files, manifests, caches, audio, role bindings, or persistent synthesis/build state. It reports the same effective selection semantics used by actual project synthesis.
+
+ ```python
+ from pathlib import Path
+diff --git a/readio/api/projects.py b/readio/api/projects.py
+index e72cb82..4cab874 100644
+--- a/readio/api/projects.py
++++ b/readio/api/projects.py
+@@ -91,6 +91,14 @@ _OPERATION_DETAIL_KEYS = frozenset(
+ )
+
+
++def _optional_string_tuple(value: object) -> tuple[str, ...] | None:
++    if value is None:
++        return None
++    if isinstance(value, (tuple, list)):
++        return tuple(str(item) for item in value)
++    raise TypeError(f"expected a list or tuple, got {type(value).__name__}")
++
++
+ class ProjectService:
+     """Create, inspect, plan, and incrementally build persistent projects."""
+
+@@ -215,6 +223,12 @@ class ProjectService:
+             spacy=resolved.plan.planning.spacy,
+             short_sentence=cast(str | None, options.get("short_sentence")),
+             provider=adapter.capabilities().voice_binding_namespace,
++            lexicons=_optional_string_tuple(options.get("lexicons")),
++            g2p_fallback=cast(str | None, options.get("g2p_fallback")),
++            lexicon_data_policy=cast(str | None, options.get("lexicon_data_policy")),
++            language_detection=cast(str | None, options.get("language_detection")),
++            detect_languages=_optional_string_tuple(options.get("detect_languages")),
++            allow_experimental=bool(options.get("allow_experimental", False)),
+             diagnostics=diagnostics,
+         )
+
+diff --git a/readio/api/types.py b/readio/api/types.py
+index bbf859e..37b0dcd 100644
+--- a/readio/api/types.py
++++ b/readio/api/types.py
+@@ -379,6 +379,12 @@ class SynthesisResolution:
+     short_sentence: str | None = None
+     provider: str | None = None
+     diagnostics: tuple[Diagnostic, ...] = ()
++    lexicons: tuple[str, ...] | None = None
++    g2p_fallback: str | None = None
++    lexicon_data_policy: str | None = None
++    language_detection: str | None = None
++    detect_languages: tuple[str, ...] | None = None
++    allow_experimental: bool = False
+
+     def to_dict(self) -> dict[str, JsonValue]:
+         return cast(dict[str, JsonValue], json_value(self))
+diff --git a/tests/test_public_api_projects.py b/tests/test_public_api_projects.py
+index ad24290..178f187 100644
+--- a/tests/test_public_api_projects.py
++++ b/tests/test_public_api_projects.py
+@@ -248,11 +248,54 @@ def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
+     assert resolution.pause_mode == "manual"
+     assert resolution.voice_level == "calibrated"
+     assert resolution.provider == "fake"
++    assert resolution.lexicons is None
+     assert adapter.open_calls == 0
+     assert _project_snapshot(project.root) == before
+     assert json.loads(json.dumps(resolution.to_dict()))["model"] == "profile-model"
+
+
++def test_resolve_synthesis_exposes_pronunciation_options_and_empty_lexicons(
++    tmp_path: Path, monkeypatch
++) -> None:
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
++    source = tmp_path / "pronunciation.txt"
++    source.write_text("Preflight pronunciation settings.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "pronunciation.readio")
++    before = _project_snapshot(project.root)
++
++    request = SynthesisRequest(
++        engine="fake",
++        voice="fake-voice",
++        lexicons=("lex-a", "lex-b"),
++        g2p_fallback="espeak",
++        lexicon_data_policy="installed-only",
++        allow_experimental=True,
++        language_detection="auto",
++        detect_languages=("en-us", "de"),
++    )
++    resolution = app.projects.resolve_synthesis(project, request)
++
++    assert resolution.lexicons == ("lex-a", "lex-b")
++    assert resolution.g2p_fallback == "espeak"
++    assert resolution.lexicon_data_policy == "installed-only"
++    assert resolution.allow_experimental is True
++    assert resolution.language_detection == "auto"
++    assert resolution.detect_languages == ("en-us", "de")
++    assert isinstance(resolution.lexicons, tuple)
++    assert isinstance(resolution.detect_languages, tuple)
++    assert adapter.open_calls == 0
++    assert _project_snapshot(project.root) == before
++
++    no_lexicons = app.projects.resolve_synthesis(
++        project, SynthesisRequest(engine="fake", voice="fake-voice", lexicons=())
++    )
++    assert no_lexicons.lexicons == ()
++    assert adapter.open_calls == 0
++    assert _project_snapshot(project.root) == before
++
++
+ def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
+     tmp_path: Path, monkeypatch
+ ) -> None:
+diff --git a/tests/test_public_api_types.py b/tests/test_public_api_types.py
+index 8d4cae2..d2f6c46 100644
+--- a/tests/test_public_api_types.py
++++ b/tests/test_public_api_types.py
+@@ -87,15 +87,73 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
+         pause_mode="auto",
+         voice_level="off",
+         provider="kokoro",
++        lexicons=("lex-a", "lex-b"),
++        g2p_fallback="espeak",
++        lexicon_data_policy="installed-only",
++        language_detection="auto",
++        detect_languages=("en-us", "de"),
++        allow_experimental=True,
+     )
+
+     description_payload = json.loads(json.dumps(description.to_dict()))
+     resolution_payload = json.loads(json.dumps(resolution.to_dict()))
+     assert description_payload["chapters"][0]["scope_id"] == "chapter-0003"
+     assert resolution_payload["model_source"] == "github"
++    assert resolution_payload["lexicons"] == ["lex-a", "lex-b"]
++    assert resolution_payload["g2p_fallback"] == "espeak"
++    assert resolution_payload["lexicon_data_policy"] == "installed-only"
++    assert resolution_payload["language_detection"] == "auto"
++    assert resolution_payload["detect_languages"] == ["en-us", "de"]
++    assert resolution_payload["allow_experimental"] is True
+     with pytest.raises(FrozenInstanceError):
+         resolution.engine = "piper"  # type: ignore[misc]
+
++    legacy_resolution = SynthesisResolution(
++        engine="pykokoro",
++        language="en-us",
++        voice="af_heart",
++        model="kokoro-v1",
++        model_source="github",
++        quality="fp32",
++        speed=1.0,
++        unit="paragraph",
++        pause_mode="auto",
++        voice_level="off",
++    )
++    assert legacy_resolution.lexicons is None
++    assert legacy_resolution.g2p_fallback is None
++    assert legacy_resolution.lexicon_data_policy is None
++    assert legacy_resolution.language_detection is None
++    assert legacy_resolution.detect_languages is None
++    assert legacy_resolution.allow_experimental is False
++    assert set(legacy_resolution.to_dict()) >= {
++        "lexicons",
++        "g2p_fallback",
++        "lexicon_data_policy",
++        "language_detection",
++        "detect_languages",
++        "allow_experimental",
++    }
++
++    legacy_positional = SynthesisResolution(
++        "pykokoro",
++        "en-us",
++        "af_heart",
++        "kokoro-v1",
++        "github",
++        "fp32",
++        1.0,
++        "paragraph",
++        "auto",
++        "off",
++        None,
++        None,
++        None,
++        (),
++    )
++    assert legacy_positional.diagnostics == ()
++    assert legacy_positional.lexicons is None
++
+
+ def test_synthesis_engine_options_are_json_compatible_and_frozen() -> None:
+     request = SynthesisRequest(

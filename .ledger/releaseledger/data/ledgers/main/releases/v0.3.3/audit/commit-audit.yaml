@@ -1,0 +1,80 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.3.3
+git_base_ref: v0.3.2
+git_base_sha: fcf02b93783d26ec02252791a1642ea7bb3cc26a
+git_head_ref: HEAD
+git_head_sha: 05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+git_range: fcf02b93783d26ec02252791a1642ea7bb3cc26a..05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+commit_count: 2
+rows:
+  - sha: 3dbc57bc393a396c67606b36fbde0960b5347187
+    source_ref: git:3dbc57bc393a396c67606b36fbde0960b5347187
+    short_sha: 3dbc57b
+    changed_paths:
+      - README.md
+      - docs/cli.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/cli_help.py
+      - readio/spotify_cli.py
+      - tests/test_cli_help.py
+      - tests/test_voice_catalog.py
+    stats:
+      files_changed: 8
+      insertions: 515
+      deletions: 58
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/cli.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/cli_help.py
+      - readio/spotify_cli.py
+      - tests/test_cli_help.py
+      - tests/test_voice_catalog.py
+    observed_behavior:
+      Added formatted root and command-group help, plus engine and
+      output-format discovery commands with JSON output; documented the CLI behavior
+      and covered it with tests.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: better cli help"
+    target_entry_id: entry-0001
+    notes: ""
+  - sha: 05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+    source_ref: git:05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+    short_sha: 05f8940
+    changed_paths:
+      - docs/api.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - tests/test_public_api_projects.py
+      - tests/test_public_api_types.py
+    stats:
+      files_changed: 5
+      insertions: 125
+      deletions: 2
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - tests/test_public_api_projects.py
+      - tests/test_public_api_types.py
+    observed_behavior:
+      Exposed resolved pronunciation, lexicon, and language-detection
+      settings through the read-only synthesis preflight result, preserving automatic
+      versus explicitly empty lexicon selections; documented the behavior and added
+      tests.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: add missing parameter to api"
+    target_entry_id: entry-0002
+    notes: ""

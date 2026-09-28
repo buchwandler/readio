@@ -1,0 +1,48 @@
+schema: releaseledger.entry-batch.v1
+operation: create
+schema_version: 1
+object_type: release_entry_batch
+release_version: v0.3.3
+git_base_ref: fcf02b93783d26ec02252791a1642ea7bb3cc26a
+git_base_sha: fcf02b93783d26ec02252791a1642ea7bb3cc26a
+git_head_ref: 05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+git_head_sha: 05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+include_merges: nontrivial
+entries:
+  - kind: added
+    summary: Added formatted command help and engine and output-format discovery to the CLI
+    status: accepted
+    source_refs:
+      - git:3dbc57bc393a396c67606b36fbde0960b5347187
+    paths:
+      - README.md
+      - docs/cli.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/cli_help.py
+      - readio/spotify_cli.py
+      - tests/test_cli_help.py
+      - tests/test_voice_catalog.py
+    sources:
+      - git:3dbc57bc393a396c67606b36fbde0960b5347187
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"
+  - kind: added
+    summary: Added lexicon, pronunciation, and language-detection policies to the read-only synthesis preflight API
+    status: accepted
+    source_refs:
+      - git:05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+    paths:
+      - docs/api.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - tests/test_public_api_projects.py
+      - tests/test_public_api_types.py
+    sources:
+      - git:05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"

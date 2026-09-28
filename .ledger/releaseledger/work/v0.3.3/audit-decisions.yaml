@@ -1,0 +1,34 @@
+rows:
+  - sha: 3dbc57bc393a396c67606b36fbde0960b5347187
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/cli.md
+      - pyproject.toml
+      - readio/cli.py
+      - readio/cli_help.py
+      - readio/spotify_cli.py
+      - tests/test_cli_help.py
+      - tests/test_voice_catalog.py
+    observed_behavior: Added formatted root and command-group help, plus engine and output-format discovery commands with JSON output; documented the CLI behavior and covered it with tests.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: 05f8940cb8d3e1aa3eab6c26eacc3912ba89e36d
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - tests/test_public_api_projects.py
+      - tests/test_public_api_types.py
+    observed_behavior: Exposed resolved pronunciation, lexicon, and language-detection settings through the read-only synthesis preflight result, preserving automatic versus explicitly empty lexicon selections; documented the behavior and added tests.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
