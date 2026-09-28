@@ -111,7 +111,7 @@ def test_plan_without_subcommand_still_builds_current_project(
     monkeypatch: pytest.MonkeyPatch, tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     calls: list[Path] = []
-    result = SimpleNamespace(scopes=(), to_dict=lambda: {})
+    result = SimpleNamespace(scopes=(), to_dict=dict)
 
     def plan(path: Path) -> SimpleNamespace:
         calls.append(path)
