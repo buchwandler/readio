@@ -198,7 +198,7 @@ The returned path is under the configured ingest directory. A caller can request
 
 `llm-guides/ssmd/` contains standalone Markdown instructions for generic LLMs. These guides are distinct from the runtime `.ssmd` templates managed by `readio template`.
 
-No Readio or Python installation is needed on the authoring system: choose one guide and attach it with the task and source material. When the harness supports artifacts, ask it to create and return one downloadable `.ssmd` file; otherwise save the raw SSMD response as a file. Rendering and final validation happen later on a system where Readio is installed.
+No Readio or Python installation is needed on the authoring system: choose one guide and attach it with the task and source material. When the harness supports artifacts, ask it to create and return one downloadable `.ssmd.md` file; otherwise save the raw SSMD response as a `.ssmd.md` file. Readio also accepts `.ssmd` for compatibility. Rendering and final validation happen later on a system where Readio is installed.
 
 See [`llm-guides/README.md`](llm-guides/README.md) for the catalog and the authoring-to-rendering workflow.
 

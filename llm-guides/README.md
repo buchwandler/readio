@@ -7,7 +7,7 @@ These are standalone authoring guides for generic LLMs. They create SSMD source 
 These guides are not Readio runtime templates:
 
 - `readio template` manages ready-to-edit `.ssmd` runtime templates from `readio/resources/templates/`.
-- `llm-guides/ssmd/` contains Markdown instructions that teach an arbitrary LLM how to author portable `.ssmd` source.
+- `llm-guides/ssmd/` contains Markdown instructions that teach an arbitrary LLM how to author portable `.ssmd.md` source.
 - The guide authoring step creates source only; it does not create audio.
 - Validation, voice binding, and rendering happen later on a system where Readio is installed.
 
@@ -18,7 +18,7 @@ source or task
     ↓
 generic web LLM + one standalone guide
     ↓
-downloadable .ssmd file
+downloadable .ssmd.md file
     ↓
 move the file to a system with Readio
     ↓
@@ -31,7 +31,7 @@ Choose exactly one guide and attach it together with the task and any source mat
 
 Example request:
 
-> Follow the attached Readio standalone SSMD guide. Turn the supplied report into a 7-minute German interview podcast. Create a downloadable `.ssmd` file. Do not create audio.
+> Follow the attached Readio standalone SSMD guide. Turn the supplied report into a 7-minute German interview podcast. Create a downloadable `.ssmd.md` file. Do not create audio.
 
 The guides are self-contained. The LLM must not need another guide, a shared prompt fragment, local configuration, model discovery, or runtime documentation.
 
@@ -39,17 +39,19 @@ The guides are self-contained. The LLM must not need another guide, a shared pro
 
 When the web harness can create files or artifacts, ask the LLM to:
 
-1. Create exactly one UTF-8 `.ssmd` file.
+1. Create exactly one UTF-8 `.ssmd.md` file.
 2. Use a short descriptive kebab-case filename.
 3. Put only SSMD source in the file.
 4. Expose the file for download.
 5. Create no helper files and no audio.
 
+Use `.ssmd.md` for newly authored complete documents. Readio and SSMD continue to accept legacy `.ssmd` inputs for compatibility; existing runtime templates managed by `readio template` may keep their `.ssmd` filenames.
+
 The generated file must not contain Markdown fences, surrounding explanation, shell commands, or unexpanded placeholders.
 
 ## Chat fallback mode
 
-When file creation is unavailable, the guide instructs the LLM to return the complete raw SSMD source directly in the response, without Markdown fences or surrounding explanation. Save that response as a `.ssmd` file before moving it to the rendering system.
+When file creation is unavailable, the guide instructs the LLM to return the complete raw SSMD source directly in the response, without Markdown fences or surrounding explanation. Save that response as a `.ssmd.md` file before moving it to the rendering system.
 
 ## Compatibility target
 
@@ -96,11 +98,11 @@ Each guide is intentionally complete and repeats the technical rules needed for 
 
 ## Later validation and rendering
 
-These are optional destination-system steps, after the `.ssmd` file has been created and moved to a machine with Readio installed:
+These are optional destination-system steps, after the `.ssmd.md` file has been created and moved to a machine with Readio installed:
 
 ```bash
-readio ssmd check output.ssmd
-readio render --file output.ssmd -o output.mp3
+readio ssmd check output.ssmd.md
+readio render --file output.ssmd.md -o output.mp3
 ```
 
 Run these only where the commands and their runtime dependencies are actually available. Do not claim that they ran during web-only authoring.

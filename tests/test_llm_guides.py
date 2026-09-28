@@ -89,7 +89,8 @@ def test_guides_are_standalone_and_support_both_output_modes():
         output = section(text, "Output contract")
         assert "downloadable files or artifacts" in output
         assert "exactly one utf-8" in output.lower()
-        assert "`.ssmd` filename" in output
+        assert "`.ssmd.md` filename" in output
+        assert "accept `.ssmd` for compatibility" in output
         assert "fallback chat mode" in output.lower()
         assert "complete raw ssmd source" in output.lower()
         assert "do not use markdown code fences" in output.lower()
@@ -97,10 +98,41 @@ def test_guides_are_standalone_and_support_both_output_modes():
         assert "do not claim that readio/ssmd validation" in output.lower()
 
 
+def test_readmes_recommend_ssmd_md_and_preserve_legacy_template_names():
+    repo_root = Path(__file__).parents[1]
+    guide_readme = (repo_root / "llm-guides" / "README.md").read_text(encoding="utf-8")
+    top_readme = (repo_root / "README.md").read_text(encoding="utf-8")
+
+    assert "downloadable .ssmd.md file" in guide_readme
+    assert "Create exactly one UTF-8 `.ssmd.md` file." in guide_readme
+    assert "legacy `.ssmd` inputs for compatibility" in guide_readme
+    assert (
+        "existing runtime templates managed by `readio template` may keep their `.ssmd` filenames"
+        in guide_readme
+    )
+    assert "one downloadable `.ssmd.md` file" in top_readme
+    assert "Readio also accepts `.ssmd` for compatibility" in top_readme
+
+
 def test_compatibility_and_shared_sections_do_not_drift():
     texts = [text for _, text in guide_texts()]
     for text in texts:
         target = section(text, "Target runtime")
+        assert ":::{" in target
+        assert "::{" in target
+        assert "three ASCII colon characters" in target
+        assert "followed immediately by `{`" in target
+        assert "invalid" in target.casefold()
+        assert (
+            "- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`"
+            in target
+        )
+        assert (
+            "- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`"
+            in target
+        )
+        assert "do not generate them in new documents" in target
+        assert "- volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`" in target
         assert "Readio with SSMD 0.9 and Utterplan 0.3 support" in target
         assert "SSMD >=0.9.0,<0.10" in target
         assert "Utterplan >=0.3.0,<0.4" in target
@@ -129,6 +161,9 @@ def test_minimal_examples_parse_with_ssmd_when_available():
         assert "ssmd_version: '0.9'" in example, path.name
         all_ssmd_blocks = re.findall(r"```ssmd\n(.*?)```", text, flags=re.DOTALL)
         for ssmd_source in all_ssmd_blocks:
+            assert re.search(r"(?m)^::\{", ssmd_source) is None, (
+                f"{path.name} contains a two-colon directive opening"
+            )
             parse_ssmd_09(ssmd_source)
         assert not re.search(r"<[^>]*\.\.\.[^>]*>", example)
         assert not any(voice_id in example for voice_id in KNOWN_DEFAULT_VOICE_IDS)

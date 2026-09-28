@@ -6,6 +6,7 @@ import pytest
 
 from readio.config import ReadioConfig
 from readio.errors import SSMDInputError
+from readio.ssmd import parse_ssmd_09
 from readio.ssmd_authoring import materialize_voice_bindings, roundtrip_check
 
 
@@ -72,3 +73,31 @@ def test_roundtrip_rejects_legacy_before_calling_ssmd(tmp_path: Path, monkeypatc
 
     with pytest.raises(SSMDInputError):
         roundtrip_check(source, ReadioConfig())
+
+
+def test_two_colon_directive_opening_is_rejected() -> None:
+    source = """\\
+---
+ssmd_version: "0.9"
+---
+::{voice="host"}
+Hello.
+:::
+"""
+
+    with pytest.raises(SSMDInputError):
+        parse_ssmd_09(source)
+
+
+def test_three_colon_directive_opening_is_valid() -> None:
+    source = """\\
+---
+ssmd_version: "0.9"
+---
+:::{voice="host"}
+Hello.
+:::
+"""
+
+    parsed = parse_ssmd_09(source)
+    assert parsed.annotations
