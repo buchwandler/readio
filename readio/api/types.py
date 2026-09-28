@@ -379,6 +379,12 @@ class SynthesisResolution:
     short_sentence: str | None = None
     provider: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+    lexicons: tuple[str, ...] | None = None
+    g2p_fallback: str | None = None
+    lexicon_data_policy: str | None = None
+    language_detection: str | None = None
+    detect_languages: tuple[str, ...] | None = None
+    allow_experimental: bool = False
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))

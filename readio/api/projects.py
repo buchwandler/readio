@@ -91,6 +91,14 @@ _OPERATION_DETAIL_KEYS = frozenset(
 )
 
 
+def _optional_string_tuple(value: object) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)):
+        return tuple(str(item) for item in value)
+    raise TypeError(f"expected a list or tuple, got {type(value).__name__}")
+
+
 class ProjectService:
     """Create, inspect, plan, and incrementally build persistent projects."""
 
@@ -215,6 +223,12 @@ class ProjectService:
             spacy=resolved.plan.planning.spacy,
             short_sentence=cast(str | None, options.get("short_sentence")),
             provider=adapter.capabilities().voice_binding_namespace,
+            lexicons=_optional_string_tuple(options.get("lexicons")),
+            g2p_fallback=cast(str | None, options.get("g2p_fallback")),
+            lexicon_data_policy=cast(str | None, options.get("lexicon_data_policy")),
+            language_detection=cast(str | None, options.get("language_detection")),
+            detect_languages=_optional_string_tuple(options.get("detect_languages")),
+            allow_experimental=bool(options.get("allow_experimental", False)),
             diagnostics=diagnostics,
         )
 

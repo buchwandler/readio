@@ -87,14 +87,72 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
         pause_mode="auto",
         voice_level="off",
         provider="kokoro",
+        lexicons=("lex-a", "lex-b"),
+        g2p_fallback="espeak",
+        lexicon_data_policy="installed-only",
+        language_detection="auto",
+        detect_languages=("en-us", "de"),
+        allow_experimental=True,
     )
 
     description_payload = json.loads(json.dumps(description.to_dict()))
     resolution_payload = json.loads(json.dumps(resolution.to_dict()))
     assert description_payload["chapters"][0]["scope_id"] == "chapter-0003"
     assert resolution_payload["model_source"] == "github"
+    assert resolution_payload["lexicons"] == ["lex-a", "lex-b"]
+    assert resolution_payload["g2p_fallback"] == "espeak"
+    assert resolution_payload["lexicon_data_policy"] == "installed-only"
+    assert resolution_payload["language_detection"] == "auto"
+    assert resolution_payload["detect_languages"] == ["en-us", "de"]
+    assert resolution_payload["allow_experimental"] is True
     with pytest.raises(FrozenInstanceError):
         resolution.engine = "piper"  # type: ignore[misc]
+
+    legacy_resolution = SynthesisResolution(
+        engine="pykokoro",
+        language="en-us",
+        voice="af_heart",
+        model="kokoro-v1",
+        model_source="github",
+        quality="fp32",
+        speed=1.0,
+        unit="paragraph",
+        pause_mode="auto",
+        voice_level="off",
+    )
+    assert legacy_resolution.lexicons is None
+    assert legacy_resolution.g2p_fallback is None
+    assert legacy_resolution.lexicon_data_policy is None
+    assert legacy_resolution.language_detection is None
+    assert legacy_resolution.detect_languages is None
+    assert legacy_resolution.allow_experimental is False
+    assert set(legacy_resolution.to_dict()) >= {
+        "lexicons",
+        "g2p_fallback",
+        "lexicon_data_policy",
+        "language_detection",
+        "detect_languages",
+        "allow_experimental",
+    }
+
+    legacy_positional = SynthesisResolution(
+        "pykokoro",
+        "en-us",
+        "af_heart",
+        "kokoro-v1",
+        "github",
+        "fp32",
+        1.0,
+        "paragraph",
+        "auto",
+        "off",
+        None,
+        None,
+        None,
+        (),
+    )
+    assert legacy_positional.diagnostics == ()
+    assert legacy_positional.lexicons is None
 
 
 def test_synthesis_engine_options_are_json_compatible_and_frozen() -> None:

@@ -248,9 +248,52 @@ def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
     assert resolution.pause_mode == "manual"
     assert resolution.voice_level == "calibrated"
     assert resolution.provider == "fake"
+    assert resolution.lexicons is None
     assert adapter.open_calls == 0
     assert _project_snapshot(project.root) == before
     assert json.loads(json.dumps(resolution.to_dict()))["model"] == "profile-model"
+
+
+def test_resolve_synthesis_exposes_pronunciation_options_and_empty_lexicons(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "pronunciation.txt"
+    source.write_text("Preflight pronunciation settings.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "pronunciation.readio")
+    before = _project_snapshot(project.root)
+
+    request = SynthesisRequest(
+        engine="fake",
+        voice="fake-voice",
+        lexicons=("lex-a", "lex-b"),
+        g2p_fallback="espeak",
+        lexicon_data_policy="installed-only",
+        allow_experimental=True,
+        language_detection="auto",
+        detect_languages=("en-us", "de"),
+    )
+    resolution = app.projects.resolve_synthesis(project, request)
+
+    assert resolution.lexicons == ("lex-a", "lex-b")
+    assert resolution.g2p_fallback == "espeak"
+    assert resolution.lexicon_data_policy == "installed-only"
+    assert resolution.allow_experimental is True
+    assert resolution.language_detection == "auto"
+    assert resolution.detect_languages == ("en-us", "de")
+    assert isinstance(resolution.lexicons, tuple)
+    assert isinstance(resolution.detect_languages, tuple)
+    assert adapter.open_calls == 0
+    assert _project_snapshot(project.root) == before
+
+    no_lexicons = app.projects.resolve_synthesis(
+        project, SynthesisRequest(engine="fake", voice="fake-voice", lexicons=())
+    )
+    assert no_lexicons.lexicons == ()
+    assert adapter.open_calls == 0
+    assert _project_snapshot(project.root) == before
 
 
 def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
