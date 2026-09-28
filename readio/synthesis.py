@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass, replace
 
 from .config import (
+    DEFAULT_SHORT_SENTENCE_POLICY,
     LanguageSettings,
     ReadioConfig,
     language_profile,
@@ -81,7 +82,7 @@ class ResolvedSynthesis:
     unit: str
     g2p_fallback: str | None = None
     spacy: str = "auto"
-    short_sentence: str = "auto"
+    short_sentence: str = DEFAULT_SHORT_SENTENCE_POLICY
     lexicon_data_policy: str | None = None
     language_detection: str | None = None
     detect_languages: tuple[str, ...] | None = None
@@ -205,7 +206,7 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
 
     spacy = normalize_spacy_policy(request.spacy or cfg.reader.spacy)
     short_sentence = normalize_short_sentence_policy(
-        request.short_sentence or cfg.reader.short_sentence
+        request.short_sentence if request.short_sentence is not None else cfg.reader.short_sentence
     )
     if request.model is not None:
         model = request.model

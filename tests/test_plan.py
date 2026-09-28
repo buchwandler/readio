@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from readio.config import ReadioConfig, with_overrides
 from readio.document import InputDocument
 from readio.plan import (
@@ -167,3 +169,28 @@ def test_plan_serialization_and_human_report_use_v2_sections():
         section in text for section in ("Input", "Planning", "Semantic plan", "Render", "Output")
     )
     assert "Plan is executable" in text
+
+
+def test_short_sentence_default_and_explicit_override_resolution():
+    default_plan = resolve_plan(_config(), _request())
+    assert default_plan.render.options["short_sentence"] == "phrase"
+    assert not any(item.field == "synthesis.short_sentence" for item in default_plan.decisions)
+
+    explicit_plan = resolve_plan(
+        _config(),
+        _request(synthesis=SynthesisRequest(short_sentence="phrase")),
+    )
+    assert explicit_plan.render.options["short_sentence"] == "phrase"
+    decision = next(
+        item for item in explicit_plan.decisions if item.field == "synthesis.short_sentence"
+    )
+    assert decision.origin == "cli"
+    assert decision.locator == "request.short_sentence"
+
+
+def test_short_sentence_auto_request_is_rejected():
+    with pytest.raises(ValueError, match="reader.short_sentence"):
+        resolve_plan(
+            _config(),
+            _request(synthesis=SynthesisRequest(short_sentence="auto")),
+        )

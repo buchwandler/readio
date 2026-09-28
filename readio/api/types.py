@@ -294,6 +294,7 @@ class StageStatus:
 class NextAction:
     stage: StageName
     reason: str
+    command: str | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))

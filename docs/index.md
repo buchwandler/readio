@@ -122,10 +122,11 @@ Synthesis options are available on all three commands:
 --speed NUMBER            speech speed multiplier
 --voice-level MODE       off or calibrated voice-level handling
 --spacy MODE              linguistic analysis policy
---short-sentence MODE     short-sentence handling policy
+--short-sentence MODE     off, wrap, phrase, or randomized-phrase (default: phrase)
 --pause-mode MODE         auto, tts, or manual
 --unit UNIT               sentence or paragraph
 
+Readio's short-sentence default is `phrase`; Readio resolves the policy before engine adapters translate it to engine-native settings.
 Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. Supported optional engine floors are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. The `kokoro`, `piper`, and `pocket` extras install these runtimes. `readio doctor` checks their strict request APIs; incompatible packages do not trigger fallback to retired pipeline paths.
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 

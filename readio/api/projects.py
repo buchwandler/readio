@@ -134,7 +134,11 @@ class ProjectService:
             for row in raw["issues"]
         )
         actions = tuple(
-            NextAction(stage=cast(StageName, row["stage"]), reason=str(row["reason"]))
+            NextAction(
+                stage=cast(StageName, row["stage"]),
+                reason=str(row["reason"]),
+                command=str(row["command"]) if row.get("command") else None,
+            )
             for row in raw["next_actions"]
         )
         return ProjectStatus(self._ref(internal), stages, issues, actions)

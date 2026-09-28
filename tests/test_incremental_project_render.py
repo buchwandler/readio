@@ -6,8 +6,10 @@ from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
 from readio.engines.registry import _registry
 from readio.project import init_project
+from readio.stages.composition import compose_project
 from readio.stages.pipeline import project_status, render_project
 from readio.stages.planning import plan_project, plan_project_scope
+from readio.stages.synthesis import synthesize_project
 
 
 def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
@@ -86,6 +88,33 @@ def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatc
     assert status["next_actions"] == [
         {"stage": "plan", "command": "readio plan", "reason": "plan.stale.source_changed"}
     ]
+
+
+def test_status_suggests_export_for_current_composition_without_output(tmp_path, monkeypatch):
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    source = tmp_path / "book.txt"
+    source.write_text("Alpha.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+
+    plan_project(project, cfg)
+    synthesize_project(project, cfg)
+    compose_project(project)
+
+    status = project_status(project)
+    stages = {row["stage"]: row for row in status["stages"]}
+    assert stages["composition"]["state"] == "current"
+    assert stages["output"]["reason"] == "output.missing"
+    assert status["next_actions"] == [
+        {
+            "stage": "output",
+            "command": "readio export --format mp3",
+            "reason": "output.missing",
+        }
+    ]
+    output_issue = next(issue for issue in status["issues"] if issue["code"] == "output.missing")
+    assert output_issue["message"] == "No exported audio file exists for the current composition."
 
 
 def test_status_rejects_trace_profile_mismatch(tmp_path, monkeypatch):

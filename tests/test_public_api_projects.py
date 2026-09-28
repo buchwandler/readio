@@ -388,3 +388,24 @@ def test_preview_is_typed_and_does_not_activate_synthesis(tmp_path: Path, monkey
     assert json.loads(json.dumps(result.to_dict()))["items"] >= 0
     after = profile_path.read_bytes() if profile_path.exists() else None
     assert after == before
+
+
+def test_status_preserves_missing_output_command_in_public_api(tmp_path: Path, monkeypatch) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "status.txt"
+    source.write_text("Current composition.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "status.readio")
+
+    app.projects.plan(project)
+    app.projects.synthesize(project, SynthesisRequest(engine="fake", voice="fake-voice"))
+    app.projects.compose(project)
+
+    status = app.projects.status(project)
+    action = status.next_actions[0]
+    assert action.stage == "output"
+    assert action.reason == "output.missing"
+    assert action.command == "readio export --format mp3"
+    payload = json.loads(json.dumps(status.to_dict()))
+    assert payload["next_actions"][0]["command"] == "readio export --format mp3"

@@ -6,8 +6,10 @@ from typing import ClassVar
 
 import pytest
 
+from readio.config import ReadioConfig
 from readio.engines.base import EngineSelection
 from readio.engines.pykokoro import PyKokoroEngineAdapter
+from readio.synthesis import resolve_synthesis
 
 
 class _NativeConfig:
@@ -44,7 +46,6 @@ def fake_pykokoro(monkeypatch: pytest.MonkeyPatch):
     ("policy", "expected_enabled", "expected_mode"),
     [
         (None, None, None),
-        ("auto", None, None),
         ("off", False, None),
         ("wrap", True, "wrap"),
         ("phrase", True, "phrase"),
@@ -77,3 +78,22 @@ def test_pykokoro_adapter_maps_short_sentence_options(
         assert short_sentence is not None
         assert short_sentence.enabled is expected_enabled
         assert getattr(short_sentence, "resolve_mode", None) == expected_mode
+
+
+def test_pykokoro_adapter_receives_resolved_readio_default(fake_pykokoro) -> None:
+    resolved = resolve_synthesis(ReadioConfig())
+    assert resolved.short_sentence == "phrase"
+
+    selection = EngineSelection(
+        engine="pykokoro",
+        target_id="v1.0",
+        language=resolved.language,
+        voice="af_heart",
+        options={"short_sentence": resolved.short_sentence},
+    )
+    with PyKokoroEngineAdapter().open(selection):
+        pass
+
+    short_sentence = fake_pykokoro.instances[0].config.short_sentence_config
+    assert short_sentence.enabled is True
+    assert short_sentence.resolve_mode == "phrase"

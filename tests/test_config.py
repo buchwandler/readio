@@ -75,7 +75,7 @@ def test_reader_policy_defaults() -> None:
     cfg = ReaderConfig()
     assert cfg.pause_mode == "auto"
     assert cfg.spacy == "auto"
-    assert cfg.short_sentence == "auto"
+    assert cfg.short_sentence == "phrase"
 
 
 def test_reader_voice_level_and_finite_speed_are_validated(tmp_path: Path) -> None:
@@ -93,7 +93,7 @@ def test_reader_voice_level_and_finite_speed_are_validated(tmp_path: Path) -> No
 def test_reader_policies_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "policies.toml"
     for spacy in ("auto", "off", "sm", "md", "lg", "trf"):
-        for short_sentence in ("auto", "off", "wrap", "phrase", "randomized-phrase"):
+        for short_sentence in ("off", "wrap", "phrase", "randomized-phrase"):
             cfg = ReaderConfig(spacy=spacy, short_sentence=short_sentence)
             path.write_text(dumps_config(cfg), encoding="utf-8")
             assert load_config(path).reader == cfg
@@ -109,8 +109,23 @@ def test_legacy_required_spacy_migrates_to_sm(tmp_path: Path) -> None:
     assert "required" not in dumped
 
 
+def test_legacy_short_sentence_auto_loads_as_phrase(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.toml"
+    path.write_text('[reader]\nshort_sentence = "auto"\n', encoding="utf-8")
+
+    cfg = load_config(path)
+
+    assert cfg.reader.short_sentence == "phrase"
+    dumped = dumps_config(cfg)
+    assert 'short_sentence = "phrase"' in dumped
+    assert 'short_sentence = "auto"' not in dumped
+
+
 def test_invalid_reader_policies_rejected() -> None:
     with pytest.raises(ValueError):
         set_config_value(ReaderConfig(), "spacy", "xl")
     with pytest.raises(ValueError):
         set_config_value(ReaderConfig(), "short_sentence", "fast")
+
+    with pytest.raises(ValueError, match="reader.short_sentence"):
+        set_config_value(ReaderConfig(), "short_sentence", "auto")

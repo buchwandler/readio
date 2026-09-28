@@ -75,7 +75,7 @@ If runtime reports an unavailable model such as `de_core_news_lg`, use `--spacy 
 
 ### Slow short-sentence synthesis
 
-If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, use `--short-sentence wrap` for lower latency or `--short-sentence off` to bypass the workaround. `phrase` and `randomized-phrase` intentionally retain carrier-phrase extraction and may require additional inference calls.
+If verbose logs repeat `Short sentence phrase cut ... trying another phrase`, note that `phrase` is Readio's default. If carrier-phrase retries are too expensive for a workload, use `--short-sentence wrap` for lower latency or `--short-sentence off` to bypass short-sentence handling. `randomized-phrase` also performs carrier-phrase extraction with randomized selection.
 
 ## Render manifest failures
 

@@ -19,6 +19,7 @@ from typing import Any, Literal
 from utterplan import CURRENT_SCHEMA_VERSION
 
 from .config import (
+    DEFAULT_SHORT_SENTENCE_POLICY,
     ReadioConfig,
     language_profile,
     normalize_language_key,
@@ -705,7 +706,7 @@ def _resolve_synthesis_candidate(
     short_sentence = normalize_short_sentence_policy(
         request.short_sentence if request.short_sentence is not None else cfg.reader.short_sentence
     )
-    if request.short_sentence is not None or short_sentence != "auto":
+    if request.short_sentence is not None or short_sentence != DEFAULT_SHORT_SENTENCE_POLICY:
         decisions.append(
             ResolutionDecision(
                 field="synthesis.short_sentence",

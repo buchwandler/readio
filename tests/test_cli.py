@@ -15,9 +15,12 @@ from readio.api.speech import SpeechService
 from readio.api.types import (
     ConfigurationInitResult,
     Diagnostic,
+    NextAction,
     ProjectCompositionResult,
     ProjectRef,
+    ProjectStatus,
     RenderResult,
+    StageStatus,
 )
 from readio.audio import RenderSummary
 from readio.cli import _validate_live, build_parser
@@ -733,4 +736,67 @@ def test_status_discovers_project_from_nested_directory(tmp_path, monkeypatch, c
     output = capsys.readouterr().out
     assert "Readio project:" in output
     assert str(project.root) in output
-    assert "readio plan" in output
+    assert "Next:\n  readio plan\n" in output
+
+
+def test_short_sentence_cli_accepts_phrase_and_rejects_auto() -> None:
+    args = build_parser().parse_args(["speak", "No!", "--short-sentence", "phrase"])
+    assert args.short_sentence == "phrase"
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["speak", "No!", "--short-sentence", "auto"])
+
+
+def test_status_cli_renders_domain_command_and_human_issue(monkeypatch, capsys) -> None:
+    message = "No exported audio file exists for the current composition."
+    project = ProjectRef(Path("/tmp/book.readio"), "project-id", "book", "book", "text")
+    result = ProjectStatus(
+        project=project,
+        stages=(
+            StageStatus(stage="source", state="current", reason="current"),
+            StageStatus(stage="output", state="stale", reason="output.missing"),
+        ),
+        issues=(
+            Diagnostic(
+                code="output.missing",
+                severity="warning",
+                message=message,
+                field="output",
+                details={"reason": "output.missing"},
+            ),
+        ),
+        next_actions=(
+            NextAction(
+                stage="output",
+                reason="output.missing",
+                command="readio export --format mp3",
+            ),
+        ),
+    )
+
+    class Projects:
+        def open(self, _path):
+            return project
+
+        def status(self, _project):
+            return result
+
+    monkeypatch.setattr(cli, "_api_for", lambda _args: SimpleNamespace(projects=Projects()))
+    args = build_parser().parse_args(["status"])
+
+    assert cli._cmd_status(args) == 0
+    output = capsys.readouterr().out
+    assert message in output
+    assert "readio export --format mp3" in output
+    assert "output.missing" not in output
+    assert "current current" not in output
+    assert "readio: 'output'" not in output
+
+    json_args = build_parser().parse_args(["status", "--json"])
+    assert cli._cmd_status(json_args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["next_actions"][0] == {
+        "stage": "output",
+        "reason": "output.missing",
+        "command": "readio export --format mp3",
+    }

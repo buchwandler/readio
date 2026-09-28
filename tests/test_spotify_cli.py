@@ -148,3 +148,16 @@ def test_global_json_is_position_independent_in_main(monkeypatch, capsys):
 def test_adapter_error_taxonomy_is_public():
     assert issubclass(SpotifyCommandError, RuntimeError)
     assert issubclass(SpotifyProtocolError, RuntimeError)
+
+
+def test_spotify_short_sentence_parser_rejects_auto() -> None:
+    parser = cli.build_parser()
+    parsed = parser.parse_args(
+        ["spotify", "publish", "No!", "--title", "Episode", "--short-sentence", "phrase"]
+    )
+    assert parsed.short_sentence == "phrase"
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["spotify", "publish", "No!", "--title", "Episode", "--short-sentence", "auto"]
+        )

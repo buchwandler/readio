@@ -40,12 +40,12 @@ VOICE_LEVEL_MODES = ("off", "calibrated")
 SPACY_POLICIES = ("auto", "off", "sm", "md", "lg", "trf")
 SPACY_LEGACY_ALIASES = {"required": "sm"}
 SHORT_SENTENCE_POLICIES = (
-    "auto",
     "off",
     "wrap",
     "phrase",
     "randomized-phrase",
 )
+DEFAULT_SHORT_SENTENCE_POLICY = "phrase"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +64,7 @@ class ReaderSettings:
     detect_languages: tuple[str, ...] | None = None
 
     spacy: str = "auto"
-    short_sentence: str = "auto"
+    short_sentence: str = DEFAULT_SHORT_SENTENCE_POLICY
 
 
 ReaderConfig = ReaderSettings
@@ -390,10 +390,19 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
     return cfg
 
 
+def _migrate_legacy_reader_values(values: Mapping[str, Any]) -> dict[str, Any]:
+    migrated = dict(values)
+    short_sentence = migrated.get("short_sentence")
+    if isinstance(short_sentence, str) and short_sentence.strip().lower() == "auto":
+        migrated["short_sentence"] = DEFAULT_SHORT_SENTENCE_POLICY
+    return migrated
+
+
 def _reader_from(values: Mapping[str, Any]) -> ReaderSettings:
+    migrated = _migrate_legacy_reader_values(values)
     updates = {
         key: _coerce_reader_value(key, value)
-        for key, value in values.items()
+        for key, value in migrated.items()
         if key in _READER_KEYS
     }
     return ReaderSettings(**updates)

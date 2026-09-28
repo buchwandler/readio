@@ -18,6 +18,34 @@ from .export import export_project, is_export_current, project_export_states
 from .planning import load_scope_plan, plan_project, semantic_status
 from .synthesis import synthesize_project
 
+_STAGE_REASON_MESSAGES = {
+    "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
+    "plan.stale.source_changed": "The source changed after planning.",
+    "synthesis.missing": "No active synthesis artifacts are available.",
+    "synthesis.invalid": "The stored synthesis state is invalid.",
+    "synthesis.profile.invalid": "The active synthesis profile is invalid.",
+    "synthesis.trace.profile_mismatch": (
+        "The synthesis trace does not match the active synthesis profile."
+    ),
+    "synthesis.stale.plan_changed": "Synthesis is blocked until the plan is rebuilt.",
+    "composition.missing": "No composition master has been created.",
+    "composition.invalid": "The stored composition state is invalid.",
+    "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
+    "composition.stale.timing_changed": "Composition timing or presentation changed.",
+    "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
+    "synthesis.stale.project_voice_bindings_changed": (
+        "Project voice bindings changed after the active synthesis was created."
+    ),
+    "output.missing": "No exported audio file exists for the current composition.",
+    "output.invalid": "The stored export state is invalid.",
+    "output.stale.composition_changed": "Output is blocked by stale composition.",
+    "source.stale.hash_changed": (
+        "EPUB source changed after initialization; reinitialize the audiobook project."
+    ),
+    "document.index.invalid": "The audiobook document index is invalid.",
+    "document.chapter.missing": "An indexed chapter Markdown input is missing.",
+}
+
 
 def _project_request(
     project: Project,
@@ -202,24 +230,10 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
 def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
     if row["state"] == "current":
         return None
-    messages = {
-        "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
-        "plan.stale.source_changed": "The source changed after planning.",
-        "synthesis.missing": "No active synthesis artifacts are available.",
-        "synthesis.stale.plan_changed": "Synthesis is blocked until the plan is rebuilt.",
-        "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
-        "composition.stale.timing_changed": "Composition timing or presentation changed.",
-        "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
-        "synthesis.stale.project_voice_bindings_changed": "Project voice bindings changed after the active synthesis was created.",
-        "output.stale.composition_changed": "Output is blocked by stale composition.",
-        "source.stale.hash_changed": "EPUB source changed after initialization; reinitialize the audiobook project.",
-        "document.index.invalid": "The audiobook document index is invalid.",
-        "document.chapter.missing": "An indexed chapter Markdown input is missing.",
-    }
     return {
         "code": row["reason"],
         "stage": row["stage"],
-        "message": messages.get(row["reason"], row["reason"]),
+        "message": _STAGE_REASON_MESSAGES.get(row["reason"], row["reason"]),
     }
 
 

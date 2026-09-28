@@ -106,13 +106,13 @@ The shared synthesis options are available on `speak`, `render`, and `spotify pu
 
 ```text
 --spacy auto|off|sm|md|lg|trf
---short-sentence auto|off|wrap|phrase|randomized-phrase
+--short-sentence off|wrap|phrase|randomized-phrase
 --pause-mode auto|tts|manual
 --speed FLOAT
 --voice-level off|calibrated
 ```
 
-Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `--short-sentence auto` keeps PyKokoro's default, `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and phrase modes can perform carrier-phrase inference and retries. Persist these as `[reader] spacy` and `[reader] short_sentence`.
+Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `phrase` is Readio's default short-sentence strategy, resolved by Readio rather than inherited from PyKokoro. `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and `randomized-phrase` uses randomized carrier-phrase extraction. Persist these as `[reader] spacy` and `[reader] short_sentence`.
 Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. Persist an installation-specific choice with `[reader] pause_mode` or `readio config set reader.pause_mode auto`; use an explicit CLI value when reproducibility requires it.
 
 `--speed` is a finite positive synthesis multiplier, not a composition tempo. PyKokoro receives it directly, PiperSynth converts it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`. `--voice-level off|calibrated` selects engine voice-level handling. Both controls affect speech-cache identity.

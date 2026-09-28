@@ -119,9 +119,9 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
         "--short-sentence",
         choices=public_api.SHORT_SENTENCE_POLICIES,
         help=(
-            "short-sentence synthesis strategy: auto uses the PyKokoro default; "
-            "off disables handling; wrap uses lightweight phoneme context; "
-            "phrase/randomized-phrase use carrier-phrase extraction"
+            "short-sentence synthesis strategy (default: phrase): off disables handling; "
+            "wrap uses lightweight phoneme context; phrase uses carrier-phrase extraction; "
+            "randomized-phrase uses randomized carrier-phrase extraction"
         ),
     )
     parser.add_argument("--language-detection", choices=public_api.LANGUAGE_DETECTION_MODES)
@@ -644,24 +644,25 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"Readio project: {result.project.name}")
         print(f"Root: {result.project.root}")
         print(f"Source format: {result.project.source_format}\n")
+        message_by_reason = {issue.code: issue.message for issue in result.issues}
         for row in result.stages:
             reusable = row.details.get("reusable")
             total = row.details.get("total")
             details = f" ({reusable}/{total} units reusable)" if reusable is not None else ""
             if row.blocked_by:
                 details += f" blocked by {row.blocked_by}"
-            print(f"{row.stage.upper():<12} {row.state:<7} {row.reason}{details}")
+            human_reason = (
+                "" if row.state == "current" else message_by_reason.get(row.reason, row.reason)
+            )
+            print(f"{row.stage.upper():<12} {row.state:<7} {human_reason}{details}".rstrip())
         print()
         if result.next_actions:
-            stage = result.next_actions[0].stage
-            commands = {
-                "plan": "readio plan build",
-                "synthesis": "readio synth",
-                "composition": "readio compose",
-                "export": "readio export",
-            }
+            action = result.next_actions[0]
             print("Next:")
-            print(f"  {commands[stage]}")
+            if action.command:
+                print(f"  {action.command}")
+            else:
+                print(f"  {action.stage}: {action.reason}")
         else:
             print("Project is fully built.")
     return 0

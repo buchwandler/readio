@@ -135,6 +135,11 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--short-sentence",
         choices=SHORT_SENTENCE_POLICIES,
+        help=(
+            "short-sentence synthesis strategy (default: phrase): off disables handling; "
+            "wrap uses lightweight phoneme context; phrase uses carrier-phrase extraction; "
+            "randomized-phrase uses randomized carrier-phrase extraction"
+        ),
     )
     parser.add_argument("--language-detection", choices=LANGUAGE_DETECTION_MODES)
     parser.add_argument(
