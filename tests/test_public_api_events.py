@@ -106,6 +106,35 @@ def test_composition_callbacks_translate_to_public_progress() -> None:
     assert all(not event.details for event in events)
 
 
+def test_assembly_and_loudness_progress_exposes_finalization_timings() -> None:
+    service = object.__new__(ProjectService)
+    events: list[ReadioEvent] = []
+    handler = service._composition_handler(events.append, "projects.compose")
+    assert handler is not None
+
+    handler(SimpleNamespace(kind="assembly_started"))
+    handler(SimpleNamespace(kind="assembly_completed", details={}))
+    handler(SimpleNamespace(kind="loudness_started"))
+    handler(
+        SimpleNamespace(
+            kind="loudness_completed",
+            details={
+                "analysis_seconds": 0.25,
+                "gain_seconds": 0.01,
+                "post_gain_metrics_seconds": 0.02,
+            },
+        )
+    )
+
+    assert "Audio assembly complete in" in (events[1].message or "")
+    loudness_event = events[3]
+    assert loudness_event.message is not None
+    assert "analysis 0.250s" in loudness_event.message
+    assert "post-gain metrics 0.020s" in loudness_event.message
+    assert loudness_event.details["analysis_seconds"] == 0.25
+    assert isinstance(loudness_event.details["phase_duration_seconds"], float)
+
+
 def test_composition_phase_callbacks_are_progress_events() -> None:
     service = object.__new__(ProjectService)
     events: list[ReadioEvent] = []

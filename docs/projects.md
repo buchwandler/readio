@@ -75,6 +75,8 @@ Voice, model, and engine changes begin at synthesis. Loudness changes begin at
 composition. Codec and bitrate changes begin at export; none require semantic
 replanning.
 
+Readio defaults to the `spoken-word` mastering profile (`-16 LUFS/-1 dBTP`). Composition identity includes the requested profile and resolved numeric target/ceiling; analysis timings are excluded. Composition state and typed API/JSON results retain before/after loudness and peak readings, requested/applied gain, target status, and any ceiling-limited warning.
+
 ## Commands
 
 `readio plan` does not discover a voice or load a TTS model. `readio preview`
@@ -118,5 +120,5 @@ Use `--no-progress` for quiet automation or `--progress` to force progress. Repe
 
 Interactive terminals update a current line. Forced non-TTY progress is throttled. `--progress` enables output, `--no-progress` suppresses it, and automatic progress is disabled by `--json` unless explicitly forced. JSON stdout remains uncontaminated.
 
-The composition ETA is approximate and covers only segment processing. After segment processing, Readio reports `Assembling master`, `Finalizing loudness and true peak`, and `Writing composition artifacts` as separate phases. Preview and incremental `render PROJECT` use the same composition callback path when they rebuild composition. Progress is runtime-only and does not affect composition IDs, timelines, AudioJob files, or composition state.
+The composition ETA is approximate and covers only segment processing. Progress separately reports master assembly, loudness analysis/gain/post-gain metrics, AudioJob and master WAV writes, timeline/state writes, and artifact hashing; each finalization duration is diagnostic-only. Preview and incremental `render PROJECT` use the same composition callback path when they rebuild composition. Runtime timings do not affect composition IDs, timelines, AudioJob files, or composition state identity.
 A complete cache hit emits no engine-open phase and does not load the model. Active `synthesis/profile.json` and `synthesis/trace.json` are the persisted status truth; changing content or profile invalidates only affected synthesis keys.

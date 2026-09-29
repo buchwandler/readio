@@ -140,6 +140,9 @@ def test_normal_render_executes_requests_from_the_resolved_plan(monkeypatch, tmp
 
     result = captured[0]
     assert result.plan.ok
+    assert result.loudness is not None
+    assert result.loudness.profile == "spoken-word"
+    assert result.loudness.target_lufs == -16.0
     assert result.plan.render.default_target.id == "fixture-model"
     assert result.output_path == output
     assert output.is_file()

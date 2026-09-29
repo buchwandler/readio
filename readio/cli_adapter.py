@@ -202,7 +202,11 @@ def build_plan_request(
         synthesis=synthesis,
         output=output,
         composition=api.CompositionOptions(
+            mastering=getattr(args, "mastering", "spoken-word"),
             target_lufs=getattr(args, "target_lufs", None),
+            true_peak_ceiling_dbtp=getattr(args, "true_peak_ceiling_dbtp", None),
+            peak_policy=getattr(args, "peak_policy", "reduce_gain"),
+            clip_policy=getattr(args, "clip_policy", "clamp"),
             sample_rate=getattr(args, "sample_rate", None),
         ),
         voice_bindings=voice_bindings,

@@ -193,6 +193,7 @@ def execute_bounded_v2(
     audio_job, _composition_identity = _build_layout(
         None,
         rendered_segments,
+        mastering=plan.composition.mastering,
         target_lufs=plan.composition.target_lufs,
         true_peak_ceiling_dbtp=plan.composition.true_peak_ceiling_dbtp,
         peak_policy=plan.composition.peak_policy,

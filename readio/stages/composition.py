@@ -6,6 +6,7 @@ import hashlib
 import logging
 import math
 import re
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from audiocompose import (
 from utterplan import parse_duration
 
 from ..errors import InputError
+from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..stages.speech_identity import segment_speech_hash, segment_synthesis_key
 from .planning import load_scope_plan
@@ -456,10 +458,20 @@ def _build_layout(
     true_peak_ceiling_dbtp: float | None,
     peak_policy: str,
     clip_policy: str,
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     composition: Mapping[str, Any] | None = None,
     scope_metadata: tuple[Mapping[str, Any], ...] = (),
     output_sample_rate: int | None = None,
 ) -> tuple[AudioJob, dict[str, Any]]:
+    mastering_policy = resolve_mastering_policy(
+        mastering,
+        target_lufs=target_lufs,
+        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+        peak_policy=peak_policy,
+    )
+    target_lufs = mastering_policy.target_lufs
+    true_peak_ceiling_dbtp = mastering_policy.true_peak_ceiling_dbtp
+    peak_policy = mastering_policy.peak_policy
     if not segments:
         raise ValueError("composition selected no synthesized segments")
     sample_rate = int(output_sample_rate or segments[0][1]["sample_rate"])
@@ -665,9 +677,11 @@ def _build_layout(
         "sample_rate": sample_rate,
         "channels": 1,
         "loudness": {
+            "profile": mastering_policy.profile,
             "target_lufs": target_lufs,
             "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
             "peak_policy": peak_policy,
+            "collect_metrics": mastering_policy.collect_metrics,
         },
         "clip_policy": clip_policy,
     }
@@ -692,7 +706,12 @@ def _build_layout(
         output=OutputPolicy(
             sample_rate=sample_rate,
             channels=1,
-            loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
+            loudness=LoudnessPolicy(
+                target_lufs,
+                true_peak_ceiling_dbtp,
+                peak_policy,
+                collect_metrics=mastering_policy.collect_metrics,
+            ),
             clip_policy=clip_policy,
         ),
         producer={"readio": "project" if project is not None else "readio"},
@@ -712,8 +731,9 @@ def _build_layout(
 def build_audio_job(
     project: Project,
     *,
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
-    true_peak_ceiling_dbtp: float | None = -1.0,
+    true_peak_ceiling_dbtp: float | None = None,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
@@ -754,21 +774,68 @@ def build_audio_job(
         true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
         peak_policy=peak_policy,
         clip_policy=clip_policy,
+        mastering=mastering,
         composition=first_entry.get("composition", {}),
         scope_metadata=tuple(scope_metadata),
         output_sample_rate=output_sample_rate,
     )
 
 
+def _loudness_payload(result: Any, profile: str) -> dict[str, Any] | None:
+    loudness = result.loudness
+    if loudness is None:
+        return None
+    before = loudness.before
+    after = loudness.after
+    return {
+        "profile": profile,
+        "integrated_lufs_before": before.integrated_lufs,
+        "integrated_lufs_after": after.integrated_lufs,
+        "sample_peak_dbfs_before": before.sample_peak_dbfs,
+        "sample_peak_dbfs_after": after.sample_peak_dbfs,
+        "true_peak_dbtp_before": before.true_peak_dbtp,
+        "true_peak_dbtp_after": after.true_peak_dbtp,
+        "target_lufs": loudness.target_lufs,
+        "true_peak_ceiling_dbtp": loudness.true_peak_ceiling_dbtp,
+        "requested_gain_db": loudness.requested_gain_db,
+        "applied_gain_db": loudness.applied_gain_db,
+        "gain_db": loudness.applied_gain_db,
+        "target_reached": loudness.target_reached,
+        "peak_policy": loudness.peak_policy,
+        "warning": loudness.warning,
+        "analysis_seconds": loudness.analysis_seconds,
+        "gain_seconds": loudness.gain_seconds,
+        "post_gain_metrics_seconds": loudness.post_gain_metrics_seconds,
+    }
+
+
 def _write_composition_result(
-    project: Project, job: AudioJob, identity: Mapping[str, Any], result: Any
+    project: Project,
+    job: AudioJob,
+    identity: Mapping[str, Any],
+    result: Any,
+    *,
+    on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     audiojob_path = project.paths["composition_audiojob"]
+    if on_phase is not None:
+        on_phase("Writing AudioJob manifest")
+    phase_started = time.perf_counter()
     audiojob_manifest = Path(job.save(audiojob_path))
+    if on_phase is not None:
+        on_phase(f"AudioJob manifest written in {time.perf_counter() - phase_started:.3f}s")
     master = project.paths["composition_master"]
     temporary = master.with_name(f".{master.name}.tmp")
+    if on_phase is not None:
+        on_phase("Writing master WAV")
+    phase_started = time.perf_counter()
     sf.write(temporary, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
     temporary.replace(master)
+    if on_phase is not None:
+        on_phase(f"Master WAV written in {time.perf_counter() - phase_started:.3f}s")
+    if on_phase is not None:
+        on_phase("Building and writing composition timeline")
+    phase_started = time.perf_counter()
     chapter_metadata = identity.get("identity_payload", {}).get("chapters", [])
     item_ranges = {item.item_id: (item.start_sample, item.end_sample) for item in result.items}
     layout_items = identity.get("layout", [])
@@ -819,7 +886,24 @@ def _write_composition_result(
         ],
     }
     atomic_write_json(project.paths["composition_timeline"], timeline)
+    if on_phase is not None:
+        on_phase(f"Composition timeline written in {time.perf_counter() - phase_started:.3f}s")
+    if on_phase is not None:
+        on_phase("Hashing composition artifacts")
+    phase_started = time.perf_counter()
     master_sha = hash_file(master)
+    audiojob_sha = hash_file(audiojob_manifest)
+    timeline_sha = hash_file(project.paths["composition_timeline"])
+    synthesis_trace = project.paths["synthesis_trace"]
+    synthesis_trace_sha = hash_file(synthesis_trace) if synthesis_trace.is_file() else None
+    if on_phase is not None:
+        on_phase(f"Composition artifacts hashed in {time.perf_counter() - phase_started:.3f}s")
+    policy = identity.get("identity_payload", {}).get("loudness", {})
+    profile = policy.get("profile", DEFAULT_MASTERING_PROFILE)
+    loudness_summary = _loudness_payload(result, str(profile))
+    if on_phase is not None:
+        on_phase("Writing composition state")
+    phase_started = time.perf_counter()
     atomic_write_json(
         project.paths["composition_state"],
         {
@@ -828,43 +912,36 @@ def _write_composition_result(
             "composition_id": identity["composition_id"],
             "identity_payload": identity["identity_payload"],
             "warnings": list(identity.get("warnings", [])),
-            "synthesis_trace_sha256": (
-                hash_file(project.paths["synthesis_trace"])
-                if project.paths["synthesis_trace"].is_file()
-                else None
-            ),
+            "synthesis_trace_sha256": synthesis_trace_sha,
             "synthesis_profile_id": read_json(project.paths["synthesis_profile"]).get("profile_id"),
-            "audiojob_sha256": hash_file(audiojob_manifest),
+            "audiojob_sha256": audiojob_sha,
             "master_sha256": master_sha,
-            "timeline_sha256": hash_file(project.paths["composition_timeline"]),
+            "timeline_sha256": timeline_sha,
             "sample_rate": result.sample_rate,
             "frames": len(result.audio),
-            "loudness": {
-                "integrated_lufs_before": result.loudness.before.integrated_lufs
-                if result.loudness
-                else None,
-                "integrated_lufs_after": result.loudness.after.integrated_lufs
-                if result.loudness
-                else None,
-                "gain_db": result.loudness.applied_gain_db if result.loudness else 0.0,
-            },
+            "loudness": loudness_summary,
         },
     )
+    if on_phase is not None:
+        on_phase(f"Composition state written in {time.perf_counter() - phase_started:.3f}s")
     return {
         "composition_id": identity["composition_id"],
+        "mastering_profile": profile,
         "master": master,
         "sample_rate": result.sample_rate,
         "frames": len(result.audio),
         "items": len(result.items),
         "warnings": list(identity.get("warnings", [])),
+        "loudness": loudness_summary,
     }
 
 
 def compose_project(
     project: Project,
     *,
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
-    true_peak_ceiling_dbtp: float | None = -1.0,
+    true_peak_ceiling_dbtp: float | None = None,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
@@ -874,18 +951,22 @@ def compose_project(
     with project_lock(project, operation="compose"):
         if on_phase is not None:
             on_phase("Preparing composition")
+        phase_started = time.perf_counter()
         job, identity = build_audio_job(
             project,
+            mastering=mastering,
             target_lufs=target_lufs,
             true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
             peak_policy=peak_policy,
             clip_policy=clip_policy,
             output_sample_rate=output_sample_rate,
         )
+        if on_phase is not None:
+            on_phase(f"Composition layout prepared in {time.perf_counter() - phase_started:.3f}s")
         result = Composer().compose(job, on_progress=on_progress)
         if on_phase is not None:
             on_phase("Writing composition artifacts")
-        return _write_composition_result(project, job, identity, result)
+        return _write_composition_result(project, job, identity, result, on_phase=on_phase)
 
 
 def compose_artifacts(
@@ -896,8 +977,9 @@ def compose_artifacts(
     synthesis_profile: Mapping[str, Any] | None = None,
     plans: Any | None = None,
     scope_metadata: tuple[Mapping[str, Any], ...] = (),
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
-    true_peak_ceiling_dbtp: float | None = -1.0,
+    true_peak_ceiling_dbtp: float | None = None,
     peak_policy: str = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
@@ -906,6 +988,15 @@ def compose_artifacts(
     on_phase: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     artifact_list = tuple(artifacts)
+    mastering_policy = resolve_mastering_policy(
+        mastering,
+        target_lufs=target_lufs,
+        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+        peak_policy=peak_policy,
+    )
+    target_lufs = mastering_policy.target_lufs
+    true_peak_ceiling_dbtp = mastering_policy.true_peak_ceiling_dbtp
+    peak_policy = mastering_policy.peak_policy
     if not artifact_list:
         raise ValueError("preview selected no synthesized segments")
     plan_pairs = (
@@ -944,14 +1035,31 @@ def compose_artifacts(
             output=OutputPolicy(
                 sample_rate=output_sample_rate or clips[0].source.sample_rate,
                 channels=1,
-                loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
+                loudness=LoudnessPolicy(
+                    target_lufs,
+                    true_peak_ceiling_dbtp,
+                    peak_policy,
+                    collect_metrics=mastering_policy.collect_metrics,
+                ),
                 clip_policy=clip_policy,
             ),
         )
+        identity_payload = {
+            "schema": "readio.composition.v2",
+            "items": [clip.metadata for clip in clips],
+            "sample_rate": output_sample_rate or clips[0].source.sample_rate,
+            "clip_policy": clip_policy,
+            "loudness": {
+                "profile": mastering_policy.profile,
+                "target_lufs": target_lufs,
+                "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
+                "peak_policy": peak_policy,
+                "collect_metrics": mastering_policy.collect_metrics,
+            },
+        }
         identity = {
-            "composition_id": composition_id(
-                {"schema": "readio.composition.v2", "items": [clip.metadata for clip in clips]}
-            ),
+            "composition_id": composition_id(identity_payload),
+            "identity_payload": identity_payload,
             "layout": [dict(clip.metadata) for clip in clips],
         }
     else:
@@ -995,6 +1103,7 @@ def compose_artifacts(
             true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
             peak_policy=peak_policy,
             clip_policy=clip_policy,
+            mastering=mastering,
             composition=composition,
             scope_metadata=scope_metadata,
             output_sample_rate=output_sample_rate,
@@ -1012,6 +1121,7 @@ def compose_artifacts(
         "output": output,
         "composition_id": identity["composition_id"],
         "warnings": list(identity.get("warnings", [])),
+        "loudness": _loudness_payload(result, mastering_policy.profile),
     }
 
 

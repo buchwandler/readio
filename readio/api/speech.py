@@ -40,6 +40,7 @@ from .errors import (
 from .events import EventHandler, EventStage, ReadioEvent, compose_event_handlers
 from .types import (
     Diagnostic,
+    LoudnessSummary,
     OutputRequest,
     PlanRequest,
     RenderResult,
@@ -548,6 +549,15 @@ class SpeechService:
         diagnostics = tuple(
             Diagnostic.from_plan(item) for item in (plan.diagnostics if plan is not None else ())
         )
+        audio_loudness = getattr(execution_result.composition, "loudness", None)
+        loudness = (
+            LoudnessSummary.from_loudness_result(
+                plan.composition.mastering if plan is not None else "spoken-word",
+                audio_loudness,
+            )
+            if audio_loudness is not None
+            else None
+        )
         return RenderResult(
             plan=plan,
             summary=execution_result.summary,
@@ -558,6 +568,7 @@ class SpeechService:
                 plan.output.format if plan is not None and output_path is not None else None
             ),
             manifest_schema=(RENDER_MANIFEST_SCHEMA_V2 if manifest_path is not None else None),
+            loudness=loudness,
         )
 
 

@@ -64,6 +64,38 @@ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
     assert json.loads(json.dumps(status.to_dict()))["stages"]
 
 
+def test_project_compose_returns_typed_mastering_diagnostics(tmp_path: Path, monkeypatch) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "spoken.txt"
+    source.write_text("A short spoken-word passage.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "spoken.readio")
+    app.projects.plan(project)
+    app.projects.synthesize(project, SynthesisRequest(engine="fake", voice="fake-voice"))
+
+    result = app.projects.compose(project)
+
+    assert result.loudness is not None
+    assert result.loudness.profile == "spoken-word"
+    assert result.loudness.target_lufs == -16.0
+    assert result.loudness.true_peak_ceiling_dbtp == -1.0
+    assert result.loudness.integrated_lufs_before is None
+    assert result.loudness.sample_peak_dbfs_before is not None
+    assert result.loudness.true_peak_dbtp_before is not None
+    assert result.loudness.warning is not None
+    payload = json.loads(json.dumps(result.to_dict()))
+    assert payload["loudness"]["profile"] == "spoken-word"
+    state_path = tmp_path / "spoken.readio" / "composition" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    policy = state["identity_payload"]["loudness"]
+    assert policy["profile"] == "spoken-word"
+    assert policy["target_lufs"] == -16.0
+    assert "analysis_seconds" not in policy
+    assert state["loudness"]["analysis_seconds"] >= 0.0
+    assert state["loudness"]["applied_gain_db"] == result.loudness.applied_gain_db
+
+
 def test_project_build_returns_typed_incremental_operations(tmp_path: Path, monkeypatch) -> None:
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
@@ -429,6 +461,9 @@ def test_preview_is_typed_and_does_not_activate_synthesis(tmp_path: Path, monkey
     assert result.activated is False
     assert result.frames > 0
     assert json.loads(json.dumps(result.to_dict()))["items"] >= 0
+    assert result.loudness is not None
+    assert result.loudness.profile == "spoken-word"
+    assert json.loads(json.dumps(result.to_dict()))["loudness"]["profile"] == "spoken-word"
     after = profile_path.read_bytes() if profile_path.exists() else None
     assert after == before
 

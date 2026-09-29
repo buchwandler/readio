@@ -218,15 +218,85 @@ class OutputRequest:
     bitrate: str | None = None
 
 
+MasteringProfile = Literal[
+    "spoken-word",
+    "spoken-word-dual-mono",
+    "broadcast-ebu",
+    "peak-safe",
+    "off",
+]
+DEFAULT_MASTERING_PROFILE: MasteringProfile = "spoken-word"
+MASTERING_PROFILE_DEFAULTS: dict[MasteringProfile, tuple[float | None, float | None]] = {
+    "spoken-word": (-16.0, -1.0),
+    "spoken-word-dual-mono": (-19.0, -1.0),
+    "broadcast-ebu": (-23.0, -1.0),
+    "peak-safe": (None, -1.0),
+    "off": (None, None),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedMasteringPolicy:
+    profile: MasteringProfile
+    target_lufs: float | None
+    true_peak_ceiling_dbtp: float | None
+    peak_policy: Literal["reduce_gain", "error"]
+    collect_metrics: bool
+
+
+def resolve_mastering_policy(
+    profile: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+    *,
+    target_lufs: float | None = None,
+    true_peak_ceiling_dbtp: float | None = None,
+    peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
+) -> ResolvedMasteringPolicy:
+    if profile not in MASTERING_PROFILE_DEFAULTS:
+        raise ValueError(f"unsupported mastering profile: {profile!r}")
+    for name, value in (
+        ("target_lufs", target_lufs),
+        ("true_peak_ceiling_dbtp", true_peak_ceiling_dbtp),
+    ):
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(f"composition.{name} must be a finite number or None")
+    if peak_policy not in ("reduce_gain", "error"):
+        raise ValueError("composition.peak_policy must be 'reduce_gain' or 'error'")
+    default_target, default_ceiling = MASTERING_PROFILE_DEFAULTS[profile]
+    return ResolvedMasteringPolicy(
+        profile=profile,
+        target_lufs=default_target if target_lufs is None else float(target_lufs),
+        true_peak_ceiling_dbtp=(
+            default_ceiling if true_peak_ceiling_dbtp is None else float(true_peak_ceiling_dbtp)
+        ),
+        peak_policy=peak_policy,
+        collect_metrics=(
+            profile != "off" or target_lufs is not None or true_peak_ceiling_dbtp is not None
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CompositionOptions:
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE
     target_lufs: float | None = None
-    true_peak_ceiling_dbtp: float = -1.0
+    true_peak_ceiling_dbtp: float | None = None
     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain"
     clip_policy: Literal["clamp", "warn", "error"] = "clamp"
     sample_rate: int | None = None
 
     def __post_init__(self) -> None:
+        resolve_mastering_policy(
+            self.mastering,
+            target_lufs=self.target_lufs,
+            true_peak_ceiling_dbtp=self.true_peak_ceiling_dbtp,
+            peak_policy=self.peak_policy,
+        )
+        if self.clip_policy not in ("clamp", "warn", "error"):
+            raise ValueError("composition.clip_policy must be 'clamp', 'warn', or 'error'")
         if self.sample_rate is not None and (
             isinstance(self.sample_rate, bool)
             or not isinstance(self.sample_rate, int)
@@ -1711,6 +1781,12 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             render_id=render_identity(semantic.sha256, render),
         )
     has_errors = any(d.severity == "error" for d in diagnostics)
+    mastering = resolve_mastering_policy(
+        request.composition.mastering,
+        target_lufs=request.composition.target_lufs,
+        true_peak_ceiling_dbtp=request.composition.true_peak_ceiling_dbtp,
+        peak_policy=request.composition.peak_policy,
+    )
     plan = ReadioPlanV2(
         schema="readio.plan.v2",
         ok=not has_errors and semantic is not None and selection is not None,
@@ -1721,11 +1797,13 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         render=render,
         output=output_plan,
         composition=CompositionPlanV2(
-            target_lufs=request.composition.target_lufs,
-            true_peak_ceiling_dbtp=request.composition.true_peak_ceiling_dbtp,
-            peak_policy=request.composition.peak_policy,
+            mastering=mastering.profile,
+            target_lufs=mastering.target_lufs,
+            true_peak_ceiling_dbtp=mastering.true_peak_ceiling_dbtp,
+            peak_policy=mastering.peak_policy,
             clip_policy=request.composition.clip_policy,
             sample_rate=request.composition.sample_rate,
+            collect_metrics=mastering.collect_metrics,
         ),
         environment=environment,
         decisions=tuple(decisions),
@@ -1951,19 +2029,23 @@ class PlanningPlanV2:
 class CompositionPlanV2:
     """Resolved AudioCompose output policy for a bounded render."""
 
-    target_lufs: float | None = None
-    true_peak_ceiling_dbtp: float = -1.0
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE
+    target_lufs: float | None = -16.0
+    true_peak_ceiling_dbtp: float | None = -1.0
     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain"
     clip_policy: Literal["clamp", "warn", "error"] = "clamp"
     sample_rate: int | None = None
+    collect_metrics: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "mastering": self.mastering,
             "target_lufs": self.target_lufs,
             "true_peak_ceiling_dbtp": self.true_peak_ceiling_dbtp,
             "peak_policy": self.peak_policy,
             "clip_policy": self.clip_policy,
             "sample_rate": self.sample_rate,
+            "collect_metrics": self.collect_metrics,
         }
 
 

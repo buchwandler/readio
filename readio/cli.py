@@ -62,6 +62,37 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+MASTERING_PROFILE_CHOICES = (
+    "spoken-word",
+    "spoken-word-dual-mono",
+    "broadcast-ebu",
+    "peak-safe",
+    "off",
+)
+
+
+def _add_mastering_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--mastering",
+        choices=MASTERING_PROFILE_CHOICES,
+        default="spoken-word",
+        help="mastering profile (default: spoken-word; omitted numeric overrides inherit)",
+    )
+    parser.add_argument(
+        "--target-lufs",
+        type=float,
+        help="expert LUFS target override; omitted means inherit from --mastering",
+    )
+    parser.add_argument(
+        "--true-peak-ceiling-dbtp",
+        type=float,
+        help="expert true-peak ceiling override; omitted means inherit from --mastering",
+    )
+    parser.add_argument("--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain")
+    parser.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
+    parser.add_argument("--sample-rate", type=int, help="AudioCompose output sample rate")
+
+
 def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--engine",
@@ -405,7 +436,11 @@ def _project_build_request(args: argparse.Namespace) -> public_api.ProjectBuildR
         voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
         synthesis=_project_synthesis_request(args),
         composition=public_api.CompositionOptions(
+            mastering=getattr(args, "mastering", "spoken-word"),
             target_lufs=getattr(args, "target_lufs", None),
+            true_peak_ceiling_dbtp=getattr(args, "true_peak_ceiling_dbtp", None),
+            peak_policy=getattr(args, "peak_policy", "reduce_gain"),
+            clip_policy=getattr(args, "clip_policy", "clamp"),
             sample_rate=getattr(args, "sample_rate", None),
         ),
         export=public_api.ExportOptions(format=getattr(args, "format", None) or "wav"),
@@ -433,6 +468,66 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     return 0
 
 
+def _metric_pair(before: float | None, after: float | None, unit: str) -> str:
+    left = "n/a" if before is None else f"{before:.2f}"
+    right = "n/a" if after is None else f"{after:.2f}"
+    return f"{left} → {right} {unit}"
+
+
+def _print_loudness_summary(summary: public_api.LoudnessSummary) -> None:
+    print(f"Mastering profile: {summary.profile}")
+    if summary.target_lufs is None:
+        target_status = "no LUFS target"
+        target = "none"
+    else:
+        target = f"{summary.target_lufs:.2f} LUFS"
+        if summary.target_reached:
+            target_status = "target reached"
+        elif summary.integrated_lufs_before is None:
+            target_status = "target not measurable"
+        else:
+            target_status = "target not reached"
+    print(
+        f"Integrated loudness: "
+        f"{_metric_pair(summary.integrated_lufs_before, summary.integrated_lufs_after, 'LUFS')} "
+        f"(target {target}; {target_status})"
+    )
+    ceiling = (
+        "none"
+        if summary.true_peak_ceiling_dbtp is None
+        else f"{summary.true_peak_ceiling_dbtp:.2f} dBTP"
+    )
+    print(
+        f"True peak: "
+        f"{_metric_pair(summary.true_peak_dbtp_before, summary.true_peak_dbtp_after, 'dBTP')} "
+        f"(ceiling {ceiling})"
+    )
+    print(
+        f"Sample peak: "
+        f"{_metric_pair(summary.sample_peak_dbfs_before, summary.sample_peak_dbfs_after, 'dBFS')}"
+    )
+    print(
+        f"Gain: applied {summary.applied_gain_db:+.2f} dB "
+        f"(requested {summary.requested_gain_db:+.2f} dB)"
+    )
+    print(
+        "Finalization timing: "
+        f"analysis {summary.analysis_seconds:.3f}s, "
+        f"gain {summary.gain_seconds:.3f}s, "
+        f"post-gain metrics {summary.post_gain_metrics_seconds:.3f}s"
+    )
+    if summary.warning:
+        print(f"Mastering warning: {summary.warning}")
+
+
+def _print_project_build_result(result: public_api.ProjectBuildResult) -> None:
+    for operation in result.operations:
+        print(f"{operation.stage}: {operation.action}")
+        loudness = operation.details.get("loudness")
+        if operation.stage == "composition" and isinstance(loudness, dict):
+            _print_loudness_summary(public_api.LoudnessSummary.from_mapping(loudness))
+
+
 def _cmd_compose(args: argparse.Namespace) -> int:
     app = _api_for(args)
     progress = _build_progress(args)
@@ -440,6 +535,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         result = app.projects.compose(
             args.project or Path.cwd(),
             public_api.CompositionOptions(
+                mastering=args.mastering,
                 target_lufs=args.target_lufs,
                 true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
                 peak_policy=args.peak_policy,
@@ -457,6 +553,10 @@ def _cmd_compose(args: argparse.Namespace) -> int:
                     "master": str(result.master_path) if result.master_path is not None else None,
                     "frames": result.frames,
                     "items": result.items,
+                    "mastering_profile": (
+                        result.loudness.profile if result.loudness is not None else None
+                    ),
+                    "loudness": result.loudness.to_dict() if result.loudness is not None else None,
                 },
                 ensure_ascii=False,
             )
@@ -465,6 +565,8 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         print(f"Composition: {result.composition_id}")
         if result.master_path is not None:
             print(f"Master: {result.master_path}")
+        if result.loudness is not None:
+            _print_loudness_summary(result.loudness)
     return 0
 
 
@@ -493,7 +595,11 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
         synthesis=_project_synthesis_request(args),
         composition=public_api.CompositionOptions(
+            mastering=getattr(args, "mastering", "spoken-word"),
             target_lufs=getattr(args, "target_lufs", None),
+            true_peak_ceiling_dbtp=getattr(args, "true_peak_ceiling_dbtp", None),
+            peak_policy=getattr(args, "peak_policy", "reduce_gain"),
+            clip_policy=getattr(args, "clip_policy", "clamp"),
             sample_rate=getattr(args, "sample_rate", None),
         ),
         output=args.output,
@@ -513,6 +619,8 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         )
         if result.output_path is not None:
             print(result.output_path)
+        if result.loudness is not None:
+            _print_loudness_summary(result.loudness)
     return 0
 
 
@@ -529,8 +637,7 @@ def _cmd_project_render(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
     else:
-        for operation in result.operations:
-            print(f"{operation.stage}: {operation.action}")
+        _print_project_build_result(result)
     return 0
 
 
@@ -847,12 +954,18 @@ def _emit_render_result(args: argparse.Namespace, result: public_api.RenderResul
                         if result.manifest_path is not None
                         else None
                     ),
+                    "mastering_profile": (
+                        result.loudness.profile if result.loudness is not None else None
+                    ),
+                    "loudness": result.loudness.to_dict() if result.loudness is not None else None,
                 },
                 ensure_ascii=False,
             )
         )
     else:
         print(output)
+        if result.loudness is not None:
+            _print_loudness_summary(result.loudness)
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
@@ -878,8 +991,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
             else:
-                for operation in result.operations:
-                    print(f"{operation.stage}: {operation.action}")
+                _print_project_build_result(result)
             return 0
     if args.live:
         return _render_cli_live(args, app)
@@ -1708,8 +1820,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="output audio path (.wav, .mp3, .m4a, or .ogg)",
     )
-    render.add_argument("--target-lufs", type=float, help="project composition loudness target")
-    render.add_argument("--sample-rate", type=int, help="AudioCompose output sample rate")
+    _add_mastering_options(render)
     render.add_argument("--force", action="store_true", help="replace an existing output")
     _add_runtime_options(render, playback=False)
     _add_progress_option(render)
@@ -1835,13 +1946,7 @@ def build_parser() -> argparse.ArgumentParser:
         "compose", help="Assemble synthesized project audio into a master."
     )
     compose_cmd.add_argument("project", nargs="?", type=Path)
-    compose_cmd.add_argument("--target-lufs", type=float)
-    compose_cmd.add_argument("--sample-rate", type=int)
-    compose_cmd.add_argument("--true-peak-ceiling-dbtp", type=float, default=-1.0)
-    compose_cmd.add_argument(
-        "--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain"
-    )
-    compose_cmd.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
+    _add_mastering_options(compose_cmd)
     _add_progress_option(compose_cmd)
     compose_cmd.add_argument("--json", action="store_true")
     compose_cmd.set_defaults(func=_cmd_compose)
@@ -1858,8 +1963,7 @@ def build_parser() -> argparse.ArgumentParser:
     preview_cmd = sub.add_parser("preview", help="Render a selected project range for review.")
     preview_cmd.add_argument("project", nargs="?", type=Path)
     preview_cmd.add_argument("--select", default="first:3")
-    preview_cmd.add_argument("--target-lufs", type=float)
-    preview_cmd.add_argument("--sample-rate", type=int)
+    _add_mastering_options(preview_cmd)
     preview_cmd.add_argument("-o", "--output", type=Path)
     preview_cmd.add_argument("--activate", action="store_true")
     _add_synthesis_options(preview_cmd)

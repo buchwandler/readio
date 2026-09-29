@@ -66,7 +66,11 @@ def test_render_project_forwards_composition_progress(tmp_path, monkeypatch):
     render_project(project, cfg, on_composition_progress=events.append, on_phase=phases.append)
     assert events[0].kind == "compose_started"
     assert events[-1].kind == "compose_completed"
-    assert phases == ["Preparing composition", "Writing composition artifacts"]
+    assert phases[0] == "Preparing composition"
+    assert phases[1].startswith("Composition layout prepared in ")
+    assert "Writing composition artifacts" in phases
+    assert any(phase.startswith("Master WAV written in ") for phase in phases)
+    assert any(phase.startswith("Composition state written in ") for phase in phases)
 
 
 def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatch):

@@ -15,6 +15,7 @@ from readio.api.speech import SpeechService
 from readio.api.types import (
     ConfigurationInitResult,
     Diagnostic,
+    LoudnessSummary,
     NextAction,
     ProjectCompositionResult,
     ProjectRef,
@@ -646,6 +647,32 @@ def test_project_commands_share_progress_option():
     assert preview.progress is False
 
 
+def test_mastering_cli_options_default_and_inherit_numeric_overrides():
+    default_compose = build_parser().parse_args(["compose"])
+    custom_compose = build_parser().parse_args(
+        [
+            "compose",
+            "--mastering",
+            "broadcast-ebu",
+            "--target-lufs",
+            "-21",
+            "--true-peak-ceiling-dbtp",
+            "-2",
+        ]
+    )
+    render = build_parser().parse_args(["render", "text"])
+    preview = build_parser().parse_args(["preview"])
+
+    assert default_compose.mastering == "spoken-word"
+    assert default_compose.target_lufs is None
+    assert default_compose.true_peak_ceiling_dbtp is None
+    assert custom_compose.mastering == "broadcast-ebu"
+    assert custom_compose.target_lufs == -21
+    assert custom_compose.true_peak_ceiling_dbtp == -2
+    assert render.mastering == "spoken-word"
+    assert preview.mastering == "spoken-word"
+
+
 def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
@@ -667,6 +694,23 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, 
                     progress_kind="phase",
                     message="Composing audio",
                     details={"clip_items": 1},
+                )
+            )
+            on_event(
+                ReadioEvent(
+                    kind="progress",
+                    operation="projects.compose",
+                    stage="composition",
+                    progress_kind="phase",
+                    message=(
+                        "Loudness finalization complete (total 0.010s; "
+                        "analysis 0.008s; gain 0.001s; post-gain metrics 0.001s)"
+                    ),
+                    details={
+                        "analysis_seconds": 0.008,
+                        "gain_seconds": 0.001,
+                        "post_gain_metrics_seconds": 0.001,
+                    },
                 )
             )
             on_event(
@@ -697,27 +741,55 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, 
             frames=24000,
             items=1,
             master_path=Path("master.wav"),
+            loudness=LoudnessSummary(
+                profile="spoken-word",
+                integrated_lufs_before=-20.0,
+                integrated_lufs_after=-16.0,
+                sample_peak_dbfs_before=-10.0,
+                sample_peak_dbfs_after=-6.0,
+                true_peak_dbtp_before=-5.0,
+                true_peak_dbtp_after=-1.0,
+                target_lufs=-16.0,
+                true_peak_ceiling_dbtp=-1.0,
+                requested_gain_db=4.0,
+                applied_gain_db=4.0,
+                target_reached=True,
+                peak_policy="reduce_gain",
+                analysis_seconds=0.1,
+                gain_seconds=0.02,
+                post_gain_metrics_seconds=0.03,
+            ),
         )
 
     monkeypatch.setattr(ProjectService, "compose", compose)
     args = build_parser().parse_args(["compose", "--progress"])
     assert cli._cmd_compose(args) == 0
     captured = capsys.readouterr()
-    assert captured.out == "Composition: sha256:test\nMaster: master.wav\n"
+    assert captured.out == (
+        "Composition: sha256:test\n"
+        "Master: master.wav\n"
+        "Mastering profile: spoken-word\n"
+        "Integrated loudness: -20.00 → -16.00 LUFS "
+        "(target -16.00 LUFS; target reached)\n"
+        "True peak: -5.00 → -1.00 dBTP (ceiling -1.00 dBTP)\n"
+        "Sample peak: -10.00 → -6.00 dBFS\n"
+        "Gain: applied +4.00 dB (requested +4.00 dB)\n"
+        "Finalization timing: analysis 0.100s, gain 0.020s, post-gain metrics 0.030s\n"
+    )
     assert "Preparing composition…" in captured.err
     assert "Composing" in captured.err
+    assert "Loudness finalization complete (total 0.010s" in captured.err
     assert "Composition complete:" in captured.err
 
     json_args = build_parser().parse_args(["compose", "--json", "--progress"])
     assert cli._cmd_compose(json_args) == 0
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == {
-        "ok": True,
-        "composition_id": "sha256:test",
-        "master": "master.wav",
-        "frames": 24000,
-        "items": 1,
-    }
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["composition_id"] == "sha256:test"
+    assert payload["mastering_profile"] == "spoken-word"
+    assert payload["loudness"]["integrated_lufs_after"] == -16.0
+    assert payload["loudness"]["true_peak_dbtp_after"] == -1.0
     assert "Composing" in captured.err
 
 

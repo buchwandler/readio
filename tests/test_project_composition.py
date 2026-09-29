@@ -5,7 +5,7 @@ from project_support import Adapter, request
 from readio.config import ReaderSettings, ReadioConfig
 from readio.engines.registry import _registry
 from readio.project import hash_file, init_project, read_json
-from readio.stages.composition import compose_project
+from readio.stages.composition import build_audio_job, compose_project
 from readio.stages.pipeline import preview_project
 from readio.stages.planning import plan_project
 from readio.stages.synthesis import synthesize_project
@@ -20,6 +20,14 @@ def test_composition_uses_persisted_audio_and_loudness_only_rebuild(tmp_path, mo
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, cfg)
     synthesize_project(project, cfg, request=request(project))
+    _, speech_identity = build_audio_job(project)
+    _, override_identity = build_audio_job(
+        project,
+        mastering="peak-safe",
+        target_lufs=-16.0,
+        true_peak_ceiling_dbtp=-1.0,
+    )
+    assert speech_identity["composition_id"] != override_identity["composition_id"]
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TTS touched")),
@@ -50,7 +58,22 @@ def test_compose_project_forwards_progress_and_outer_phases(tmp_path, monkeypatc
     assert events[0].kind == "compose_started"
     assert events[-1].kind == "compose_completed"
     assert any(event.kind == "operation_started" for event in events) is False
-    assert phases == ["Preparing composition", "Writing composition artifacts"]
+    assert phases[0] == "Preparing composition"
+    assert phases[1].startswith("Composition layout prepared in ")
+    assert "Writing composition artifacts" in phases
+    for phase in (
+        "Writing AudioJob manifest",
+        "AudioJob manifest written in ",
+        "Writing master WAV",
+        "Master WAV written in ",
+        "Building and writing composition timeline",
+        "Composition timeline written in ",
+        "Hashing composition artifacts",
+        "Composition artifacts hashed in ",
+        "Writing composition state",
+        "Composition state written in ",
+    ):
+        assert any(item.startswith(phase) for item in phases)
 
 
 def test_progress_does_not_change_composition_identity_or_audio(tmp_path, monkeypatch):
@@ -71,7 +94,16 @@ def test_progress_does_not_change_composition_identity_or_audio(tmp_path, monkey
     assert first["composition_id"] == second["composition_id"]
     assert project.paths["composition_master"].read_bytes() == master_bytes
     assert project.paths["composition_timeline"].read_bytes() == timeline_bytes
-    assert read_json(project.paths["composition_state"]) == state
+    second_state = read_json(project.paths["composition_state"])
+    timing_fields = {"analysis_seconds", "gain_seconds", "post_gain_metrics_seconds"}
+    assert second_state["identity_payload"] == state["identity_payload"]
+    assert not timing_fields.intersection(second_state["identity_payload"].get("loudness", {}))
+    assert {key: value for key, value in second_state.items() if key != "loudness"} == {
+        key: value for key, value in state.items() if key != "loudness"
+    }
+    assert {
+        key: value for key, value in second_state["loudness"].items() if key not in timing_fields
+    } == {key: value for key, value in state["loudness"].items() if key not in timing_fields}
     assert events[-1].kind == "compose_completed"
     assert hash_file(project.paths["composition_master"]) == state["master_sha256"]
 

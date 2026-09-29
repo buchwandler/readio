@@ -108,6 +108,14 @@ Project `synth` and `preview` accept the shared `--progress` / `--no-progress` o
 
 `readio synth --json` emits one final JSON object on stdout. It includes the project, scope, plan ID, profile identity and engine/model/voice/language, selector/count, and cache reuse/render counts. Progress and logs remain on stderr, and automatic progress is disabled for JSON unless explicitly forced.
 
+## Mastering profiles
+
+Composition, preview, and bounded `render` default to `--mastering spoken-word` (`-16 LUFS`, `-1 dBTP`). Select `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), or `off` (no target or ceiling). Readio does not offer an ACX LUFS preset: ACX compliance requires separate RMS, peak, and noise-floor checks.
+
+`--target-lufs` and `--true-peak-ceiling-dbtp` are expert numeric overrides; omitted values inherit from the selected profile. Choose `peak-safe` or `off` to disable inherited processing. `--peak-policy reduce_gain` preserves transparent constant-gain behavior and reduces requested gain when needed to meet the true-peak ceiling; it is not a limiter. Use `--peak-policy error` to fail instead of reducing gain.
+
+Human output and `--json` include the selected profile, before/after integrated loudness, sample and true peaks, requested/applied gain, target status, and warnings. Progress separates assembly and loudness finalization (analysis, gain, and cached post-gain metrics) from AudioJob, WAV, timeline, hashing, and state writes. Runtime timings are diagnostic only and never enter composition identity.
+
 ## Composition progress
 
 `readio compose PROJECT` shares the progress policy with synthesis, preview, render, and project rendering. Progress is enabled automatically on an interactive terminal, can be forced with `--progress`, and can be disabled with `--no-progress`. All progress is written to stderr.

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Generic, Literal, TypeAlias, TypeVar, cast
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast
 
 from ..audio import AudioSink, RenderSummary
 from ..config import LanguageSettings, ReaderSettings, ReadioConfig
@@ -18,6 +18,7 @@ from ..jsonutil import JsonScalar, JsonValue, json_value
 from ..plan import (
     CompositionOptions,
     InputRequest,
+    MasteringProfile,
     OutputRequest,
     PlanDiagnostic,
     PlanRequest,
@@ -145,6 +146,7 @@ class RenderResult:
     diagnostics: tuple[Diagnostic, ...] = ()
     audio_format: str | None = None
     manifest_schema: str | None = None
+    loudness: LoudnessSummary | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -391,12 +393,91 @@ class SynthesisResolution:
 
 
 @dataclass(frozen=True, slots=True)
+class LoudnessSummary:
+    profile: MasteringProfile
+    integrated_lufs_before: float | None
+    integrated_lufs_after: float | None
+    sample_peak_dbfs_before: float | None
+    sample_peak_dbfs_after: float | None
+    true_peak_dbtp_before: float | None
+    true_peak_dbtp_after: float | None
+    target_lufs: float | None
+    true_peak_ceiling_dbtp: float | None
+    requested_gain_db: float
+    applied_gain_db: float
+    target_reached: bool
+    peak_policy: Literal["reduce_gain", "error"]
+    warning: str | None = None
+    analysis_seconds: float = 0.0
+    gain_seconds: float = 0.0
+    post_gain_metrics_seconds: float = 0.0
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> LoudnessSummary:
+        def optional_float(name: str) -> float | None:
+            raw = value.get(name)
+            return None if raw is None else float(cast(float | int, raw))
+
+        return cls(
+            profile=cast(MasteringProfile, value.get("profile", "spoken-word")),
+            integrated_lufs_before=optional_float("integrated_lufs_before"),
+            integrated_lufs_after=optional_float("integrated_lufs_after"),
+            sample_peak_dbfs_before=optional_float("sample_peak_dbfs_before"),
+            sample_peak_dbfs_after=optional_float("sample_peak_dbfs_after"),
+            true_peak_dbtp_before=optional_float("true_peak_dbtp_before"),
+            true_peak_dbtp_after=optional_float("true_peak_dbtp_after"),
+            target_lufs=optional_float("target_lufs"),
+            true_peak_ceiling_dbtp=optional_float("true_peak_ceiling_dbtp"),
+            requested_gain_db=float(value.get("requested_gain_db", 0.0)),
+            applied_gain_db=float(value.get("applied_gain_db", 0.0)),
+            target_reached=bool(value.get("target_reached", False)),
+            peak_policy=cast(
+                Literal["reduce_gain", "error"], value.get("peak_policy", "reduce_gain")
+            ),
+            warning=cast(str | None, value.get("warning")),
+            analysis_seconds=float(value.get("analysis_seconds", 0.0)),
+            gain_seconds=float(value.get("gain_seconds", 0.0)),
+            post_gain_metrics_seconds=float(value.get("post_gain_metrics_seconds", 0.0)),
+        )
+
+    @classmethod
+    def from_loudness_result(cls, profile: MasteringProfile, value: Any) -> LoudnessSummary:
+        before = value.before
+        after = value.after
+        return cls.from_mapping(
+            {
+                "profile": profile,
+                "integrated_lufs_before": before.integrated_lufs,
+                "integrated_lufs_after": after.integrated_lufs,
+                "sample_peak_dbfs_before": before.sample_peak_dbfs,
+                "sample_peak_dbfs_after": after.sample_peak_dbfs,
+                "true_peak_dbtp_before": before.true_peak_dbtp,
+                "true_peak_dbtp_after": after.true_peak_dbtp,
+                "target_lufs": value.target_lufs,
+                "true_peak_ceiling_dbtp": value.true_peak_ceiling_dbtp,
+                "requested_gain_db": value.requested_gain_db,
+                "applied_gain_db": value.applied_gain_db,
+                "target_reached": value.target_reached,
+                "peak_policy": value.peak_policy,
+                "warning": value.warning,
+                "analysis_seconds": value.analysis_seconds,
+                "gain_seconds": value.gain_seconds,
+                "post_gain_metrics_seconds": value.post_gain_metrics_seconds,
+            }
+        )
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectCompositionResult:
     project: ProjectRef
     composition_id: str
     frames: int
     items: int
     master_path: Path | None = None
+    loudness: LoudnessSummary | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -473,6 +554,7 @@ class PreviewResult:
     items: int
     output_path: Path | None = None
     composition_id: str | None = None
+    loudness: LoudnessSummary | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -906,6 +988,8 @@ __all__ = [
     "LanguageSettings",
     "LexiconInfo",
     "LexiconQuery",
+    "LoudnessSummary",
+    "MasteringProfile",
     "ModelInfo",
     "ModelQuery",
     "ModelVoiceInfo",

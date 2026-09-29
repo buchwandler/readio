@@ -271,8 +271,9 @@ def project_status(project: Project) -> dict[str, Any]:
                 )
                 _, current_identity = build_audio_job(
                     project,
+                    mastering=loudness.get("profile", "spoken-word"),
                     target_lufs=loudness.get("target_lufs"),
-                    true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp", -1.0),
+                    true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp"),
                     peak_policy=loudness.get("peak_policy", "reduce_gain"),
                     clip_policy=identity_payload.get("clip_policy", "clamp")
                     if isinstance(identity_payload, dict)
@@ -432,6 +433,7 @@ def build_project(
     composition_options = request.composition
     _, identity = build_audio_job(
         project,
+        mastering=composition_options.mastering,
         target_lufs=composition_options.target_lufs,
         true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
         peak_policy=composition_options.peak_policy,
@@ -445,12 +447,20 @@ def build_project(
         and project.paths["composition_master"].is_file()
     )
     if composition_current:
-        operations.append({"stage": "composition", "action": "skipped"})
+        operations.append(
+            {
+                "stage": "composition",
+                "action": "skipped",
+                "mastering_profile": identity["identity_payload"]["loudness"]["profile"],
+                "loudness": state.get("loudness"),
+            }
+        )
         report("composition", "skipped")
     else:
         report("composition", "started")
         composed = compose_project(
             project,
+            mastering=composition_options.mastering,
             target_lufs=composition_options.target_lufs,
             true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
             peak_policy=composition_options.peak_policy,
@@ -571,6 +581,7 @@ def preview_project(
         synthesis["artifacts"],
         plans=scoped_plans,
         scope_metadata=scope_metadata,
+        mastering=options.mastering,
         target_lufs=options.target_lufs,
         true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
         peak_policy=options.peak_policy,

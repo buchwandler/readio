@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -34,6 +35,7 @@ from .types import (
     CompositionOptions,
     Diagnostic,
     ExportOptions,
+    LoudnessSummary,
     NextAction,
     PreviewRequest,
     PreviewResult,
@@ -85,6 +87,9 @@ _OPERATION_DETAIL_KEYS = frozenset(
         "frames",
         "items",
         "format",
+        "loudness",
+        "mastering_profile",
+        "warnings",
         "output_sha256",
         "export_id",
     }
@@ -309,6 +314,7 @@ class ProjectService:
         raw = self._call(
             lambda: compose_project(
                 internal,
+                mastering=options.mastering,
                 target_lufs=options.target_lufs,
                 true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
                 peak_policy=options.peak_policy,
@@ -318,6 +324,12 @@ class ProjectService:
                 on_phase=self._phase_handler(handler, operation),
             )
         )
+        loudness_value = raw.get("loudness")
+        loudness = (
+            LoudnessSummary.from_mapping(loudness_value)
+            if isinstance(loudness_value, Mapping)
+            else None
+        )
         self._notify(
             handler,
             ReadioEvent(
@@ -326,7 +338,10 @@ class ProjectService:
                 stage="composition",
                 sample_count=raw["frames"],
                 sample_rate=raw["sample_rate"],
-                details={"items": raw["items"]},
+                details={
+                    "items": raw["items"],
+                    "loudness": loudness.to_dict() if loudness is not None else None,
+                },
             ),
         )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
@@ -336,6 +351,7 @@ class ProjectService:
             frames=int(raw["frames"]),
             items=int(raw["items"]),
             master_path=Path(raw["master"]),
+            loudness=loudness,
         )
 
     def export(
@@ -482,6 +498,12 @@ class ProjectService:
                 on_phase=self._phase_handler(handler, operation),
             )
         )
+        loudness_value = raw.get("loudness")
+        loudness = (
+            LoudnessSummary.from_mapping(loudness_value)
+            if isinstance(loudness_value, Mapping)
+            else None
+        )
         if not composition_started:
             self._notify(
                 handler, ReadioEvent(kind="stage.started", operation=operation, stage="composition")
@@ -504,6 +526,7 @@ class ProjectService:
             items=int(raw["items"]),
             output_path=Path(raw["output"]) if raw.get("output") is not None else None,
             composition_id=str(raw["composition_id"]) if raw.get("composition_id") else None,
+            loudness=loudness,
         )
 
     def _load(self, project: ProjectLike) -> project_internal.Project:
@@ -608,6 +631,22 @@ class ProjectService:
 
         def forward(event: object) -> None:
             internal_kind = getattr(event, "kind", None)
+            phase_key = {
+                "assembly_started": "assembly",
+                "loudness_started": "loudness",
+            }.get(internal_kind)
+            if phase_key is not None:
+                state.setdefault("phase_started", {})[phase_key] = time.perf_counter()
+            phase_ended = {
+                "assembly_completed": "assembly",
+                "loudness_completed": "loudness",
+            }.get(internal_kind)
+            event_details = getattr(event, "details", {}) or {}
+            details = dict(event_details) if isinstance(event_details, Mapping) else {}
+            if phase_ended is not None:
+                started = state.setdefault("phase_started", {}).pop(phase_ended, None)
+                if started is not None:
+                    details["phase_duration_seconds"] = max(0.0, time.perf_counter() - started)
             if internal_kind == "compose_completed":
                 return
             if internal_kind == "compose_started":
@@ -640,6 +679,7 @@ class ProjectService:
                 event,
                 completed=state["completed"] if is_clip else None,
                 total=state["total"] if is_clip else None,
+                details=cast(Mapping[str, JsonValue], details),
             )
 
         return forward
@@ -652,8 +692,10 @@ class ProjectService:
         *,
         completed: int | None = None,
         total: int | None = None,
+        details: Mapping[str, JsonValue] | None = None,
     ) -> None:
         internal_kind = getattr(event, "kind", None)
+        event_details = details or {}
         if internal_kind == "compose_completed":
             return
         if internal_kind == "item_started":
@@ -667,14 +709,44 @@ class ProjectService:
         elif internal_kind == "compose_started":
             progress_kind = "phase"
             message = None
+        elif internal_kind == "assembly_started":
+            progress_kind = "phase"
+            message = "Assembling master audio"
+        elif internal_kind == "assembly_completed":
+            progress_kind = "phase"
+            duration = event_details.get("phase_duration_seconds")
+            message = (
+                f"Audio assembly complete in {duration:.3f}s"
+                if isinstance(duration, (int, float))
+                else "Audio assembly complete"
+            )
+        elif internal_kind == "loudness_started":
+            progress_kind = "phase"
+            message = "Measuring loudness and true peak"
+        elif internal_kind == "loudness_completed":
+            progress_kind = "phase"
+            timings = [
+                ("analysis", event_details.get("analysis_seconds")),
+                ("gain", event_details.get("gain_seconds")),
+                ("post-gain metrics", event_details.get("post_gain_metrics_seconds")),
+            ]
+            timing_text = "; ".join(
+                f"{name} {value:.3f}s" for name, value in timings if isinstance(value, (int, float))
+            )
+            duration = event_details.get("phase_duration_seconds")
+            if isinstance(duration, (int, float)):
+                timing_text = f"total {duration:.3f}s" + (f"; {timing_text}" if timing_text else "")
+            message = (
+                f"Loudness finalization complete ({timing_text})"
+                if timing_text
+                else "Loudness finalization complete"
+            )
         else:
             progress_kind = "phase"
             message = {
                 "source_load_started": "Loading audio source",
                 "operation_started": "Applying audio operation",
                 "resample_started": "Resampling audio",
-                "assembly_started": "Assembling master",
-                "loudness_started": "Finalizing loudness and true peak",
             }.get(internal_kind, "Composing audio")
         item_metadata = getattr(event, "item_metadata", {}) or {}
         segment_id = item_metadata.get("segment_id") or getattr(event, "item_id", None)
@@ -693,6 +765,7 @@ class ProjectService:
                 audio_seconds=getattr(event, "completed_audio_seconds", None),
                 total_audio_seconds=getattr(event, "total_audio_seconds", None),
                 segment_id=segment_id,
+                details=event_details,
             ),
         )
 
