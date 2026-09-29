@@ -744,6 +744,28 @@ def test_requestless_build_and_stage_apis_use_saved_composition_and_export(
         ProjectSynthesisSettings,
     )
 
+    class FakeSink:
+        def __init__(self, path: Path, bitrate: str | None) -> None:
+            self.path = path
+            self.bitrate = bitrate
+
+        def __enter__(self):
+            return self
+
+        def write(self, _audio, _sample_rate: int) -> None:
+            self.path.write_bytes((self.bitrate or "").encode("ascii"))
+
+        def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "readio.stages.export.ensure_audio_format_available", lambda _format: None
+    )
+    monkeypatch.setattr(
+        "readio.stages.export.create_audio_sink",
+        lambda path, _format, *, bitrate=None: FakeSink(path, bitrate),
+    )
+
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
     app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
