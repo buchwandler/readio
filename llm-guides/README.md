@@ -76,6 +76,34 @@ A portable standalone-generated SSMD file:
 
 Portable does not mean guaranteed to render on every model with no later configuration. Concrete `voice_bindings` belong in the generated document only when the caller supplies provider/model-valid IDs; otherwise role resolution is deferred to the rendering environment.
 
+## Audio-first quality model
+
+Portable SSMD should be assessed on two independent axes: structural portability and listening quality. A document can be syntactically valid and portable while still being difficult to understand when spoken.
+
+### Structural portability
+
+- Valid SSMD 0.9 syntax and a portable header
+- Symbolic speaker roles without invented concrete voices
+- No unsupported claims about validation, voice binding, or rendering
+
+### Listening quality
+
+- Stable speaker identity even when the bound voices sound similar
+- Audio-only comprehension, including clear transitions and spoken context for visual information
+- Appropriate information density and purposeful pacing
+- Restrained prosody and source fidelity
+- Duration-aware drafting, with pauses treated as part of the estimate
+
+> Valid SSMD is necessary but not sufficient for a good audio result.
+
+Before synthesis, check multi-speaker role assignments on the destination system, especially when the final bindings may use acoustically similar voices:
+
+```bash
+readio plan roles
+```
+
+This destination-system check complements portable authoring. It does not require provider-specific voice IDs in the guide or its output.
+
 ## Guide catalog
 
 - [`ssmd/general-narration.md`](ssmd/general-narration.md) — general narration

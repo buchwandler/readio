@@ -28,6 +28,7 @@ EXPECTED_GUIDES = {
 REQUIRED_SECTIONS = {
     "Mission",
     "Output contract",
+    "Audio quality contract",
     "Target runtime",
     "Content integrity",
     "Final self-check",
@@ -75,6 +76,16 @@ def test_guides_have_required_identity_and_sections():
         assert "ssmd_version: '0.9'" in section(text, "Minimal pattern example"), path.name
         headings = set(re.findall(r"^## (.+)$", text, flags=re.MULTILINE))
         assert REQUIRED_SECTIONS <= headings, path.name
+        assert (
+            text.index("## Output contract")
+            < text.index("## Audio quality contract")
+            < text.index("## Target runtime")
+        )
+        assert (
+            text.index("## Minimal pattern example")
+            < text.index("## Final self-check")
+            < text.index("## Generation procedure")
+        )
 
 
 def test_guides_are_standalone_and_support_both_output_modes():
@@ -106,6 +117,16 @@ def test_readmes_recommend_ssmd_md_and_preserve_legacy_template_names():
     assert "downloadable .ssmd.md file" in guide_readme
     assert "Create exactly one UTF-8 `.ssmd.md` file." in guide_readme
     assert "legacy `.ssmd` inputs for compatibility" in guide_readme
+
+    audio_model = guide_readme.split("## Audio-first quality model", 1)[1]
+    assert "two independent axes" in audio_model
+    assert "Structural portability" in audio_model
+    assert "Listening quality" in audio_model
+    assert "Valid SSMD is necessary but not sufficient" in audio_model
+    assert "readio plan roles" in audio_model
+    assert "destination system" in audio_model
+    assert "acoustically similar voices" in audio_model
+    assert not KNOWN_DEFAULT_VOICE_IDS.intersection(audio_model.split())
     assert (
         "existing runtime templates managed by `readio template` may keep their `.ssmd` filenames"
         in guide_readme
@@ -141,6 +162,103 @@ def test_compatibility_and_shared_sections_do_not_drift():
         assert len({section(text, heading) for text in texts}) == 1, heading
 
 
+def test_shared_audio_quality_contract_prevents_prosody_as_identity():
+    for path, text in guide_texts():
+        quality = section(text, "Audio quality contract").casefold()
+        assert "cannot see" in quality, path.name
+        assert "stable symbolic voice role" in quality, path.name
+        assert "prosody" in quality, path.name
+        assert "speaker identity" in quality, path.name
+
+
+def test_final_self_check_includes_audio_only_comprehension():
+    for path, text in guide_texts():
+        final = section(text, "Final self-check").casefold()
+        assert "rendered audio" in final, path.name
+        assert "who is speaking" in final, path.name
+        assert "transitions" in final, path.name
+
+
+def test_generation_procedure_plans_requested_duration():
+    for path, text in guide_texts():
+        procedure = section(text, "Generation procedure").casefold()
+        assert "spoken-word and pause budget" in procedure, path.name
+
+
+def test_minimal_examples_use_only_portable_roles_and_no_pitch():
+    allowed_roles = {"narrator", "host", "guest", "analyst"}
+    for path, text in guide_texts():
+        minimal = section(text, "Minimal pattern example")
+        example = re.search(r"```ssmd\n(.*?)```", minimal, flags=re.DOTALL).group(1)
+        assert 'pitch="' not in example, path.name
+        roles = set(re.findall(r'\bvoice="([^"]+)"', example))
+        assert roles <= allowed_roles, (path.name, roles)
+
+
+def test_minimal_examples_warn_against_content_cloning():
+    for path, text in guide_texts():
+        minimal = section(text, "Minimal pattern example").casefold()
+        assert "not a content template" in minimal, path.name
+        assert "sequence of events" in minimal or "rhetorical structure" in minimal, path.name
+
+
+def test_use_case_duration_models_are_format_specific():
+    heuristics = {
+        "audio-drama.md": "120–150 spoken words per minute",
+        "debate-pro-con.md": "135–155 spoken words per minute",
+        "document-summary.md": "140–160 spoken words per minute",
+        "dramatic-story.md": "115–145 spoken words per minute",
+        "educational-explainer.md": "125–150 spoken words per minute",
+        "funny-story.md": "120–150 spoken words per minute",
+        "general-narration.md": "140–160 spoken words per minute",
+        "guided-meditation.md": "70–100 spoken words per minute plus explicit silence",
+        "kids-story.md": "105–135 spoken words per minute",
+        "language-learning.md": "plan duration by learning cycle",
+        "news-briefing.md": "145–165 spoken words per minute",
+        "podcast-interview.md": "135–155 spoken words per minute",
+        "podcast-roundtable.md": "135–155 spoken words per minute",
+        "podcast-solo.md": "140–160 spoken words per minute",
+        "quiz-trivia.md": "plan duration by question cycle",
+    }
+    for path, text in guide_texts():
+        use_case = (
+            section(text, "Recommended structure")
+            + "\n"
+            + section(text, "Use-case writing and performance rules")
+        ).casefold()
+        assert heuristics[path.name] in use_case, path.name
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["funny-story.md", "dramatic-story.md", "kids-story.md", "audio-drama.md"],
+)
+def test_narrative_guides_require_audio_context_and_stable_roles(name):
+    text = (GUIDE_DIR / name).read_text(encoding="utf-8")
+    voice = section(text, "Use-case voice design").casefold()
+    rules = section(text, "Use-case writing and performance rules").casefold()
+
+    assert "stable" in voice
+    assert "narrator" in voice
+    assert any(term in rules for term in ("action", "narrat", "introduc", "arrival"))
+
+
+def test_conversational_guides_require_turn_dependency():
+    interview = section(
+        (GUIDE_DIR / "podcast-interview.md").read_text(encoding="utf-8"),
+        "Use-case writing and performance rules",
+    ).casefold()
+    roundtable_text = (GUIDE_DIR / "podcast-roundtable.md").read_text(encoding="utf-8")
+    roundtable = (
+        section(roundtable_text, "Recommended structure")
+        + "\n"
+        + section(roundtable_text, "Use-case writing and performance rules")
+    ).casefold()
+
+    assert "preceding answer" in interview
+    assert "respond" in roundtable
+
+
 def test_guides_keep_voice_policy_model_agnostic():
     for path, text in guide_texts():
         assert not KNOWN_DEFAULT_VOICE_IDS.intersection(text.split())
@@ -168,3 +286,48 @@ def test_minimal_examples_parse_with_ssmd_when_available():
         assert not re.search(r"<[^>]*\.\.\.[^>]*>", example)
         assert not any(voice_id in example for voice_id in KNOWN_DEFAULT_VOICE_IDS)
         ssmd.parse_ssmd(example, strict_parse=True)
+
+
+def test_evaluation_corpus_covers_every_guide_without_model_ci():
+    eval_dir = Path(__file__).parents[1] / "llm-guides" / "evals"
+    prompts_dir = eval_dir / "prompts"
+    prompt_paths = set(prompts_dir.glob("*.md"))
+    prompt_names = {path.stem for path in prompt_paths}
+
+    expected_guides = {Path(name).stem for name in EXPECTED_GUIDES}
+    extra_names = {
+        "audio-drama-source",
+        "dramatic-story-constraints",
+        "funny-story-source",
+        "kids-story-constraints",
+        "podcast-interview-source",
+        "podcast-roundtable-source",
+    }
+    assert len(prompt_paths) == 21
+    assert {
+        name for name in prompt_names if not name.endswith(("-source", "-constraints"))
+    } == expected_guides
+    assert {
+        name for name in prompt_names if name.endswith(("-source", "-constraints"))
+    } == extra_names
+
+    readme = (eval_dir / "README.md").read_text(encoding="utf-8").casefold()
+    rubric = (eval_dir / "rubric.md").read_text(encoding="utf-8").casefold()
+    assert "normal ci must not require a model" in readme
+    for dimension in (
+        "valid artifact shape",
+        "role stability",
+        "speaker distinguishability by role",
+        "audio-only comprehension",
+        "scene/topic transitions",
+        "requested length/duration fit",
+        "prosody restraint",
+        "pause usefulness",
+        "example non-cloning",
+        "natural spoken language",
+        "ending quality",
+        "source fidelity",
+        "caveats and uncertainty",
+        "invented quotes or persona details",
+    ):
+        assert dimension in rubric

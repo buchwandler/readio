@@ -38,6 +38,21 @@ If downloadable file or artifact creation is unavailable:
 - Make the text sound natural when spoken aloud; do not write for silent reading.
 - Do not claim that Readio/SSMD validation or audio rendering was executed unless this environment actually provides and runs that tooling.
 
+## Audio quality contract
+
+Write for a listener who cannot see the source, markup, speaker labels, or page layout.
+
+- The listener should understand what the current section is about and why the next line follows.
+- In multi-speaker content, each recurring speaker keeps one stable symbolic voice role throughout the document.
+- `voice` identifies the speaker. Pitch, rate, volume, emphasis, and pauses change delivery only; prosody never substitutes for speaker identity.
+- If two speakers could be confusing without visible labels, add a short spoken introduction, attribution, transition, or narrative action beat.
+- Describe visual-only information when it is necessary for understanding. Do not assume the listener can see tables, headings, stage directions, diagrams, gestures, or formatting.
+- Prefer a clear sequence of ideas over maximum information density. Give each spoken paragraph or turn one main job.
+- Mix short and medium sentences. Use fragments deliberately for emphasis, comedy, suspense, or rhythm instead of making the whole document staccato.
+- Most spoken lines should not need explicit prosody markup. Use SSMD controls only where they materially improve meaning or timing.
+- If a duration is requested, make an approximate spoken-word and pause budget before drafting. Treat it as a planning estimate, not an exact render-duration guarantee.
+- Treat this guide's example as a markup and performance demonstration only. Do not reuse its premise, cast dynamics, sequence, rhetorical structure, recurring objects, jokes, or wording unless requested.
+
 ## Target runtime
 
 Generate conservative SSMD for this compatibility target:
@@ -99,7 +114,11 @@ Do not invent concrete model or voice IDs. Voice inventories are model-specific 
 
 For a single-speaker document, prefer the renderer's default voice and omit explicit `voice` references unless the task requires a named role or distinct voice.
 
-For genuinely multi-speaker documents, use only the minimum conventional symbolic roles needed by the use case: `narrator`, `host`, `guest`, or `analyst`. These symbolic roles may require later binding on the Readio system. Do not invent extra roles such as character, teacher, expert, moderator, villain, or child unless the caller supplies an explicit binding plan.
+Before drafting multi-speaker content, assign each recurring speaker exactly one symbolic role and keep that assignment stable for the whole document. Do not reuse one symbolic role for two different recurring people, even if they never speak at the same time.
+
+Use only the minimum conventional symbolic roles needed by the use case: `narrator`, `host`, `guest`, or `analyst`. Do not invent additional roles unless the caller supplies an explicit binding plan. If more recurring speakers are needed than these roles can distinguish clearly, simplify or combine incidental speakers unless the caller provides a binding plan.
+
+A recurring speaker's identity must not depend on `pitch`, `rate`, or `volume`. These attributes express temporary delivery, not casting. Do not make a character "the high-pitched one" by applying `pitch="high"` to some or all of that character's turns. If a speaker needs to be distinguishable, use a distinct symbolic role and let the rendering system bind it to an appropriate concrete voice.
 
 Emit document-local `voice_bindings` only when the caller explicitly supplies concrete provider/model-valid voice IDs. Copy supplied IDs exactly; otherwise omit `voice_bindings`. Never leave explanatory metavariables or placeholders in generated SSMD.
 
@@ -119,22 +138,15 @@ These are voice references, not visible speaker labels. Do not write `HOST:` or 
 
 ### Prosody
 
-Use explicit, readable prosody. Prefer long attribute names:
+Use explicit, readable prosody only when it materially changes meaning or timing. Prefer long attribute names and attach a change to the words it affects:
 
 ```ssmd
-[very important]{volume="loud"}
-[slowly now]{rate="slow"}
-[with lift]{pitch="high"}
-[excited]{volume="loud" rate="fast" pitch="high"}
+[This definition matters.]{rate="slow"}
+
+[Do not press that button.]{volume="loud"}
 ```
 
-Block-level prosody is valid:
-
-```ssmd
-:::{voice="narrator" rate="slow" pitch="low"}
-The room went silent.
-:::
-```
+Most sentences should use the speaker's normal delivery. Prefer one meaningful prosody change over stacking several attributes. Use combined rate, pitch, or volume changes only for a rare moment when all of them serve the same intended delivery. Prosody is temporary delivery, never a character identity.
 
 Named values:
 
@@ -242,25 +254,9 @@ When source material is supplied:
 - Do not read citations, URLs, footnote markers, or Markdown syntax aloud unless explicitly requested.
 - Do not turn missing information into invented detail merely to make the script flow.
 
-## Final self-check
-
-Before answering, verify silently that:
-
-1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
-2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
-3. YAML front matter is valid and closed with `---`.
-4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
-5. Single-speaker content omits unnecessary explicit voice references.
-6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
-7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
-8. No `vrp` or symbolic prosody shorthand appears.
-9. Bare `...` is not being used accidentally as a pause.
-10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
-
 ## Use-case voice design
 
-Use no explicit voice for narrator-first storytelling. Add `host` or `guest` only when dialogue is important to the story, and use `analyst` only when a third distinct role is genuinely needed.
+Use a narrator-first approach. If dialogue helps comprehension or engagement, keep this role map stable: `narrator` is the storyteller, `host` the main child or hero, `guest` the primary companion, and `analyst` an optional third recurring speaker.
 
 ## Recommended structure
 
@@ -273,12 +269,11 @@ Use no explicit voice for narrator-first storytelling. Add `host` or `guest` onl
 
 ## Use-case writing and performance rules
 
-- Use concrete words and relatively short sentences.
-- Avoid frightening detail, cruelty, or unresolved danger for bedtime requests.
-- Use repetition intentionally; young listeners benefit from predictability.
-- Keep comic voices gentle rather than shrill.
-- Use slower pacing near the ending.
-- Do not moralize for a long paragraph; let the lesson emerge from the story.
+- Adapt vocabulary and sentence complexity to the requested age band. Prefer concrete sensory details and pronounceable names.
+- Avoid making a child's identity depend on a high pitch. Use repeated wording or structure rather than vocal caricature, and narrate new character arrivals when needed.
+- Keep danger bounded and resolve it clearly for bedtime or gentle requests. Avoid sarcasm that depends on adult social inference unless the requested age and tone support it.
+- Use slower pacing near the ending without making all characters depend on pitch or rate for identity.
+- For duration planning, estimate about 105–135 spoken words per minute.
 
 ## Recommended default header
 
@@ -300,7 +295,7 @@ Replace `Example title` with a real title. Do not leave this example title in fi
 
 ## Minimal pattern example
 
-The following is an example of the _shape_ and markup style. Do not copy its factual content unless the user's request is actually about that subject.
+The following is a compact markup and performance example, not a content template. Do not reuse its subject, premise, cast relationships, sequence of events, rhetorical structure, recurring objects, joke mechanism, or wording unless the caller explicitly asks for them.
 
 ```ssmd
 ---
@@ -318,7 +313,7 @@ Pip found a silver button under the old apple tree.
 It was round, shiny, and just a little warm.
 :::
 
-:::{voice="host" pitch="high"}
+:::{voice="host"}
 I wonder what you belong to.
 :::
 
@@ -345,19 +340,34 @@ A very good pebble.
 :::
 ```
 
+## Final self-check
+
+Imagine the listener receives only the rendered audio.
+
+- Can they tell what topic or scene they are in?
+- Can they tell who is speaking when speaker identity matters?
+- Can they follow time, place, action, argument, and topic transitions without seeing formatting?
+- Are pronouns and references clear after speaker or section changes?
+- Are important numbers, names, and terms spoken in an understandable form?
+- Does prosody serve meaning rather than decorate the text?
+- If visual source structure disappears, does the adaptation provide enough spoken signposting to preserve its important hierarchy?
+
+Before returning the document, verify the requested output mode, SSMD 0.9 front matter and directive fences, stable symbolic voice roles, source fidelity, and that no validation or rendering is claimed unless it actually ran. No invented concrete voice IDs or unexpanded placeholders appear.
+
 ## Generation procedure
 
-1. Identify the requested audience, language, length, tone, and source constraints.
-2. Choose the minimum number of voices needed for this use case; use no explicit voice for ordinary single-speaker output.
-3. Build the episode, story, lesson, or debate structure before writing individual turns.
-4. Write for the ear: short spoken sentences, explicit transitions, and natural phrasing.
-5. Add prosody only where it changes delivery meaningfully.
-6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
-7. Preserve source fidelity whenever source material is supplied.
-8. Run the final self-check from this guide mentally and remove all placeholders.
-9. Mechanically inspect directive line starts:
-   - every intended opening containing `{` starts with `:::{`;
-   - zero intended directive openings start with `::{`;
-   - each `:::{...}` block has a matching `:::` close.
-10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
-11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+1. Identify the audience, language, requested duration or length, tone, source constraints, and whether the result is single-speaker or multi-speaker.
+2. If source material exists, extract the facts, claims, uncertainty, and structure that must survive adaptation before writing prose.
+3. If a duration is requested, establish an approximate spoken-word and pause budget, including time for explicit pauses, repeated phrases, questions, and speaker changes.
+4. For multi-speaker output, make a small internal role map assigning each recurring speaker exactly one symbolic voice role.
+5. Build the content arc before writing individual lines: opening context, main beats or sections, transitions, and ending.
+6. Draft for the ear. Give each paragraph or speaker turn one clear purpose and use spoken transitions where the listener cannot rely on visual layout.
+7. Read the draft conceptually as audio-only. Add attribution, narration, or context where understanding depends on seeing the document or hearing perfectly distinct voices.
+8. Add SSMD prosody only after the plain spoken text works. Most lines should remain unannotated.
+9. Add explicit timed pauses only for deliberate thinking, breathing, dramatic, comedic, learning, or interaction moments. Use `pause_defaults` for ordinary rhythm.
+10. Check requested duration or length again. Tighten repetition or add useful explanation; do not add filler.
+11. Preserve source fidelity and remove unsupported connective facts, quotes, personal experiences, or claims.
+12. Run the final self-check and remove placeholders.
+13. Mechanically inspect directive openings and closings.
+14. Create exactly one `.ssmd.md` artifact when artifact creation is available; otherwise return complete raw SSMD.
+15. Never claim validation or rendering unless it actually ran in the current environment.
