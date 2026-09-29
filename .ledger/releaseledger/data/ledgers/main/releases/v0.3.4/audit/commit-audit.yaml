@@ -1,0 +1,237 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.3.4
+git_base_ref: v0.3.3
+git_base_sha: c71a801997baa40ea95e6eefe92f8abd321d7d98
+git_head_ref: HEAD
+git_head_sha: c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+git_range: c71a801997baa40ea95e6eefe92f8abd321d7d98..c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+commit_count: 4
+rows:
+  - sha: 422c1baaf31a1abd26432370b1b4e3870bdd142d
+    source_ref: git:422c1baaf31a1abd26432370b1b4e3870bdd142d
+    short_sha: 422c1ba
+    changed_paths:
+      - README.md
+      - llm-guides/README.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/document-summary.md
+      - llm-guides/ssmd/dramatic-story.md
+      - llm-guides/ssmd/educational-explainer.md
+      - llm-guides/ssmd/funny-story.md
+      - llm-guides/ssmd/general-narration.md
+      - llm-guides/ssmd/guided-meditation.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/language-learning.md
+      - llm-guides/ssmd/news-briefing.md
+      - llm-guides/ssmd/podcast-interview.md
+      - llm-guides/ssmd/podcast-roundtable.md
+      - llm-guides/ssmd/podcast-solo.md
+      - llm-guides/ssmd/quiz-trivia.md
+      - tests/test_llm_guides.py
+      - tests/test_ssmd_authoring_09.py
+    stats:
+      files_changed: 19
+      insertions: 751
+      deletions: 175
+    inspected: true
+    inspected_paths:
+      - README.md
+      - llm-guides/README.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/podcast-interview.md
+      - tests/test_llm_guides.py
+      - tests/test_ssmd_authoring_09.py
+    observed_behavior:
+      Updated standalone SSMD guidance to recommend .ssmd.md files,
+      use canonical three-colon directive fences, and describe current prosody values;
+      regression checks cover the guide set and parser behavior.
+    public_impact: docs
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: improved llm guides"
+    target_entry_id: entry-0001
+    notes: ""
+  - sha: ca9684a23eee5da638ddfe80efd891429ec53911
+    source_ref: git:ca9684a23eee5da638ddfe80efd891429ec53911
+    short_sha: ca9684a
+    changed_paths:
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/__init__.py
+      - readio/api/projects.py
+      - readio/api/speech.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/cli_adapter.py
+      - readio/execution.py
+      - readio/plan.py
+      - readio/stages/composition.py
+      - readio/stages/pipeline.py
+      - tests/test_cli.py
+      - tests/test_incremental_project_render.py
+      - tests/test_mastering_profiles.py
+      - tests/test_project_composition.py
+      - tests/test_public_api_events.py
+      - tests/test_public_api_projects.py
+      - tests/test_render_from_plan.py
+    stats:
+      files_changed: 20
+      insertions: 801
+      deletions: 66
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/plan.py
+      - readio/stages/composition.py
+      - tests/test_mastering_profiles.py
+    observed_behavior:
+      Added named mastering profiles and inheritable numeric overrides
+      across compose, preview, render, and project APIs; results expose loudness and
+      peak metrics, composition progress has explicit phases, and the resolved mastering
+      policy participates in composition identity.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: better compose"
+    target_entry_id: entry-0002
+    notes: ""
+  - sha: aac57baba49f6df361c9f5799b1cef01a95da239
+    source_ref: git:aac57baba49f6df361c9f5799b1cef01a95da239
+    short_sha: aac57ba
+    changed_paths:
+      - llm-guides/README.md
+      - llm-guides/evals/README.md
+      - llm-guides/evals/prompts/audio-drama-source.md
+      - llm-guides/evals/prompts/audio-drama.md
+      - llm-guides/evals/prompts/debate-pro-con.md
+      - llm-guides/evals/prompts/document-summary.md
+      - llm-guides/evals/prompts/dramatic-story-constraints.md
+      - llm-guides/evals/prompts/dramatic-story.md
+      - llm-guides/evals/prompts/educational-explainer.md
+      - llm-guides/evals/prompts/funny-story-source.md
+      - llm-guides/evals/prompts/funny-story.md
+      - llm-guides/evals/prompts/general-narration.md
+      - llm-guides/evals/prompts/guided-meditation.md
+      - llm-guides/evals/prompts/kids-story-constraints.md
+      - llm-guides/evals/prompts/kids-story.md
+      - llm-guides/evals/prompts/language-learning.md
+      - llm-guides/evals/prompts/news-briefing.md
+      - llm-guides/evals/prompts/podcast-interview-source.md
+      - llm-guides/evals/prompts/podcast-interview.md
+      - llm-guides/evals/prompts/podcast-roundtable-source.md
+      - llm-guides/evals/prompts/podcast-roundtable.md
+      - llm-guides/evals/prompts/podcast-solo.md
+      - llm-guides/evals/prompts/quiz-trivia.md
+      - llm-guides/evals/rubric.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/document-summary.md
+      - llm-guides/ssmd/dramatic-story.md
+      - llm-guides/ssmd/educational-explainer.md
+      - llm-guides/ssmd/funny-story.md
+      - llm-guides/ssmd/general-narration.md
+      - llm-guides/ssmd/guided-meditation.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/language-learning.md
+      - llm-guides/ssmd/news-briefing.md
+      - llm-guides/ssmd/podcast-interview.md
+      - llm-guides/ssmd/podcast-roundtable.md
+      - llm-guides/ssmd/podcast-solo.md
+      - llm-guides/ssmd/quiz-trivia.md
+      - tests/test_llm_guides.py
+    stats:
+      files_changed: 40
+      insertions: 1475
+      deletions: 890
+    inspected: true
+    inspected_paths:
+      - llm-guides/README.md
+      - llm-guides/evals/README.md
+      - llm-guides/evals/rubric.md
+      - llm-guides/evals/prompts/audio-drama-source.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - tests/test_llm_guides.py
+    observed_behavior:
+      Added a manually scored prompt corpus and listening-quality rubric
+      for the standalone guides, while strengthening audio-only clarity, stable speaker-role,
+      source-fidelity, and non-cloning guidance; model generation and listening remain
+      outside normal CI.
+    public_impact: docs
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: improve llm-guides"
+    target_entry_id: entry-0003
+    notes: ""
+  - sha: c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+    source_ref: git:c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+    short_sha: c9c1f8c
+    changed_paths:
+      - README.md
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/__init__.py
+      - readio/api/audiobooks.py
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/project_model.py
+      - readio/project_settings.py
+      - readio/stages/audiobook_export.py
+      - readio/stages/pipeline.py
+      - readio/stages/planning.py
+      - readio/stages/synthesis.py
+      - tests/test_audiobook_export_api.py
+      - tests/test_audiobook_status.py
+      - tests/test_cli.py
+      - tests/test_project_model.py
+      - tests/test_public_api_imports.py
+      - tests/test_public_api_projects.py
+      - tests/test_public_api_types.py
+      - tests/typecheck/public_api_consumer.py
+    stats:
+      files_changed: 23
+      insertions: 2211
+      deletions: 73
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/audiobooks.py
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/project_model.py
+      - readio/project_settings.py
+      - readio/stages/pipeline.py
+      - readio/stages/planning.py
+      - readio/stages/synthesis.py
+      - tests/test_audiobook_export_api.py
+      - tests/test_project_model.py
+      - tests/test_public_api_projects.py
+    observed_behavior:
+      Added persisted synthesis, composition, generic-export, and audiobook-export
+      settings with public API and CLI configuration; requestless project workflows
+      consume saved defaults, status identifies stale stages after settings changes,
+      and existing synthesis caches remain reusable.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: project settings can now store more settings"
+    target_entry_id: entry-0004
+    notes: ""

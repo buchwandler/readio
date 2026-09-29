@@ -1,0 +1,1967 @@
+ README.md                                |  2 +-
+ llm-guides/README.md                     | 18 +++++-----
+ llm-guides/ssmd/audio-drama.md           | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/debate-pro-con.md        | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/document-summary.md      | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/dramatic-story.md        | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/educational-explainer.md | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/funny-story.md           | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/general-narration.md     | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/guided-meditation.md     | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/kids-story.md            | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/language-learning.md     | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/news-briefing.md         | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/podcast-interview.md     | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/podcast-roundtable.md    | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/podcast-solo.md          | 56 +++++++++++++++++++++++++-------
+ llm-guides/ssmd/quiz-trivia.md           | 56 +++++++++++++++++++++++++-------
+ tests/test_llm_guides.py                 | 37 ++++++++++++++++++++-
+ tests/test_ssmd_authoring_09.py          | 29 +++++++++++++++++
+ 19 files changed, 751 insertions(+), 175 deletions(-)
+
+diff --git a/README.md b/README.md
+index b35c1eb..d3d59c2 100644
+--- a/README.md
++++ b/README.md
+@@ -198,7 +198,7 @@ The returned path is under the configured ingest directory. A caller can request
+
+ `llm-guides/ssmd/` contains standalone Markdown instructions for generic LLMs. These guides are distinct from the runtime `.ssmd` templates managed by `readio template`.
+
+-No Readio or Python installation is needed on the authoring system: choose one guide and attach it with the task and source material. When the harness supports artifacts, ask it to create and return one downloadable `.ssmd` file; otherwise save the raw SSMD response as a file. Rendering and final validation happen later on a system where Readio is installed.
++No Readio or Python installation is needed on the authoring system: choose one guide and attach it with the task and source material. When the harness supports artifacts, ask it to create and return one downloadable `.ssmd.md` file; otherwise save the raw SSMD response as a `.ssmd.md` file. Readio also accepts `.ssmd` for compatibility. Rendering and final validation happen later on a system where Readio is installed.
+
+ See [`llm-guides/README.md`](llm-guides/README.md) for the catalog and the authoring-to-rendering workflow.
+
+diff --git a/llm-guides/README.md b/llm-guides/README.md
+index 41522db..91ffeca 100644
+--- a/llm-guides/README.md
++++ b/llm-guides/README.md
+@@ -7,7 +7,7 @@ These are standalone authoring guides for generic LLMs. They create SSMD source
+ These guides are not Readio runtime templates:
+
+ - `readio template` manages ready-to-edit `.ssmd` runtime templates from `readio/resources/templates/`.
+-- `llm-guides/ssmd/` contains Markdown instructions that teach an arbitrary LLM how to author portable `.ssmd` source.
++- `llm-guides/ssmd/` contains Markdown instructions that teach an arbitrary LLM how to author portable `.ssmd.md` source.
+ - The guide authoring step creates source only; it does not create audio.
+ - Validation, voice binding, and rendering happen later on a system where Readio is installed.
+
+@@ -18,7 +18,7 @@ source or task
+     ↓
+ generic web LLM + one standalone guide
+     ↓
+-downloadable .ssmd file
++downloadable .ssmd.md file
+     ↓
+ move the file to a system with Readio
+     ↓
+@@ -31,7 +31,7 @@ Choose exactly one guide and attach it together with the task and any source mat
+
+ Example request:
+
+-> Follow the attached Readio standalone SSMD guide. Turn the supplied report into a 7-minute German interview podcast. Create a downloadable `.ssmd` file. Do not create audio.
++> Follow the attached Readio standalone SSMD guide. Turn the supplied report into a 7-minute German interview podcast. Create a downloadable `.ssmd.md` file. Do not create audio.
+
+ The guides are self-contained. The LLM must not need another guide, a shared prompt fragment, local configuration, model discovery, or runtime documentation.
+
+@@ -39,17 +39,19 @@ The guides are self-contained. The LLM must not need another guide, a shared pro
+
+ When the web harness can create files or artifacts, ask the LLM to:
+
+-1. Create exactly one UTF-8 `.ssmd` file.
++1. Create exactly one UTF-8 `.ssmd.md` file.
+ 2. Use a short descriptive kebab-case filename.
+ 3. Put only SSMD source in the file.
+ 4. Expose the file for download.
+ 5. Create no helper files and no audio.
+
++Use `.ssmd.md` for newly authored complete documents. Readio and SSMD continue to accept legacy `.ssmd` inputs for compatibility; existing runtime templates managed by `readio template` may keep their `.ssmd` filenames.
++
+ The generated file must not contain Markdown fences, surrounding explanation, shell commands, or unexpanded placeholders.
+
+ ## Chat fallback mode
+
+-When file creation is unavailable, the guide instructs the LLM to return the complete raw SSMD source directly in the response, without Markdown fences or surrounding explanation. Save that response as a `.ssmd` file before moving it to the rendering system.
++When file creation is unavailable, the guide instructs the LLM to return the complete raw SSMD source directly in the response, without Markdown fences or surrounding explanation. Save that response as a `.ssmd.md` file before moving it to the rendering system.
+
+ ## Compatibility target
+
+@@ -96,11 +98,11 @@ Each guide is intentionally complete and repeats the technical rules needed for
+
+ ## Later validation and rendering
+
+-These are optional destination-system steps, after the `.ssmd` file has been created and moved to a machine with Readio installed:
++These are optional destination-system steps, after the `.ssmd.md` file has been created and moved to a machine with Readio installed:
+
+ ```bash
+-readio ssmd check output.ssmd
+-readio render --file output.ssmd -o output.mp3
++readio ssmd check output.ssmd.md
++readio render --file output.ssmd.md -o output.mp3
+ ```
+
+ Run these only where the commands and their runtime dependencies are actually available. Do not claim that they ran during web-only authoring.
+diff --git a/llm-guides/ssmd/audio-drama.md b/llm-guides/ssmd/audio-drama.md
+index 91ff1bc..e07b6d5 100644
+--- a/llm-guides/ssmd/audio-drama.md
++++ b/llm-guides/ssmd/audio-drama.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -324,5 +354,9 @@ A calm electronic voice begins to count down.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/debate-pro-con.md b/llm-guides/ssmd/debate-pro-con.md
+index 7bf8437..1f61127 100644
+--- a/llm-guides/ssmd/debate-pro-con.md
++++ b/llm-guides/ssmd/debate-pro-con.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -326,5 +356,9 @@ The right answer depends on how expensive those two failures are in the actual t
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/document-summary.md b/llm-guides/ssmd/document-summary.md
+index 82cb8e5..57d2178 100644
+--- a/llm-guides/ssmd/document-summary.md
++++ b/llm-guides/ssmd/document-summary.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -306,5 +336,9 @@ In short, the proposal is promising, but the supporting controls are part of the
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/dramatic-story.md b/llm-guides/ssmd/dramatic-story.md
+index db572c5..59463aa 100644
+--- a/llm-guides/ssmd/dramatic-story.md
++++ b/llm-guides/ssmd/dramatic-story.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -322,5 +352,9 @@ Neither of them had heard the third voice arrive.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/educational-explainer.md b/llm-guides/ssmd/educational-explainer.md
+index a51a054..da53093 100644
+--- a/llm-guides/ssmd/educational-explainer.md
++++ b/llm-guides/ssmd/educational-explainer.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -312,5 +342,9 @@ If it does, you are probably looking at a feedback loop.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/funny-story.md b/llm-guides/ssmd/funny-story.md
+index 04a04f0..f2ec0d6 100644
+--- a/llm-guides/ssmd/funny-story.md
++++ b/llm-guides/ssmd/funny-story.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -333,5 +363,9 @@ It was also yesterday's bread.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/general-narration.md b/llm-guides/ssmd/general-narration.md
+index 509e46e..f9427bc 100644
+--- a/llm-guides/ssmd/general-narration.md
++++ b/llm-guides/ssmd/general-narration.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -302,5 +332,9 @@ That is the essential picture.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/guided-meditation.md b/llm-guides/ssmd/guided-meditation.md
+index 810ca3b..02aca33 100644
+--- a/llm-guides/ssmd/guided-meditation.md
++++ b/llm-guides/ssmd/guided-meditation.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -306,5 +336,9 @@ For a few moments, allow the breath to continue without effort. ...4s
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/kids-story.md b/llm-guides/ssmd/kids-story.md
+index 93c7d9a..1d89765 100644
+--- a/llm-guides/ssmd/kids-story.md
++++ b/llm-guides/ssmd/kids-story.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -325,5 +355,9 @@ A very good pebble.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/language-learning.md b/llm-guides/ssmd/language-learning.md
+index 3bb732d..b0714f8 100644
+--- a/llm-guides/ssmd/language-learning.md
++++ b/llm-guides/ssmd/language-learning.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -329,5 +359,9 @@ Now hear it in a short exchange.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/news-briefing.md b/llm-guides/ssmd/news-briefing.md
+index fb06fcd..91dcbaa 100644
+--- a/llm-guides/ssmd/news-briefing.md
++++ b/llm-guides/ssmd/news-briefing.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -309,5 +339,9 @@ Where the source is uncertain, the uncertainty remains uncertainty.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/podcast-interview.md b/llm-guides/ssmd/podcast-interview.md
+index 8ee5aa8..1bd48b4 100644
+--- a/llm-guides/ssmd/podcast-interview.md
++++ b/llm-guides/ssmd/podcast-interview.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -331,5 +361,9 @@ Thanks for listening.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/podcast-roundtable.md b/llm-guides/ssmd/podcast-roundtable.md
+index e7ab8bf..ca0049e 100644
+--- a/llm-guides/ssmd/podcast-roundtable.md
++++ b/llm-guides/ssmd/podcast-roundtable.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -327,5 +357,9 @@ It is to match the process to the cost and reversibility of failure.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/podcast-solo.md b/llm-guides/ssmd/podcast-solo.md
+index e66cded..ad1795e 100644
+--- a/llm-guides/ssmd/podcast-solo.md
++++ b/llm-guides/ssmd/podcast-solo.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -312,5 +342,9 @@ Thanks for listening.
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/llm-guides/ssmd/quiz-trivia.md b/llm-guides/ssmd/quiz-trivia.md
+index 1907025..09c83ce 100644
+--- a/llm-guides/ssmd/quiz-trivia.md
++++ b/llm-guides/ssmd/quiz-trivia.md
+@@ -14,19 +14,20 @@ Your job is to create one SSMD source document.
+
+ If this environment can create downloadable files or artifacts:
+
+-1. Create exactly one UTF-8 file with a descriptive kebab-case `.ssmd` filename.
++1. Create exactly one UTF-8 file with a short descriptive kebab-case `.ssmd.md` filename.
+ 2. Put only SSMD source in that file.
+ 3. Do not create helper files.
+ 4. Do not wrap the file content in Markdown fences.
+-5. Expose or return the `.ssmd` file for download.
++5. Expose or return the `.ssmd.md` file for download.
+
+-Do not force a fixed filename; choose a short name that describes the generated topic or use case.
++Use `.ssmd.md` for newly generated complete SSMD documents. Readio and SSMD continue to accept `.ssmd` for compatibility, but do not choose that filename for a new complete document unless the caller explicitly requests it.
+
+ ### Fallback chat mode
+
+ If downloadable file or artifact creation is unavailable:
+
+ - Return the complete raw SSMD source directly in the response.
++- If you save the raw response as a file, use a `something.ssmd.md` filename.
+ - Do not use Markdown code fences.
+ - Do not add an explanation before or after it.
+
+@@ -49,6 +50,31 @@ Each generated document must include `ssmd_version: '0.9'` in its YAML front mat
+
+ These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.
+
++### Canonical directive fences — exact syntax
++
++For every multi-line SSMD directive, the opening begins with the exact four-character prefix `:::{`: three ASCII colon characters followed immediately by `{`.
++
++Valid:
++
++```ssmd
++---
++ssmd_version: '0.9'
++---
++:::{voice="host"}
++Hello.
++:::
++```
++
++Invalid:
++
++```text
++::{voice="host"}
++```
++
++`::{...}` contains only two colons and is not an SSMD 0.9 directive opening. Never shorten, normalize, or retype `:::{` as `::{`. For a normal three-colon opening, the matching closing fence is exactly `:::` on a line by itself.
++
++Before returning the document, inspect every line that begins with `::`. If the line opens attributes with `{`, it MUST begin with `:::{`. The final document must contain zero intended directive openings beginning with `::{`.
++
+ ### Safe document header
+
+ Keep YAML front matter small and limited to portable metadata and defaults. Normally use only:
+@@ -113,8 +139,10 @@ The room went silent.
+ Named values:
+
+ - volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+-- rate: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+-- pitch: `x-low`, `low`, `medium`, `high`, `x-high`
++- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`
++- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`
++
++Older `x-slow` / `medium` / `x-fast` rate names and corresponding legacy pitch names may be accepted for compatibility, but do not generate them in new documents.
+
+ Relative values such as `rate="+10%"`, `pitch="-5%"`, or `volume="+3dB"` are possible, but prefer named values unless fine control is important.
+
+@@ -193,7 +221,9 @@ Use short, unique, snake_case names. Add marks only when the user requests chapt
+
+ - Put each sentence on its own line whenever practical.
+ - Separate paragraphs with a blank line.
+-- Put each opening directive fence and matching closing `:::` fence on their own lines for multi-line blocks.
++- A multi-line directive opening MUST begin with the exact prefix `:::{` (three ASCII colons followed immediately by `{`). The form `::{` is invalid.
++- For the standard three-colon form, put the matching closing `:::` on its own line.
++- Do not place spoken text on either the opening or closing fence line.
+ - Keep speaker turns as separate voice blocks.
+ - Avoid deeply nested annotations.
+ - Do not use Markdown headings merely for visual organization: SSMD headings are spoken.
+@@ -216,17 +246,17 @@ When source material is supplied:
+
+ Before answering, verify silently that:
+
+-1. The requested output mode is satisfied: one downloadable `.ssmd` artifact when file creation is available, otherwise complete raw SSMD in chat.
++1. The requested output mode is satisfied: one downloadable `.ssmd.md` artifact when file creation is available, otherwise complete raw SSMD in chat.
+ 2. The generated SSMD itself contains no Markdown fences, helper-file content, shell commands, or explanatory prose.
+ 3. YAML front matter is valid and closed with `---`.
+-4. Every multi-line directive block is properly closed with `:::`.
++4. Every intended block-directive opening begins with exactly `:::{` (three colons, then `{`); there are no `::{...}` openings, and every three-colon opening has a matching `:::` close.
+ 5. Single-speaker content omits unnecessary explicit voice references.
+ 6. Voice references are limited to necessary symbolic roles unless valid caller-supplied bindings were provided.
+ 7. No invented concrete voice IDs, `<...>` metavariables, or other unexpanded placeholders appear.
+ 8. No `vrp` or symbolic prosody shorthand appears.
+ 9. Bare `...` is not being used accidentally as a pause.
+ 10. The script sounds natural when spoken and source-based claims remain faithful to the supplied material.
+-11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd`, but no validation or rendering is claimed unless it actually ran.
++11. The document is constructed so it should be suitable for later `readio ssmd check FILE.ssmd.md`, but no validation or rendering is claimed unless it actually ran.
+
+ ## Use-case voice design
+
+@@ -311,5 +341,9 @@ How many did you get right?
+ 6. Add timed breaks only at deliberate moments; rely on `pause_defaults` for ordinary pacing.
+ 7. Preserve source fidelity whenever source material is supplied.
+ 8. Run the final self-check from this guide mentally and remove all placeholders.
+-9. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd` file; otherwise return complete raw SSMD without fences or surrounding explanation.
+-10. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
++9. Mechanically inspect directive line starts:
++   - every intended opening containing `{` starts with `:::{`;
++   - zero intended directive openings start with `::{`;
++   - each `:::{...}` block has a matching `:::` close.
++10. If artifact creation is available, create exactly one UTF-8 downloadable `.ssmd.md` file; otherwise return complete raw SSMD without fences or surrounding explanation.
++11. Do not claim that validation or rendering was executed unless the current environment actually provided and ran that tooling.
+diff --git a/tests/test_llm_guides.py b/tests/test_llm_guides.py
+index deeaf08..5d7c2e3 100644
+--- a/tests/test_llm_guides.py
++++ b/tests/test_llm_guides.py
+@@ -89,7 +89,8 @@ def test_guides_are_standalone_and_support_both_output_modes():
+         output = section(text, "Output contract")
+         assert "downloadable files or artifacts" in output
+         assert "exactly one utf-8" in output.lower()
+-        assert "`.ssmd` filename" in output
++        assert "`.ssmd.md` filename" in output
++        assert "accept `.ssmd` for compatibility" in output
+         assert "fallback chat mode" in output.lower()
+         assert "complete raw ssmd source" in output.lower()
+         assert "do not use markdown code fences" in output.lower()
+@@ -97,10 +98,41 @@ def test_guides_are_standalone_and_support_both_output_modes():
+         assert "do not claim that readio/ssmd validation" in output.lower()
+
+
++def test_readmes_recommend_ssmd_md_and_preserve_legacy_template_names():
++    repo_root = Path(__file__).parents[1]
++    guide_readme = (repo_root / "llm-guides" / "README.md").read_text(encoding="utf-8")
++    top_readme = (repo_root / "README.md").read_text(encoding="utf-8")
++
++    assert "downloadable .ssmd.md file" in guide_readme
++    assert "Create exactly one UTF-8 `.ssmd.md` file." in guide_readme
++    assert "legacy `.ssmd` inputs for compatibility" in guide_readme
++    assert (
++        "existing runtime templates managed by `readio template` may keep their `.ssmd` filenames"
++        in guide_readme
++    )
++    assert "one downloadable `.ssmd.md` file" in top_readme
++    assert "Readio also accepts `.ssmd` for compatibility" in top_readme
++
++
+ def test_compatibility_and_shared_sections_do_not_drift():
+     texts = [text for _, text in guide_texts()]
+     for text in texts:
+         target = section(text, "Target runtime")
++        assert ":::{" in target
++        assert "::{" in target
++        assert "three ASCII colon characters" in target
++        assert "followed immediately by `{`" in target
++        assert "invalid" in target.casefold()
++        assert (
++            "- rate: `very-slow`, `slow`, `moderate`, `normal`, `brisk`, `fast`, `very-fast`"
++            in target
++        )
++        assert (
++            "- pitch: `very-low`, `low`, `moderate-low`, `normal`, `moderate-high`, `high`, `very-high`"
++            in target
++        )
++        assert "do not generate them in new documents" in target
++        assert "- volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`" in target
+         assert "Readio with SSMD 0.9 and Utterplan 0.3 support" in target
+         assert "SSMD >=0.9.0,<0.10" in target
+         assert "Utterplan >=0.3.0,<0.4" in target
+@@ -129,6 +161,9 @@ def test_minimal_examples_parse_with_ssmd_when_available():
+         assert "ssmd_version: '0.9'" in example, path.name
+         all_ssmd_blocks = re.findall(r"```ssmd\n(.*?)```", text, flags=re.DOTALL)
+         for ssmd_source in all_ssmd_blocks:
++            assert re.search(r"(?m)^::\{", ssmd_source) is None, (
++                f"{path.name} contains a two-colon directive opening"
++            )
+             parse_ssmd_09(ssmd_source)
+         assert not re.search(r"<[^>]*\.\.\.[^>]*>", example)
+         assert not any(voice_id in example for voice_id in KNOWN_DEFAULT_VOICE_IDS)
+diff --git a/tests/test_ssmd_authoring_09.py b/tests/test_ssmd_authoring_09.py
+index 1f319e1..831f8c6 100644
+--- a/tests/test_ssmd_authoring_09.py
++++ b/tests/test_ssmd_authoring_09.py
+@@ -6,6 +6,7 @@ import pytest
+
+ from readio.config import ReadioConfig
+ from readio.errors import SSMDInputError
++from readio.ssmd import parse_ssmd_09
+ from readio.ssmd_authoring import materialize_voice_bindings, roundtrip_check
+
+
+@@ -72,3 +73,31 @@ def test_roundtrip_rejects_legacy_before_calling_ssmd(tmp_path: Path, monkeypatc
+
+     with pytest.raises(SSMDInputError):
+         roundtrip_check(source, ReadioConfig())
++
++
++def test_two_colon_directive_opening_is_rejected() -> None:
++    source = """\\
++---
++ssmd_version: "0.9"
++---
++::{voice="host"}
++Hello.
++:::
++"""
++
++    with pytest.raises(SSMDInputError):
++        parse_ssmd_09(source)
++
++
++def test_three_colon_directive_opening_is_valid() -> None:
++    source = """\\
++---
++ssmd_version: "0.9"
++---
++:::{voice="host"}
++Hello.
++:::
++"""
++
++    parsed = parse_ssmd_09(source)
++    assert parsed.annotations

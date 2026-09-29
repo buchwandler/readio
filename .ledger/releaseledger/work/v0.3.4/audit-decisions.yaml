@@ -1,0 +1,80 @@
+rows:
+  - sha: 422c1baaf31a1abd26432370b1b4e3870bdd142d
+    inspected: true
+    inspected_paths:
+      - README.md
+      - llm-guides/README.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/podcast-interview.md
+      - tests/test_llm_guides.py
+      - tests/test_ssmd_authoring_09.py
+    observed_behavior: Updated standalone SSMD guidance to recommend .ssmd.md files, use canonical three-colon directive fences, and describe current prosody values; regression checks cover the guide set and parser behavior.
+    public_impact: docs
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: ca9684a23eee5da638ddfe80efd891429ec53911
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/plan.py
+      - readio/stages/composition.py
+      - tests/test_mastering_profiles.py
+    observed_behavior: Added named mastering profiles and inheritable numeric overrides across compose, preview, render, and project APIs; results expose loudness and peak metrics, composition progress has explicit phases, and the resolved mastering policy participates in composition identity.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: aac57baba49f6df361c9f5799b1cef01a95da239
+    inspected: true
+    inspected_paths:
+      - llm-guides/README.md
+      - llm-guides/evals/README.md
+      - llm-guides/evals/rubric.md
+      - llm-guides/evals/prompts/audio-drama-source.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - tests/test_llm_guides.py
+    observed_behavior: Added a manually scored prompt corpus and listening-quality rubric for the standalone guides, while strengthening audio-only clarity, stable speaker-role, source-fidelity, and non-cloning guidance; model generation and listening remain outside normal CI.
+    public_impact: docs
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/audiobooks.py
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/project_model.py
+      - readio/project_settings.py
+      - readio/stages/pipeline.py
+      - readio/stages/planning.py
+      - readio/stages/synthesis.py
+      - tests/test_audiobook_export_api.py
+      - tests/test_project_model.py
+      - tests/test_public_api_projects.py
+    observed_behavior: Added persisted synthesis, composition, generic-export, and audiobook-export settings with public API and CLI configuration; requestless project workflows consume saved defaults, status identifies stale stages after settings changes, and existing synthesis caches remain reusable.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false

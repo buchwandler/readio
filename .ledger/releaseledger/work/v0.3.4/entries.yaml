@@ -1,0 +1,161 @@
+schema: releaseledger.entry-batch.v1
+operation: create
+schema_version: 1
+object_type: release_entry_batch
+release_version: v0.3.4
+git_base_ref: c71a801997baa40ea95e6eefe92f8abd321d7d98
+git_base_sha: c71a801997baa40ea95e6eefe92f8abd321d7d98
+git_head_ref: c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+git_head_sha: c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+include_merges: nontrivial
+entries:
+  - kind: docs
+    summary: Documented canonical SSMD syntax, prosody values, and .ssmd.md authoring guidance
+    status: accepted
+    source_refs:
+      - git:422c1baaf31a1abd26432370b1b4e3870bdd142d
+    paths:
+      - README.md
+      - llm-guides/README.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/document-summary.md
+      - llm-guides/ssmd/dramatic-story.md
+      - llm-guides/ssmd/educational-explainer.md
+      - llm-guides/ssmd/funny-story.md
+      - llm-guides/ssmd/general-narration.md
+      - llm-guides/ssmd/guided-meditation.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/language-learning.md
+      - llm-guides/ssmd/news-briefing.md
+      - llm-guides/ssmd/podcast-interview.md
+      - llm-guides/ssmd/podcast-roundtable.md
+      - llm-guides/ssmd/podcast-solo.md
+      - llm-guides/ssmd/quiz-trivia.md
+      - tests/test_llm_guides.py
+      - tests/test_ssmd_authoring_09.py
+    sources:
+      - git:422c1baaf31a1abd26432370b1b4e3870bdd142d
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"
+  - kind: added
+    summary: Added mastering profiles with LUFS and true-peak reporting across composition workflows
+    status: accepted
+    source_refs:
+      - git:ca9684a23eee5da638ddfe80efd891429ec53911
+    paths:
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/__init__.py
+      - readio/api/projects.py
+      - readio/api/speech.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/cli_adapter.py
+      - readio/execution.py
+      - readio/plan.py
+      - readio/stages/composition.py
+      - readio/stages/pipeline.py
+      - tests/test_cli.py
+      - tests/test_incremental_project_render.py
+      - tests/test_mastering_profiles.py
+      - tests/test_project_composition.py
+      - tests/test_public_api_events.py
+      - tests/test_public_api_projects.py
+      - tests/test_render_from_plan.py
+    sources:
+      - git:ca9684a23eee5da638ddfe80efd891429ec53911
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"
+  - kind: docs
+    summary: Documented an audio-first evaluation corpus and rubric for standalone SSMD guides
+    status: accepted
+    source_refs:
+      - git:aac57baba49f6df361c9f5799b1cef01a95da239
+    paths:
+      - llm-guides/README.md
+      - llm-guides/evals/README.md
+      - llm-guides/evals/prompts/audio-drama-source.md
+      - llm-guides/evals/prompts/audio-drama.md
+      - llm-guides/evals/prompts/debate-pro-con.md
+      - llm-guides/evals/prompts/document-summary.md
+      - llm-guides/evals/prompts/dramatic-story-constraints.md
+      - llm-guides/evals/prompts/dramatic-story.md
+      - llm-guides/evals/prompts/educational-explainer.md
+      - llm-guides/evals/prompts/funny-story-source.md
+      - llm-guides/evals/prompts/funny-story.md
+      - llm-guides/evals/prompts/general-narration.md
+      - llm-guides/evals/prompts/guided-meditation.md
+      - llm-guides/evals/prompts/kids-story-constraints.md
+      - llm-guides/evals/prompts/kids-story.md
+      - llm-guides/evals/prompts/language-learning.md
+      - llm-guides/evals/prompts/news-briefing.md
+      - llm-guides/evals/prompts/podcast-interview-source.md
+      - llm-guides/evals/prompts/podcast-interview.md
+      - llm-guides/evals/prompts/podcast-roundtable-source.md
+      - llm-guides/evals/prompts/podcast-roundtable.md
+      - llm-guides/evals/prompts/podcast-solo.md
+      - llm-guides/evals/prompts/quiz-trivia.md
+      - llm-guides/evals/rubric.md
+      - llm-guides/ssmd/audio-drama.md
+      - llm-guides/ssmd/debate-pro-con.md
+      - llm-guides/ssmd/document-summary.md
+      - llm-guides/ssmd/dramatic-story.md
+      - llm-guides/ssmd/educational-explainer.md
+      - llm-guides/ssmd/funny-story.md
+      - llm-guides/ssmd/general-narration.md
+      - llm-guides/ssmd/guided-meditation.md
+      - llm-guides/ssmd/kids-story.md
+      - llm-guides/ssmd/language-learning.md
+      - llm-guides/ssmd/news-briefing.md
+      - llm-guides/ssmd/podcast-interview.md
+      - llm-guides/ssmd/podcast-roundtable.md
+      - llm-guides/ssmd/podcast-solo.md
+      - llm-guides/ssmd/quiz-trivia.md
+      - tests/test_llm_guides.py
+    sources:
+      - git:aac57baba49f6df361c9f5799b1cef01a95da239
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"
+  - kind: added
+    summary: Added saved project settings for synthesis, composition, export, and audiobook workflows with stage-aware rebuilds
+    status: accepted
+    source_refs:
+      - git:c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+    paths:
+      - README.md
+      - docs/api.md
+      - docs/cli.md
+      - docs/projects.md
+      - readio/api/__init__.py
+      - readio/api/audiobooks.py
+      - readio/api/projects.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/project_model.py
+      - readio/project_settings.py
+      - readio/stages/audiobook_export.py
+      - readio/stages/pipeline.py
+      - readio/stages/planning.py
+      - readio/stages/synthesis.py
+      - tests/test_audiobook_export_api.py
+      - tests/test_audiobook_status.py
+      - tests/test_cli.py
+      - tests/test_project_model.py
+      - tests/test_public_api_imports.py
+      - tests/test_public_api_projects.py
+      - tests/test_public_api_types.py
+      - tests/typecheck/public_api_consumer.py
+    sources:
+      - git:c9c1f8c0159fe33746a96d12c48ca2f09749c54a
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"

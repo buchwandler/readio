@@ -1,0 +1,2948 @@
+ README.md                              |   1 +
+ docs/api.md                            |  35 ++++
+ docs/cli.md                            |  19 ++
+ docs/projects.md                       |  21 ++
+ readio/api/__init__.py                 |   6 +
+ readio/api/audiobooks.py               |  46 ++++-
+ readio/api/projects.py                 | 145 +++++++++++++-
+ readio/api/types.py                    |  70 +++++++
+ readio/cli.py                          | 153 +++++++++++++++
+ readio/project_model.py                | 251 ++++++++++++++++++++++--
+ readio/project_settings.py             | 345 +++++++++++++++++++++++++++++++++
+ readio/stages/audiobook_export.py      |   5 +-
+ readio/stages/pipeline.py              | 259 +++++++++++++++++++++----
+ readio/stages/planning.py              |  48 ++++-
+ readio/stages/synthesis.py             |  55 +++++-
+ tests/test_audiobook_export_api.py     | 120 ++++++++++++
+ tests/test_audiobook_status.py         |  56 ++++++
+ tests/test_cli.py                      |  59 ++++++
+ tests/test_project_model.py            | 216 +++++++++++++++++++++
+ tests/test_public_api_imports.py       |   3 +
+ tests/test_public_api_projects.py      | 332 +++++++++++++++++++++++++++++++
+ tests/test_public_api_types.py         |  22 +++
+ tests/typecheck/public_api_consumer.py |  17 ++
+ 23 files changed, 2211 insertions(+), 73 deletions(-)
+
+diff --git a/README.md b/README.md
+index d3d59c2..37cf3ad 100644
+--- a/README.md
++++ b/README.md
+@@ -487,3 +487,4 @@ Audiobook projects can be exported separately as M4B with embedded chapters: `re
+
+ Cover art is explicit-only for this first release: pass `--cover cover.jpg` or a PNG path. Readio validates, hashes, attaches, and tracks the image, but does not extract a cover automatically because the installed `epub2text` public API has no cover-extraction API. M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus, never M4B.
+ See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout, cache identities, status diagnostics, and invalidation matrix.
++Project synthesis, composition, and export defaults can be saved before execution with `readio project settings set PROJECT ...`; inspect with `readio project settings show PROJECT --json`. Requestless project operations use saved settings, while explicit invocation overrides remain transient. Audiobook M4B output, metadata, cover, and bitrate can also be saved and are checked by `readio status`. See [project settings](docs/projects.md#desired-pipeline-settings), [CLI reference](docs/cli.md#saved-project-pipeline-settings), and [Python API](docs/api.md#projects-and-audiobooks).
+diff --git a/docs/api.md b/docs/api.md
+index 847f6a4..6fe3ec2 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -131,10 +131,45 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
+
+ `CompositionOptions.mastering` selects `spoken-word` by default (`-16 LUFS/-1 dBTP`); the other profiles are `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), and `off` (no target or ceiling). `target_lufs` and `true_peak_ceiling_dbtp` override profile values when non-`None`; `None` inherits. For example, `CompositionOptions(mastering="broadcast-ebu", target_lufs=-21.0)` keeps the EBU true-peak ceiling and uses a `-21 LUFS` target.
+
++Persist desired pipeline choices through `ProjectService` before running the stages. Settings writes use the project manifest's atomic update path, preserve schema-v2 compatibility and unrelated namespaces, and do not open a TTS session. `ProjectSettingsPatch` uses `UNSET` to leave a section unchanged, `None` to clear it, and a concrete immutable value to replace it:
++
++```python
++from pathlib import Path
++
++from readio.api import (
++    CompositionOptions,
++    ExportOptions,
++    ProjectSettings,
++    ProjectSettingsPatch,
++    ProjectSynthesisSettings,
++    Readio,
++    UNSET,
++)
++
++app = Readio()
++project = app.projects.open(Path("article.readio"))
++app.projects.configure(
++    project,
++    ProjectSettings(
++        synthesis=ProjectSynthesisSettings(engine="piper", voice="en_US-amy-medium"),
++        composition=CompositionOptions(target_lufs=-18.0),
++        export=ExportOptions(format="mp3", output=Path("output/article.mp3")),
++    ),
++)
++app.projects.update_settings(
++    project, ProjectSettingsPatch(composition=None, export=UNSET)
++)
++```
++
++`configure()` replaces supported sections while retaining `settings.ssmd` and unknown namespaces. `update_settings()` patches sections independently. Relative paths resolve from the project root. Saved synthesis settings are applied before global and engine defaults; explicit invocation requests override saved values without persisting those overrides. `force` and synthesis `refresh` remain invocation-only.
++
++Requestless `synthesize()`, `compose()`, `export()`, and `build()` use saved settings. Status compares built provenance to desired settings: synthesis changes invalidate downstream stages, composition changes invalidate composition/output, and export changes invalidate output only. Caches and previous outputs remain available.
++
+ `ProjectCompositionResult.loudness` is a typed `LoudnessSummary` with before/after integrated LUFS, sample peak and true peak, requested/applied gain, target status, warning, and analysis/gain/post-gain metric timings. The mastering operation is transparent constant gain: `reduce_gain` may stop short of the LUFS target to honor the true-peak ceiling; this is not a true-peak limiter or ACX compliance check.
+
+ `app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+ `describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
++`create_project(..., settings=ProjectSettings(audiobook_export=...))` can save output, metadata, cover, and bitrate defaults at creation time. Omitted export options use those values; explicitly supplied non-`None` values override them for one invocation without mutating the manifest. `app.audiobooks.build(project)` runs the ordinary plan, synthesis, and composition services before M4B export. It respects the project's stored chapter scope and returns an `AudiobookExportResult`.
+
+ `app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, planning/provider settings, and pronunciation/resource policies: lexicons, G2P fallback, lexicon data policy, language-detection mode and languages, and experimental-option permission. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
+
+diff --git a/docs/cli.md b/docs/cli.md
+index 9835b43..8ba3b59 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -41,6 +41,25 @@ readio render --file episode.ssmd --format mp3 --dry-run --json
+
+ ## Project voice provider and routing
+
++## Saved project pipeline settings
++
++Inspect, patch, or clear supported settings with the project command family:
++
++```text
++readio project settings [--project PROJECT] [--json]
++readio project settings show [PROJECT] [--json]
++readio project settings set [PROJECT] [--engine ENGINE] [--model MODEL] [--language LANG] [--voice VOICE] [--speed FLOAT]
++  [--mastering PROFILE] [--target-lufs FLOAT] [--sample-rate HZ]
++  [--export-format FORMAT] [--export-output PATH] [--export-bitrate RATE]
++  [--audiobook-output PATH] [--audiobook-title TITLE] [--audiobook-author AUTHOR]
++  [--audiobook-cover IMAGE] [--audiobook-bitrate RATE]
++readio project settings clear [PROJECT] --section {synthesis,composition,export,audiobook_export}
++```
++
++`set` updates only sections represented by its flags and preserves other saved section fields. It exposes named supported values, not arbitrary JSON editing. Relative paths are interpreted from the project root. Invocation-only `--force` and `--refresh` flags are never persisted.
++
++Synthesis, composition, generic export, and audiobook export defaults are used by requestless project APIs and builds. Explicit API or stage options override saved values for that invocation only. `readio status` reports stage-specific staleness when saved settings differ from built provenance; synthesis caches and previous outputs are retained.
++
+ `project.json` can select an active provider at `settings.ssmd.voice_provider`. Existing projects without that field infer the provider from a single non-empty `voice_bindings` namespace. Projects with neither an active provider nor project binding namespaces keep the global configuration fallback. Multiple provider namespaces without an active provider are ambiguous and must be resolved explicitly. `readio plan bind` can activate a provider from a stable selector, and `readio plan roles` reports bindings from the effective provider.
+
+ With no explicit engine, project synthesis selects the engine associated with that provider. It does not inherit global `reader.engine` or `reader.voice` over an active project provider. `readio synth --engine ENGINE` is a run-local override; it never writes project settings. Use `--voice` for a concrete run-local voice override.
+diff --git a/docs/projects.md b/docs/projects.md
+index 30a6ee6..ed18068 100644
+--- a/docs/projects.md
++++ b/docs/projects.md
+@@ -28,6 +28,27 @@ Bindings are stored in `project.json` under `settings.ssmd.voice_bindings`, prov
+
+ Voice resolution follows `document > invocation --voice-bind > project > global config role > direct voice`. A project binding is an acoustic synthesis setting. Changing it leaves the semantic plan current, marks active synthesis stale with `synthesis.stale.project_voice_bindings_changed`, blocks composition and output, and makes `readio synth` the next action. The content-addressed synthesis cache is retained.
+
++## Desired pipeline settings
++
++Save supported desired settings before planning, synthesis, composition, or export runs:
++
++```bash
++readio project settings show . --json
++readio project settings set . --engine piper --voice en_US-amy-medium \
++  --mastering spoken-word --target-lufs -18 \
++  --export-format mp3 --export-output output/episode.mp3
++readio project settings set . --audiobook-output output/book.m4b \
++  --audiobook-title "My audiobook" --audiobook-bitrate 96k
++readio project settings clear . --section export
++```
++
++Settings are stored in `project.json` under the existing `settings` object. Updates are atomic, retain `settings.ssmd` and unknown namespaces, and keep schema version 2. The CLI exposes named fields only. Relative output and asset paths are interpreted relative to the project root. `force` and `refresh` are invocation-only and are never saved.
++
++The Python API provides immutable `ProjectSettings`, `ProjectSynthesisSettings`, and `ProjectSettingsPatch`. `app.projects.configure(project, settings)` replaces the supported settings sections; `update_settings(project, patch)` changes only sections present in the patch. In a patch, `UNSET` leaves a section unchanged, `None` clears it, and a concrete value replaces it. `settings(project)` returns detached values.
++
++Persisted synthesis choices are resolved before global and engine defaults. Explicit run requests override saved choices without changing the manifest. Requestless `synthesize`, `compose`, generic `export`, and incremental `build` use saved settings. Composition-only changes stale composition and output; generic or audiobook export-only changes stale only output. Synthesis caches and previous outputs are retained for reuse.
++
++For audiobook projects, `app.audiobooks.export(project)` uses saved M4B path, metadata, cover, and bitrate defaults. `app.audiobooks.build(project)` plans, synthesizes, composes, then exports M4B using the saved settings. `create_project(..., settings=...)` can persist those choices during project creation. `readio status` reports when a prior M4B no longer matches the desired audiobook settings.
+ Use `readio render --file episode.ssmd --dry-run --json` for one-shot execution planning. `readio plan` is reserved for persistent project build and role management.
+
+ ## EPUB audiobook projects
+diff --git a/readio/api/__init__.py b/readio/api/__init__.py
+index 417ad96..de56862 100644
+--- a/readio/api/__init__.py
++++ b/readio/api/__init__.py
+@@ -125,6 +125,9 @@ from .types import (
+     ProjectRole,
+     ProjectRoleInspection,
+     ProjectRoleMutationResult,
++    ProjectSettings,
++    ProjectSettingsPatch,
++    ProjectSynthesisSettings,
+     ProjectStatus,
+     ProjectSynthesisResult,
+     ProjectTarget,
+@@ -257,6 +260,9 @@ __all__ = [
+     "ProjectRole",
+     "ProjectRoleInspection",
+     "ProjectRoleMutationResult",
++    "ProjectSettings",
++    "ProjectSettingsPatch",
++    "ProjectSynthesisSettings",
+     "ProjectStatus",
+     "ProjectSynthesisResult",
+     "ProjectTarget",
+diff --git a/readio/api/audiobooks.py b/readio/api/audiobooks.py
+index 8ce8bd2..ebb5c05 100644
+--- a/readio/api/audiobooks.py
++++ b/readio/api/audiobooks.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+
+ from collections.abc import Callable
++from dataclasses import replace
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Literal, TypeVar, cast
+
+@@ -11,6 +12,7 @@ from .. import errors as core_errors
+ from .. import jsonutil
+ from .. import project as project_internal
+ from ..project_model import ProjectFormatError as InternalProjectFormatError
++from ..project_settings import project_settings_from_manifest
+ from ..stages import audiobook_export as audiobook_export_internal
+ from . import errors as api_errors
+ from .events import EventHandler, ReadioEvent, compose_event_handlers
+@@ -24,6 +26,7 @@ from .types import (
+     AudiobookProjectChapter,
+     AudiobookProjectDescription,
+     AudiobookProjectResult,
++    ProjectSettings,
+     Diagnostic,
+     ProjectLike,
+     ProjectRef,
+@@ -56,6 +59,25 @@ def _audiobook_chapters(
+     return tuple(chapters)
+
+
++def _export_options(
++    internal: project_internal.Project,
++    options: AudiobookExportOptions | None,
++) -> AudiobookExportOptions:
++    saved = project_settings_from_manifest(internal.manifest, internal.root).audiobook_export
++    if options is None:
++        return saved or AudiobookExportOptions()
++    if saved is None:
++        return options
++    return replace(
++        options,
++        output=options.output if options.output is not None else saved.output,
++        title=options.title if options.title is not None else saved.title,
++        author=options.author if options.author is not None else saved.author,
++        cover=options.cover if options.cover is not None else saved.cover,
++        bitrate=options.bitrate if options.bitrate is not None else saved.bitrate,
++    )
++
++
+ class AudiobookService:
+     """Inspect EPUB chapters and create ordinary chapter-scoped projects."""
+
+@@ -88,10 +110,11 @@ class AudiobookService:
+         *,
+         chapters: str = "all",
+         output: Path | None = None,
++        settings: ProjectSettings | None = None,
+         on_event: EventHandler | None = None,
+     ) -> ProjectRef:
+         return self.create_project_result(
+-            source, chapters=chapters, output=output, on_event=on_event
++            source, chapters=chapters, output=output, settings=settings, on_event=on_event
+         ).project
+
+     def create_project_result(
+@@ -100,6 +123,7 @@ class AudiobookService:
+         *,
+         chapters: str = "all",
+         output: Path | None = None,
++        settings: ProjectSettings | None = None,
+         on_event: EventHandler | None = None,
+     ) -> AudiobookProjectResult:
+         handler = self._handler(on_event)
+@@ -116,6 +140,8 @@ class AudiobookService:
+             lambda: audiobook_internal.init_audiobook_project(source, output, chapters)
+         )
+         project_ref = self._project_ref(project)
++        if settings is not None:
++            self._app.projects.configure(project_ref, settings)
+         selected = _audiobook_chapters(project)
+         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
+         return AudiobookProjectResult(project=project_ref, source=source, chapters=selected)
+@@ -142,8 +168,7 @@ class AudiobookService:
+         *,
+         on_event: EventHandler | None = None,
+     ) -> AudiobookExportResult:
+-        options = options or AudiobookExportOptions()
+-        if options.format not in SUPPORTED_AUDIOBOOK_FORMATS:
++        if options is not None and options.format not in SUPPORTED_AUDIOBOOK_FORMATS:
+             raise api_errors.InvalidRequestError(
+                 f"unsupported audiobook export format: {options.format}",
+                 code="audiobook.export.format_unsupported",
+@@ -153,6 +178,7 @@ class AudiobookService:
+         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
+         project_path = project.root if isinstance(project, ProjectRef) else project
+         internal = self._call(lambda: project_internal.load_project(project_path))
++        options = _export_options(internal, options)
+         self._notify(
+             handler, ReadioEvent(kind="stage.started", operation=operation, stage="export")
+         )
+@@ -189,6 +215,20 @@ class AudiobookService:
+             chapter_count=int(raw["chapter_count"]),
+         )
+
++    def build(
++        self,
++        project: ProjectLike,
++        options: AudiobookExportOptions | None = None,
++        *,
++        on_event: EventHandler | None = None,
++    ) -> AudiobookExportResult:
++        """Plan, synthesize, compose, and export an audiobook project."""
++        self.describe_project(project)
++        self._app.projects.plan(project, on_event=on_event)
++        self._app.projects.synthesize(project, on_event=on_event)
++        self._app.projects.compose(project, on_event=on_event)
++        return self.export(project, options, on_event=on_event)
++
+     def _resolve_source(self, source: Path) -> Path:
+         try:
+             return source.expanduser().resolve()
+diff --git a/readio/api/projects.py b/readio/api/projects.py
+index b95e85f..da3e8f8 100644
+--- a/readio/api/projects.py
++++ b/readio/api/projects.py
+@@ -3,13 +3,21 @@
+ from __future__ import annotations
+
+ import time
+-from collections.abc import Mapping
++from collections.abc import Callable, Mapping
++from dataclasses import replace
+ from pathlib import Path
+-from typing import TYPE_CHECKING, cast
++from typing import TYPE_CHECKING, Any, cast
+
+ from .. import project as project_internal
+ from ..jsonutil import JsonValue, json_value
+ from ..project_model import ProjectFormatError as InternalProjectFormatError
++from ..project_model import ProjectManifest
++from ..project_settings import (
++    apply_project_settings_patch,
++    project_settings_from_manifest,
++    project_synthesis_request,
++    with_project_settings,
++)
+ from ..stages.composition import compose_project
+ from ..stages.export import export_project
+ from ..stages.pipeline import _project_request, build_project, preview_project, project_status
+@@ -47,6 +55,8 @@ from .types import (
+     ProjectPlanResult,
+     ProjectPlanScope,
+     ProjectRef,
++    ProjectSettings,
++    ProjectSettingsPatch,
+     ProjectStatus,
+     ProjectSynthesisResult,
+     StageName,
+@@ -123,6 +133,107 @@ class ProjectService:
+             return None
+         return self._ref(self._call(lambda: project_internal.load_project(root)))
+
++    def settings(self, project: ProjectLike) -> ProjectSettings:
++        """Return the project's detached immutable desired pipeline settings."""
++        internal = self._load(project)
++        return self._call(lambda: project_settings_from_manifest(internal.manifest, internal.root))
++
++    def configure(
++        self,
++        project: ProjectLike,
++        settings: ProjectSettings,
++        *,
++        validate: bool = True,
++    ) -> ProjectSettings:
++        """Atomically replace supported pipeline settings for a project."""
++        internal = self._load(project)
++        return self._call(
++            lambda: self._write_settings(
++                internal,
++                lambda manifest: with_project_settings(manifest, settings, internal.root),
++                validate=validate,
++                operation="project-configure",
++            )
++        )
++
++    def update_settings(
++        self,
++        project: ProjectLike,
++        patch: ProjectSettingsPatch,
++        *,
++        validate: bool = True,
++    ) -> ProjectSettings:
++        """Atomically patch project settings, preserving sections marked UNSET."""
++        internal = self._load(project)
++        return self._call(
++            lambda: self._write_settings(
++                internal,
++                lambda manifest: apply_project_settings_patch(manifest, patch, internal.root),
++                validate=validate,
++                operation="project-settings-update",
++            )
++        )
++
++    def _write_settings(
++        self,
++        project: project_internal.Project,
++        transform: Callable[[ProjectManifest], ProjectManifest],
++        *,
++        validate: bool,
++        operation: str,
++    ) -> ProjectSettings:
++        def update(manifest: ProjectManifest) -> ProjectManifest:
++            candidate = transform(manifest)
++            if validate:
++                settings = project_settings_from_manifest(candidate, project.root)
++                settings = self._materialize_project_synthesis(project, settings)
++                candidate = with_project_settings(manifest, settings, project.root)
++            return candidate
++
++        updated = project_internal.update_project_manifest(project, update, operation=operation)
++        return project_settings_from_manifest(updated.manifest, updated.root)
++
++    def _materialize_project_synthesis(
++        self, project: project_internal.Project, settings: ProjectSettings
++    ) -> ProjectSettings:
++        synthesis = settings.synthesis
++        if synthesis is None:
++            return settings
++        resolution = self._resolve_synthesis_internal(
++            project,
++            project_synthesis_request(synthesis),
++            merge_saved_settings=False,
++        )
++        values: dict[str, Any] = {
++            "language": resolution.language,
++            "engine": resolution.engine,
++            "model": resolution.model,
++            "model_source": resolution.model_source,
++            "quality": resolution.quality,
++            "voice": resolution.voice,
++            "speed": resolution.speed,
++            "spacy": resolution.spacy,
++            "short_sentence": resolution.short_sentence,
++            "g2p_fallback": resolution.g2p_fallback,
++            "lexicon_data_policy": resolution.lexicon_data_policy,
++            "language_detection": resolution.language_detection,
++            "detect_languages": resolution.detect_languages,
++            "allow_experimental": resolution.allow_experimental,
++            "voice_level": resolution.voice_level,
++            "pause_mode": resolution.pause_mode,
++            "unit": resolution.unit,
++        }
++        if (
++            synthesis.lexicons is None
++            and synthesis.clear_lexicons is not True
++            and synthesis.auto_lexicons is not True
++        ):
++            if resolution.lexicons is None:
++                values["auto_lexicons"] = True
++            else:
++                values["lexicons"] = resolution.lexicons
++        return replace(settings, synthesis=replace(synthesis, **values))
++
+     def status(self, project: ProjectLike) -> ProjectStatus:
+         internal = self._load(project)
+         raw = self._call(lambda: project_status(internal))
+@@ -199,11 +310,30 @@ class ProjectService:
+         """Resolve effective project synthesis settings without rendering audio."""
+         internal = self._load(project)
+         request = request or SynthesisRequest()
++        return self._resolve_synthesis_internal(internal, request, voice_bindings=voice_bindings)
++
++    def _resolve_synthesis_internal(
++        self,
++        internal: project_internal.Project,
++        request: SynthesisRequest,
++        *,
++        voice_bindings: Mapping[str, str] | None = None,
++        merge_saved_settings: bool = True,
++    ) -> SynthesisResolution:
+         project_request = _project_request(
+-            internal, self._app.config, request, voice_bindings=voice_bindings
++            internal,
++            self._app.config,
++            request,
++            voice_bindings=voice_bindings,
++            use_saved_settings=merge_saved_settings,
+         )
+         _effective_request, resolved, adapter, _profile = self._call(
+-            lambda: resolve_project_synthesis(internal, self._app.config, project_request)
++            lambda: resolve_project_synthesis(
++                internal,
++                self._app.config,
++                project_request,
++                merge_saved_settings=False,
++            )
+         )
+         selection = resolved.selection
+         if selection is None:
+@@ -304,7 +434,8 @@ class ProjectService:
+         on_event: EventHandler | None = None,
+     ) -> ProjectCompositionResult:
+         internal = self._load(project)
+-        options = options or CompositionOptions()
++        settings = project_settings_from_manifest(internal.manifest, internal.root)
++        options = options or settings.composition or CompositionOptions()
+         handler = self._handler(on_event)
+         operation = "projects.compose"
+         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
+@@ -362,7 +493,8 @@ class ProjectService:
+         on_event: EventHandler | None = None,
+     ) -> ProjectExportResult:
+         internal = self._load(project)
+-        options = options or ExportOptions()
++        settings = project_settings_from_manifest(internal.manifest, internal.root)
++        options = options or settings.export or ExportOptions()
+         handler = self._handler(on_event)
+         operation = "projects.export"
+         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
+@@ -398,7 +530,6 @@ class ProjectService:
+         on_event: EventHandler | None = None,
+     ) -> ProjectBuildResult:
+         internal = self._load(project)
+-        request = request or ProjectBuildRequest()
+         handler = self._handler(on_event)
+         operation = "projects.build"
+         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
+diff --git a/readio/api/types.py b/readio/api/types.py
+index 350e757..f0a0b80 100644
+--- a/readio/api/types.py
++++ b/readio/api/types.py
+@@ -5,6 +5,7 @@ from __future__ import annotations
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from dataclasses import field as dataclass_field
++from types import MappingProxyType
+ from pathlib import Path
+ from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast
+
+@@ -112,6 +113,72 @@ class AudiobookExportOptions:
+     force: bool = False
+
+
++def _freeze_setting_value(value: Any) -> Any:
++    if isinstance(value, Mapping):
++        return MappingProxyType({key: _freeze_setting_value(item) for key, item in value.items()})
++    if isinstance(value, (list, tuple)):
++        return tuple(_freeze_setting_value(item) for item in value)
++    return value
++
++
++@dataclass(frozen=True, slots=True)
++class ProjectSynthesisSettings:
++    """Sparse, durable synthesis preferences for one project."""
++
++    language: str | None = None
++    model: str | None = None
++    model_source: str | None = None
++    quality: str | None = None
++    voice: str | None = None
++    lexicons: tuple[str, ...] | None = None
++    speaker: str | int | None = None
++    clear_lexicons: bool | None = None
++    auto_lexicons: bool | None = None
++    spacy: str | None = None
++    short_sentence: str | None = None
++    g2p_fallback: str | None = None
++    lexicon_data_policy: str | None = None
++    language_detection: str | None = None
++    detect_languages: tuple[str, ...] | None = None
++    allow_experimental: bool | None = None
++    speed: float | None = None
++    voice_level: str | None = None
++    pause_mode: str | None = None
++    unit: str | None = None
++    offline: bool | None = None
++    engine: str | None = None
++    engine_options: Mapping[str, JsonValue] | None = None
++    voice_file: Path | None = None
++
++    def __post_init__(self) -> None:
++        for name in ("lexicons", "detect_languages"):
++            value = getattr(self, name)
++            if value is not None:
++                object.__setattr__(self, name, tuple(value))
++        if self.engine_options is not None:
++            object.__setattr__(self, "engine_options", _freeze_setting_value(self.engine_options))
++
++
++@dataclass(frozen=True, slots=True)
++class ProjectSettings:
++    """Detached immutable desired pipeline settings for a project."""
++
++    synthesis: ProjectSynthesisSettings | None = None
++    composition: CompositionOptions | None = None
++    export: ExportOptions | None = None
++    audiobook_export: AudiobookExportOptions | None = None
++
++
++@dataclass(frozen=True, slots=True)
++class ProjectSettingsPatch:
++    """Patch project settings, using None to clear and UNSET to leave unchanged."""
++
++    synthesis: ProjectSynthesisSettings | None | Unset = UNSET
++    composition: CompositionOptions | None | Unset = UNSET
++    export: ExportOptions | None | Unset = UNSET
++    audiobook_export: AudiobookExportOptions | None | Unset = UNSET
++
++
+ @dataclass(frozen=True, slots=True)
+ class Diagnostic:
+     code: str
+@@ -1008,6 +1075,9 @@ __all__ = [
+     "ProjectPlanResult",
+     "ProjectPlanScope",
+     "ProjectRef",
++    "ProjectSettings",
++    "ProjectSettingsPatch",
++    "ProjectSynthesisSettings",
+     "ProjectRole",
+     "ProjectRoleInspection",
+     "ProjectRoleMutationResult",
+diff --git a/readio/cli.py b/readio/cli.py
+index 9701022..fab8c4f 100644
+--- a/readio/cli.py
++++ b/readio/cli.py
+@@ -652,6 +652,108 @@ def _cmd_project(args: argparse.Namespace) -> int:
+     return 0
+
+
++def _cmd_project_settings(args: argparse.Namespace) -> int:
++    app = _api_for(args)
++    project_path = (
++        getattr(args, "project", None) or getattr(args, "settings_project", None) or Path.cwd()
++    )
++    project = app.projects.open(project_path)
++    action = getattr(args, "settings_action", None) or "show"
++    if action == "show":
++        settings = app.projects.settings(project)
++    elif action == "clear":
++        settings = app.projects.update_settings(
++            project,
++            public_api.ProjectSettingsPatch(**{args.section: None}),
++        )
++    elif action == "set":
++        current = app.projects.settings(project)
++        groups = (
++            (
++                "synthesis",
++                public_api.ProjectSynthesisSettings,
++                (
++                    "engine",
++                    "model",
++                    "language",
++                    "voice",
++                    "speed",
++                    "voice_level",
++                    "pause_mode",
++                    "unit",
++                    "voice_file",
++                    "lexicons",
++                    "clear_lexicons",
++                ),
++            ),
++            (
++                "composition",
++                public_api.CompositionOptions,
++                (
++                    "mastering",
++                    "target_lufs",
++                    "true_peak_ceiling_dbtp",
++                    "peak_policy",
++                    "clip_policy",
++                    "sample_rate",
++                ),
++            ),
++            (
++                "export",
++                public_api.ExportOptions,
++                ("export_format", "export_output", "export_bitrate"),
++            ),
++            (
++                "audiobook_export",
++                public_api.AudiobookExportOptions,
++                (
++                    "audiobook_output",
++                    "audiobook_title",
++                    "audiobook_author",
++                    "audiobook_cover",
++                    "audiobook_bitrate",
++                ),
++            ),
++        )
++        updates = {}
++        for section, settings_type, fields in groups:
++            values = {}
++            for name in fields:
++                value = getattr(args, name)
++                if value is not None:
++                    values[name.removeprefix("export_").removeprefix("audiobook_")] = value
++            if values:
++                existing = getattr(current, section) or settings_type()
++                updates[section] = replace(existing, **values)
++        if not updates:
++            raise ValueError("provide at least one project settings option")
++        settings = app.projects.update_settings(project, public_api.ProjectSettingsPatch(**updates))
++    else:
++        raise ValueError(f"unknown project settings action: {action}")
++
++    settings_value = {
++        section: _json_value(value)
++        for section in ("synthesis", "composition", "export", "audiobook_export")
++        if (value := getattr(settings, section)) is not None
++    }
++    payload = {
++        "ok": True,
++        "project": str(project.root),
++        "settings": settings_value,
++    }
++    if getattr(args, "json", False):
++        print(json.dumps(payload, ensure_ascii=False))
++    else:
++        print(f"Project settings: {project.root}")
++        for section in ("synthesis", "composition", "export", "audiobook_export"):
++            value = settings_value.get(section)
++            rendered = (
++                json.dumps(value, ensure_ascii=False) if value is not None else "not configured"
++            )
++            print(f"{section}: {rendered}")
++    return 0
++
++
+ def _audiobook_chapter_json(chapter: public_api.AudiobookChapter) -> dict[str, object]:
+     return {
+         "number": chapter.number,
+@@ -1888,6 +1990,57 @@ def build_parser() -> argparse.ArgumentParser:
+     project_init.add_argument("-o", "--output", type=Path)
+     project_init.add_argument("--json", action="store_true")
+     project_init.set_defaults(func=_cmd_project)
++    project_settings = project_sub.add_parser(
++        "settings", help="inspect or configure saved project pipeline settings"
++    )
++    project_settings.add_argument("--project", type=Path, dest="settings_project")
++    project_settings.add_argument("--json", action="store_true")
++    project_settings.set_defaults(func=_cmd_project_settings, settings_action="show")
++    settings_sub = project_settings.add_subparsers(
++        dest="settings_action", title="Settings actions", metavar="ACTION"
++    )
++    settings_show = settings_sub.add_parser("show", help="show saved project pipeline settings")
++    settings_show.add_argument("project", nargs="?", type=Path)
++    settings_show.add_argument("--json", action="store_true")
++    settings_show.set_defaults(func=_cmd_project_settings, settings_action="show")
++    settings_set = settings_sub.add_parser("set", help="set supported pipeline settings")
++    settings_set.add_argument("project", nargs="?", type=Path)
++    settings_set.add_argument("--json", action="store_true")
++    settings_set.add_argument("--engine")
++    settings_set.add_argument("--model")
++    settings_set.add_argument("--language")
++    settings_set.add_argument("--voice")
++    settings_set.add_argument("--speed", type=float)
++    settings_set.add_argument("--voice-level", choices=("off", "calibrated"))
++    settings_set.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
++    settings_set.add_argument("--unit", choices=("sentence", "paragraph"))
++    settings_set.add_argument("--voice-file", type=Path)
++    settings_set.add_argument("--lexicon", action="append", dest="lexicons")
++    settings_set.add_argument("--clear-lexicons", action="store_true", default=None)
++    settings_set.add_argument("--mastering", choices=MASTERING_PROFILE_CHOICES)
++    settings_set.add_argument("--target-lufs", type=float)
++    settings_set.add_argument("--true-peak-ceiling-dbtp", type=float)
++    settings_set.add_argument("--peak-policy", choices=("reduce_gain", "error"))
++    settings_set.add_argument("--clip-policy", choices=("clamp", "error"))
++    settings_set.add_argument("--sample-rate", type=int)
++    settings_set.add_argument("--export-format", choices=public_api.SUPPORTED_AUDIO_FORMATS)
++    settings_set.add_argument("--export-output", type=Path)
++    settings_set.add_argument("--export-bitrate")
++    settings_set.add_argument("--audiobook-output", type=Path)
++    settings_set.add_argument("--audiobook-title")
++    settings_set.add_argument("--audiobook-author")
++    settings_set.add_argument("--audiobook-cover", type=Path)
++    settings_set.add_argument("--audiobook-bitrate")
++    settings_set.set_defaults(func=_cmd_project_settings, settings_action="set")
++    settings_clear = settings_sub.add_parser("clear", help="clear one saved settings section")
++    settings_clear.add_argument("project", nargs="?", type=Path)
++    settings_clear.add_argument(
++        "--section",
++        required=True,
++        choices=("synthesis", "composition", "export", "audiobook_export"),
++    )
++    settings_clear.add_argument("--json", action="store_true")
++    settings_clear.set_defaults(func=_cmd_project_settings, settings_action="clear")
+     audiobook_cmd = sub.add_parser(
+         "audiobook", help="Inspect EPUBs and create/export audiobook projects."
+     )
+diff --git a/readio/project_model.py b/readio/project_model.py
+index 6c954f6..e50845e 100644
+--- a/readio/project_model.py
++++ b/readio/project_model.py
+@@ -7,11 +7,25 @@ markers so corrupted or unrelated directories fail early.
+
+ from __future__ import annotations
+
++
++import math
+ from collections.abc import Mapping
+ from dataclasses import dataclass, field
+ from typing import Any
+
+
++from .config import (
++    G2P_FALLBACKS,
++    LANGUAGE_DETECTION_MODES,
++    LEXICON_DATA_POLICIES,
++    SHORT_SENTENCE_POLICIES,
++    SPACY_LEGACY_ALIASES,
++    SPACY_POLICIES,
++    VOICE_LEVEL_MODES,
++)
++from .formats import SUPPORTED_AUDIO_FORMATS
++
++
+ class ProjectFormatError(ValueError):
+     """Raised when a persisted project artifact is malformed."""
+
+@@ -22,22 +36,213 @@ def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
+     return value
+
+
+-def _validate_project_settings(value: Any) -> None:
+-    settings = _require_mapping(value, "project.settings")
+-    if "ssmd" not in settings:
++def _validate_json_value(value: Any, name: str) -> None:
++    if value is None or isinstance(value, (str, bool, int)):
+         return
+-    ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
+-    if "voice_provider" in ssmd:
+-        _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
+-    if "voice_bindings" not in ssmd:
++    if isinstance(value, float):
++        if math.isfinite(value):
++            return
++        raise ProjectFormatError(f"{name} must contain only finite JSON numbers")
++    if isinstance(value, list):
++        for index, item in enumerate(value):
++            _validate_json_value(item, f"{name}[{index}]")
+         return
+-    bindings = _require_mapping(ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings")
+-    for provider, raw_roles in bindings.items():
+-        _require_string(provider, "project.settings.ssmd.voice_bindings provider")
+-        roles = _require_mapping(raw_roles, f"project.settings.ssmd.voice_bindings.{provider}")
+-        for role, voice in roles.items():
+-            _require_string(role, f"project.settings.ssmd.voice_bindings.{provider} role")
+-            _require_string(voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}")
++    if isinstance(value, Mapping):
++        for key, item in value.items():
++            if not isinstance(key, str):
++                raise ProjectFormatError(f"{name} object keys must be strings")
++            _validate_json_value(item, f"{name}.{key}")
++        return
++    raise ProjectFormatError(f"{name} must contain JSON-compatible values")
++
++
++def _require_optional_string(data: Mapping[str, Any], key: str, name: str) -> None:
++    if key in data and data[key] is not None:
++        _require_string(data[key], name)
++
++
++def _require_bool(data: Mapping[str, Any], key: str, name: str) -> None:
++    if key in data and not isinstance(data[key], bool):
++        raise ProjectFormatError(f"{name} must be a boolean")
++
++
++def _require_optional_path(data: Mapping[str, Any], key: str, name: str) -> None:
++    _require_optional_string(data, key, name)
++
++
++def _validate_synthesis_settings(value: Any) -> None:
++    name = "project.settings.synthesis"
++    synthesis = _require_mapping(value, name)
++    if "refresh" in synthesis:
++        raise ProjectFormatError(f"{name}.refresh is invocation-only and cannot be persisted")
++    for key in (
++        "language",
++        "model",
++        "model_source",
++        "quality",
++        "voice",
++        "spacy",
++        "short_sentence",
++        "g2p_fallback",
++        "lexicon_data_policy",
++        "language_detection",
++        "voice_level",
++        "pause_mode",
++        "unit",
++        "engine",
++    ):
++        _require_optional_string(synthesis, key, f"{name}.{key}")
++    if "speaker" in synthesis:
++        speaker = synthesis["speaker"]
++        if speaker is not None and (
++            not isinstance(speaker, (str, int)) or isinstance(speaker, bool) or speaker == ""
++        ):
++            raise ProjectFormatError(f"{name}.speaker must be a non-empty string, integer, or None")
++    for key in ("clear_lexicons", "auto_lexicons", "allow_experimental", "offline"):
++        _require_bool(synthesis, key, f"{name}.{key}")
++    lexicons = synthesis.get("lexicons")
++    if lexicons is not None and (
++        not isinstance(lexicons, list)
++        or any(not isinstance(item, str) or not item for item in lexicons)
++    ):
++        raise ProjectFormatError(f"{name}.lexicons must be a list of non-empty strings or None")
++    languages = synthesis.get("detect_languages")
++    if languages is not None and (
++        not isinstance(languages, list)
++        or any(not isinstance(item, str) or not item for item in languages)
++    ):
++        raise ProjectFormatError(
++            f"{name}.detect_languages must be a list of non-empty strings or None"
++        )
++    speed = synthesis.get("speed")
++    if speed is not None and (
++        isinstance(speed, bool)
++        or not isinstance(speed, (int, float))
++        or not math.isfinite(float(speed))
++        or speed <= 0
++    ):
++        raise ProjectFormatError(f"{name}.speed must be a finite number greater than zero or None")
++    spacy = synthesis.get("spacy")
++    if spacy is not None and spacy not in {*SPACY_POLICIES, *SPACY_LEGACY_ALIASES}:
++        raise ProjectFormatError(f"{name}.spacy has an unsupported policy")
++    if synthesis.get("short_sentence") is not None and (
++        synthesis["short_sentence"] not in SHORT_SENTENCE_POLICIES
++    ):
++        raise ProjectFormatError(f"{name}.short_sentence has an unsupported policy")
++    if synthesis.get("g2p_fallback") is not None and synthesis["g2p_fallback"] not in G2P_FALLBACKS:
++        raise ProjectFormatError(f"{name}.g2p_fallback has an unsupported policy")
++    if (
++        synthesis.get("lexicon_data_policy") is not None
++        and synthesis["lexicon_data_policy"] not in LEXICON_DATA_POLICIES
++    ):
++        raise ProjectFormatError(f"{name}.lexicon_data_policy has an unsupported policy")
++    if (
++        synthesis.get("voice_level") is not None
++        and synthesis["voice_level"] not in VOICE_LEVEL_MODES
++    ):
++        raise ProjectFormatError(f"{name}.voice_level has an unsupported policy")
++    if synthesis.get("pause_mode") is not None and synthesis["pause_mode"] not in {
++        "auto",
++        "manual",
++        "tts",
++    }:
++        raise ProjectFormatError(f"{name}.pause_mode has an unsupported policy")
++    if synthesis.get("unit") is not None and synthesis["unit"] not in {"sentence", "paragraph"}:
++        raise ProjectFormatError(f"{name}.unit has an unsupported value")
++    if synthesis.get("language_detection") is not None and (
++        synthesis["language_detection"] not in LANGUAGE_DETECTION_MODES
++    ):
++        raise ProjectFormatError(f"{name}.language_detection has an unsupported policy")
++    if synthesis.get("clear_lexicons") and synthesis.get("auto_lexicons"):
++        raise ProjectFormatError(f"{name} lexicon modes are mutually exclusive")
++    if lexicons is not None and (synthesis.get("clear_lexicons") or synthesis.get("auto_lexicons")):
++        raise ProjectFormatError(f"{name} lexicon modes are mutually exclusive")
++    if "engine_options" in synthesis:
++        engine_options = _require_mapping(synthesis["engine_options"], f"{name}.engine_options")
++        _validate_json_value(engine_options, f"{name}.engine_options")
++    _require_optional_path(synthesis, "voice_file", f"{name}.voice_file")
++
++
++def _validate_composition_settings(value: Any) -> None:
++    name = "project.settings.composition"
++    composition = _require_mapping(value, name)
++    mastering = composition.get("mastering", "spoken-word")
++    if not isinstance(mastering, str) or mastering not in {
++        "spoken-word",
++        "spoken-word-dual-mono",
++        "broadcast-ebu",
++        "peak-safe",
++        "off",
++    }:
++        raise ProjectFormatError(f"{name}.mastering has an unsupported profile")
++    for key in ("target_lufs", "true_peak_ceiling_dbtp"):
++        number = composition.get(key)
++        if number is not None and (
++            isinstance(number, bool)
++            or not isinstance(number, (int, float))
++            or not math.isfinite(float(number))
++        ):
++            raise ProjectFormatError(f"{name}.{key} must be a finite number or None")
++    peak_policy = composition.get("peak_policy", "reduce_gain")
++    if not isinstance(peak_policy, str) or peak_policy not in {"reduce_gain", "error"}:
++        raise ProjectFormatError(f"{name}.peak_policy has an unsupported value")
++    clip_policy = composition.get("clip_policy", "clamp")
++    if not isinstance(clip_policy, str) or clip_policy not in {"clamp", "warn", "error"}:
++        raise ProjectFormatError(f"{name}.clip_policy has an unsupported value")
++    sample_rate = composition.get("sample_rate")
++    if sample_rate is not None and (
++        not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0
++    ):
++        raise ProjectFormatError(f"{name}.sample_rate must be a positive integer or None")
++
++
++def _validate_export_settings(value: Any, *, audiobook: bool = False) -> None:
++    section = "audiobook_export" if audiobook else "export"
++    name = f"project.settings.{section}"
++    options = _require_mapping(value, name)
++    if "force" in options:
++        raise ProjectFormatError(f"{name}.force is invocation-only and cannot be persisted")
++    audio_format = options.get("format", "m4b" if audiobook else "wav")
++    supported = {"m4b"} if audiobook else set(SUPPORTED_AUDIO_FORMATS)
++    if not isinstance(audio_format, str) or audio_format not in supported:
++        raise ProjectFormatError(f"{name}.format has an unsupported value")
++    _require_optional_path(options, "output", f"{name}.output")
++    _require_optional_string(options, "bitrate", f"{name}.bitrate")
++    if audiobook:
++        _require_optional_string(options, "title", f"{name}.title")
++        _require_optional_string(options, "author", f"{name}.author")
++        _require_optional_path(options, "cover", f"{name}.cover")
++
++
++def _validate_project_settings(value: Any) -> None:
++    settings = _require_mapping(value, "project.settings")
++    if "ssmd" in settings:
++        ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
++        if "voice_provider" in ssmd:
++            _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
++        if "voice_bindings" in ssmd:
++            bindings = _require_mapping(
++                ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings"
++            )
++            for provider, raw_roles in bindings.items():
++                _require_string(provider, "project.settings.ssmd.voice_bindings provider")
++                roles = _require_mapping(
++                    raw_roles, f"project.settings.ssmd.voice_bindings.{provider}"
++                )
++                for role, voice in roles.items():
++                    _require_string(role, f"project.settings.ssmd.voice_bindings.{provider} role")
++                    _require_string(
++                        voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}"
++                    )
++    validators = {
++        "synthesis": _validate_synthesis_settings,
++        "composition": _validate_composition_settings,
++        "export": _validate_export_settings,
++        "audiobook_export": lambda section: _validate_export_settings(section, audiobook=True),
++    }
++    for section, validator in validators.items():
++        if section in settings:
++            validator(settings[section])
+
+
+ def _require_string(value: Any, name: str) -> str:
+@@ -200,15 +405,19 @@ class DocumentIndex:
+ @dataclass(frozen=True, slots=True)
+ class PlanIndex:
+     scopes: tuple[PlanScope, ...]
++    project_planning_settings_sha256: str | None = None
+     schema_version: int = 1
+     format: str = "readio.plan-index"
+
+     def to_dict(self) -> dict[str, Any]:
+-        return {
++        result = {
+             "format": self.format,
+             "schema_version": self.schema_version,
+             "scopes": [scope.to_dict() for scope in self.scopes],
+         }
++        if self.project_planning_settings_sha256 is not None:
++            result["project_planning_settings_sha256"] = self.project_planning_settings_sha256
++        return result
+
+     @classmethod
+     def from_dict(cls, value: Any) -> PlanIndex:
+@@ -220,7 +429,17 @@ class PlanIndex:
+         scopes = data.get("scopes")
+         if not isinstance(scopes, list) or not scopes:
+             raise ProjectFormatError("plan index scopes must be a non-empty list")
+-        return cls(tuple(PlanScope.from_dict(item) for item in scopes))
++        settings_sha256 = data.get("project_planning_settings_sha256")
++        if settings_sha256 is not None and (
++            not isinstance(settings_sha256, str) or not settings_sha256.startswith("sha256:")
++        ):
++            raise ProjectFormatError(
++                "plan index project_planning_settings_sha256 must be a sha256 fingerprint"
++            )
++        return cls(
++            tuple(PlanScope.from_dict(item) for item in scopes),
++            project_planning_settings_sha256=settings_sha256,
++        )
+
+
+ @dataclass(frozen=True, slots=True)
+diff --git a/readio/project_settings.py b/readio/project_settings.py
+index c5a9bc6..3988471 100644
+--- a/readio/project_settings.py
++++ b/readio/project_settings.py
+@@ -6,6 +6,7 @@ import hashlib
+ from collections.abc import Mapping
+ from dataclasses import replace
+ from typing import Any
++from pathlib import Path
+
+ from .errors import ReadioError
+ from .project import canonical_json
+@@ -161,7 +162,351 @@ def _require_non_empty_string(value: str, name: str) -> None:
+         raise ProjectFormatError(f"project voice binding {name} must be a non-empty string")
+
+
++def _plain_json(value: Any) -> Any:
++    if isinstance(value, Mapping):
++        return {str(key): _plain_json(item) for key, item in value.items()}
++    if isinstance(value, (list, tuple)):
++        return [_plain_json(item) for item in value]
++    if isinstance(value, Path):
++        return value.as_posix()
++    return value
++
++
++def _stored_path(value: Path | None, project_root: Path) -> str | None:
++    if value is None:
++        return None
++    path = Path(value)
++    if not path.is_absolute():
++        return path.as_posix()
++    try:
++        return path.resolve().relative_to(project_root.resolve()).as_posix()
++    except ValueError:
++        return path.as_posix()
++
++
++def _loaded_path(value: str | None, project_root: Path) -> Path | None:
++    if value is None:
++        return None
++    path = Path(value).expanduser()
++    return path if path.is_absolute() else project_root / path
++
++
++def project_pipeline_settings(manifest: ProjectManifest) -> dict[str, dict[str, Any]]:
++    """Return detached copies of the configured pipeline sections."""
++    sections = ("synthesis", "composition", "export", "audiobook_export")
++    return {
++        section: _plain_json(manifest.settings[section])
++        for section in sections
++        if section in manifest.settings
++    }
++
++
++def project_settings_from_manifest(manifest: ProjectManifest, project_root: Path) -> Any:
++    """Deserialize supported settings into detached immutable public values."""
++    from .api.types import (
++        AudiobookExportOptions,
++        CompositionOptions,
++        ExportOptions,
++        ProjectSettings,
++        ProjectSynthesisSettings,
++    )
++
++    raw = project_pipeline_settings(manifest)
++    synthesis = None
++    if "synthesis" in raw:
++        values = dict(raw["synthesis"])
++        for key in ("lexicons", "detect_languages"):
++            if values.get(key) is not None:
++                values[key] = tuple(values[key])
++        values["engine_options"] = values.get("engine_options")
++        values["voice_file"] = _loaded_path(values.get("voice_file"), project_root)
++        synthesis = ProjectSynthesisSettings(
++            **{
++                key: value
++                for key, value in values.items()
++                if key in ProjectSynthesisSettings.__dataclass_fields__
++            }
++        )
++    composition = None
++    if "composition" in raw:
++        values = raw["composition"]
++        composition = CompositionOptions(
++            mastering=values.get("mastering", "spoken-word"),
++            target_lufs=values.get("target_lufs"),
++            true_peak_ceiling_dbtp=values.get("true_peak_ceiling_dbtp"),
++            peak_policy=values.get("peak_policy", "reduce_gain"),
++            clip_policy=values.get("clip_policy", "clamp"),
++            sample_rate=values.get("sample_rate"),
++        )
++    export = None
++    if "export" in raw:
++        values = raw["export"]
++        export = ExportOptions(
++            format=values.get("format", "wav"),
++            output=_loaded_path(values.get("output"), project_root),
++            bitrate=values.get("bitrate"),
++        )
++    audiobook_export = None
++    if "audiobook_export" in raw:
++        values = raw["audiobook_export"]
++        audiobook_export = AudiobookExportOptions(
++            format=values.get("format", "m4b"),
++            output=_loaded_path(values.get("output"), project_root),
++            title=values.get("title"),
++            author=values.get("author"),
++            cover=_loaded_path(values.get("cover"), project_root),
++            bitrate=values.get("bitrate"),
++        )
++    return ProjectSettings(
++        synthesis=synthesis,
++        composition=composition,
++        export=export,
++        audiobook_export=audiobook_export,
++    )
++
++
++def project_settings_to_dict(settings: Any, project_root: Path) -> dict[str, Any]:
++    """Serialize configured sections without invocation-only fields."""
++    result: dict[str, Any] = {}
++    synthesis = settings.synthesis
++    if synthesis is not None:
++        synthesis_values: dict[str, Any] = {}
++        for name in synthesis.__dataclass_fields__:
++            value = getattr(synthesis, name)
++            if value is None:
++                continue
++            if name == "voice_file":
++                value = _stored_path(value, project_root)
++            elif name == "engine_options":
++                value = _plain_json(value)
++            elif isinstance(value, tuple):
++                value = list(value)
++            synthesis_values[name] = value
++        result["synthesis"] = synthesis_values
++    composition = settings.composition
++    if composition is not None:
++        result["composition"] = {
++            "mastering": composition.mastering,
++            "target_lufs": composition.target_lufs,
++            "true_peak_ceiling_dbtp": composition.true_peak_ceiling_dbtp,
++            "peak_policy": composition.peak_policy,
++            "clip_policy": composition.clip_policy,
++            "sample_rate": composition.sample_rate,
++        }
++    export = settings.export
++    if export is not None:
++        result["export"] = {
++            "format": export.format,
++            "output": _stored_path(export.output, project_root),
++            "bitrate": export.bitrate,
++        }
++    audiobook_export = settings.audiobook_export
++    if audiobook_export is not None:
++        result["audiobook_export"] = {
++            "format": audiobook_export.format,
++            "output": _stored_path(audiobook_export.output, project_root),
++            "title": audiobook_export.title,
++            "author": audiobook_export.author,
++            "cover": _stored_path(audiobook_export.cover, project_root),
++            "bitrate": audiobook_export.bitrate,
++        }
++    return result
++
++
++def with_project_settings(
++    manifest: ProjectManifest, settings: Any, project_root: Path
++) -> ProjectManifest:
++    """Replace supported pipeline sections while preserving other namespaces."""
++    supported = {"synthesis", "composition", "export", "audiobook_export"}
++    raw_settings = dict(manifest.settings)
++    for section in supported:
++        raw_settings.pop(section, None)
++    raw_settings.update(project_settings_to_dict(settings, project_root))
++    return replace(manifest, settings=raw_settings)
++
++
++def apply_project_settings_patch(
++    manifest: ProjectManifest, patch: Any, project_root: Path
++) -> ProjectManifest:
++    """Apply a section patch, distinguishing UNSET from an explicit clear."""
++    from .api.types import ProjectSettings, UNSET
++
++    current = project_settings_from_manifest(manifest, project_root)
++    values = {
++        name: getattr(current, name)
++        for name in ("synthesis", "composition", "export", "audiobook_export")
++    }
++    for name in values:
++        value = getattr(patch, name)
++        if value is not UNSET:
++            values[name] = value
++    return with_project_settings(manifest, ProjectSettings(**values), project_root)
++
++
++def project_settings_fingerprint(
++    settings: Any, project_root: Path, section: str | None = None
++) -> str:
++    payload = project_settings_to_dict(settings, project_root)
++    if section is not None:
++        payload = {section: payload[section]} if section in payload else {}
++    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
++    return f"sha256:{digest}"
++
++
++def synthesis_request_fingerprint(request: Any, project_root: Path) -> str:
++    """Fingerprint effective synthesis settings, excluding invocation-only refresh."""
++    from .plan import SynthesisRequest
++
++    if not isinstance(request, SynthesisRequest):
++        raise TypeError("expected a SynthesisRequest")
++    values: dict[str, Any] = {}
++    for name in request.__dataclass_fields__:
++        if name == "refresh":
++            continue
++        value = getattr(request, name)
++        if name == "voice_file":
++            value = _stored_path(value, project_root)
++        values[name] = _plain_json(value)
++    payload = {"schema": "readio.project-synthesis-request.v1", "settings": values}
++    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
++    return f"sha256:{digest}"
++
++
++def project_planning_settings_fingerprint(synthesis_settings: Any) -> str | None:
++    """Fingerprint only synthesis preferences that affect the semantic plan."""
++    if synthesis_settings is None:
++        return None
++    fields = (
++        "language",
++        "unit",
++        "spacy",
++        "pause_mode",
++        "language_detection",
++        "detect_languages",
++    )
++    values = {
++        name: _plain_json(getattr(synthesis_settings, name))
++        for name in fields
++        if getattr(synthesis_settings, name) is not None
++    }
++    if not values:
++        return None
++    payload = {"schema": "readio.project-planning-settings.v1", "settings": values}
++    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
++    return f"sha256:{digest}"
++
++
++def project_planning_config(cfg: Any, synthesis_settings: Any) -> Any:
++    """Apply saved planning-related synthesis preferences over global config."""
++    if synthesis_settings is None:
++        return cfg
++    fields = (
++        "language",
++        "unit",
++        "spacy",
++        "pause_mode",
++        "language_detection",
++        "detect_languages",
++    )
++    reader_names = {"language": "lang"}
++    values = {
++        reader_names.get(name, name): getattr(synthesis_settings, name)
++        for name in fields
++        if getattr(synthesis_settings, name) is not None
++    }
++    if not values:
++        return cfg
++    return replace(cfg, reader=replace(cfg.reader, **values))
++
++
++def project_synthesis_request(settings: Any) -> Any:
++    """Convert sparse persisted synthesis preferences to a request value."""
++    from .plan import SynthesisRequest
++
++    if settings is None:
++        return SynthesisRequest()
++    values = {
++        name: getattr(settings, name)
++        for name in settings.__dataclass_fields__
++        if getattr(settings, name) is not None
++    }
++    if "engine_options" in values:
++        values["engine_options"] = _plain_json(values["engine_options"])
++    values["clear_lexicons"] = bool(settings.clear_lexicons)
++    values["auto_lexicons"] = bool(settings.auto_lexicons)
++    values["allow_experimental"] = bool(settings.allow_experimental)
++    values["offline"] = bool(settings.offline)
++    return SynthesisRequest(**values)
++
++
++def merge_project_synthesis_request(project_settings: Any, invocation_request: Any = None) -> Any:
++    """Merge sparse invocation choices over durable project synthesis settings."""
++    from .plan import SynthesisRequest
++
++    base = project_synthesis_request(project_settings)
++    if invocation_request is None:
++        return base
++    scalar_fields = (
++        "language",
++        "model",
++        "model_source",
++        "quality",
++        "voice",
++        "speaker",
++        "spacy",
++        "short_sentence",
++        "g2p_fallback",
++        "lexicon_data_policy",
++        "language_detection",
++        "detect_languages",
++        "speed",
++        "voice_level",
++        "pause_mode",
++        "unit",
++        "engine",
++        "voice_file",
++    )
++    values = {
++        name: getattr(invocation_request, name)
++        if getattr(invocation_request, name) is not None
++        else getattr(base, name)
++        for name in scalar_fields
++    }
++    invocation_has_lexicon_mode = (
++        invocation_request.lexicons is not None
++        or invocation_request.clear_lexicons
++        or invocation_request.auto_lexicons
++    )
++    if invocation_has_lexicon_mode:
++        values["lexicons"] = invocation_request.lexicons
++        values["clear_lexicons"] = invocation_request.clear_lexicons
++        values["auto_lexicons"] = invocation_request.auto_lexicons
++    else:
++        values["lexicons"] = base.lexicons
++        values["clear_lexicons"] = base.clear_lexicons
++        values["auto_lexicons"] = base.auto_lexicons
++    values["allow_experimental"] = invocation_request.allow_experimental or base.allow_experimental
++    values["offline"] = invocation_request.offline or base.offline
++    values["refresh"] = invocation_request.refresh
++    values["engine_options"] = {
++        **dict(base.engine_options),
++        **_plain_json(invocation_request.engine_options),
++    }
++    return SynthesisRequest(**values)
++
++
+ __all__ = [
++    "apply_project_settings_patch",
++    "merge_project_synthesis_request",
++    "project_pipeline_settings",
++    "project_settings_fingerprint",
++    "project_planning_config",
++    "project_planning_settings_fingerprint",
++    "synthesis_request_fingerprint",
++    "project_settings_from_manifest",
++    "project_settings_to_dict",
++    "project_synthesis_request",
++    "with_project_settings",
+     "ProjectVoiceProviderError",
+     "project_ssmd_settings",
+     "project_voice_binding_providers",
+diff --git a/readio/stages/audiobook_export.py b/readio/stages/audiobook_export.py
+index 4950a23..11b2863 100644
+--- a/readio/stages/audiobook_export.py
++++ b/readio/stages/audiobook_export.py
+@@ -521,7 +521,7 @@ def _verify_m4b_output(
+         )
+
+
+-def _audiobook_target(project: Project, output: Path | None) -> Path:
++def audiobook_export_target(project: Project, output: Path | None) -> Path:
+     target = output or project.root / "output" / f"{project.manifest.name}.m4b"
+     target = Path(target).expanduser()
+     if not target.is_absolute():
+@@ -562,7 +562,7 @@ def export_audiobook_project(
+         prepared = prepare_audiobook_export(
+             project, title=title, author=author, cover=cover, bitrate=bitrate
+         )
+-        target = _audiobook_target(project, output)
++        target = audiobook_export_target(project, output)
+         target.parent.mkdir(parents=True, exist_ok=True)
+         previous = output_state_for(project, target)
+         tracked_unchanged = (
+@@ -658,6 +658,7 @@ def export_audiobook_project(
+
+
+ __all__ = [
++    "audiobook_export_target",
+     "AudiobookChapterRange",
+     "AudiobookExportError",
+     "PreparedAudiobookExport",
+diff --git a/readio/stages/pipeline.py b/readio/stages/pipeline.py
+index 10e77e6..962c963 100644
+--- a/readio/stages/pipeline.py
++++ b/readio/stages/pipeline.py
+@@ -12,14 +12,25 @@ from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
+ from ..formats import AudioFormat
+ from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
+ from ..project import Project, hash_file, read_json
+-from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
++from ..project_settings import (
++    merge_project_synthesis_request,
++    project_synthesis_request,
++    synthesis_request_fingerprint,
++    project_settings_from_manifest,
++    project_voice_bindings,
++    project_voice_bindings_provenance,
++)
+ from .composition import build_audio_job, compose_artifacts, compose_project
+ from .export import export_project, is_export_current, project_export_states
+ from .planning import load_scope_plan, plan_project, semantic_status
++from . import audiobook_export as audiobook_export_stage
+ from .synthesis import synthesize_project
+
+ _STAGE_REASON_MESSAGES = {
+     "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
++    "plan.stale.project_settings_changed": (
++        "The semantic plan was built with different project planning settings."
++    ),
+     "plan.stale.source_changed": "The source changed after planning.",
+     "synthesis.missing": "No active synthesis artifacts are available.",
+     "synthesis.invalid": "The stored synthesis state is invalid.",
+@@ -32,10 +43,19 @@ _STAGE_REASON_MESSAGES = {
+     "composition.invalid": "The stored composition state is invalid.",
+     "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
+     "composition.stale.timing_changed": "Composition timing or presentation changed.",
++    "composition.stale.project_settings_changed": (
++        "Composition settings differ from those used to build the current master."
++    ),
+     "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
+     "synthesis.stale.project_voice_bindings_changed": (
+         "Project voice bindings changed after the active synthesis was created."
+     ),
++    "synthesis.stale.project_settings_changed": (
++        "Active synthesis was built with different project synthesis settings."
++    ),
++    "output.stale.project_settings_changed": (
++        "The exported audio does not match the project's desired export settings."
++    ),
+     "output.missing": "No exported audio file exists for the current composition.",
+     "output.invalid": "The stored export state is invalid.",
+     "output.stale.composition_changed": "Output is blocked by stale composition.",
+@@ -53,8 +73,17 @@ def _project_request(
+     synthesis: SynthesisRequest | None = None,
+     *,
+     voice_bindings: Mapping[str, str] | None = None,
++    use_saved_settings: bool = True,
+ ) -> PlanRequest:
+-    effective_synthesis = synthesis or SynthesisRequest(language=cfg.reader.lang)
++    saved = (
++        project_settings_from_manifest(project.manifest, project.root).synthesis
++        if use_saved_settings
++        else None
++    )
++    if saved is not None:
++        effective_synthesis = merge_project_synthesis_request(saved, synthesis)
++    else:
++        effective_synthesis = synthesis or SynthesisRequest(language=cfg.reader.lang)
+     return PlanRequest(
+         operation="render",
+         input=InputRequest(
+@@ -103,6 +132,24 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
+     canonical = profile.get("canonical")
+     if not isinstance(canonical, dict):
+         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
++    configured_synthesis = project_settings_from_manifest(project.manifest, project.root).synthesis
++    recorded_settings = profile.get("project_settings")
++    if configured_synthesis is None:
++        settings_changed = recorded_settings is not None
++    else:
++        expected_settings_hash = synthesis_request_fingerprint(
++            project_synthesis_request(configured_synthesis), project.root
++        )
++        settings_changed = (
++            not isinstance(recorded_settings, Mapping)
++            or recorded_settings.get("synthesis_sha256") != expected_settings_hash
++        )
++    if settings_changed:
++        return {
++            "stage": "synthesis",
++            "state": "stale",
++            "reason": "synthesis.stale.project_settings_changed",
++        }
+     binding_record = profile.get("project_voice_bindings")
+     if binding_record is None:
+         legacy_provider = {"pykokoro": "kokoro", "piper": "piper"}.get(
+@@ -237,8 +284,51 @@ def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
+     }
+
+
++def _audiobook_desired_output_status(
++    project: Project, desired: Any, states: tuple[dict[str, Any], ...]
++) -> dict[str, Any]:
++    target = audiobook_export_stage.audiobook_export_target(project, desired.output)
++    prepared = audiobook_export_stage.prepare_audiobook_export(
++        project,
++        title=desired.title,
++        author=desired.author,
++        cover=desired.cover,
++        bitrate=desired.bitrate,
++    )
++    if audiobook_export_stage.is_audiobook_export_current(project, target, prepared):
++        return {
++            "stage": "output",
++            "state": "current",
++            "reason": "current",
++            "format": "m4b",
++        }
++
++    for state in states:
++        if (
++            state.get("format") != "readio.audiobook-export-state"
++            or state.get("master_sha256") != prepared.master_sha256
++            or state.get("timeline_sha256") != prepared.timeline_sha256
++        ):
++            continue
++        stored_path = Path(str(state.get("path", "")))
++        path = stored_path if stored_path.is_absolute() else project.root / stored_path
++        if path.is_file() and hash_file(path) == state.get("output_sha256"):
++            return {
++                "stage": "output",
++                "state": "stale",
++                "reason": "output.stale.project_settings_changed",
++            }
++
++    return {
++        "stage": "output",
++        "state": "stale",
++        "reason": "output.missing",
++    }
++
++
+ def project_status(project: Project) -> dict[str, Any]:
+     rows = semantic_status(project)
++    desired_settings = project_settings_from_manifest(project.manifest, project.root)
+     plan_current = rows[-1]["state"] == "current"
+     synthesis = (
+         _synthesis_status(project)
+@@ -269,36 +359,61 @@ def project_status(project: Project) -> dict[str, Any]:
+                     if isinstance(identity_payload, dict)
+                     else {}
+                 )
++                desired_composition = desired_settings.composition
++                if desired_composition is None:
++                    mastering = loudness.get("profile", "spoken-word")
++                    target_lufs = loudness.get("target_lufs")
++                    true_peak_ceiling_dbtp = loudness.get("true_peak_ceiling_dbtp")
++                    peak_policy = loudness.get("peak_policy", "reduce_gain")
++                    clip_policy = (
++                        identity_payload.get("clip_policy", "clamp")
++                        if isinstance(identity_payload, dict)
++                        else "clamp"
++                    )
++                    sample_rate = (
++                        identity_payload.get("sample_rate")
++                        if isinstance(identity_payload, dict)
++                        else None
++                    )
++                else:
++                    mastering = desired_composition.mastering
++                    target_lufs = desired_composition.target_lufs
++                    true_peak_ceiling_dbtp = desired_composition.true_peak_ceiling_dbtp
++                    peak_policy = desired_composition.peak_policy
++                    clip_policy = desired_composition.clip_policy
++                    sample_rate = desired_composition.sample_rate
+                 _, current_identity = build_audio_job(
+                     project,
+-                    mastering=loudness.get("profile", "spoken-word"),
+-                    target_lufs=loudness.get("target_lufs"),
+-                    true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp"),
+-                    peak_policy=loudness.get("peak_policy", "reduce_gain"),
+-                    clip_policy=identity_payload.get("clip_policy", "clamp")
+-                    if isinstance(identity_payload, dict)
+-                    else "clamp",
+-                    output_sample_rate=identity_payload.get("sample_rate")
+-                    if isinstance(identity_payload, dict)
+-                    else None,
++                    mastering=mastering,
++                    target_lufs=target_lufs,
++                    true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
++                    peak_policy=peak_policy,
++                    clip_policy=clip_policy,
++                    output_sample_rate=sample_rate,
+                 )
+                 profile_id = read_json(project.paths["synthesis_profile"]).get("profile_id")
+-                if (
+-                    state.get("composition_id") == current_identity["composition_id"]
+-                    and hash_file(project.paths["composition_master"]) == state.get("master_sha256")
+-                    and state.get("synthesis_profile_id") == profile_id
+-                ):
++                identity_matches = state.get("composition_id") == current_identity["composition_id"]
++                master_matches = hash_file(project.paths["composition_master"]) == state.get(
++                    "master_sha256"
++                )
++                profile_matches = state.get("synthesis_profile_id") == profile_id
++                if identity_matches and master_matches and profile_matches:
+                     composition = {
+                         "stage": "composition",
+                         "state": "current",
+                         "reason": "current",
+-                        "composition_id": state.get("composition_id"),
++                        "composition_id": current_identity["composition_id"],
+                     }
+                 else:
++                    reason = (
++                        "composition.stale.project_settings_changed"
++                        if desired_composition is not None and not identity_matches
++                        else "composition.stale.timing_changed"
++                    )
+                     composition = {
+                         "stage": "composition",
+                         "state": "stale",
+-                        "reason": "composition.stale.timing_changed",
++                        "reason": reason,
+                     }
+             except (OSError, ValueError, KeyError):
+                 composition = {
+@@ -318,28 +433,94 @@ def project_status(project: Project) -> dict[str, Any]:
+         try:
+             states = project_export_states(project)
+             current_master_sha = hash_file(project.paths["composition_master"])
+-            for state in states:
+-                stored_path = Path(str(state.get("path", "")))
+-                path = stored_path if stored_path.is_absolute() else project.root / stored_path
+-                if (
+-                    path.is_file()
+-                    and hash_file(path) == state.get("output_sha256")
+-                    and state.get("master_sha256") == current_master_sha
++            desired_export = desired_settings.export
++            if desired_export is None:
++                for state in states:
++                    stored_path = Path(str(state.get("path", "")))
++                    path = stored_path if stored_path.is_absolute() else project.root / stored_path
++                    if (
++                        path.is_file()
++                        and hash_file(path) == state.get("output_sha256")
++                        and state.get("master_sha256") == current_master_sha
++                    ):
++                        output = {
++                            "stage": "output",
++                            "state": "current",
++                            "reason": "current",
++                            "format": str(state.get("audio_format")),
++                        }
++                        break
++                else:
++                    if states:
++                        output = {
++                            "stage": "output",
++                            "state": "stale",
++                            "reason": "output.stale.composition_changed",
++                        }
++            else:
++                audio_format = desired_export.format
++                target = desired_export.output or (
++                    project.root / "output" / f"{project.manifest.name}.{audio_format}"
++                )
++                if not target.is_absolute():
++                    target = project.root / target
++                if is_export_current(
++                    project,
++                    target,
++                    audio_format=audio_format,
++                    bitrate=desired_export.bitrate,
+                 ):
+                     output = {
+                         "stage": "output",
+                         "state": "current",
+                         "reason": "current",
+-                        "format": state.get("audio_format"),
+-                    }
+-                    break
+-            else:
+-                if states:
+-                    output = {
+-                        "stage": "output",
+-                        "state": "stale",
+-                        "reason": "output.stale.composition_changed",
++                        "format": audio_format,
+                     }
++                else:
++                    has_valid_current_export = False
++                    has_current_master_state = False
++                    for state in states:
++                        if state.get("master_sha256") != current_master_sha:
++                            continue
++                        has_current_master_state = True
++                        stored_path = Path(str(state.get("path", "")))
++                        path = (
++                            stored_path if stored_path.is_absolute() else project.root / stored_path
++                        )
++                        if path.is_file() and hash_file(path) == state.get("output_sha256"):
++                            has_valid_current_export = True
++                            break
++                    if has_valid_current_export:
++                        output = {
++                            "stage": "output",
++                            "state": "stale",
++                            "reason": "output.stale.project_settings_changed",
++                        }
++                    elif has_current_master_state:
++                        output = {
++                            "stage": "output",
++                            "state": "stale",
++                            "reason": "output.invalid",
++                        }
++                    elif states:
++                        output = {
++                            "stage": "output",
++                            "state": "stale",
++                            "reason": "output.stale.composition_changed",
++                        }
++        except (OSError, KeyError, TypeError, ValueError):
++            output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
++    if (
++        composition["state"] == "current"
++        and project.manifest.kind == "audiobook"
++        and desired_settings.audiobook_export is not None
++    ):
++        try:
++            output = _audiobook_desired_output_status(
++                project,
++                desired_settings.audiobook_export,
++                project_export_states(project),
++            )
+         except (OSError, KeyError, TypeError, ValueError):
+             output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
+     stages = [*rows, synthesis, composition, output]
+@@ -374,13 +555,19 @@ def project_status(project: Project) -> dict[str, Any]:
+ def build_project(
+     project: Project,
+     cfg: Any,
+-    request: ProjectBuildRequest,
++    request: ProjectBuildRequest | None,
+     *,
+     on_synthesis_event: Callable[[Any], None] | None = None,
+     on_composition_progress: CompositionProgressCallback | None = None,
+     on_phase: Callable[[str], None] | None = None,
+     on_stage: Callable[[str, str], None] | None = None,
+ ) -> dict[str, Any]:
++    if request is None:
++        saved = project_settings_from_manifest(project.manifest, project.root)
++        request = ProjectBuildRequest(
++            composition=saved.composition or CompositionOptions(),
++            export=saved.export or ExportOptions(),
++        )
+     if request.target not in {"plan", "synthesis", "composition", "export"}:
+         raise ValueError(f"unknown project build target: {request.target}")
+     operations: list[dict[str, Any]] = []
+diff --git a/readio/stages/planning.py b/readio/stages/planning.py
+index 8f63fe5..5b22ec5 100644
+--- a/readio/stages/planning.py
++++ b/readio/stages/planning.py
+@@ -23,6 +23,11 @@ from ..project import (
+     sha256_bytes,
+ )
+ from ..project_model import DocumentScope, PlanIndex, PlanScope
++from ..project_settings import (
++    project_planning_config,
++    project_planning_settings_fingerprint,
++    project_settings_from_manifest,
++)
+ from ..reader import prepare_input_document
+
+
+@@ -112,7 +117,9 @@ def compile_project_scope(
+     """Compile one document scope without writing artifacts or mutating indexes."""
+     if not scope.id or "/" in scope.id or "\\" in scope.id or scope.id in {".", ".."}:
+         raise ValueError("scope_id must be a simple identifier")
+-    resolved = resolve_semantic_planning(cfg, document)
++    synthesis_settings = project_settings_from_manifest(project.manifest, project.root).synthesis
++    planning_config = project_planning_config(cfg, synthesis_settings)
++    resolved = resolve_semantic_planning(planning_config, document)
+     relative = (
+         Path("document.utterplan.json")
+         if scope.id == "document" and scope.kind == "document"
+@@ -172,13 +179,27 @@ def plan_project_scope(
+             sha256=plan_sha,
+             document_sha256=planned.scope.document_sha256,
+         )
+-        old_scopes = ()
+-        if project.paths["plan_index"].is_file():
+-            old_scopes = project.load_plan_index().scopes
++        old_index = project.load_plan_index() if project.paths["plan_index"].is_file() else None
++        old_scopes = old_index.scopes if old_index is not None else ()
+         scopes = tuple(replacement if item.id == scope_id else item for item in old_scopes)
+         if not any(item.id == scope_id for item in old_scopes):
+             scopes = (*scopes, replacement)
+-        atomic_write_json(project.paths["plan_index"], PlanIndex(scopes=tuple(scopes)).to_dict())
++        current_settings_sha256 = project_planning_settings_fingerprint(
++            project_settings_from_manifest(project.manifest, project.root).synthesis
++        )
++        settings_sha256 = (
++            current_settings_sha256
++            if old_index is None
++            or old_index.project_planning_settings_sha256 == current_settings_sha256
++            else old_index.project_planning_settings_sha256
++        )
++        atomic_write_json(
++            project.paths["plan_index"],
++            PlanIndex(
++                scopes=tuple(scopes),
++                project_planning_settings_sha256=settings_sha256,
++            ).to_dict(),
++        )
+         return planned.compiled
+
+
+@@ -201,7 +222,13 @@ def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
+         for planned in planned_scopes:
+             plan_path = project.root / "plan" / planned.scope.path
+             _write_plan_artifact(plan_path, planned.compiled)
+-        index = PlanIndex(scopes=tuple(item.scope for item in planned_scopes))
++        settings_sha256 = project_planning_settings_fingerprint(
++            project_settings_from_manifest(project.manifest, project.root).synthesis
++        )
++        index = PlanIndex(
++            scopes=tuple(item.scope for item in planned_scopes),
++            project_planning_settings_sha256=settings_sha256,
++        )
+         atomic_write_json(project.paths["plan_index"], index.to_dict())
+         return ProjectPlanningResult(scopes=tuple(planned_scopes))
+
+@@ -244,6 +271,15 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
+             "reason": "plan.index.invalid",
+             "details": {},
+         }
++    current_settings_sha256 = project_planning_settings_fingerprint(
++        project_settings_from_manifest(project.manifest, project.root).synthesis
++    )
++    if index.project_planning_settings_sha256 != current_settings_sha256:
++        return {
++            "state": "stale",
++            "reason": "plan.stale.project_settings_changed",
++            "details": {},
++        }
+     try:
+         document_scope_list = project.document_scopes()
+         document_scopes = {scope.id: scope for scope in document_scope_list}
+diff --git a/readio/stages/synthesis.py b/readio/stages/synthesis.py
+index dde1921..4bab37e 100644
+--- a/readio/stages/synthesis.py
++++ b/readio/stages/synthesis.py
+@@ -21,11 +21,15 @@ from ..engines.registry import engine_for_ssmd_provider, get_engine
+ from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
+ from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
+ from ..project_settings import (
++    merge_project_synthesis_request,
++    project_settings_from_manifest,
++    project_synthesis_request,
+     project_voice_binding_providers,
+     project_voice_bindings,
+     project_voice_bindings_provenance,
+     project_voice_provider,
+     resolve_project_voice_provider,
++    synthesis_request_fingerprint,
+ )
+ from ..selection import resolve_project_selection, resolve_unit_selection
+ from ..ssmd import resolve_voice_references
+@@ -269,6 +273,26 @@ def _profile_from_route(
+     )
+
+
++def _record_project_settings(
++    profile: SynthesisProfile, project: Project, request: SynthesisRequest
++) -> SynthesisProfile:
++    settings = project_settings_from_manifest(project.manifest, project.root).synthesis
++    if settings is None:
++        return profile
++    fingerprint = synthesis_request_fingerprint(request, project.root)
++    provenance = {"synthesis_sha256": fingerprint}
++    identity = {
++        "schema": "readio.project-synthesis-profile.v1",
++        "engine_profile_id": profile.profile_id,
++        "project_settings": provenance,
++    }
++    return replace(
++        profile,
++        profile_id=synthesis_profile_id(identity),
++        payload={**profile.payload, "project_settings": provenance},
++    )
++
++
+ def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
+     if not path.is_file():
+         return None
+@@ -442,12 +466,27 @@ def _resolve_profile(
+
+
+ def resolve_project_synthesis(
+-    project: Project, cfg: Any, request: PlanRequest | None = None
++    project: Project,
++    cfg: Any,
++    request: PlanRequest | None = None,
++    *,
++    merge_saved_settings: bool = True,
+ ) -> tuple[PlanRequest, Any, Any, SynthesisProfile]:
+     """Resolve a project's effective engine selection without synthesis side effects."""
+-    effective_request = _project_request_with_voice_bindings(
+-        project, cfg, _request_for_project(project, cfg, request)
++    saved = (
++        project_settings_from_manifest(project.manifest, project.root).synthesis
++        if merge_saved_settings
++        else None
+     )
++    effective_request = _request_for_project(project, cfg, request)
++    if saved is not None:
++        if request is None:
++            effective_request = replace(effective_request, synthesis=SynthesisRequest())
++        effective_request = replace(
++            effective_request,
++            synthesis=merge_project_synthesis_request(saved, effective_request.synthesis),
++        )
++    effective_request = _project_request_with_voice_bindings(project, cfg, effective_request)
+     resolved, adapter, profile = _resolve_profile(project, cfg, effective_request)
+     return effective_request, resolved, adapter, profile
+
+@@ -897,6 +936,14 @@ def synthesize_project(
+         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
+         selection = resolve_project_selection(scoped_plans, selector)
+         selected_by_scope = {item.scope_id: item for item in selection.scopes}
++        saved_synthesis = project_settings_from_manifest(project.manifest, project.root).synthesis
++        requested_synthesis = (
++            request.synthesis
++            if request is not None
++            else project_synthesis_request(saved_synthesis)
++            if saved_synthesis is not None
++            else None
++        )
+         request, resolved, adapter, profile = resolve_project_synthesis(project, cfg, request)
+         route = _build_project_synthesis_route(
+             project,
+@@ -909,6 +956,8 @@ def synthesize_project(
+         )
+         profile = _profile_from_route(adapter, route, profile)
+         cache_dir = project.root / "synthesis" / "cache"
++        if requested_synthesis is not None:
++            profile = _record_project_settings(profile, project, requested_synthesis)
+         cache_dir.mkdir(parents=True, exist_ok=True)
+         work: list[dict[str, Any]] = []
+         items: list[dict[str, Any]] = []
+diff --git a/tests/test_audiobook_export_api.py b/tests/test_audiobook_export_api.py
+index 8d7fa59..ea73dcc 100644
+--- a/tests/test_audiobook_export_api.py
++++ b/tests/test_audiobook_export_api.py
+@@ -15,6 +15,7 @@ from readio.api import (
+     OutputError,
+     Readio,
+ )
++from readio.api.types import ProjectSettings
+ from readio.audiobook import init_audiobook_project
+ from readio.stages.audiobook_export import AudiobookExportError
+
+@@ -121,3 +122,122 @@ def test_audiobook_export_api_preserves_stable_error_codes_and_details(tmp_path:
+         app.audiobooks.export(project.root)
+     assert error.value.code == "audiobook.export.encode_failed"
+     assert error.value.details["stderr_tail"] == "invalid mux"
++
++
++def test_audiobook_export_uses_saved_defaults_and_transient_overrides(
++    tmp_path: Path, monkeypatch
++) -> None:
++    project = _project(tmp_path)
++    app = Readio()
++    output = project.root / "exports" / "saved.m4b"
++    settings = ProjectSettings(
++        audiobook_export=AudiobookExportOptions(
++            output=output,
++            title="Saved title",
++            author="Saved author",
++            cover=project.root / "saved-cover.jpg",
++            bitrate="128k",
++        )
++    )
++    app.projects.configure(project.root, settings)
++    captured = []
++
++    def fake_export(internal, **kwargs):
++        captured.append(kwargs)
++        return {
++            "export_id": "sha256:export",
++            "path": kwargs["output"],
++            "format": "m4b",
++            "output_sha256": "sha256:output",
++            "chapter_count": 7,
++        }
++
++    monkeypatch.setattr(
++        "readio.api.audiobooks.audiobook_export_internal.export_audiobook_project",
++        fake_export,
++    )
++    app.audiobooks.export(project.root)
++    app.audiobooks.export(
++        project.root,
++        AudiobookExportOptions(title="Run title", cover=Path("run-cover.jpg"), force=True),
++    )
++
++    assert captured[0] == {
++        "output": output,
++        "title": "Saved title",
++        "author": "Saved author",
++        "cover": settings.audiobook_export.cover,
++        "bitrate": "128k",
++        "force": False,
++    }
++    assert captured[1] == {
++        "output": output,
++        "title": "Run title",
++        "author": "Saved author",
++        "cover": Path("run-cover.jpg"),
++        "bitrate": "128k",
++        "force": True,
++    }
++    assert app.projects.settings(project.root) == settings
++
++
++def test_audiobook_build_runs_project_stages_before_export(tmp_path: Path, monkeypatch) -> None:
++    project = _project(tmp_path)
++    app = Readio()
++    output = project.root / "exports" / "built.m4b"
++    settings = ProjectSettings(
++        audiobook_export=AudiobookExportOptions(
++            output=output, title="Build title", author="Build author", bitrate="96k"
++        )
++    )
++    app.projects.configure(project.root, settings)
++    calls = []
++    for stage in ("plan", "synthesize", "compose"):
++        monkeypatch.setattr(
++            app.projects,
++            stage,
++            lambda target, _stage=stage, **kwargs: calls.append(_stage),
++        )
++    captured = {}
++
++    def fake_export(internal, **kwargs):
++        captured.update(kwargs)
++        return {
++            "export_id": "sha256:export",
++            "path": kwargs["output"],
++            "format": "m4b",
++            "output_sha256": "sha256:output",
++            "chapter_count": 7,
++        }
++
++    monkeypatch.setattr(
++        "readio.api.audiobooks.audiobook_export_internal.export_audiobook_project",
++        fake_export,
++    )
++    result = app.audiobooks.build(project.root)
++
++    assert calls == ["plan", "synthesize", "compose"]
++    assert result.output_path == output
++    assert captured["output"] == output
++    assert captured["title"] == "Build title"
++    assert captured["author"] == "Build author"
++    assert captured["bitrate"] == "96k"
++
++
++def test_audiobook_project_creation_can_persist_settings(tmp_path: Path) -> None:
++    source = tmp_path / "configured.epub"
++    make_epub(source)
++    app = Readio()
++    settings = ProjectSettings(
++        audiobook_export=AudiobookExportOptions(
++            output=tmp_path / "configured.m4b",
++            title="Configured title",
++        )
++    )
++
++    created = app.audiobooks.create_project_result(
++        source, output=tmp_path / "configured.readio", settings=settings
++    )
++
++    assert app.projects.settings(created.project) == settings
++    assert app.audiobooks.describe_project(created.project).chapters == created.chapters
+diff --git a/tests/test_audiobook_status.py b/tests/test_audiobook_status.py
+index 4be5048..462196c 100644
+--- a/tests/test_audiobook_status.py
++++ b/tests/test_audiobook_status.py
+@@ -9,6 +9,11 @@ from project_support import Adapter
+ from readio.engines.registry import _registry
+ from readio.stages.pipeline import project_status, render_project
+ from readio.stages.planning import plan_project
++from readio.api import AudiobookExportOptions, Readio
++from readio.api.types import ProjectSettings
++from readio.project import hash_file, load_project
++from readio.stages import audiobook_export as audiobook_export_stage
++from readio.stages.export import store_export_state, target_record
+
+
+ def test_status_reports_provenance_scope_and_aggregate_cache_freshness(
+@@ -59,3 +64,54 @@ def test_status_reports_provenance_scope_and_aggregate_cache_freshness(
+     assert changed["plan"]["reason"] == "plan.stale.document_changed"
+     assert changed["plan"]["scope_id"] == changed_scope.id
+     assert changed["synthesis"]["blocked_by"] == "plan"
++
++
++def test_status_reports_audiobook_desired_output_settings_staleness(tmp_path, monkeypatch) -> None:
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    project, cfg, _ = make_audiobook_project(tmp_path)
++    plan_project(project, cfg)
++    render_project(project, cfg)
++    app = Readio(cfg)
++    old_options = AudiobookExportOptions(
++        output=project.root / "exports" / "old.m4b",
++        title="Old title",
++        bitrate="128k",
++    )
++    app.projects.configure(project.root, ProjectSettings(audiobook_export=old_options))
++    project = load_project(project.root)
++    prepared = audiobook_export_stage.prepare_audiobook_export(
++        project, title=old_options.title, bitrate=old_options.bitrate
++    )
++    old_options.output.parent.mkdir(parents=True, exist_ok=True)
++    old_options.output.write_bytes(b"previous audiobook export")
++    store_export_state(
++        project,
++        old_options.output,
++        {
++            "format": "readio.audiobook-export-state",
++            "export_id": prepared.export_id,
++            "master_sha256": prepared.master_sha256,
++            "timeline_sha256": prepared.timeline_sha256,
++            "path": target_record(project, old_options.output),
++            "output_sha256": hash_file(old_options.output),
++        },
++    )
++    current_stages = {row["stage"]: row for row in project_status(project)["stages"]}
++    assert current_stages["output"]["state"] == "current"
++    app.projects.configure(
++        project.root,
++        ProjectSettings(
++            audiobook_export=AudiobookExportOptions(
++                output=project.root / "exports" / "new.m4b",
++                title="New title",
++                bitrate="192k",
++            )
++        ),
++    )
++    project = load_project(project.root)
++
++    stages = {row["stage"]: row for row in project_status(project)["stages"]}
++
++    assert stages["output"]["state"] == "stale"
++    assert stages["output"]["reason"] == "output.stale.project_settings_changed"
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 763da5c..879d37d 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -872,3 +872,62 @@ def test_status_cli_renders_domain_command_and_human_issue(monkeypatch, capsys)
+         "reason": "output.missing",
+         "command": "readio export --format mp3",
+     }
++
++
++def test_project_settings_cli_inspects_sets_and_clears_supported_sections(
++    tmp_path: Path, monkeypatch, capsys
++) -> None:
++    app = Readio()
++    source = tmp_path / "settings.txt"
++    source.write_text("Project settings CLI.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "settings.readio")
++    monkeypatch.setattr(cli, "_api_for", lambda _args: app)
++
++    def run(args):
++        with pytest.raises(SystemExit) as result:
++            cli.main(args)
++        assert result.value.code == 0
++        return json.loads(capsys.readouterr().out)
++
++    initial = run(
++        [
++            "project",
++            "settings",
++            "--project",
++            str(project.root),
++            "--json",
++        ]
++    )
++    assert initial["settings"] == {}
++
++    configured = run(
++        [
++            "project",
++            "settings",
++            "set",
++            str(project.root),
++            "--target-lufs",
++            "-18",
++            "--export-format",
++            "mp3",
++            "--export-output",
++            "output/saved.mp3",
++            "--json",
++        ]
++    )["settings"]
++    assert configured["composition"]["target_lufs"] == -18.0
++    assert configured["export"]["format"] == "mp3"
++    assert Path(configured["export"]["output"]) == project.root / "output/saved.mp3"
++
++    cleared = run(
++        [
++            "project",
++            "settings",
++            "clear",
++            str(project.root),
++            "--section",
++            "composition",
++            "--json",
++        ]
++    )["settings"]
++    assert "composition" not in cleared
+diff --git a/tests/test_project_model.py b/tests/test_project_model.py
+index 5f0cc91..3648170 100644
+--- a/tests/test_project_model.py
++++ b/tests/test_project_model.py
+@@ -3,6 +3,7 @@ from __future__ import annotations
+ import json
+ from dataclasses import replace
+
++from pathlib import Path
+ import pytest
+
+ from readio.project import init_project, load_project, update_project_manifest
+@@ -11,6 +12,8 @@ from readio.project_model import (
+     DocumentScope,
+     ProjectFormatError,
+     ProjectManifest,
++    PlanIndex,
++    PlanScope,
+ )
+ from readio.project_settings import (
+     project_ssmd_settings,
+@@ -46,6 +49,25 @@ def test_document_index_round_trips_scope_provenance_and_metadata() -> None:
+     assert DocumentIndex.from_dict(index.to_dict()) == index
+
+
++def test_plan_index_settings_fingerprint_is_optional_and_round_trips() -> None:
++    scope = PlanScope(id="document", kind="document", path="document.utterplan.json")
++    legacy = {
++        "format": "readio.plan-index",
++        "schema_version": 1,
++        "scopes": [scope.to_dict()],
++    }
++
++    assert PlanIndex.from_dict(legacy).to_dict() == legacy
++
++    configured = PlanIndex(
++        scopes=(scope,),
++        project_planning_settings_sha256=f"sha256:{'a' * 64}",
++    )
++    assert PlanIndex.from_dict(configured.to_dict()) == configured
++    with pytest.raises(ProjectFormatError, match="project_planning_settings_sha256"):
++        PlanIndex.from_dict({**legacy, "project_planning_settings_sha256": 42})
++
++
+ def test_document_index_rejects_duplicate_scope_ids() -> None:
+     scope = DocumentScope(
+         id="chapter-0001",
+@@ -225,3 +247,197 @@ def test_update_project_manifest_persists_binding_atomically_under_lock(tmp_path
+     assert not (project.root / ".lock").exists()
+     persisted = json.loads((project.root / "project.json").read_text(encoding="utf-8"))
+     assert persisted["settings"]["ssmd"]["voice_bindings"]["kokoro"]["narrator"] == "af_heart"
++
++
++def test_project_pipeline_settings_round_trip_paths_and_preserve_unknown_namespaces(
++    tmp_path,
++) -> None:
++    from readio.api.types import (
++        AudiobookExportOptions,
++        CompositionOptions,
++        ExportOptions,
++        ProjectSettings,
++        ProjectSynthesisSettings,
++    )
++    from readio.project_settings import (
++        project_settings_from_manifest,
++        project_settings_to_dict,
++        with_project_settings,
++    )
++
++    source = tmp_path / "book.txt"
++    source.write_text("Hello.", encoding="utf-8")
++    project = init_project(source, tmp_path / "book.readio")
++    settings = ProjectSettings(
++        synthesis=ProjectSynthesisSettings(
++            language="en-us",
++            engine="pykokoro",
++            speed=1.1,
++            clear_lexicons=True,
++            voice_file=Path("voices/reference.wav"),
++            engine_options={"flags": [True, None], "length_scale": 1.2},
++        ),
++        composition=CompositionOptions(target_lufs=-18.0, sample_rate=48000),
++        export=ExportOptions(
++            format="flac", output=project.root / "output/book.flac", bitrate=None, force=True
++        ),
++        audiobook_export=AudiobookExportOptions(
++            output=Path("output/book.m4b"),
++            title="Book",
++            author="Writer",
++            cover=Path("cover.jpg"),
++            bitrate="96k",
++            force=True,
++        ),
++    )
++    original_settings = {"custom": {"keep": True}, "ssmd": {"voice_provider": "kokoro"}}
++    manifest = replace(project.manifest, settings=original_settings)
++
++    changed = with_project_settings(manifest, settings, project.root)
++    persisted = changed.to_dict()["settings"]
++    restored = project_settings_from_manifest(changed, project.root)
++
++    assert persisted["synthesis"]["voice_file"] == "voices/reference.wav"
++    assert persisted["synthesis"]["engine_options"] == {
++        "flags": [True, None],
++        "length_scale": 1.2,
++    }
++    assert persisted["export"] == {
++        "format": "flac",
++        "output": "output/book.flac",
++        "bitrate": None,
++    }
++    assert persisted["audiobook_export"]["cover"] == "cover.jpg"
++    assert "force" not in persisted["export"]
++    assert "force" not in persisted["audiobook_export"]
++    assert restored.synthesis == replace(
++        settings.synthesis, voice_file=project.root / "voices/reference.wav"
++    )
++    assert restored.composition == settings.composition
++    assert restored.export == replace(settings.export, force=False)
++    assert restored.audiobook_export == replace(
++        settings.audiobook_export,
++        output=project.root / "output/book.m4b",
++        cover=project.root / "cover.jpg",
++        force=False,
++    )
++    assert changed.settings["custom"] == {"keep": True}
++    assert changed.settings["ssmd"] == {"voice_provider": "kokoro"}
++    assert project_settings_to_dict(restored, project.root) == {
++        key: value
++        for key, value in persisted.items()
++        if key in {"synthesis", "composition", "export", "audiobook_export"}
++    }
++
++
++@pytest.mark.parametrize(
++    "settings",
++    [
++        {"synthesis": {"speed": float("nan")}},
++        {"synthesis": {"spacy": "sometimes"}},
++        {"synthesis": {"lexicons": "crane"}},
++        {"synthesis": {"clear_lexicons": True, "auto_lexicons": True}},
++        {"synthesis": {"refresh": False}},
++        {"synthesis": {"engine_options": {"temperature": float("inf")}}},
++        {"composition": {"sample_rate": True}},
++        {"composition": {"peak_policy": []}},
++        {"export": {"format": "m4b"}},
++        {"export": {"force": False}},
++        {"audiobook_export": {"format": "wav"}},
++        {"audiobook_export": {"force": False}},
++    ],
++)
++def test_project_manifest_rejects_malformed_pipeline_settings(tmp_path, settings) -> None:
++    source = tmp_path / "book.txt"
++    source.write_text("Hello.", encoding="utf-8")
++    project = init_project(source, tmp_path / "book.readio")
++    payload = project.manifest.to_dict()
++    payload["settings"] = settings
++
++    with pytest.raises(ProjectFormatError):
++        ProjectManifest.from_dict(payload)
++
++
++def test_project_settings_patch_and_synthesis_request_merge(tmp_path) -> None:
++    from readio.api.types import (
++        CompositionOptions,
++        ExportOptions,
++        ProjectSettings,
++        ProjectSettingsPatch,
++        ProjectSynthesisSettings,
++        UNSET,
++    )
++    from readio.plan import SynthesisRequest
++    from readio.project_settings import (
++        apply_project_settings_patch,
++        merge_project_synthesis_request,
++        project_settings_from_manifest,
++        with_project_settings,
++    )
++
++    source = tmp_path / "book.txt"
++    source.write_text("Hello.", encoding="utf-8")
++    project = init_project(source, tmp_path / "book.readio")
++    settings = ProjectSettings(
++        synthesis=ProjectSynthesisSettings(
++            language="de",
++            engine="piper",
++            speed=1.2,
++            auto_lexicons=True,
++            allow_experimental=True,
++            offline=True,
++            engine_options={"length_scale": 1.1, "shared": "project"},
++        ),
++        composition=CompositionOptions(),
++        export=ExportOptions(format="flac"),
++    )
++    manifest = with_project_settings(project.manifest, settings, project.root)
++    patched = apply_project_settings_patch(
++        manifest,
++        ProjectSettingsPatch(synthesis=UNSET, composition=None),
++        project.root,
++    )
++    patched_settings = project_settings_from_manifest(patched, project.root)
++
++    assert patched_settings.synthesis == settings.synthesis
++    assert patched_settings.composition is None
++    assert patched_settings.export == settings.export
++    base = settings.synthesis
++    merged = merge_project_synthesis_request(
++        base,
++        SynthesisRequest(
++            voice="de_DE-thorsten-medium",
++            engine_options={"shared": "invocation", "invocation": True},
++            refresh=True,
++        ),
++    )
++    assert merged.language == "de"
++    assert merged.engine == "piper"
++    assert merged.voice == "de_DE-thorsten-medium"
++    assert merged.auto_lexicons is True
++    assert merged.allow_experimental is True
++    assert merged.offline is True
++    assert merged.refresh is True
++    assert merged.engine_options == {
++        "length_scale": 1.1,
++        "shared": "invocation",
++        "invocation": True,
++    }
++    disabled = merge_project_synthesis_request(base, SynthesisRequest(clear_lexicons=True))
++    assert disabled.clear_lexicons is True
++    assert disabled.auto_lexicons is False
++
++
++def test_project_settings_fingerprint_is_stable_for_mapping_order(tmp_path) -> None:
++    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
++    from readio.project_settings import project_settings_fingerprint
++
++    root = tmp_path / "book.readio"
++    left = ProjectSettings(
++        synthesis=ProjectSynthesisSettings(engine_options={"first": 1, "second": {"x": 2}})
++    )
++    right = ProjectSettings(
++        synthesis=ProjectSynthesisSettings(engine_options={"second": {"x": 2}, "first": 1})
++    )
++
++    assert project_settings_fingerprint(left, root) == project_settings_fingerprint(right, root)
+diff --git a/tests/test_public_api_imports.py b/tests/test_public_api_imports.py
+index d081814..c7cd4e7 100644
+--- a/tests/test_public_api_imports.py
++++ b/tests/test_public_api_imports.py
+@@ -23,6 +23,9 @@ def test_public_import_surface_and_typing_marker() -> None:
+     assert "SynthesisResolution" in readio.api.__all__
+     assert "LanguageProfilePatch" in readio.api.__all__
+     assert "ProjectRoleMutationResult" in readio.api.__all__
++    assert "ProjectSettings" in readio.api.__all__
++    assert "ProjectSettingsPatch" in readio.api.__all__
++    assert "ProjectSynthesisSettings" in readio.api.__all__
+     assert "ReadioEvent" in readio.api.__all__
+     assert "EventKind" in readio.api.__all__
+     assert "ProgressKind" in readio.api.__all__
+diff --git a/tests/test_public_api_projects.py b/tests/test_public_api_projects.py
+index 738ffb7..90621cd 100644
+--- a/tests/test_public_api_projects.py
++++ b/tests/test_public_api_projects.py
+@@ -20,6 +20,7 @@ from readio.api import (
+     ProjectBuildRequest,
+     ProjectBuildResult,
+     ProjectConflictError,
++    ProjectError,
+     ProjectFormatError,
+     ProjectNotFoundError,
+     ProjectPlanResult,
+@@ -487,3 +488,334 @@ def test_status_preserves_missing_output_command_in_public_api(tmp_path: Path, m
+     assert action.command == "readio export --format mp3"
+     payload = json.loads(json.dumps(status.to_dict()))
+     assert payload["next_actions"][0]["command"] == "readio export --format mp3"
++
++
++def test_project_settings_configure_materializes_without_opening_engine(
++    tmp_path: Path, monkeypatch
++) -> None:
++    from readio.api.types import (
++        ProjectSettings,
++        ProjectSynthesisSettings,
++        ProjectSettingsPatch,
++        UNSET,
++    )
++
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
++    source = tmp_path / "settings.txt"
++    source.write_text("Persist preferences before execution.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "settings.readio")
++    manifest_path = project.root / "project.json"
++    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
++    manifest["settings"] = {"ssmd": {"style": "bright"}, "custom": {"keep": True}}
++    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
++    before = manifest_path.read_bytes()
++
++    assert app.projects.settings(project) == ProjectSettings()
++    assert manifest_path.read_bytes() == before
++
++    configured = app.projects.configure(
++        project,
++        ProjectSettings(
++            synthesis=ProjectSynthesisSettings(
++                engine="fake",
++                voice="fake-voice",
++                speed=1.25,
++            ),
++            composition=CompositionOptions(),
++            export=ExportOptions(format="wav"),
++        ),
++    )
++
++    assert configured.synthesis is not None
++    assert configured.synthesis.language == "en-us"
++    assert configured.synthesis.engine == "fake"
++    assert configured.synthesis.model == "fake-target"
++    assert configured.synthesis.speed == 1.25
++    assert configured.synthesis.auto_lexicons is True
++    persisted = json.loads(manifest_path.read_text(encoding="utf-8"))["settings"]
++    assert persisted["ssmd"] == {"style": "bright"}
++    assert persisted["custom"] == {"keep": True}
++    assert app.projects.open(project.root) == project
++    assert app.projects.settings(project) == configured
++    assert adapter.open_calls == 0
++
++    updated = app.projects.update_settings(
++        project, ProjectSettingsPatch(synthesis=None, composition=None, export=UNSET)
++    )
++    assert updated.synthesis is None
++    assert updated.composition is None
++    assert updated.export == configured.export
++    assert updated.audiobook_export is None
++    assert adapter.open_calls == 0
++
++
++def test_project_settings_validation_is_atomic(tmp_path: Path, monkeypatch) -> None:
++    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
++
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
++    source = tmp_path / "invalid-settings.txt"
++    source.write_text("Do not persist invalid settings.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "invalid-settings.readio")
++    manifest_path = project.root / "project.json"
++    before = manifest_path.read_bytes()
++
++    with pytest.raises(ProjectFormatError):
++        app.projects.configure(
++            project,
++            ProjectSettings(synthesis=ProjectSynthesisSettings(engine="fake", spacy="invalid")),
++        )
++    assert manifest_path.read_bytes() == before
++
++    original_resolve = adapter.resolve
++
++    def reject_invalid_voice(request):
++        if request.voice == "invalid-selector":
++            raise ValueError("unknown voice selector")
++        return original_resolve(request)
++
++    monkeypatch.setattr(adapter, "resolve", reject_invalid_voice)
++    with pytest.raises(InvalidRequestError, match="unknown voice selector"):
++        app.projects.configure(
++            project,
++            ProjectSettings(
++                synthesis=ProjectSynthesisSettings(
++                    engine="fake",
++                    voice="invalid-selector",
++                ),
++            ),
++        )
++    assert manifest_path.read_bytes() == before
++    assert adapter.open_calls == 0
++
++
++def test_project_settings_configuration_observes_manifest_lock(tmp_path: Path) -> None:
++    from readio.api.types import ProjectSettings
++
++    app = Readio(ReadioConfig())
++    source = tmp_path / "locked-settings.txt"
++    source.write_text("Respect the project lock.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "locked-settings.readio")
++    manifest_path = project.root / "project.json"
++    before = manifest_path.read_bytes()
++    (project.root / ".lock").write_text("other-process configure\n", encoding="utf-8")
++
++    with pytest.raises(ProjectConflictError) as locked:
++        app.projects.configure(project, ProjectSettings(export=ExportOptions()))
++
++    assert locked.value.code == "project.locked"
++    assert manifest_path.read_bytes() == before
++
++
++def test_saved_synthesis_precedence_overrides_and_status(tmp_path: Path, monkeypatch) -> None:
++    from dataclasses import replace
++    from readio.api.types import ProjectSettingsPatch
++    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
++
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="global-voice")))
++    source = tmp_path / "saved-synthesis.txt"
++    source.write_text("Use durable preferences.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "saved-synthesis.readio")
++    manifest_path = project.root / "project.json"
++    configured = app.projects.configure(
++        project,
++        ProjectSettings(
++            synthesis=ProjectSynthesisSettings(
++                engine="fake",
++                language="fr-fr",
++                model="saved-model",
++                voice="saved-voice",
++                speed=1.2,
++            )
++        ),
++    )
++    assert configured.synthesis is not None
++    before_override = manifest_path.read_bytes()
++
++    saved = app.projects.resolve_synthesis(project)
++    assert saved.language == "fr-fr"
++    assert saved.model == "saved-model"
++    assert saved.voice == "saved-voice"
++    assert saved.speed == 1.2
++    overridden = app.projects.resolve_synthesis(project, SynthesisRequest(speed=1.75, refresh=True))
++    assert overridden.language == "fr-fr"
++    assert overridden.speed == 1.75
++    assert manifest_path.read_bytes() == before_override
++    assert app.projects.settings(project) == configured
++    assert adapter.open_calls == 0
++
++    app.projects.plan(project)
++    result = app.projects.synthesize(project, SynthesisRequest(speed=1.75, refresh=True))
++    assert result.rendered > 0
++    override_profile = json.loads(
++        (project.root / "synthesis" / "profile.json").read_text(encoding="utf-8")
++    )
++    reused = app.projects.synthesize(project, SynthesisRequest(speed=1.75, refresh=False))
++    assert reused.rendered == 0
++    profile_after_refresh_change = json.loads(
++        (project.root / "synthesis" / "profile.json").read_text(encoding="utf-8")
++    )
++    assert profile_after_refresh_change["profile_id"] == override_profile["profile_id"]
++    stale = {row.stage: row for row in app.projects.status(project).stages}
++    assert stale["synthesis"].reason == "synthesis.stale.project_settings_changed"
++    assert manifest_path.read_bytes() == before_override
++    assert app.projects.settings(project) == configured
++
++    app.projects.synthesize(project)
++    current = {row.stage: row for row in app.projects.status(project).stages}
++    assert current["synthesis"].state == "current"
++    assert manifest_path.read_bytes() == before_override
++
++    cached_files = sorted((project.root / "synthesis" / "cache").glob("*.wav"))
++    app.projects.update_settings(
++        project,
++        ProjectSettingsPatch(synthesis=replace(configured.synthesis, speed=1.4)),
++    )
++    changed = {row.stage: row for row in app.projects.status(project).stages}
++    assert changed["plan"].state == "current"
++    assert changed["synthesis"].reason == "synthesis.stale.project_settings_changed"
++    assert sorted((project.root / "synthesis" / "cache").glob("*.wav")) == cached_files
++    app.projects.update_settings(
++        project,
++        ProjectSettingsPatch(synthesis=replace(configured.synthesis, language="de-de")),
++    )
++    plan_stale = {row.stage: row for row in app.projects.status(project).stages}
++    assert plan_stale["plan"].reason == "plan.stale.project_settings_changed"
++    app.projects.plan(project)
++    replanned = {row.stage: row for row in app.projects.status(project).stages}
++    assert replanned["plan"].state == "current"
++    assert replanned["synthesis"].reason == "synthesis.stale.project_settings_changed"
++
++
++def test_project_settings_survive_failed_build_and_retry(tmp_path: Path, monkeypatch) -> None:
++    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
++
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="global-voice")))
++    source = tmp_path / "retry.txt"
++    source.write_text("Retry with persisted choices.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "retry.readio")
++    configured = app.projects.configure(
++        project,
++        ProjectSettings(
++            synthesis=ProjectSynthesisSettings(
++                engine="fake", voice="saved-voice", language="fr-fr", speed=1.3
++            )
++        ),
++    )
++    manifest_path = project.root / "project.json"
++    persisted = manifest_path.read_bytes()
++    original_open = adapter.open
++
++    def fail_open(selection):
++        raise RuntimeError("synthetic runtime failure")
++
++    monkeypatch.setattr(adapter, "open", fail_open)
++    with pytest.raises(ProjectError, match="synthetic runtime failure"):
++        app.projects.build(project)
++    assert (project.root / "plan" / "index.json").is_file()
++    plan_data = json.loads(
++        (project.root / "plan" / "document.utterplan.json").read_text(encoding="utf-8")
++    )
++    assert plan_data["config"]["language"] == "fr-fr"
++    assert manifest_path.read_bytes() == persisted
++    assert app.projects.settings(project) == configured
++
++    monkeypatch.setattr(adapter, "open", original_open)
++    result = app.projects.build(project)
++    assert result.output_path is not None and result.output_path.is_file()
++    assert manifest_path.read_bytes() == persisted
++    assert app.projects.settings(project) == configured
++    assert adapter.open_calls == 1
++
++
++def test_requestless_build_and_stage_apis_use_saved_composition_and_export(
++    tmp_path: Path, monkeypatch
++) -> None:
++    from readio.api.types import (
++        ProjectSettings,
++        ProjectSettingsPatch,
++        ProjectSynthesisSettings,
++    )
++
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
++    source = tmp_path / "desired-build.txt"
++    source.write_text("Build from saved stage settings.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "desired-build.readio")
++    output_path = project.root / "exports" / "desired.m4a"
++    configured = app.projects.configure(
++        project,
++        ProjectSettings(
++            synthesis=ProjectSynthesisSettings(engine="fake", voice="fake-voice"),
++            composition=CompositionOptions(target_lufs=-18.0),
++            export=ExportOptions(format="m4a", output=output_path, bitrate="128k"),
++        ),
++    )
++
++    first = app.projects.build(project)
++    assert first.output_path == output_path
++    assert first.output_path is not None
++    assert first.output_path.is_file()
++    composed = app.projects.compose(project)
++    assert composed.loudness is not None
++    assert composed.loudness.target_lufs == -18.0
++    direct_export = app.projects.export(project)
++    assert direct_export.output_path == output_path
++    assert direct_export.format == "m4a"
++    assert app.projects.status(project).stage("output").state == "current"
++    cache_files = sorted((project.root / "synthesis" / "cache").glob("*.wav"))
++    master_path = project.root / "composition" / "master.wav"
++    composition_state_path = project.root / "composition" / "state.json"
++    original_composition_id = json.loads(composition_state_path.read_text(encoding="utf-8"))[
++        "composition_id"
++    ]
++
++    updated = app.projects.update_settings(
++        project,
++        ProjectSettingsPatch(composition=CompositionOptions(target_lufs=-20.0)),
++    )
++    assert updated.export == configured.export
++    stale = app.projects.status(project)
++    assert stale.stage("synthesis").state == "current"
++    assert stale.stage("composition").reason == "composition.stale.project_settings_changed"
++    rebuilt = app.projects.build(project)
++    actions = {item.stage: item.action for item in rebuilt.operations}
++    assert actions["synthesis"] == "skipped"
++    assert actions["composition"] == "rebuilt"
++    assert actions["export"] == "skipped"
++    updated_composition_id = json.loads(composition_state_path.read_text(encoding="utf-8"))[
++        "composition_id"
++    ]
++    assert updated_composition_id != original_composition_id
++    composed_master = master_path.read_bytes()
++    assert sorted((project.root / "synthesis" / "cache").glob("*.wav")) == cache_files
++    assert app.projects.status(project).stage("output").state == "current"
++    updated = app.projects.update_settings(
++        project,
++        ProjectSettingsPatch(
++            export=ExportOptions(format="m4a", output=output_path, bitrate="256k")
++        ),
++    )
++    assert updated.composition is not None
++    stale = app.projects.status(project)
++    assert stale.stage("synthesis").state == "current"
++    assert stale.stage("composition").state == "current"
++    assert stale.stage("output").reason == "output.stale.project_settings_changed"
++    rebuilt = app.projects.build(project)
++    actions = {item.stage: item.action for item in rebuilt.operations}
++    assert actions["synthesis"] == "skipped"
++    assert actions["composition"] == "skipped"
++    assert actions["export"] == "rebuilt"
++    assert master_path.read_bytes() == composed_master
++    assert sorted((project.root / "synthesis" / "cache").glob("*.wav")) == cache_files
++    direct_export = app.projects.export(project)
++    assert direct_export.output_path == output_path
++    assert app.projects.status(project).stage("output").state == "current"
+diff --git a/tests/test_public_api_types.py b/tests/test_public_api_types.py
+index d2f6c46..ae7ea59 100644
+--- a/tests/test_public_api_types.py
++++ b/tests/test_public_api_types.py
+@@ -215,3 +215,25 @@ def test_public_event_fields_are_stable_and_frozen() -> None:
+     assert event.kind == "progress"
+     with pytest.raises(FrozenInstanceError):
+         event.kind = "changed"  # type: ignore[misc]
++
++
++def test_project_settings_types_are_immutable_and_copy_nested_engine_options() -> None:
++    from readio.api.types import (
++        ProjectSettings,
++        ProjectSettingsPatch,
++        ProjectSynthesisSettings,
++        UNSET,
++    )
++
++    options = {"nested": {"flags": [True, None]}}
++    synthesis = ProjectSynthesisSettings(engine_options=options)
++    settings = ProjectSettings(synthesis=synthesis)
++    patch = ProjectSettingsPatch()
++
++    options["nested"]["flags"].append(False)
++    assert synthesis.engine_options["nested"]["flags"] == (True, None)
++    assert patch.synthesis is UNSET
++    assert patch.composition is UNSET
++    assert settings.synthesis is synthesis
++    with pytest.raises(TypeError):
++        synthesis.engine_options["nested"]["new"] = "value"  # type: ignore[index]
+diff --git a/tests/typecheck/public_api_consumer.py b/tests/typecheck/public_api_consumer.py
+index b897a75..07ac795 100644
+--- a/tests/typecheck/public_api_consumer.py
++++ b/tests/typecheck/public_api_consumer.py
+@@ -32,6 +32,9 @@ from readio.api import (
+     ProjectBuildRequest,
+     ProjectBuildResult,
+     ProjectRef,
++    ProjectSettings,
++    ProjectSettingsPatch,
++    ProjectSynthesisSettings,
+     ProjectRoleMutationResult,
+     ProjectStatus,
+     Readio,
+@@ -152,3 +155,17 @@ def public_audiobook_consumer(
+     result: AudiobookExportResult = app.audiobooks.export(project, options)
+     assert result.format == AUDIOBOOK_EXPORT_FORMAT
+     return result
++
++
++def public_project_settings_consumer(app: Readio, project: ProjectRef) -> ProjectSettings:
++    app.projects.configure(
++        project, ProjectSettings(synthesis=ProjectSynthesisSettings(engine="piper"))
++    )
++    return app.projects.update_settings(
++        project,
++        ProjectSettingsPatch(synthesis=ProjectSynthesisSettings(voice="en_US-amy-medium")),
++    )
++
++
++def public_audiobook_build_consumer(app: Readio, project: ProjectRef) -> AudiobookExportResult:
++    return app.audiobooks.build(project)

@@ -1,0 +1,1660 @@
+ docs/api.md                              |   4 +
+ docs/cli.md                              |   8 ++
+ docs/projects.md                         |   4 +-
+ readio/api/__init__.py                   |   4 +
+ readio/api/projects.py                   |  79 ++++++++++++++-
+ readio/api/speech.py                     |  11 +++
+ readio/api/types.py                      |  86 +++++++++++++++-
+ readio/cli.py                            | 134 ++++++++++++++++++++++---
+ readio/cli_adapter.py                    |   4 +
+ readio/execution.py                      |   1 +
+ readio/plan.py                           |  94 ++++++++++++++++--
+ readio/stages/composition.py             | 162 ++++++++++++++++++++++++++-----
+ readio/stages/pipeline.py                |  15 ++-
+ tests/test_cli.py                        |  88 +++++++++++++++--
+ tests/test_incremental_project_render.py |   6 +-
+ tests/test_mastering_profiles.py         |  62 ++++++++++++
+ tests/test_project_composition.py        |  38 +++++++-
+ tests/test_public_api_events.py          |  29 ++++++
+ tests/test_public_api_projects.py        |  35 +++++++
+ tests/test_render_from_plan.py           |   3 +
+ 20 files changed, 801 insertions(+), 66 deletions(-)
+
+diff --git a/docs/api.md b/docs/api.md
+index 31a4453..847f6a4 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -129,6 +129,10 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
+
+ `ProjectBuildRequest` carries the stage target, selection, synthesis settings, composition options, and export options. `PreviewRequest` controls a selection and temporary output for a preview. Every lifecycle method returns a typed result, and mutating operations accept `on_event`.
+
++`CompositionOptions.mastering` selects `spoken-word` by default (`-16 LUFS/-1 dBTP`); the other profiles are `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), and `off` (no target or ceiling). `target_lufs` and `true_peak_ceiling_dbtp` override profile values when non-`None`; `None` inherits. For example, `CompositionOptions(mastering="broadcast-ebu", target_lufs=-21.0)` keeps the EBU true-peak ceiling and uses a `-21 LUFS` target.
++
++`ProjectCompositionResult.loudness` is a typed `LoudnessSummary` with before/after integrated LUFS, sample peak and true peak, requested/applied gain, target status, warning, and analysis/gain/post-gain metric timings. The mastering operation is transparent constant gain: `reduce_gain` may stop short of the LUFS target to honor the true-peak ceiling; this is not a true-peak limiter or ACX compliance check.
++
+ `app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+ `describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
+
+diff --git a/docs/cli.md b/docs/cli.md
+index 24adce3..9835b43 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -108,6 +108,14 @@ Project `synth` and `preview` accept the shared `--progress` / `--no-progress` o
+
+ `readio synth --json` emits one final JSON object on stdout. It includes the project, scope, plan ID, profile identity and engine/model/voice/language, selector/count, and cache reuse/render counts. Progress and logs remain on stderr, and automatic progress is disabled for JSON unless explicitly forced.
+
++## Mastering profiles
++
++Composition, preview, and bounded `render` default to `--mastering spoken-word` (`-16 LUFS`, `-1 dBTP`). Select `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), or `off` (no target or ceiling). Readio does not offer an ACX LUFS preset: ACX compliance requires separate RMS, peak, and noise-floor checks.
++
++`--target-lufs` and `--true-peak-ceiling-dbtp` are expert numeric overrides; omitted values inherit from the selected profile. Choose `peak-safe` or `off` to disable inherited processing. `--peak-policy reduce_gain` preserves transparent constant-gain behavior and reduces requested gain when needed to meet the true-peak ceiling; it is not a limiter. Use `--peak-policy error` to fail instead of reducing gain.
++
++Human output and `--json` include the selected profile, before/after integrated loudness, sample and true peaks, requested/applied gain, target status, and warnings. Progress separates assembly and loudness finalization (analysis, gain, and cached post-gain metrics) from AudioJob, WAV, timeline, hashing, and state writes. Runtime timings are diagnostic only and never enter composition identity.
++
+ ## Composition progress
+
+ `readio compose PROJECT` shares the progress policy with synthesis, preview, render, and project rendering. Progress is enabled automatically on an interactive terminal, can be forced with `--progress`, and can be disabled with `--no-progress`. All progress is written to stderr.
+diff --git a/docs/projects.md b/docs/projects.md
+index 20d78f9..30a6ee6 100644
+--- a/docs/projects.md
++++ b/docs/projects.md
+@@ -75,6 +75,8 @@ Voice, model, and engine changes begin at synthesis. Loudness changes begin at
+ composition. Codec and bitrate changes begin at export; none require semantic
+ replanning.
+
++Readio defaults to the `spoken-word` mastering profile (`-16 LUFS/-1 dBTP`). Composition identity includes the requested profile and resolved numeric target/ceiling; analysis timings are excluded. Composition state and typed API/JSON results retain before/after loudness and peak readings, requested/applied gain, target status, and any ceiling-limited warning.
++
+ ## Commands
+
+ `readio plan` does not discover a voice or load a TTS model. `readio preview`
+@@ -118,5 +120,5 @@ Use `--no-progress` for quiet automation or `--progress` to force progress. Repe
+
+ Interactive terminals update a current line. Forced non-TTY progress is throttled. `--progress` enables output, `--no-progress` suppresses it, and automatic progress is disabled by `--json` unless explicitly forced. JSON stdout remains uncontaminated.
+
+-The composition ETA is approximate and covers only segment processing. After segment processing, Readio reports `Assembling master`, `Finalizing loudness and true peak`, and `Writing composition artifacts` as separate phases. Preview and incremental `render PROJECT` use the same composition callback path when they rebuild composition. Progress is runtime-only and does not affect composition IDs, timelines, AudioJob files, or composition state.
++The composition ETA is approximate and covers only segment processing. Progress separately reports master assembly, loudness analysis/gain/post-gain metrics, AudioJob and master WAV writes, timeline/state writes, and artifact hashing; each finalization duration is diagnostic-only. Preview and incremental `render PROJECT` use the same composition callback path when they rebuild composition. Runtime timings do not affect composition IDs, timelines, AudioJob files, or composition state identity.
+ A complete cache hit emits no engine-open phase and does not load the model. Active `synthesis/profile.json` and `synthesis/trace.json` are the persisted status truth; changing content or profile invalidates only affected synthesis keys.
+diff --git a/readio/api/__init__.py b/readio/api/__init__.py
+index f16bc76..417ad96 100644
+--- a/readio/api/__init__.py
++++ b/readio/api/__init__.py
+@@ -103,6 +103,8 @@ from .types import (
+     LanguageSettings,
+     LexiconInfo,
+     LexiconQuery,
++    LoudnessSummary,
++    MasteringProfile,
+     ModelInfo,
+     ModelQuery,
+     ModelVoiceInfo,
+@@ -224,7 +226,9 @@ __all__ = [
+     "LanguageSettings",
+     "LexiconInfo",
+     "LexiconQuery",
++    "LoudnessSummary",
+     "ManifestError",
++    "MasteringProfile",
+     "ModelInfo",
+     "ModelQuery",
+     "ModelVoiceInfo",
+diff --git a/readio/api/projects.py b/readio/api/projects.py
+index 4cab874..b95e85f 100644
+--- a/readio/api/projects.py
++++ b/readio/api/projects.py
+@@ -2,6 +2,7 @@
+
+ from __future__ import annotations
+
++import time
+ from collections.abc import Mapping
+ from pathlib import Path
+ from typing import TYPE_CHECKING, cast
+@@ -34,6 +35,7 @@ from .types import (
+     CompositionOptions,
+     Diagnostic,
+     ExportOptions,
++    LoudnessSummary,
+     NextAction,
+     PreviewRequest,
+     PreviewResult,
+@@ -85,6 +87,9 @@ _OPERATION_DETAIL_KEYS = frozenset(
+         "frames",
+         "items",
+         "format",
++        "loudness",
++        "mastering_profile",
++        "warnings",
+         "output_sha256",
+         "export_id",
+     }
+@@ -309,6 +314,7 @@ class ProjectService:
+         raw = self._call(
+             lambda: compose_project(
+                 internal,
++                mastering=options.mastering,
+                 target_lufs=options.target_lufs,
+                 true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
+                 peak_policy=options.peak_policy,
+@@ -318,6 +324,12 @@ class ProjectService:
+                 on_phase=self._phase_handler(handler, operation),
+             )
+         )
++        loudness_value = raw.get("loudness")
++        loudness = (
++            LoudnessSummary.from_mapping(loudness_value)
++            if isinstance(loudness_value, Mapping)
++            else None
++        )
+         self._notify(
+             handler,
+             ReadioEvent(
+@@ -326,7 +338,10 @@ class ProjectService:
+                 stage="composition",
+                 sample_count=raw["frames"],
+                 sample_rate=raw["sample_rate"],
+-                details={"items": raw["items"]},
++                details={
++                    "items": raw["items"],
++                    "loudness": loudness.to_dict() if loudness is not None else None,
++                },
+             ),
+         )
+         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
+@@ -336,6 +351,7 @@ class ProjectService:
+             frames=int(raw["frames"]),
+             items=int(raw["items"]),
+             master_path=Path(raw["master"]),
++            loudness=loudness,
+         )
+
+     def export(
+@@ -482,6 +498,12 @@ class ProjectService:
+                 on_phase=self._phase_handler(handler, operation),
+             )
+         )
++        loudness_value = raw.get("loudness")
++        loudness = (
++            LoudnessSummary.from_mapping(loudness_value)
++            if isinstance(loudness_value, Mapping)
++            else None
++        )
+         if not composition_started:
+             self._notify(
+                 handler, ReadioEvent(kind="stage.started", operation=operation, stage="composition")
+@@ -504,6 +526,7 @@ class ProjectService:
+             items=int(raw["items"]),
+             output_path=Path(raw["output"]) if raw.get("output") is not None else None,
+             composition_id=str(raw["composition_id"]) if raw.get("composition_id") else None,
++            loudness=loudness,
+         )
+
+     def _load(self, project: ProjectLike) -> project_internal.Project:
+@@ -608,6 +631,22 @@ class ProjectService:
+
+         def forward(event: object) -> None:
+             internal_kind = getattr(event, "kind", None)
++            phase_key = {
++                "assembly_started": "assembly",
++                "loudness_started": "loudness",
++            }.get(internal_kind)
++            if phase_key is not None:
++                state.setdefault("phase_started", {})[phase_key] = time.perf_counter()
++            phase_ended = {
++                "assembly_completed": "assembly",
++                "loudness_completed": "loudness",
++            }.get(internal_kind)
++            event_details = getattr(event, "details", {}) or {}
++            details = dict(event_details) if isinstance(event_details, Mapping) else {}
++            if phase_ended is not None:
++                started = state.setdefault("phase_started", {}).pop(phase_ended, None)
++                if started is not None:
++                    details["phase_duration_seconds"] = max(0.0, time.perf_counter() - started)
+             if internal_kind == "compose_completed":
+                 return
+             if internal_kind == "compose_started":
+@@ -640,6 +679,7 @@ class ProjectService:
+                 event,
+                 completed=state["completed"] if is_clip else None,
+                 total=state["total"] if is_clip else None,
++                details=cast(Mapping[str, JsonValue], details),
+             )
+
+         return forward
+@@ -652,8 +692,10 @@ class ProjectService:
+         *,
+         completed: int | None = None,
+         total: int | None = None,
++        details: Mapping[str, JsonValue] | None = None,
+     ) -> None:
+         internal_kind = getattr(event, "kind", None)
++        event_details = details or {}
+         if internal_kind == "compose_completed":
+             return
+         if internal_kind == "item_started":
+@@ -667,14 +709,44 @@ class ProjectService:
+         elif internal_kind == "compose_started":
+             progress_kind = "phase"
+             message = None
++        elif internal_kind == "assembly_started":
++            progress_kind = "phase"
++            message = "Assembling master audio"
++        elif internal_kind == "assembly_completed":
++            progress_kind = "phase"
++            duration = event_details.get("phase_duration_seconds")
++            message = (
++                f"Audio assembly complete in {duration:.3f}s"
++                if isinstance(duration, (int, float))
++                else "Audio assembly complete"
++            )
++        elif internal_kind == "loudness_started":
++            progress_kind = "phase"
++            message = "Measuring loudness and true peak"
++        elif internal_kind == "loudness_completed":
++            progress_kind = "phase"
++            timings = [
++                ("analysis", event_details.get("analysis_seconds")),
++                ("gain", event_details.get("gain_seconds")),
++                ("post-gain metrics", event_details.get("post_gain_metrics_seconds")),
++            ]
++            timing_text = "; ".join(
++                f"{name} {value:.3f}s" for name, value in timings if isinstance(value, (int, float))
++            )
++            duration = event_details.get("phase_duration_seconds")
++            if isinstance(duration, (int, float)):
++                timing_text = f"total {duration:.3f}s" + (f"; {timing_text}" if timing_text else "")
++            message = (
++                f"Loudness finalization complete ({timing_text})"
++                if timing_text
++                else "Loudness finalization complete"
++            )
+         else:
+             progress_kind = "phase"
+             message = {
+                 "source_load_started": "Loading audio source",
+                 "operation_started": "Applying audio operation",
+                 "resample_started": "Resampling audio",
+-                "assembly_started": "Assembling master",
+-                "loudness_started": "Finalizing loudness and true peak",
+             }.get(internal_kind, "Composing audio")
+         item_metadata = getattr(event, "item_metadata", {}) or {}
+         segment_id = item_metadata.get("segment_id") or getattr(event, "item_id", None)
+@@ -693,6 +765,7 @@ class ProjectService:
+                 audio_seconds=getattr(event, "completed_audio_seconds", None),
+                 total_audio_seconds=getattr(event, "total_audio_seconds", None),
+                 segment_id=segment_id,
++                details=event_details,
+             ),
+         )
+
+diff --git a/readio/api/speech.py b/readio/api/speech.py
+index eb99247..4c02d35 100644
+--- a/readio/api/speech.py
++++ b/readio/api/speech.py
+@@ -40,6 +40,7 @@ from .errors import (
+ from .events import EventHandler, EventStage, ReadioEvent, compose_event_handlers
+ from .types import (
+     Diagnostic,
++    LoudnessSummary,
+     OutputRequest,
+     PlanRequest,
+     RenderResult,
+@@ -548,6 +549,15 @@ class SpeechService:
+         diagnostics = tuple(
+             Diagnostic.from_plan(item) for item in (plan.diagnostics if plan is not None else ())
+         )
++        audio_loudness = getattr(execution_result.composition, "loudness", None)
++        loudness = (
++            LoudnessSummary.from_loudness_result(
++                plan.composition.mastering if plan is not None else "spoken-word",
++                audio_loudness,
++            )
++            if audio_loudness is not None
++            else None
++        )
+         return RenderResult(
+             plan=plan,
+             summary=execution_result.summary,
+@@ -558,6 +568,7 @@ class SpeechService:
+                 plan.output.format if plan is not None and output_path is not None else None
+             ),
+             manifest_schema=(RENDER_MANIFEST_SCHEMA_V2 if manifest_path is not None else None),
++            loudness=loudness,
+         )
+
+
+diff --git a/readio/api/types.py b/readio/api/types.py
+index 37b0dcd..350e757 100644
+--- a/readio/api/types.py
++++ b/readio/api/types.py
+@@ -6,7 +6,7 @@ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from dataclasses import field as dataclass_field
+ from pathlib import Path
+-from typing import Generic, Literal, TypeAlias, TypeVar, cast
++from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast
+
+ from ..audio import AudioSink, RenderSummary
+ from ..config import LanguageSettings, ReaderSettings, ReadioConfig
+@@ -18,6 +18,7 @@ from ..jsonutil import JsonScalar, JsonValue, json_value
+ from ..plan import (
+     CompositionOptions,
+     InputRequest,
++    MasteringProfile,
+     OutputRequest,
+     PlanDiagnostic,
+     PlanRequest,
+@@ -145,6 +146,7 @@ class RenderResult:
+     diagnostics: tuple[Diagnostic, ...] = ()
+     audio_format: str | None = None
+     manifest_schema: str | None = None
++    loudness: LoudnessSummary | None = None
+
+     def to_dict(self) -> dict[str, JsonValue]:
+         return cast(dict[str, JsonValue], json_value(self))
+@@ -390,6 +392,84 @@ class SynthesisResolution:
+         return cast(dict[str, JsonValue], json_value(self))
+
+
++@dataclass(frozen=True, slots=True)
++class LoudnessSummary:
++    profile: MasteringProfile
++    integrated_lufs_before: float | None
++    integrated_lufs_after: float | None
++    sample_peak_dbfs_before: float | None
++    sample_peak_dbfs_after: float | None
++    true_peak_dbtp_before: float | None
++    true_peak_dbtp_after: float | None
++    target_lufs: float | None
++    true_peak_ceiling_dbtp: float | None
++    requested_gain_db: float
++    applied_gain_db: float
++    target_reached: bool
++    peak_policy: Literal["reduce_gain", "error"]
++    warning: str | None = None
++    analysis_seconds: float = 0.0
++    gain_seconds: float = 0.0
++    post_gain_metrics_seconds: float = 0.0
++
++    @classmethod
++    def from_mapping(cls, value: Mapping[str, object]) -> LoudnessSummary:
++        def optional_float(name: str) -> float | None:
++            raw = value.get(name)
++            return None if raw is None else float(cast(float | int, raw))
++
++        return cls(
++            profile=cast(MasteringProfile, value.get("profile", "spoken-word")),
++            integrated_lufs_before=optional_float("integrated_lufs_before"),
++            integrated_lufs_after=optional_float("integrated_lufs_after"),
++            sample_peak_dbfs_before=optional_float("sample_peak_dbfs_before"),
++            sample_peak_dbfs_after=optional_float("sample_peak_dbfs_after"),
++            true_peak_dbtp_before=optional_float("true_peak_dbtp_before"),
++            true_peak_dbtp_after=optional_float("true_peak_dbtp_after"),
++            target_lufs=optional_float("target_lufs"),
++            true_peak_ceiling_dbtp=optional_float("true_peak_ceiling_dbtp"),
++            requested_gain_db=float(value.get("requested_gain_db", 0.0)),
++            applied_gain_db=float(value.get("applied_gain_db", 0.0)),
++            target_reached=bool(value.get("target_reached", False)),
++            peak_policy=cast(
++                Literal["reduce_gain", "error"], value.get("peak_policy", "reduce_gain")
++            ),
++            warning=cast(str | None, value.get("warning")),
++            analysis_seconds=float(value.get("analysis_seconds", 0.0)),
++            gain_seconds=float(value.get("gain_seconds", 0.0)),
++            post_gain_metrics_seconds=float(value.get("post_gain_metrics_seconds", 0.0)),
++        )
++
++    @classmethod
++    def from_loudness_result(cls, profile: MasteringProfile, value: Any) -> LoudnessSummary:
++        before = value.before
++        after = value.after
++        return cls.from_mapping(
++            {
++                "profile": profile,
++                "integrated_lufs_before": before.integrated_lufs,
++                "integrated_lufs_after": after.integrated_lufs,
++                "sample_peak_dbfs_before": before.sample_peak_dbfs,
++                "sample_peak_dbfs_after": after.sample_peak_dbfs,
++                "true_peak_dbtp_before": before.true_peak_dbtp,
++                "true_peak_dbtp_after": after.true_peak_dbtp,
++                "target_lufs": value.target_lufs,
++                "true_peak_ceiling_dbtp": value.true_peak_ceiling_dbtp,
++                "requested_gain_db": value.requested_gain_db,
++                "applied_gain_db": value.applied_gain_db,
++                "target_reached": value.target_reached,
++                "peak_policy": value.peak_policy,
++                "warning": value.warning,
++                "analysis_seconds": value.analysis_seconds,
++                "gain_seconds": value.gain_seconds,
++                "post_gain_metrics_seconds": value.post_gain_metrics_seconds,
++            }
++        )
++
++    def to_dict(self) -> dict[str, JsonValue]:
++        return cast(dict[str, JsonValue], json_value(self))
++
++
+ @dataclass(frozen=True, slots=True)
+ class ProjectCompositionResult:
+     project: ProjectRef
+@@ -397,6 +477,7 @@ class ProjectCompositionResult:
+     frames: int
+     items: int
+     master_path: Path | None = None
++    loudness: LoudnessSummary | None = None
+
+     def to_dict(self) -> dict[str, JsonValue]:
+         return cast(dict[str, JsonValue], json_value(self))
+@@ -473,6 +554,7 @@ class PreviewResult:
+     items: int
+     output_path: Path | None = None
+     composition_id: str | None = None
++    loudness: LoudnessSummary | None = None
+
+     def to_dict(self) -> dict[str, JsonValue]:
+         return cast(dict[str, JsonValue], json_value(self))
+@@ -906,6 +988,8 @@ __all__ = [
+     "LanguageSettings",
+     "LexiconInfo",
+     "LexiconQuery",
++    "LoudnessSummary",
++    "MasteringProfile",
+     "ModelInfo",
+     "ModelQuery",
+     "ModelVoiceInfo",
+diff --git a/readio/cli.py b/readio/cli.py
+index 2715afd..9701022 100644
+--- a/readio/cli.py
++++ b/readio/cli.py
+@@ -62,6 +62,37 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
+     )
+
+
++MASTERING_PROFILE_CHOICES = (
++    "spoken-word",
++    "spoken-word-dual-mono",
++    "broadcast-ebu",
++    "peak-safe",
++    "off",
++)
++
++
++def _add_mastering_options(parser: argparse.ArgumentParser) -> None:
++    parser.add_argument(
++        "--mastering",
++        choices=MASTERING_PROFILE_CHOICES,
++        default="spoken-word",
++        help="mastering profile (default: spoken-word; omitted numeric overrides inherit)",
++    )
++    parser.add_argument(
++        "--target-lufs",
++        type=float,
++        help="expert LUFS target override; omitted means inherit from --mastering",
++    )
++    parser.add_argument(
++        "--true-peak-ceiling-dbtp",
++        type=float,
++        help="expert true-peak ceiling override; omitted means inherit from --mastering",
++    )
++    parser.add_argument("--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain")
++    parser.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
++    parser.add_argument("--sample-rate", type=int, help="AudioCompose output sample rate")
++
++
+ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
+     parser.add_argument(
+         "--engine",
+@@ -405,7 +436,11 @@ def _project_build_request(args: argparse.Namespace) -> public_api.ProjectBuildR
+         voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
+         synthesis=_project_synthesis_request(args),
+         composition=public_api.CompositionOptions(
++            mastering=getattr(args, "mastering", "spoken-word"),
+             target_lufs=getattr(args, "target_lufs", None),
++            true_peak_ceiling_dbtp=getattr(args, "true_peak_ceiling_dbtp", None),
++            peak_policy=getattr(args, "peak_policy", "reduce_gain"),
++            clip_policy=getattr(args, "clip_policy", "clamp"),
+             sample_rate=getattr(args, "sample_rate", None),
+         ),
+         export=public_api.ExportOptions(format=getattr(args, "format", None) or "wav"),
+@@ -433,6 +468,66 @@ def _cmd_synth(args: argparse.Namespace) -> int:
+     return 0
+
+
++def _metric_pair(before: float | None, after: float | None, unit: str) -> str:
++    left = "n/a" if before is None else f"{before:.2f}"
++    right = "n/a" if after is None else f"{after:.2f}"
++    return f"{left} → {right} {unit}"
++
++
++def _print_loudness_summary(summary: public_api.LoudnessSummary) -> None:
++    print(f"Mastering profile: {summary.profile}")
++    if summary.target_lufs is None:
++        target_status = "no LUFS target"
++        target = "none"
++    else:
++        target = f"{summary.target_lufs:.2f} LUFS"
++        if summary.target_reached:
++            target_status = "target reached"
++        elif summary.integrated_lufs_before is None:
++            target_status = "target not measurable"
++        else:
++            target_status = "target not reached"
++    print(
++        f"Integrated loudness: "
++        f"{_metric_pair(summary.integrated_lufs_before, summary.integrated_lufs_after, 'LUFS')} "
++        f"(target {target}; {target_status})"
++    )
++    ceiling = (
++        "none"
++        if summary.true_peak_ceiling_dbtp is None
++        else f"{summary.true_peak_ceiling_dbtp:.2f} dBTP"
++    )
++    print(
++        f"True peak: "
++        f"{_metric_pair(summary.true_peak_dbtp_before, summary.true_peak_dbtp_after, 'dBTP')} "
++        f"(ceiling {ceiling})"
++    )
++    print(
++        f"Sample peak: "
++        f"{_metric_pair(summary.sample_peak_dbfs_before, summary.sample_peak_dbfs_after, 'dBFS')}"
++    )
++    print(
++        f"Gain: applied {summary.applied_gain_db:+.2f} dB "
++        f"(requested {summary.requested_gain_db:+.2f} dB)"
++    )
++    print(
++        "Finalization timing: "
++        f"analysis {summary.analysis_seconds:.3f}s, "
++        f"gain {summary.gain_seconds:.3f}s, "
++        f"post-gain metrics {summary.post_gain_metrics_seconds:.3f}s"
++    )
++    if summary.warning:
++        print(f"Mastering warning: {summary.warning}")
++
++
++def _print_project_build_result(result: public_api.ProjectBuildResult) -> None:
++    for operation in result.operations:
++        print(f"{operation.stage}: {operation.action}")
++        loudness = operation.details.get("loudness")
++        if operation.stage == "composition" and isinstance(loudness, dict):
++            _print_loudness_summary(public_api.LoudnessSummary.from_mapping(loudness))
++
++
+ def _cmd_compose(args: argparse.Namespace) -> int:
+     app = _api_for(args)
+     progress = _build_progress(args)
+@@ -440,6 +535,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
+         result = app.projects.compose(
+             args.project or Path.cwd(),
+             public_api.CompositionOptions(
++                mastering=args.mastering,
+                 target_lufs=args.target_lufs,
+                 true_peak_ceiling_dbtp=args.true_peak_ceiling_dbtp,
+                 peak_policy=args.peak_policy,
+@@ -457,6 +553,10 @@ def _cmd_compose(args: argparse.Namespace) -> int:
+                     "master": str(result.master_path) if result.master_path is not None else None,
+                     "frames": result.frames,
+                     "items": result.items,
++                    "mastering_profile": (
++                        result.loudness.profile if result.loudness is not None else None
++                    ),
++                    "loudness": result.loudness.to_dict() if result.loudness is not None else None,
+                 },
+                 ensure_ascii=False,
+             )
+@@ -465,6 +565,8 @@ def _cmd_compose(args: argparse.Namespace) -> int:
+         print(f"Composition: {result.composition_id}")
+         if result.master_path is not None:
+             print(f"Master: {result.master_path}")
++        if result.loudness is not None:
++            _print_loudness_summary(result.loudness)
+     return 0
+
+
+@@ -493,7 +595,11 @@ def _cmd_preview(args: argparse.Namespace) -> int:
+         voice_bindings=_parse_voice_bindings(getattr(args, "voice_bind", [])),
+         synthesis=_project_synthesis_request(args),
+         composition=public_api.CompositionOptions(
++            mastering=getattr(args, "mastering", "spoken-word"),
+             target_lufs=getattr(args, "target_lufs", None),
++            true_peak_ceiling_dbtp=getattr(args, "true_peak_ceiling_dbtp", None),
++            peak_policy=getattr(args, "peak_policy", "reduce_gain"),
++            clip_policy=getattr(args, "clip_policy", "clamp"),
+             sample_rate=getattr(args, "sample_rate", None),
+         ),
+         output=args.output,
+@@ -513,6 +619,8 @@ def _cmd_preview(args: argparse.Namespace) -> int:
+         )
+         if result.output_path is not None:
+             print(result.output_path)
++        if result.loudness is not None:
++            _print_loudness_summary(result.loudness)
+     return 0
+
+
+@@ -529,8 +637,7 @@ def _cmd_project_render(args: argparse.Namespace) -> int:
+     if getattr(args, "json", False):
+         print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
+     else:
+-        for operation in result.operations:
+-            print(f"{operation.stage}: {operation.action}")
++        _print_project_build_result(result)
+     return 0
+
+
+@@ -847,12 +954,18 @@ def _emit_render_result(args: argparse.Namespace, result: public_api.RenderResul
+                         if result.manifest_path is not None
+                         else None
+                     ),
++                    "mastering_profile": (
++                        result.loudness.profile if result.loudness is not None else None
++                    ),
++                    "loudness": result.loudness.to_dict() if result.loudness is not None else None,
+                 },
+                 ensure_ascii=False,
+             )
+         )
+     else:
+         print(output)
++        if result.loudness is not None:
++            _print_loudness_summary(result.loudness)
+
+
+ def _cmd_render(args: argparse.Namespace) -> int:
+@@ -878,8 +991,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
+             if getattr(args, "json", False):
+                 print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
+             else:
+-                for operation in result.operations:
+-                    print(f"{operation.stage}: {operation.action}")
++                _print_project_build_result(result)
+             return 0
+     if args.live:
+         return _render_cli_live(args, app)
+@@ -1708,8 +1820,7 @@ def build_parser() -> argparse.ArgumentParser:
+         type=Path,
+         help="output audio path (.wav, .mp3, .m4a, or .ogg)",
+     )
+-    render.add_argument("--target-lufs", type=float, help="project composition loudness target")
+-    render.add_argument("--sample-rate", type=int, help="AudioCompose output sample rate")
++    _add_mastering_options(render)
+     render.add_argument("--force", action="store_true", help="replace an existing output")
+     _add_runtime_options(render, playback=False)
+     _add_progress_option(render)
+@@ -1835,13 +1946,7 @@ def build_parser() -> argparse.ArgumentParser:
+         "compose", help="Assemble synthesized project audio into a master."
+     )
+     compose_cmd.add_argument("project", nargs="?", type=Path)
+-    compose_cmd.add_argument("--target-lufs", type=float)
+-    compose_cmd.add_argument("--sample-rate", type=int)
+-    compose_cmd.add_argument("--true-peak-ceiling-dbtp", type=float, default=-1.0)
+-    compose_cmd.add_argument(
+-        "--peak-policy", choices=("reduce_gain", "error"), default="reduce_gain"
+-    )
+-    compose_cmd.add_argument("--clip-policy", choices=("clamp", "warn", "error"), default="clamp")
++    _add_mastering_options(compose_cmd)
+     _add_progress_option(compose_cmd)
+     compose_cmd.add_argument("--json", action="store_true")
+     compose_cmd.set_defaults(func=_cmd_compose)
+@@ -1858,8 +1963,7 @@ def build_parser() -> argparse.ArgumentParser:
+     preview_cmd = sub.add_parser("preview", help="Render a selected project range for review.")
+     preview_cmd.add_argument("project", nargs="?", type=Path)
+     preview_cmd.add_argument("--select", default="first:3")
+-    preview_cmd.add_argument("--target-lufs", type=float)
+-    preview_cmd.add_argument("--sample-rate", type=int)
++    _add_mastering_options(preview_cmd)
+     preview_cmd.add_argument("-o", "--output", type=Path)
+     preview_cmd.add_argument("--activate", action="store_true")
+     _add_synthesis_options(preview_cmd)
+diff --git a/readio/cli_adapter.py b/readio/cli_adapter.py
+index 42da6ed..15cf814 100644
+--- a/readio/cli_adapter.py
++++ b/readio/cli_adapter.py
+@@ -202,7 +202,11 @@ def build_plan_request(
+         synthesis=synthesis,
+         output=output,
+         composition=api.CompositionOptions(
++            mastering=getattr(args, "mastering", "spoken-word"),
+             target_lufs=getattr(args, "target_lufs", None),
++            true_peak_ceiling_dbtp=getattr(args, "true_peak_ceiling_dbtp", None),
++            peak_policy=getattr(args, "peak_policy", "reduce_gain"),
++            clip_policy=getattr(args, "clip_policy", "clamp"),
+             sample_rate=getattr(args, "sample_rate", None),
+         ),
+         voice_bindings=voice_bindings,
+diff --git a/readio/execution.py b/readio/execution.py
+index 4e223d9..3d9e77d 100644
+--- a/readio/execution.py
++++ b/readio/execution.py
+@@ -193,6 +193,7 @@ def execute_bounded_v2(
+     audio_job, _composition_identity = _build_layout(
+         None,
+         rendered_segments,
++        mastering=plan.composition.mastering,
+         target_lufs=plan.composition.target_lufs,
+         true_peak_ceiling_dbtp=plan.composition.true_peak_ceiling_dbtp,
+         peak_policy=plan.composition.peak_policy,
+diff --git a/readio/plan.py b/readio/plan.py
+index 81f0b7e..30ed108 100644
+--- a/readio/plan.py
++++ b/readio/plan.py
+@@ -218,15 +218,85 @@ class OutputRequest:
+     bitrate: str | None = None
+
+
++MasteringProfile = Literal[
++    "spoken-word",
++    "spoken-word-dual-mono",
++    "broadcast-ebu",
++    "peak-safe",
++    "off",
++]
++DEFAULT_MASTERING_PROFILE: MasteringProfile = "spoken-word"
++MASTERING_PROFILE_DEFAULTS: dict[MasteringProfile, tuple[float | None, float | None]] = {
++    "spoken-word": (-16.0, -1.0),
++    "spoken-word-dual-mono": (-19.0, -1.0),
++    "broadcast-ebu": (-23.0, -1.0),
++    "peak-safe": (None, -1.0),
++    "off": (None, None),
++}
++
++
++@dataclass(frozen=True, slots=True)
++class ResolvedMasteringPolicy:
++    profile: MasteringProfile
++    target_lufs: float | None
++    true_peak_ceiling_dbtp: float | None
++    peak_policy: Literal["reduce_gain", "error"]
++    collect_metrics: bool
++
++
++def resolve_mastering_policy(
++    profile: MasteringProfile = DEFAULT_MASTERING_PROFILE,
++    *,
++    target_lufs: float | None = None,
++    true_peak_ceiling_dbtp: float | None = None,
++    peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
++) -> ResolvedMasteringPolicy:
++    if profile not in MASTERING_PROFILE_DEFAULTS:
++        raise ValueError(f"unsupported mastering profile: {profile!r}")
++    for name, value in (
++        ("target_lufs", target_lufs),
++        ("true_peak_ceiling_dbtp", true_peak_ceiling_dbtp),
++    ):
++        if value is not None and (
++            isinstance(value, bool)
++            or not isinstance(value, (int, float))
++            or not math.isfinite(float(value))
++        ):
++            raise ValueError(f"composition.{name} must be a finite number or None")
++    if peak_policy not in ("reduce_gain", "error"):
++        raise ValueError("composition.peak_policy must be 'reduce_gain' or 'error'")
++    default_target, default_ceiling = MASTERING_PROFILE_DEFAULTS[profile]
++    return ResolvedMasteringPolicy(
++        profile=profile,
++        target_lufs=default_target if target_lufs is None else float(target_lufs),
++        true_peak_ceiling_dbtp=(
++            default_ceiling if true_peak_ceiling_dbtp is None else float(true_peak_ceiling_dbtp)
++        ),
++        peak_policy=peak_policy,
++        collect_metrics=(
++            profile != "off" or target_lufs is not None or true_peak_ceiling_dbtp is not None
++        ),
++    )
++
++
+ @dataclass(frozen=True, slots=True)
+ class CompositionOptions:
++    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE
+     target_lufs: float | None = None
+-    true_peak_ceiling_dbtp: float = -1.0
++    true_peak_ceiling_dbtp: float | None = None
+     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain"
+     clip_policy: Literal["clamp", "warn", "error"] = "clamp"
+     sample_rate: int | None = None
+
+     def __post_init__(self) -> None:
++        resolve_mastering_policy(
++            self.mastering,
++            target_lufs=self.target_lufs,
++            true_peak_ceiling_dbtp=self.true_peak_ceiling_dbtp,
++            peak_policy=self.peak_policy,
++        )
++        if self.clip_policy not in ("clamp", "warn", "error"):
++            raise ValueError("composition.clip_policy must be 'clamp', 'warn', or 'error'")
+         if self.sample_rate is not None and (
+             isinstance(self.sample_rate, bool)
+             or not isinstance(self.sample_rate, int)
+@@ -1711,6 +1781,12 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
+             render_id=render_identity(semantic.sha256, render),
+         )
+     has_errors = any(d.severity == "error" for d in diagnostics)
++    mastering = resolve_mastering_policy(
++        request.composition.mastering,
++        target_lufs=request.composition.target_lufs,
++        true_peak_ceiling_dbtp=request.composition.true_peak_ceiling_dbtp,
++        peak_policy=request.composition.peak_policy,
++    )
+     plan = ReadioPlanV2(
+         schema="readio.plan.v2",
+         ok=not has_errors and semantic is not None and selection is not None,
+@@ -1721,11 +1797,13 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
+         render=render,
+         output=output_plan,
+         composition=CompositionPlanV2(
+-            target_lufs=request.composition.target_lufs,
+-            true_peak_ceiling_dbtp=request.composition.true_peak_ceiling_dbtp,
+-            peak_policy=request.composition.peak_policy,
++            mastering=mastering.profile,
++            target_lufs=mastering.target_lufs,
++            true_peak_ceiling_dbtp=mastering.true_peak_ceiling_dbtp,
++            peak_policy=mastering.peak_policy,
+             clip_policy=request.composition.clip_policy,
+             sample_rate=request.composition.sample_rate,
++            collect_metrics=mastering.collect_metrics,
+         ),
+         environment=environment,
+         decisions=tuple(decisions),
+@@ -1951,19 +2029,23 @@ class PlanningPlanV2:
+ class CompositionPlanV2:
+     """Resolved AudioCompose output policy for a bounded render."""
+
+-    target_lufs: float | None = None
+-    true_peak_ceiling_dbtp: float = -1.0
++    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE
++    target_lufs: float | None = -16.0
++    true_peak_ceiling_dbtp: float | None = -1.0
+     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain"
+     clip_policy: Literal["clamp", "warn", "error"] = "clamp"
+     sample_rate: int | None = None
++    collect_metrics: bool = True
+
+     def to_dict(self) -> dict[str, Any]:
+         return {
++            "mastering": self.mastering,
+             "target_lufs": self.target_lufs,
+             "true_peak_ceiling_dbtp": self.true_peak_ceiling_dbtp,
+             "peak_policy": self.peak_policy,
+             "clip_policy": self.clip_policy,
+             "sample_rate": self.sample_rate,
++            "collect_metrics": self.collect_metrics,
+         }
+
+
+diff --git a/readio/stages/composition.py b/readio/stages/composition.py
+index 14be90a..31c20a7 100644
+--- a/readio/stages/composition.py
++++ b/readio/stages/composition.py
+@@ -6,6 +6,7 @@ import hashlib
+ import logging
+ import math
+ import re
++import time
+ from collections.abc import Callable, Mapping
+ from pathlib import Path
+ from typing import Any
+@@ -32,6 +33,7 @@ from audiocompose import (
+ from utterplan import parse_duration
+
+ from ..errors import InputError
++from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
+ from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
+ from ..stages.speech_identity import segment_speech_hash, segment_synthesis_key
+ from .planning import load_scope_plan
+@@ -456,10 +458,20 @@ def _build_layout(
+     true_peak_ceiling_dbtp: float | None,
+     peak_policy: str,
+     clip_policy: str,
++    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+     composition: Mapping[str, Any] | None = None,
+     scope_metadata: tuple[Mapping[str, Any], ...] = (),
+     output_sample_rate: int | None = None,
+ ) -> tuple[AudioJob, dict[str, Any]]:
++    mastering_policy = resolve_mastering_policy(
++        mastering,
++        target_lufs=target_lufs,
++        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
++        peak_policy=peak_policy,
++    )
++    target_lufs = mastering_policy.target_lufs
++    true_peak_ceiling_dbtp = mastering_policy.true_peak_ceiling_dbtp
++    peak_policy = mastering_policy.peak_policy
+     if not segments:
+         raise ValueError("composition selected no synthesized segments")
+     sample_rate = int(output_sample_rate or segments[0][1]["sample_rate"])
+@@ -665,9 +677,11 @@ def _build_layout(
+         "sample_rate": sample_rate,
+         "channels": 1,
+         "loudness": {
++            "profile": mastering_policy.profile,
+             "target_lufs": target_lufs,
+             "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
+             "peak_policy": peak_policy,
++            "collect_metrics": mastering_policy.collect_metrics,
+         },
+         "clip_policy": clip_policy,
+     }
+@@ -692,7 +706,12 @@ def _build_layout(
+         output=OutputPolicy(
+             sample_rate=sample_rate,
+             channels=1,
+-            loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
++            loudness=LoudnessPolicy(
++                target_lufs,
++                true_peak_ceiling_dbtp,
++                peak_policy,
++                collect_metrics=mastering_policy.collect_metrics,
++            ),
+             clip_policy=clip_policy,
+         ),
+         producer={"readio": "project" if project is not None else "readio"},
+@@ -712,8 +731,9 @@ def _build_layout(
+ def build_audio_job(
+     project: Project,
+     *,
++    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+     target_lufs: float | None = None,
+-    true_peak_ceiling_dbtp: float | None = -1.0,
++    true_peak_ceiling_dbtp: float | None = None,
+     peak_policy: str = "reduce_gain",
+     clip_policy: str = "clamp",
+     output_sample_rate: int | None = None,
+@@ -754,21 +774,68 @@ def build_audio_job(
+         true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+         peak_policy=peak_policy,
+         clip_policy=clip_policy,
++        mastering=mastering,
+         composition=first_entry.get("composition", {}),
+         scope_metadata=tuple(scope_metadata),
+         output_sample_rate=output_sample_rate,
+     )
+
+
++def _loudness_payload(result: Any, profile: str) -> dict[str, Any] | None:
++    loudness = result.loudness
++    if loudness is None:
++        return None
++    before = loudness.before
++    after = loudness.after
++    return {
++        "profile": profile,
++        "integrated_lufs_before": before.integrated_lufs,
++        "integrated_lufs_after": after.integrated_lufs,
++        "sample_peak_dbfs_before": before.sample_peak_dbfs,
++        "sample_peak_dbfs_after": after.sample_peak_dbfs,
++        "true_peak_dbtp_before": before.true_peak_dbtp,
++        "true_peak_dbtp_after": after.true_peak_dbtp,
++        "target_lufs": loudness.target_lufs,
++        "true_peak_ceiling_dbtp": loudness.true_peak_ceiling_dbtp,
++        "requested_gain_db": loudness.requested_gain_db,
++        "applied_gain_db": loudness.applied_gain_db,
++        "gain_db": loudness.applied_gain_db,
++        "target_reached": loudness.target_reached,
++        "peak_policy": loudness.peak_policy,
++        "warning": loudness.warning,
++        "analysis_seconds": loudness.analysis_seconds,
++        "gain_seconds": loudness.gain_seconds,
++        "post_gain_metrics_seconds": loudness.post_gain_metrics_seconds,
++    }
++
++
+ def _write_composition_result(
+-    project: Project, job: AudioJob, identity: Mapping[str, Any], result: Any
++    project: Project,
++    job: AudioJob,
++    identity: Mapping[str, Any],
++    result: Any,
++    *,
++    on_phase: Callable[[str], None] | None = None,
+ ) -> dict[str, Any]:
+     audiojob_path = project.paths["composition_audiojob"]
++    if on_phase is not None:
++        on_phase("Writing AudioJob manifest")
++    phase_started = time.perf_counter()
+     audiojob_manifest = Path(job.save(audiojob_path))
++    if on_phase is not None:
++        on_phase(f"AudioJob manifest written in {time.perf_counter() - phase_started:.3f}s")
+     master = project.paths["composition_master"]
+     temporary = master.with_name(f".{master.name}.tmp")
++    if on_phase is not None:
++        on_phase("Writing master WAV")
++    phase_started = time.perf_counter()
+     sf.write(temporary, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
+     temporary.replace(master)
++    if on_phase is not None:
++        on_phase(f"Master WAV written in {time.perf_counter() - phase_started:.3f}s")
++    if on_phase is not None:
++        on_phase("Building and writing composition timeline")
++    phase_started = time.perf_counter()
+     chapter_metadata = identity.get("identity_payload", {}).get("chapters", [])
+     item_ranges = {item.item_id: (item.start_sample, item.end_sample) for item in result.items}
+     layout_items = identity.get("layout", [])
+@@ -819,7 +886,24 @@ def _write_composition_result(
+         ],
+     }
+     atomic_write_json(project.paths["composition_timeline"], timeline)
++    if on_phase is not None:
++        on_phase(f"Composition timeline written in {time.perf_counter() - phase_started:.3f}s")
++    if on_phase is not None:
++        on_phase("Hashing composition artifacts")
++    phase_started = time.perf_counter()
+     master_sha = hash_file(master)
++    audiojob_sha = hash_file(audiojob_manifest)
++    timeline_sha = hash_file(project.paths["composition_timeline"])
++    synthesis_trace = project.paths["synthesis_trace"]
++    synthesis_trace_sha = hash_file(synthesis_trace) if synthesis_trace.is_file() else None
++    if on_phase is not None:
++        on_phase(f"Composition artifacts hashed in {time.perf_counter() - phase_started:.3f}s")
++    policy = identity.get("identity_payload", {}).get("loudness", {})
++    profile = policy.get("profile", DEFAULT_MASTERING_PROFILE)
++    loudness_summary = _loudness_payload(result, str(profile))
++    if on_phase is not None:
++        on_phase("Writing composition state")
++    phase_started = time.perf_counter()
+     atomic_write_json(
+         project.paths["composition_state"],
+         {
+@@ -828,43 +912,36 @@ def _write_composition_result(
+             "composition_id": identity["composition_id"],
+             "identity_payload": identity["identity_payload"],
+             "warnings": list(identity.get("warnings", [])),
+-            "synthesis_trace_sha256": (
+-                hash_file(project.paths["synthesis_trace"])
+-                if project.paths["synthesis_trace"].is_file()
+-                else None
+-            ),
++            "synthesis_trace_sha256": synthesis_trace_sha,
+             "synthesis_profile_id": read_json(project.paths["synthesis_profile"]).get("profile_id"),
+-            "audiojob_sha256": hash_file(audiojob_manifest),
++            "audiojob_sha256": audiojob_sha,
+             "master_sha256": master_sha,
+-            "timeline_sha256": hash_file(project.paths["composition_timeline"]),
++            "timeline_sha256": timeline_sha,
+             "sample_rate": result.sample_rate,
+             "frames": len(result.audio),
+-            "loudness": {
+-                "integrated_lufs_before": result.loudness.before.integrated_lufs
+-                if result.loudness
+-                else None,
+-                "integrated_lufs_after": result.loudness.after.integrated_lufs
+-                if result.loudness
+-                else None,
+-                "gain_db": result.loudness.applied_gain_db if result.loudness else 0.0,
+-            },
++            "loudness": loudness_summary,
+         },
+     )
++    if on_phase is not None:
++        on_phase(f"Composition state written in {time.perf_counter() - phase_started:.3f}s")
+     return {
+         "composition_id": identity["composition_id"],
++        "mastering_profile": profile,
+         "master": master,
+         "sample_rate": result.sample_rate,
+         "frames": len(result.audio),
+         "items": len(result.items),
+         "warnings": list(identity.get("warnings", [])),
++        "loudness": loudness_summary,
+     }
+
+
+ def compose_project(
+     project: Project,
+     *,
++    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+     target_lufs: float | None = None,
+-    true_peak_ceiling_dbtp: float | None = -1.0,
++    true_peak_ceiling_dbtp: float | None = None,
+     peak_policy: str = "reduce_gain",
+     clip_policy: str = "clamp",
+     output_sample_rate: int | None = None,
+@@ -874,18 +951,22 @@ def compose_project(
+     with project_lock(project, operation="compose"):
+         if on_phase is not None:
+             on_phase("Preparing composition")
++        phase_started = time.perf_counter()
+         job, identity = build_audio_job(
+             project,
++            mastering=mastering,
+             target_lufs=target_lufs,
+             true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+             peak_policy=peak_policy,
+             clip_policy=clip_policy,
+             output_sample_rate=output_sample_rate,
+         )
++        if on_phase is not None:
++            on_phase(f"Composition layout prepared in {time.perf_counter() - phase_started:.3f}s")
+         result = Composer().compose(job, on_progress=on_progress)
+         if on_phase is not None:
+             on_phase("Writing composition artifacts")
+-        return _write_composition_result(project, job, identity, result)
++        return _write_composition_result(project, job, identity, result, on_phase=on_phase)
+
+
+ def compose_artifacts(
+@@ -896,8 +977,9 @@ def compose_artifacts(
+     synthesis_profile: Mapping[str, Any] | None = None,
+     plans: Any | None = None,
+     scope_metadata: tuple[Mapping[str, Any], ...] = (),
++    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+     target_lufs: float | None = None,
+-    true_peak_ceiling_dbtp: float | None = -1.0,
++    true_peak_ceiling_dbtp: float | None = None,
+     peak_policy: str = "reduce_gain",
+     clip_policy: str = "clamp",
+     output_sample_rate: int | None = None,
+@@ -906,6 +988,15 @@ def compose_artifacts(
+     on_phase: Callable[[str], None] | None = None,
+ ) -> dict[str, Any]:
+     artifact_list = tuple(artifacts)
++    mastering_policy = resolve_mastering_policy(
++        mastering,
++        target_lufs=target_lufs,
++        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
++        peak_policy=peak_policy,
++    )
++    target_lufs = mastering_policy.target_lufs
++    true_peak_ceiling_dbtp = mastering_policy.true_peak_ceiling_dbtp
++    peak_policy = mastering_policy.peak_policy
+     if not artifact_list:
+         raise ValueError("preview selected no synthesized segments")
+     plan_pairs = (
+@@ -944,14 +1035,31 @@ def compose_artifacts(
+             output=OutputPolicy(
+                 sample_rate=output_sample_rate or clips[0].source.sample_rate,
+                 channels=1,
+-                loudness=LoudnessPolicy(target_lufs, true_peak_ceiling_dbtp, peak_policy),
++                loudness=LoudnessPolicy(
++                    target_lufs,
++                    true_peak_ceiling_dbtp,
++                    peak_policy,
++                    collect_metrics=mastering_policy.collect_metrics,
++                ),
+                 clip_policy=clip_policy,
+             ),
+         )
++        identity_payload = {
++            "schema": "readio.composition.v2",
++            "items": [clip.metadata for clip in clips],
++            "sample_rate": output_sample_rate or clips[0].source.sample_rate,
++            "clip_policy": clip_policy,
++            "loudness": {
++                "profile": mastering_policy.profile,
++                "target_lufs": target_lufs,
++                "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
++                "peak_policy": peak_policy,
++                "collect_metrics": mastering_policy.collect_metrics,
++            },
++        }
+         identity = {
+-            "composition_id": composition_id(
+-                {"schema": "readio.composition.v2", "items": [clip.metadata for clip in clips]}
+-            ),
++            "composition_id": composition_id(identity_payload),
++            "identity_payload": identity_payload,
+             "layout": [dict(clip.metadata) for clip in clips],
+         }
+     else:
+@@ -995,6 +1103,7 @@ def compose_artifacts(
+             true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+             peak_policy=peak_policy,
+             clip_policy=clip_policy,
++            mastering=mastering,
+             composition=composition,
+             scope_metadata=scope_metadata,
+             output_sample_rate=output_sample_rate,
+@@ -1012,6 +1121,7 @@ def compose_artifacts(
+         "output": output,
+         "composition_id": identity["composition_id"],
+         "warnings": list(identity.get("warnings", [])),
++        "loudness": _loudness_payload(result, mastering_policy.profile),
+     }
+
+
+diff --git a/readio/stages/pipeline.py b/readio/stages/pipeline.py
+index eb1cecf..10e77e6 100644
+--- a/readio/stages/pipeline.py
++++ b/readio/stages/pipeline.py
+@@ -271,8 +271,9 @@ def project_status(project: Project) -> dict[str, Any]:
+                 )
+                 _, current_identity = build_audio_job(
+                     project,
++                    mastering=loudness.get("profile", "spoken-word"),
+                     target_lufs=loudness.get("target_lufs"),
+-                    true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp", -1.0),
++                    true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp"),
+                     peak_policy=loudness.get("peak_policy", "reduce_gain"),
+                     clip_policy=identity_payload.get("clip_policy", "clamp")
+                     if isinstance(identity_payload, dict)
+@@ -432,6 +433,7 @@ def build_project(
+     composition_options = request.composition
+     _, identity = build_audio_job(
+         project,
++        mastering=composition_options.mastering,
+         target_lufs=composition_options.target_lufs,
+         true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
+         peak_policy=composition_options.peak_policy,
+@@ -445,12 +447,20 @@ def build_project(
+         and project.paths["composition_master"].is_file()
+     )
+     if composition_current:
+-        operations.append({"stage": "composition", "action": "skipped"})
++        operations.append(
++            {
++                "stage": "composition",
++                "action": "skipped",
++                "mastering_profile": identity["identity_payload"]["loudness"]["profile"],
++                "loudness": state.get("loudness"),
++            }
++        )
+         report("composition", "skipped")
+     else:
+         report("composition", "started")
+         composed = compose_project(
+             project,
++            mastering=composition_options.mastering,
+             target_lufs=composition_options.target_lufs,
+             true_peak_ceiling_dbtp=composition_options.true_peak_ceiling_dbtp,
+             peak_policy=composition_options.peak_policy,
+@@ -571,6 +581,7 @@ def preview_project(
+         synthesis["artifacts"],
+         plans=scoped_plans,
+         scope_metadata=scope_metadata,
++        mastering=options.mastering,
+         target_lufs=options.target_lufs,
+         true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
+         peak_policy=options.peak_policy,
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index a64c0a1..763da5c 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -15,6 +15,7 @@ from readio.api.speech import SpeechService
+ from readio.api.types import (
+     ConfigurationInitResult,
+     Diagnostic,
++    LoudnessSummary,
+     NextAction,
+     ProjectCompositionResult,
+     ProjectRef,
+@@ -646,6 +647,32 @@ def test_project_commands_share_progress_option():
+     assert preview.progress is False
+
+
++def test_mastering_cli_options_default_and_inherit_numeric_overrides():
++    default_compose = build_parser().parse_args(["compose"])
++    custom_compose = build_parser().parse_args(
++        [
++            "compose",
++            "--mastering",
++            "broadcast-ebu",
++            "--target-lufs",
++            "-21",
++            "--true-peak-ceiling-dbtp",
++            "-2",
++        ]
++    )
++    render = build_parser().parse_args(["render", "text"])
++    preview = build_parser().parse_args(["preview"])
++
++    assert default_compose.mastering == "spoken-word"
++    assert default_compose.target_lufs is None
++    assert default_compose.true_peak_ceiling_dbtp is None
++    assert custom_compose.mastering == "broadcast-ebu"
++    assert custom_compose.target_lufs == -21
++    assert custom_compose.true_peak_ceiling_dbtp == -2
++    assert render.mastering == "spoken-word"
++    assert preview.mastering == "spoken-word"
++
++
+ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch, capsys):
+     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
+
+@@ -669,6 +696,23 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch,
+                     details={"clip_items": 1},
+                 )
+             )
++            on_event(
++                ReadioEvent(
++                    kind="progress",
++                    operation="projects.compose",
++                    stage="composition",
++                    progress_kind="phase",
++                    message=(
++                        "Loudness finalization complete (total 0.010s; "
++                        "analysis 0.008s; gain 0.001s; post-gain metrics 0.001s)"
++                    ),
++                    details={
++                        "analysis_seconds": 0.008,
++                        "gain_seconds": 0.001,
++                        "post_gain_metrics_seconds": 0.001,
++                    },
++                )
++            )
+             on_event(
+                 ReadioEvent(
+                     kind="progress",
+@@ -697,27 +741,55 @@ def test_compose_progress_stays_on_stderr_and_json_stdout_is_clean(monkeypatch,
+             frames=24000,
+             items=1,
+             master_path=Path("master.wav"),
++            loudness=LoudnessSummary(
++                profile="spoken-word",
++                integrated_lufs_before=-20.0,
++                integrated_lufs_after=-16.0,
++                sample_peak_dbfs_before=-10.0,
++                sample_peak_dbfs_after=-6.0,
++                true_peak_dbtp_before=-5.0,
++                true_peak_dbtp_after=-1.0,
++                target_lufs=-16.0,
++                true_peak_ceiling_dbtp=-1.0,
++                requested_gain_db=4.0,
++                applied_gain_db=4.0,
++                target_reached=True,
++                peak_policy="reduce_gain",
++                analysis_seconds=0.1,
++                gain_seconds=0.02,
++                post_gain_metrics_seconds=0.03,
++            ),
+         )
+
+     monkeypatch.setattr(ProjectService, "compose", compose)
+     args = build_parser().parse_args(["compose", "--progress"])
+     assert cli._cmd_compose(args) == 0
+     captured = capsys.readouterr()
+-    assert captured.out == "Composition: sha256:test\nMaster: master.wav\n"
++    assert captured.out == (
++        "Composition: sha256:test\n"
++        "Master: master.wav\n"
++        "Mastering profile: spoken-word\n"
++        "Integrated loudness: -20.00 → -16.00 LUFS "
++        "(target -16.00 LUFS; target reached)\n"
++        "True peak: -5.00 → -1.00 dBTP (ceiling -1.00 dBTP)\n"
++        "Sample peak: -10.00 → -6.00 dBFS\n"
++        "Gain: applied +4.00 dB (requested +4.00 dB)\n"
++        "Finalization timing: analysis 0.100s, gain 0.020s, post-gain metrics 0.030s\n"
++    )
+     assert "Preparing composition…" in captured.err
+     assert "Composing" in captured.err
++    assert "Loudness finalization complete (total 0.010s" in captured.err
+     assert "Composition complete:" in captured.err
+
+     json_args = build_parser().parse_args(["compose", "--json", "--progress"])
+     assert cli._cmd_compose(json_args) == 0
+     captured = capsys.readouterr()
+-    assert json.loads(captured.out) == {
+-        "ok": True,
+-        "composition_id": "sha256:test",
+-        "master": "master.wav",
+-        "frames": 24000,
+-        "items": 1,
+-    }
++    payload = json.loads(captured.out)
++    assert payload["ok"] is True
++    assert payload["composition_id"] == "sha256:test"
++    assert payload["mastering_profile"] == "spoken-word"
++    assert payload["loudness"]["integrated_lufs_after"] == -16.0
++    assert payload["loudness"]["true_peak_dbtp_after"] == -1.0
+     assert "Composing" in captured.err
+
+
+diff --git a/tests/test_incremental_project_render.py b/tests/test_incremental_project_render.py
+index 25a2c5f..945cd0c 100644
+--- a/tests/test_incremental_project_render.py
++++ b/tests/test_incremental_project_render.py
+@@ -66,7 +66,11 @@ def test_render_project_forwards_composition_progress(tmp_path, monkeypatch):
+     render_project(project, cfg, on_composition_progress=events.append, on_phase=phases.append)
+     assert events[0].kind == "compose_started"
+     assert events[-1].kind == "compose_completed"
+-    assert phases == ["Preparing composition", "Writing composition artifacts"]
++    assert phases[0] == "Preparing composition"
++    assert phases[1].startswith("Composition layout prepared in ")
++    assert "Writing composition artifacts" in phases
++    assert any(phase.startswith("Master WAV written in ") for phase in phases)
++    assert any(phase.startswith("Composition state written in ") for phase in phases)
+
+
+ def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatch):
+diff --git a/tests/test_mastering_profiles.py b/tests/test_mastering_profiles.py
+new file mode 100644
+index 0000000..f2239ff
+--- /dev/null
++++ b/tests/test_mastering_profiles.py
+@@ -0,0 +1,62 @@
++from __future__ import annotations
++
++import pytest
++
++from readio.plan import CompositionOptions, CompositionPlanV2, resolve_mastering_policy
++
++
++@pytest.mark.parametrize(
++    ("profile", "target_lufs", "ceiling"),
++    [
++        ("spoken-word", -16.0, -1.0),
++        ("spoken-word-dual-mono", -19.0, -1.0),
++        ("broadcast-ebu", -23.0, -1.0),
++        ("peak-safe", None, -1.0),
++        ("off", None, None),
++    ],
++)
++def test_mastering_profile_defaults(profile, target_lufs, ceiling):
++    resolved = resolve_mastering_policy(profile)
++    assert resolved.profile == profile
++    assert resolved.target_lufs == target_lufs
++    assert resolved.true_peak_ceiling_dbtp == ceiling
++    assert resolved.collect_metrics is (profile != "off")
++
++
++def test_public_composition_options_default_to_spoken_word():
++    options = CompositionOptions()
++    resolved = resolve_mastering_policy(
++        options.mastering,
++        target_lufs=options.target_lufs,
++        true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
++        peak_policy=options.peak_policy,
++    )
++    assert options.mastering == "spoken-word"
++    assert resolved.target_lufs == -16.0
++    assert resolved.true_peak_ceiling_dbtp == -1.0
++    assert CompositionPlanV2().to_dict()["target_lufs"] == -16.0
++
++
++def test_numeric_overrides_replace_profile_defaults_and_none_inherits():
++    resolved = resolve_mastering_policy(
++        "spoken-word-dual-mono", target_lufs=-18.0, true_peak_ceiling_dbtp=-2.0
++    )
++    assert resolved.target_lufs == -18.0
++    assert resolved.true_peak_ceiling_dbtp == -2.0
++    assert resolve_mastering_policy("broadcast-ebu", target_lufs=None).target_lufs == -23.0
++
++
++def test_off_only_skips_analysis_when_no_numeric_override_is_given():
++    disabled = resolve_mastering_policy("off")
++    overridden = resolve_mastering_policy("off", target_lufs=-20.0)
++    assert disabled.collect_metrics is False
++    assert overridden.target_lufs == -20.0
++    assert overridden.true_peak_ceiling_dbtp is None
++    assert overridden.collect_metrics is True
++
++
++def test_unknown_or_nonfinite_mastering_inputs_are_rejected():
++    with pytest.raises(ValueError, match="unsupported mastering profile"):
++        CompositionOptions(mastering="acx")  # type: ignore[arg-type]
++    with pytest.raises(ValueError, match="finite number"):
++        CompositionOptions(target_lufs=float("nan"))
+diff --git a/tests/test_project_composition.py b/tests/test_project_composition.py
+index 624f70c..b2d4978 100644
+--- a/tests/test_project_composition.py
++++ b/tests/test_project_composition.py
+@@ -5,7 +5,7 @@ from project_support import Adapter, request
+ from readio.config import ReaderSettings, ReadioConfig
+ from readio.engines.registry import _registry
+ from readio.project import hash_file, init_project, read_json
+-from readio.stages.composition import compose_project
++from readio.stages.composition import build_audio_job, compose_project
+ from readio.stages.pipeline import preview_project
+ from readio.stages.planning import plan_project
+ from readio.stages.synthesis import synthesize_project
+@@ -20,6 +20,14 @@ def test_composition_uses_persisted_audio_and_loudness_only_rebuild(tmp_path, mo
+     project = init_project(source, tmp_path / "book.readio")
+     plan_project(project, cfg)
+     synthesize_project(project, cfg, request=request(project))
++    _, speech_identity = build_audio_job(project)
++    _, override_identity = build_audio_job(
++        project,
++        mastering="peak-safe",
++        target_lufs=-16.0,
++        true_peak_ceiling_dbtp=-1.0,
++    )
++    assert speech_identity["composition_id"] != override_identity["composition_id"]
+     monkeypatch.setattr(
+         "readio.engines.registry.get_engine",
+         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TTS touched")),
+@@ -50,7 +58,22 @@ def test_compose_project_forwards_progress_and_outer_phases(tmp_path, monkeypatc
+     assert events[0].kind == "compose_started"
+     assert events[-1].kind == "compose_completed"
+     assert any(event.kind == "operation_started" for event in events) is False
+-    assert phases == ["Preparing composition", "Writing composition artifacts"]
++    assert phases[0] == "Preparing composition"
++    assert phases[1].startswith("Composition layout prepared in ")
++    assert "Writing composition artifacts" in phases
++    for phase in (
++        "Writing AudioJob manifest",
++        "AudioJob manifest written in ",
++        "Writing master WAV",
++        "Master WAV written in ",
++        "Building and writing composition timeline",
++        "Composition timeline written in ",
++        "Hashing composition artifacts",
++        "Composition artifacts hashed in ",
++        "Writing composition state",
++        "Composition state written in ",
++    ):
++        assert any(item.startswith(phase) for item in phases)
+
+
+ def test_progress_does_not_change_composition_identity_or_audio(tmp_path, monkeypatch):
+@@ -71,7 +94,16 @@ def test_progress_does_not_change_composition_identity_or_audio(tmp_path, monkey
+     assert first["composition_id"] == second["composition_id"]
+     assert project.paths["composition_master"].read_bytes() == master_bytes
+     assert project.paths["composition_timeline"].read_bytes() == timeline_bytes
+-    assert read_json(project.paths["composition_state"]) == state
++    second_state = read_json(project.paths["composition_state"])
++    timing_fields = {"analysis_seconds", "gain_seconds", "post_gain_metrics_seconds"}
++    assert second_state["identity_payload"] == state["identity_payload"]
++    assert not timing_fields.intersection(second_state["identity_payload"].get("loudness", {}))
++    assert {key: value for key, value in second_state.items() if key != "loudness"} == {
++        key: value for key, value in state.items() if key != "loudness"
++    }
++    assert {
++        key: value for key, value in second_state["loudness"].items() if key not in timing_fields
++    } == {key: value for key, value in state["loudness"].items() if key not in timing_fields}
+     assert events[-1].kind == "compose_completed"
+     assert hash_file(project.paths["composition_master"]) == state["master_sha256"]
+
+diff --git a/tests/test_public_api_events.py b/tests/test_public_api_events.py
+index 5c4f102..648f371 100644
+--- a/tests/test_public_api_events.py
++++ b/tests/test_public_api_events.py
+@@ -106,6 +106,35 @@ def test_composition_callbacks_translate_to_public_progress() -> None:
+     assert all(not event.details for event in events)
+
+
++def test_assembly_and_loudness_progress_exposes_finalization_timings() -> None:
++    service = object.__new__(ProjectService)
++    events: list[ReadioEvent] = []
++    handler = service._composition_handler(events.append, "projects.compose")
++    assert handler is not None
++
++    handler(SimpleNamespace(kind="assembly_started"))
++    handler(SimpleNamespace(kind="assembly_completed", details={}))
++    handler(SimpleNamespace(kind="loudness_started"))
++    handler(
++        SimpleNamespace(
++            kind="loudness_completed",
++            details={
++                "analysis_seconds": 0.25,
++                "gain_seconds": 0.01,
++                "post_gain_metrics_seconds": 0.02,
++            },
++        )
++    )
++
++    assert "Audio assembly complete in" in (events[1].message or "")
++    loudness_event = events[3]
++    assert loudness_event.message is not None
++    assert "analysis 0.250s" in loudness_event.message
++    assert "post-gain metrics 0.020s" in loudness_event.message
++    assert loudness_event.details["analysis_seconds"] == 0.25
++    assert isinstance(loudness_event.details["phase_duration_seconds"], float)
++
++
+ def test_composition_phase_callbacks_are_progress_events() -> None:
+     service = object.__new__(ProjectService)
+     events: list[ReadioEvent] = []
+diff --git a/tests/test_public_api_projects.py b/tests/test_public_api_projects.py
+index 178f187..738ffb7 100644
+--- a/tests/test_public_api_projects.py
++++ b/tests/test_public_api_projects.py
+@@ -64,6 +64,38 @@ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
+     assert json.loads(json.dumps(status.to_dict()))["stages"]
+
+
++def test_project_compose_returns_typed_mastering_diagnostics(tmp_path: Path, monkeypatch) -> None:
++    adapter = Adapter()
++    monkeypatch.setitem(_registry._adapters, "fake", adapter)
++    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
++    source = tmp_path / "spoken.txt"
++    source.write_text("A short spoken-word passage.", encoding="utf-8")
++    project = app.projects.create(source, output=tmp_path / "spoken.readio")
++    app.projects.plan(project)
++    app.projects.synthesize(project, SynthesisRequest(engine="fake", voice="fake-voice"))
++
++    result = app.projects.compose(project)
++
++    assert result.loudness is not None
++    assert result.loudness.profile == "spoken-word"
++    assert result.loudness.target_lufs == -16.0
++    assert result.loudness.true_peak_ceiling_dbtp == -1.0
++    assert result.loudness.integrated_lufs_before is None
++    assert result.loudness.sample_peak_dbfs_before is not None
++    assert result.loudness.true_peak_dbtp_before is not None
++    assert result.loudness.warning is not None
++    payload = json.loads(json.dumps(result.to_dict()))
++    assert payload["loudness"]["profile"] == "spoken-word"
++    state_path = tmp_path / "spoken.readio" / "composition" / "state.json"
++    state = json.loads(state_path.read_text(encoding="utf-8"))
++    policy = state["identity_payload"]["loudness"]
++    assert policy["profile"] == "spoken-word"
++    assert policy["target_lufs"] == -16.0
++    assert "analysis_seconds" not in policy
++    assert state["loudness"]["analysis_seconds"] >= 0.0
++    assert state["loudness"]["applied_gain_db"] == result.loudness.applied_gain_db
++
++
+ def test_project_build_returns_typed_incremental_operations(tmp_path: Path, monkeypatch) -> None:
+     adapter = Adapter()
+     monkeypatch.setitem(_registry._adapters, "fake", adapter)
+@@ -429,6 +461,9 @@ def test_preview_is_typed_and_does_not_activate_synthesis(tmp_path: Path, monkey
+     assert result.activated is False
+     assert result.frames > 0
+     assert json.loads(json.dumps(result.to_dict()))["items"] >= 0
++    assert result.loudness is not None
++    assert result.loudness.profile == "spoken-word"
++    assert json.loads(json.dumps(result.to_dict()))["loudness"]["profile"] == "spoken-word"
+     after = profile_path.read_bytes() if profile_path.exists() else None
+     assert after == before
+
+diff --git a/tests/test_render_from_plan.py b/tests/test_render_from_plan.py
+index 19440c6..3f8d842 100644
+--- a/tests/test_render_from_plan.py
++++ b/tests/test_render_from_plan.py
+@@ -140,6 +140,9 @@ def test_normal_render_executes_requests_from_the_resolved_plan(monkeypatch, tmp
+
+     result = captured[0]
+     assert result.plan.ok
++    assert result.loudness is not None
++    assert result.loudness.profile == "spoken-word"
++    assert result.loudness.target_lufs == -16.0
+     assert result.plan.render.default_target.id == "fixture-model"
+     assert result.output_path == output
+     assert output.is_file()
