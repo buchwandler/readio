@@ -219,10 +219,10 @@ def test_public_event_fields_are_stable_and_frozen() -> None:
 
 def test_project_settings_types_are_immutable_and_copy_nested_engine_options() -> None:
     from readio.api.types import (
+        UNSET,
         ProjectSettings,
         ProjectSettingsPatch,
         ProjectSynthesisSettings,
-        UNSET,
     )
 
     options = {"nested": {"flags": [True, None]}}

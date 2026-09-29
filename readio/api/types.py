@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from types import MappingProxyType
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast
 
 from ..audio import AudioSink, RenderSummary

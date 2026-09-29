@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-
 from pathlib import Path
+
 import pytest
 
 from readio.project import init_project, load_project, update_project_manifest
 from readio.project_model import (
     DocumentIndex,
     DocumentScope,
-    ProjectFormatError,
-    ProjectManifest,
     PlanIndex,
     PlanScope,
+    ProjectFormatError,
+    ProjectManifest,
 )
 from readio.project_settings import (
     project_ssmd_settings,
@@ -360,12 +360,12 @@ def test_project_manifest_rejects_malformed_pipeline_settings(tmp_path, settings
 
 def test_project_settings_patch_and_synthesis_request_merge(tmp_path) -> None:
     from readio.api.types import (
+        UNSET,
         CompositionOptions,
         ExportOptions,
         ProjectSettings,
         ProjectSettingsPatch,
         ProjectSynthesisSettings,
-        UNSET,
     )
     from readio.plan import SynthesisRequest
     from readio.project_settings import (

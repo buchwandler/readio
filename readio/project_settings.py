@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from .errors import ReadioError
 from .project import canonical_json
@@ -329,7 +329,7 @@ def apply_project_settings_patch(
     manifest: ProjectManifest, patch: Any, project_root: Path
 ) -> ProjectManifest:
     """Apply a section patch, distinguishing UNSET from an explicit clear."""
-    from .api.types import ProjectSettings, UNSET
+    from .api.types import UNSET, ProjectSettings
 
     current = project_settings_from_manifest(manifest, project_root)
     values = {

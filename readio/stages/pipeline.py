@@ -14,16 +14,16 @@ from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, hash_file, read_json
 from ..project_settings import (
     merge_project_synthesis_request,
-    project_synthesis_request,
-    synthesis_request_fingerprint,
     project_settings_from_manifest,
+    project_synthesis_request,
     project_voice_bindings,
     project_voice_bindings_provenance,
+    synthesis_request_fingerprint,
 )
+from . import audiobook_export as audiobook_export_stage
 from .composition import build_audio_job, compose_artifacts, compose_project
 from .export import export_project, is_export_current, project_export_states
 from .planning import load_scope_plan, plan_project, semantic_status
-from . import audiobook_export as audiobook_export_stage
 from .synthesis import synthesize_project
 
 _STAGE_REASON_MESSAGES = {

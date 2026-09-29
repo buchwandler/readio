@@ -26,10 +26,10 @@ from .types import (
     AudiobookProjectChapter,
     AudiobookProjectDescription,
     AudiobookProjectResult,
-    ProjectSettings,
     Diagnostic,
     ProjectLike,
     ProjectRef,
+    ProjectSettings,
 )
 
 if TYPE_CHECKING:

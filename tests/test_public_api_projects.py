@@ -494,10 +494,10 @@ def test_project_settings_configure_materializes_without_opening_engine(
     tmp_path: Path, monkeypatch
 ) -> None:
     from readio.api.types import (
-        ProjectSettings,
-        ProjectSynthesisSettings,
-        ProjectSettingsPatch,
         UNSET,
+        ProjectSettings,
+        ProjectSettingsPatch,
+        ProjectSynthesisSettings,
     )
 
     adapter = Adapter()
@@ -612,8 +612,8 @@ def test_project_settings_configuration_observes_manifest_lock(tmp_path: Path) -
 
 def test_saved_synthesis_precedence_overrides_and_status(tmp_path: Path, monkeypatch) -> None:
     from dataclasses import replace
-    from readio.api.types import ProjectSettingsPatch
-    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
+
+    from readio.api.types import ProjectSettings, ProjectSettingsPatch, ProjectSynthesisSettings
 
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
@@ -758,9 +758,7 @@ def test_requestless_build_and_stage_apis_use_saved_composition_and_export(
         def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
             return None
 
-    monkeypatch.setattr(
-        "readio.stages.export.ensure_audio_format_available", lambda _format: None
-    )
+    monkeypatch.setattr("readio.stages.export.ensure_audio_format_available", lambda _format: None)
     monkeypatch.setattr(
         "readio.stages.export.create_audio_sink",
         lambda path, _format, *, bitrate=None: FakeSink(path, bitrate),
