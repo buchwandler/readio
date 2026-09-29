@@ -521,7 +521,7 @@ def _verify_m4b_output(
         )
 
 
-def _audiobook_target(project: Project, output: Path | None) -> Path:
+def audiobook_export_target(project: Project, output: Path | None) -> Path:
     target = output or project.root / "output" / f"{project.manifest.name}.m4b"
     target = Path(target).expanduser()
     if not target.is_absolute():
@@ -562,7 +562,7 @@ def export_audiobook_project(
         prepared = prepare_audiobook_export(
             project, title=title, author=author, cover=cover, bitrate=bitrate
         )
-        target = _audiobook_target(project, output)
+        target = audiobook_export_target(project, output)
         target.parent.mkdir(parents=True, exist_ok=True)
         previous = output_state_for(project, target)
         tracked_unchanged = (
@@ -658,6 +658,7 @@ def export_audiobook_project(
 
 
 __all__ = [
+    "audiobook_export_target",
     "AudiobookChapterRange",
     "AudiobookExportError",
     "PreparedAudiobookExport",

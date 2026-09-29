@@ -20,6 +20,7 @@ from readio.api import (
     ProjectBuildRequest,
     ProjectBuildResult,
     ProjectConflictError,
+    ProjectError,
     ProjectFormatError,
     ProjectNotFoundError,
     ProjectPlanResult,
@@ -487,3 +488,334 @@ def test_status_preserves_missing_output_command_in_public_api(tmp_path: Path, m
     assert action.command == "readio export --format mp3"
     payload = json.loads(json.dumps(status.to_dict()))
     assert payload["next_actions"][0]["command"] == "readio export --format mp3"
+
+
+def test_project_settings_configure_materializes_without_opening_engine(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from readio.api.types import (
+        ProjectSettings,
+        ProjectSynthesisSettings,
+        ProjectSettingsPatch,
+        UNSET,
+    )
+
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "settings.txt"
+    source.write_text("Persist preferences before execution.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "settings.readio")
+    manifest_path = project.root / "project.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["settings"] = {"ssmd": {"style": "bright"}, "custom": {"keep": True}}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    before = manifest_path.read_bytes()
+
+    assert app.projects.settings(project) == ProjectSettings()
+    assert manifest_path.read_bytes() == before
+
+    configured = app.projects.configure(
+        project,
+        ProjectSettings(
+            synthesis=ProjectSynthesisSettings(
+                engine="fake",
+                voice="fake-voice",
+                speed=1.25,
+            ),
+            composition=CompositionOptions(),
+            export=ExportOptions(format="wav"),
+        ),
+    )
+
+    assert configured.synthesis is not None
+    assert configured.synthesis.language == "en-us"
+    assert configured.synthesis.engine == "fake"
+    assert configured.synthesis.model == "fake-target"
+    assert configured.synthesis.speed == 1.25
+    assert configured.synthesis.auto_lexicons is True
+    persisted = json.loads(manifest_path.read_text(encoding="utf-8"))["settings"]
+    assert persisted["ssmd"] == {"style": "bright"}
+    assert persisted["custom"] == {"keep": True}
+    assert app.projects.open(project.root) == project
+    assert app.projects.settings(project) == configured
+    assert adapter.open_calls == 0
+
+    updated = app.projects.update_settings(
+        project, ProjectSettingsPatch(synthesis=None, composition=None, export=UNSET)
+    )
+    assert updated.synthesis is None
+    assert updated.composition is None
+    assert updated.export == configured.export
+    assert updated.audiobook_export is None
+    assert adapter.open_calls == 0
+
+
+def test_project_settings_validation_is_atomic(tmp_path: Path, monkeypatch) -> None:
+    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
+
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "invalid-settings.txt"
+    source.write_text("Do not persist invalid settings.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "invalid-settings.readio")
+    manifest_path = project.root / "project.json"
+    before = manifest_path.read_bytes()
+
+    with pytest.raises(ProjectFormatError):
+        app.projects.configure(
+            project,
+            ProjectSettings(synthesis=ProjectSynthesisSettings(engine="fake", spacy="invalid")),
+        )
+    assert manifest_path.read_bytes() == before
+
+    original_resolve = adapter.resolve
+
+    def reject_invalid_voice(request):
+        if request.voice == "invalid-selector":
+            raise ValueError("unknown voice selector")
+        return original_resolve(request)
+
+    monkeypatch.setattr(adapter, "resolve", reject_invalid_voice)
+    with pytest.raises(InvalidRequestError, match="unknown voice selector"):
+        app.projects.configure(
+            project,
+            ProjectSettings(
+                synthesis=ProjectSynthesisSettings(
+                    engine="fake",
+                    voice="invalid-selector",
+                ),
+            ),
+        )
+    assert manifest_path.read_bytes() == before
+    assert adapter.open_calls == 0
+
+
+def test_project_settings_configuration_observes_manifest_lock(tmp_path: Path) -> None:
+    from readio.api.types import ProjectSettings
+
+    app = Readio(ReadioConfig())
+    source = tmp_path / "locked-settings.txt"
+    source.write_text("Respect the project lock.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "locked-settings.readio")
+    manifest_path = project.root / "project.json"
+    before = manifest_path.read_bytes()
+    (project.root / ".lock").write_text("other-process configure\n", encoding="utf-8")
+
+    with pytest.raises(ProjectConflictError) as locked:
+        app.projects.configure(project, ProjectSettings(export=ExportOptions()))
+
+    assert locked.value.code == "project.locked"
+    assert manifest_path.read_bytes() == before
+
+
+def test_saved_synthesis_precedence_overrides_and_status(tmp_path: Path, monkeypatch) -> None:
+    from dataclasses import replace
+    from readio.api.types import ProjectSettingsPatch
+    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
+
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="global-voice")))
+    source = tmp_path / "saved-synthesis.txt"
+    source.write_text("Use durable preferences.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "saved-synthesis.readio")
+    manifest_path = project.root / "project.json"
+    configured = app.projects.configure(
+        project,
+        ProjectSettings(
+            synthesis=ProjectSynthesisSettings(
+                engine="fake",
+                language="fr-fr",
+                model="saved-model",
+                voice="saved-voice",
+                speed=1.2,
+            )
+        ),
+    )
+    assert configured.synthesis is not None
+    before_override = manifest_path.read_bytes()
+
+    saved = app.projects.resolve_synthesis(project)
+    assert saved.language == "fr-fr"
+    assert saved.model == "saved-model"
+    assert saved.voice == "saved-voice"
+    assert saved.speed == 1.2
+    overridden = app.projects.resolve_synthesis(project, SynthesisRequest(speed=1.75, refresh=True))
+    assert overridden.language == "fr-fr"
+    assert overridden.speed == 1.75
+    assert manifest_path.read_bytes() == before_override
+    assert app.projects.settings(project) == configured
+    assert adapter.open_calls == 0
+
+    app.projects.plan(project)
+    result = app.projects.synthesize(project, SynthesisRequest(speed=1.75, refresh=True))
+    assert result.rendered > 0
+    override_profile = json.loads(
+        (project.root / "synthesis" / "profile.json").read_text(encoding="utf-8")
+    )
+    reused = app.projects.synthesize(project, SynthesisRequest(speed=1.75, refresh=False))
+    assert reused.rendered == 0
+    profile_after_refresh_change = json.loads(
+        (project.root / "synthesis" / "profile.json").read_text(encoding="utf-8")
+    )
+    assert profile_after_refresh_change["profile_id"] == override_profile["profile_id"]
+    stale = {row.stage: row for row in app.projects.status(project).stages}
+    assert stale["synthesis"].reason == "synthesis.stale.project_settings_changed"
+    assert manifest_path.read_bytes() == before_override
+    assert app.projects.settings(project) == configured
+
+    app.projects.synthesize(project)
+    current = {row.stage: row for row in app.projects.status(project).stages}
+    assert current["synthesis"].state == "current"
+    assert manifest_path.read_bytes() == before_override
+
+    cached_files = sorted((project.root / "synthesis" / "cache").glob("*.wav"))
+    app.projects.update_settings(
+        project,
+        ProjectSettingsPatch(synthesis=replace(configured.synthesis, speed=1.4)),
+    )
+    changed = {row.stage: row for row in app.projects.status(project).stages}
+    assert changed["plan"].state == "current"
+    assert changed["synthesis"].reason == "synthesis.stale.project_settings_changed"
+    assert sorted((project.root / "synthesis" / "cache").glob("*.wav")) == cached_files
+    app.projects.update_settings(
+        project,
+        ProjectSettingsPatch(synthesis=replace(configured.synthesis, language="de-de")),
+    )
+    plan_stale = {row.stage: row for row in app.projects.status(project).stages}
+    assert plan_stale["plan"].reason == "plan.stale.project_settings_changed"
+    app.projects.plan(project)
+    replanned = {row.stage: row for row in app.projects.status(project).stages}
+    assert replanned["plan"].state == "current"
+    assert replanned["synthesis"].reason == "synthesis.stale.project_settings_changed"
+
+
+def test_project_settings_survive_failed_build_and_retry(tmp_path: Path, monkeypatch) -> None:
+    from readio.api.types import ProjectSettings, ProjectSynthesisSettings
+
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="global-voice")))
+    source = tmp_path / "retry.txt"
+    source.write_text("Retry with persisted choices.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "retry.readio")
+    configured = app.projects.configure(
+        project,
+        ProjectSettings(
+            synthesis=ProjectSynthesisSettings(
+                engine="fake", voice="saved-voice", language="fr-fr", speed=1.3
+            )
+        ),
+    )
+    manifest_path = project.root / "project.json"
+    persisted = manifest_path.read_bytes()
+    original_open = adapter.open
+
+    def fail_open(selection):
+        raise RuntimeError("synthetic runtime failure")
+
+    monkeypatch.setattr(adapter, "open", fail_open)
+    with pytest.raises(ProjectError, match="synthetic runtime failure"):
+        app.projects.build(project)
+    assert (project.root / "plan" / "index.json").is_file()
+    plan_data = json.loads(
+        (project.root / "plan" / "document.utterplan.json").read_text(encoding="utf-8")
+    )
+    assert plan_data["config"]["language"] == "fr-fr"
+    assert manifest_path.read_bytes() == persisted
+    assert app.projects.settings(project) == configured
+
+    monkeypatch.setattr(adapter, "open", original_open)
+    result = app.projects.build(project)
+    assert result.output_path is not None and result.output_path.is_file()
+    assert manifest_path.read_bytes() == persisted
+    assert app.projects.settings(project) == configured
+    assert adapter.open_calls == 1
+
+
+def test_requestless_build_and_stage_apis_use_saved_composition_and_export(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from readio.api.types import (
+        ProjectSettings,
+        ProjectSettingsPatch,
+        ProjectSynthesisSettings,
+    )
+
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    app = Readio(ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice")))
+    source = tmp_path / "desired-build.txt"
+    source.write_text("Build from saved stage settings.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "desired-build.readio")
+    output_path = project.root / "exports" / "desired.m4a"
+    configured = app.projects.configure(
+        project,
+        ProjectSettings(
+            synthesis=ProjectSynthesisSettings(engine="fake", voice="fake-voice"),
+            composition=CompositionOptions(target_lufs=-18.0),
+            export=ExportOptions(format="m4a", output=output_path, bitrate="128k"),
+        ),
+    )
+
+    first = app.projects.build(project)
+    assert first.output_path == output_path
+    assert first.output_path is not None
+    assert first.output_path.is_file()
+    composed = app.projects.compose(project)
+    assert composed.loudness is not None
+    assert composed.loudness.target_lufs == -18.0
+    direct_export = app.projects.export(project)
+    assert direct_export.output_path == output_path
+    assert direct_export.format == "m4a"
+    assert app.projects.status(project).stage("output").state == "current"
+    cache_files = sorted((project.root / "synthesis" / "cache").glob("*.wav"))
+    master_path = project.root / "composition" / "master.wav"
+    composition_state_path = project.root / "composition" / "state.json"
+    original_composition_id = json.loads(composition_state_path.read_text(encoding="utf-8"))[
+        "composition_id"
+    ]
+
+    updated = app.projects.update_settings(
+        project,
+        ProjectSettingsPatch(composition=CompositionOptions(target_lufs=-20.0)),
+    )
+    assert updated.export == configured.export
+    stale = app.projects.status(project)
+    assert stale.stage("synthesis").state == "current"
+    assert stale.stage("composition").reason == "composition.stale.project_settings_changed"
+    rebuilt = app.projects.build(project)
+    actions = {item.stage: item.action for item in rebuilt.operations}
+    assert actions["synthesis"] == "skipped"
+    assert actions["composition"] == "rebuilt"
+    assert actions["export"] == "skipped"
+    updated_composition_id = json.loads(composition_state_path.read_text(encoding="utf-8"))[
+        "composition_id"
+    ]
+    assert updated_composition_id != original_composition_id
+    composed_master = master_path.read_bytes()
+    assert sorted((project.root / "synthesis" / "cache").glob("*.wav")) == cache_files
+    assert app.projects.status(project).stage("output").state == "current"
+    updated = app.projects.update_settings(
+        project,
+        ProjectSettingsPatch(
+            export=ExportOptions(format="m4a", output=output_path, bitrate="256k")
+        ),
+    )
+    assert updated.composition is not None
+    stale = app.projects.status(project)
+    assert stale.stage("synthesis").state == "current"
+    assert stale.stage("composition").state == "current"
+    assert stale.stage("output").reason == "output.stale.project_settings_changed"
+    rebuilt = app.projects.build(project)
+    actions = {item.stage: item.action for item in rebuilt.operations}
+    assert actions["synthesis"] == "skipped"
+    assert actions["composition"] == "skipped"
+    assert actions["export"] == "rebuilt"
+    assert master_path.read_bytes() == composed_master
+    assert sorted((project.root / "synthesis" / "cache").glob("*.wav")) == cache_files
+    direct_export = app.projects.export(project)
+    assert direct_export.output_path == output_path
+    assert app.projects.status(project).stage("output").state == "current"

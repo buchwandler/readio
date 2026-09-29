@@ -872,3 +872,62 @@ def test_status_cli_renders_domain_command_and_human_issue(monkeypatch, capsys) 
         "reason": "output.missing",
         "command": "readio export --format mp3",
     }
+
+
+def test_project_settings_cli_inspects_sets_and_clears_supported_sections(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    app = Readio()
+    source = tmp_path / "settings.txt"
+    source.write_text("Project settings CLI.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "settings.readio")
+    monkeypatch.setattr(cli, "_api_for", lambda _args: app)
+
+    def run(args):
+        with pytest.raises(SystemExit) as result:
+            cli.main(args)
+        assert result.value.code == 0
+        return json.loads(capsys.readouterr().out)
+
+    initial = run(
+        [
+            "project",
+            "settings",
+            "--project",
+            str(project.root),
+            "--json",
+        ]
+    )
+    assert initial["settings"] == {}
+
+    configured = run(
+        [
+            "project",
+            "settings",
+            "set",
+            str(project.root),
+            "--target-lufs",
+            "-18",
+            "--export-format",
+            "mp3",
+            "--export-output",
+            "output/saved.mp3",
+            "--json",
+        ]
+    )["settings"]
+    assert configured["composition"]["target_lufs"] == -18.0
+    assert configured["export"]["format"] == "mp3"
+    assert Path(configured["export"]["output"]) == project.root / "output/saved.mp3"
+
+    cleared = run(
+        [
+            "project",
+            "settings",
+            "clear",
+            str(project.root),
+            "--section",
+            "composition",
+            "--json",
+        ]
+    )["settings"]
+    assert "composition" not in cleared

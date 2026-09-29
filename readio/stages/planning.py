@@ -23,6 +23,11 @@ from ..project import (
     sha256_bytes,
 )
 from ..project_model import DocumentScope, PlanIndex, PlanScope
+from ..project_settings import (
+    project_planning_config,
+    project_planning_settings_fingerprint,
+    project_settings_from_manifest,
+)
 from ..reader import prepare_input_document
 
 
@@ -112,7 +117,9 @@ def compile_project_scope(
     """Compile one document scope without writing artifacts or mutating indexes."""
     if not scope.id or "/" in scope.id or "\\" in scope.id or scope.id in {".", ".."}:
         raise ValueError("scope_id must be a simple identifier")
-    resolved = resolve_semantic_planning(cfg, document)
+    synthesis_settings = project_settings_from_manifest(project.manifest, project.root).synthesis
+    planning_config = project_planning_config(cfg, synthesis_settings)
+    resolved = resolve_semantic_planning(planning_config, document)
     relative = (
         Path("document.utterplan.json")
         if scope.id == "document" and scope.kind == "document"
@@ -172,13 +179,27 @@ def plan_project_scope(
             sha256=plan_sha,
             document_sha256=planned.scope.document_sha256,
         )
-        old_scopes = ()
-        if project.paths["plan_index"].is_file():
-            old_scopes = project.load_plan_index().scopes
+        old_index = project.load_plan_index() if project.paths["plan_index"].is_file() else None
+        old_scopes = old_index.scopes if old_index is not None else ()
         scopes = tuple(replacement if item.id == scope_id else item for item in old_scopes)
         if not any(item.id == scope_id for item in old_scopes):
             scopes = (*scopes, replacement)
-        atomic_write_json(project.paths["plan_index"], PlanIndex(scopes=tuple(scopes)).to_dict())
+        current_settings_sha256 = project_planning_settings_fingerprint(
+            project_settings_from_manifest(project.manifest, project.root).synthesis
+        )
+        settings_sha256 = (
+            current_settings_sha256
+            if old_index is None
+            or old_index.project_planning_settings_sha256 == current_settings_sha256
+            else old_index.project_planning_settings_sha256
+        )
+        atomic_write_json(
+            project.paths["plan_index"],
+            PlanIndex(
+                scopes=tuple(scopes),
+                project_planning_settings_sha256=settings_sha256,
+            ).to_dict(),
+        )
         return planned.compiled
 
 
@@ -201,7 +222,13 @@ def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
         for planned in planned_scopes:
             plan_path = project.root / "plan" / planned.scope.path
             _write_plan_artifact(plan_path, planned.compiled)
-        index = PlanIndex(scopes=tuple(item.scope for item in planned_scopes))
+        settings_sha256 = project_planning_settings_fingerprint(
+            project_settings_from_manifest(project.manifest, project.root).synthesis
+        )
+        index = PlanIndex(
+            scopes=tuple(item.scope for item in planned_scopes),
+            project_planning_settings_sha256=settings_sha256,
+        )
         atomic_write_json(project.paths["plan_index"], index.to_dict())
         return ProjectPlanningResult(scopes=tuple(planned_scopes))
 
@@ -242,6 +269,15 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
         return {
             "state": "stale",
             "reason": "plan.index.invalid",
+            "details": {},
+        }
+    current_settings_sha256 = project_planning_settings_fingerprint(
+        project_settings_from_manifest(project.manifest, project.root).synthesis
+    )
+    if index.project_planning_settings_sha256 != current_settings_sha256:
+        return {
+            "state": "stale",
+            "reason": "plan.stale.project_settings_changed",
             "details": {},
         }
     try:

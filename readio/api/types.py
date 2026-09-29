@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from types import MappingProxyType
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast
 
@@ -110,6 +111,72 @@ class AudiobookExportOptions:
     cover: Path | None = None
     bitrate: str | None = None
     force: bool = False
+
+
+def _freeze_setting_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_setting_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_setting_value(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSynthesisSettings:
+    """Sparse, durable synthesis preferences for one project."""
+
+    language: str | None = None
+    model: str | None = None
+    model_source: str | None = None
+    quality: str | None = None
+    voice: str | None = None
+    lexicons: tuple[str, ...] | None = None
+    speaker: str | int | None = None
+    clear_lexicons: bool | None = None
+    auto_lexicons: bool | None = None
+    spacy: str | None = None
+    short_sentence: str | None = None
+    g2p_fallback: str | None = None
+    lexicon_data_policy: str | None = None
+    language_detection: str | None = None
+    detect_languages: tuple[str, ...] | None = None
+    allow_experimental: bool | None = None
+    speed: float | None = None
+    voice_level: str | None = None
+    pause_mode: str | None = None
+    unit: str | None = None
+    offline: bool | None = None
+    engine: str | None = None
+    engine_options: Mapping[str, JsonValue] | None = None
+    voice_file: Path | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("lexicons", "detect_languages"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, tuple(value))
+        if self.engine_options is not None:
+            object.__setattr__(self, "engine_options", _freeze_setting_value(self.engine_options))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSettings:
+    """Detached immutable desired pipeline settings for a project."""
+
+    synthesis: ProjectSynthesisSettings | None = None
+    composition: CompositionOptions | None = None
+    export: ExportOptions | None = None
+    audiobook_export: AudiobookExportOptions | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSettingsPatch:
+    """Patch project settings, using None to clear and UNSET to leave unchanged."""
+
+    synthesis: ProjectSynthesisSettings | None | Unset = UNSET
+    composition: CompositionOptions | None | Unset = UNSET
+    export: ExportOptions | None | Unset = UNSET
+    audiobook_export: AudiobookExportOptions | None | Unset = UNSET
 
 
 @dataclass(frozen=True, slots=True)
@@ -1008,6 +1075,9 @@ __all__ = [
     "ProjectPlanResult",
     "ProjectPlanScope",
     "ProjectRef",
+    "ProjectSettings",
+    "ProjectSettingsPatch",
+    "ProjectSynthesisSettings",
     "ProjectRole",
     "ProjectRoleInspection",
     "ProjectRoleMutationResult",

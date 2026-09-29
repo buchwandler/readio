@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .. import project as project_internal
 from ..jsonutil import JsonValue, json_value
 from ..project_model import ProjectFormatError as InternalProjectFormatError
+from ..project_model import ProjectManifest
+from ..project_settings import (
+    apply_project_settings_patch,
+    project_settings_from_manifest,
+    project_synthesis_request,
+    with_project_settings,
+)
 from ..stages.composition import compose_project
 from ..stages.export import export_project
 from ..stages.pipeline import _project_request, build_project, preview_project, project_status
@@ -47,6 +55,8 @@ from .types import (
     ProjectPlanResult,
     ProjectPlanScope,
     ProjectRef,
+    ProjectSettings,
+    ProjectSettingsPatch,
     ProjectStatus,
     ProjectSynthesisResult,
     StageName,
@@ -122,6 +132,107 @@ class ProjectService:
         if root is None:
             return None
         return self._ref(self._call(lambda: project_internal.load_project(root)))
+
+    def settings(self, project: ProjectLike) -> ProjectSettings:
+        """Return the project's detached immutable desired pipeline settings."""
+        internal = self._load(project)
+        return self._call(lambda: project_settings_from_manifest(internal.manifest, internal.root))
+
+    def configure(
+        self,
+        project: ProjectLike,
+        settings: ProjectSettings,
+        *,
+        validate: bool = True,
+    ) -> ProjectSettings:
+        """Atomically replace supported pipeline settings for a project."""
+        internal = self._load(project)
+        return self._call(
+            lambda: self._write_settings(
+                internal,
+                lambda manifest: with_project_settings(manifest, settings, internal.root),
+                validate=validate,
+                operation="project-configure",
+            )
+        )
+
+    def update_settings(
+        self,
+        project: ProjectLike,
+        patch: ProjectSettingsPatch,
+        *,
+        validate: bool = True,
+    ) -> ProjectSettings:
+        """Atomically patch project settings, preserving sections marked UNSET."""
+        internal = self._load(project)
+        return self._call(
+            lambda: self._write_settings(
+                internal,
+                lambda manifest: apply_project_settings_patch(manifest, patch, internal.root),
+                validate=validate,
+                operation="project-settings-update",
+            )
+        )
+
+    def _write_settings(
+        self,
+        project: project_internal.Project,
+        transform: Callable[[ProjectManifest], ProjectManifest],
+        *,
+        validate: bool,
+        operation: str,
+    ) -> ProjectSettings:
+        def update(manifest: ProjectManifest) -> ProjectManifest:
+            candidate = transform(manifest)
+            if validate:
+                settings = project_settings_from_manifest(candidate, project.root)
+                settings = self._materialize_project_synthesis(project, settings)
+                candidate = with_project_settings(manifest, settings, project.root)
+            return candidate
+
+        updated = project_internal.update_project_manifest(project, update, operation=operation)
+        return project_settings_from_manifest(updated.manifest, updated.root)
+
+    def _materialize_project_synthesis(
+        self, project: project_internal.Project, settings: ProjectSettings
+    ) -> ProjectSettings:
+        synthesis = settings.synthesis
+        if synthesis is None:
+            return settings
+        resolution = self._resolve_synthesis_internal(
+            project,
+            project_synthesis_request(synthesis),
+            merge_saved_settings=False,
+        )
+        values: dict[str, Any] = {
+            "language": resolution.language,
+            "engine": resolution.engine,
+            "model": resolution.model,
+            "model_source": resolution.model_source,
+            "quality": resolution.quality,
+            "voice": resolution.voice,
+            "speed": resolution.speed,
+            "spacy": resolution.spacy,
+            "short_sentence": resolution.short_sentence,
+            "g2p_fallback": resolution.g2p_fallback,
+            "lexicon_data_policy": resolution.lexicon_data_policy,
+            "language_detection": resolution.language_detection,
+            "detect_languages": resolution.detect_languages,
+            "allow_experimental": resolution.allow_experimental,
+            "voice_level": resolution.voice_level,
+            "pause_mode": resolution.pause_mode,
+            "unit": resolution.unit,
+        }
+        if (
+            synthesis.lexicons is None
+            and synthesis.clear_lexicons is not True
+            and synthesis.auto_lexicons is not True
+        ):
+            if resolution.lexicons is None:
+                values["auto_lexicons"] = True
+            else:
+                values["lexicons"] = resolution.lexicons
+        return replace(settings, synthesis=replace(synthesis, **values))
 
     def status(self, project: ProjectLike) -> ProjectStatus:
         internal = self._load(project)
@@ -199,11 +310,30 @@ class ProjectService:
         """Resolve effective project synthesis settings without rendering audio."""
         internal = self._load(project)
         request = request or SynthesisRequest()
+        return self._resolve_synthesis_internal(internal, request, voice_bindings=voice_bindings)
+
+    def _resolve_synthesis_internal(
+        self,
+        internal: project_internal.Project,
+        request: SynthesisRequest,
+        *,
+        voice_bindings: Mapping[str, str] | None = None,
+        merge_saved_settings: bool = True,
+    ) -> SynthesisResolution:
         project_request = _project_request(
-            internal, self._app.config, request, voice_bindings=voice_bindings
+            internal,
+            self._app.config,
+            request,
+            voice_bindings=voice_bindings,
+            use_saved_settings=merge_saved_settings,
         )
         _effective_request, resolved, adapter, _profile = self._call(
-            lambda: resolve_project_synthesis(internal, self._app.config, project_request)
+            lambda: resolve_project_synthesis(
+                internal,
+                self._app.config,
+                project_request,
+                merge_saved_settings=False,
+            )
         )
         selection = resolved.selection
         if selection is None:
@@ -304,7 +434,8 @@ class ProjectService:
         on_event: EventHandler | None = None,
     ) -> ProjectCompositionResult:
         internal = self._load(project)
-        options = options or CompositionOptions()
+        settings = project_settings_from_manifest(internal.manifest, internal.root)
+        options = options or settings.composition or CompositionOptions()
         handler = self._handler(on_event)
         operation = "projects.compose"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
@@ -362,7 +493,8 @@ class ProjectService:
         on_event: EventHandler | None = None,
     ) -> ProjectExportResult:
         internal = self._load(project)
-        options = options or ExportOptions()
+        settings = project_settings_from_manifest(internal.manifest, internal.root)
+        options = options or settings.export or ExportOptions()
         handler = self._handler(on_event)
         operation = "projects.export"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
@@ -398,7 +530,6 @@ class ProjectService:
         on_event: EventHandler | None = None,
     ) -> ProjectBuildResult:
         internal = self._load(project)
-        request = request or ProjectBuildRequest()
         handler = self._handler(on_event)
         operation = "projects.build"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))

@@ -215,3 +215,25 @@ def test_public_event_fields_are_stable_and_frozen() -> None:
     assert event.kind == "progress"
     with pytest.raises(FrozenInstanceError):
         event.kind = "changed"  # type: ignore[misc]
+
+
+def test_project_settings_types_are_immutable_and_copy_nested_engine_options() -> None:
+    from readio.api.types import (
+        ProjectSettings,
+        ProjectSettingsPatch,
+        ProjectSynthesisSettings,
+        UNSET,
+    )
+
+    options = {"nested": {"flags": [True, None]}}
+    synthesis = ProjectSynthesisSettings(engine_options=options)
+    settings = ProjectSettings(synthesis=synthesis)
+    patch = ProjectSettingsPatch()
+
+    options["nested"]["flags"].append(False)
+    assert synthesis.engine_options["nested"]["flags"] == (True, None)
+    assert patch.synthesis is UNSET
+    assert patch.composition is UNSET
+    assert settings.synthesis is synthesis
+    with pytest.raises(TypeError):
+        synthesis.engine_options["nested"]["new"] = "value"  # type: ignore[index]

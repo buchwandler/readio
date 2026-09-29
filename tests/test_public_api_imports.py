@@ -23,6 +23,9 @@ def test_public_import_surface_and_typing_marker() -> None:
     assert "SynthesisResolution" in readio.api.__all__
     assert "LanguageProfilePatch" in readio.api.__all__
     assert "ProjectRoleMutationResult" in readio.api.__all__
+    assert "ProjectSettings" in readio.api.__all__
+    assert "ProjectSettingsPatch" in readio.api.__all__
+    assert "ProjectSynthesisSettings" in readio.api.__all__
     assert "ReadioEvent" in readio.api.__all__
     assert "EventKind" in readio.api.__all__
     assert "ProgressKind" in readio.api.__all__

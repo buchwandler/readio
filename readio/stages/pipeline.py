@@ -12,14 +12,25 @@ from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
 from ..formats import AudioFormat
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, hash_file, read_json
-from ..project_settings import project_voice_bindings, project_voice_bindings_provenance
+from ..project_settings import (
+    merge_project_synthesis_request,
+    project_synthesis_request,
+    synthesis_request_fingerprint,
+    project_settings_from_manifest,
+    project_voice_bindings,
+    project_voice_bindings_provenance,
+)
 from .composition import build_audio_job, compose_artifacts, compose_project
 from .export import export_project, is_export_current, project_export_states
 from .planning import load_scope_plan, plan_project, semantic_status
+from . import audiobook_export as audiobook_export_stage
 from .synthesis import synthesize_project
 
 _STAGE_REASON_MESSAGES = {
     "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
+    "plan.stale.project_settings_changed": (
+        "The semantic plan was built with different project planning settings."
+    ),
     "plan.stale.source_changed": "The source changed after planning.",
     "synthesis.missing": "No active synthesis artifacts are available.",
     "synthesis.invalid": "The stored synthesis state is invalid.",
@@ -32,9 +43,18 @@ _STAGE_REASON_MESSAGES = {
     "composition.invalid": "The stored composition state is invalid.",
     "composition.stale.synthesis_changed": "Composition is blocked by stale synthesis.",
     "composition.stale.timing_changed": "Composition timing or presentation changed.",
+    "composition.stale.project_settings_changed": (
+        "Composition settings differ from those used to build the current master."
+    ),
     "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
     "synthesis.stale.project_voice_bindings_changed": (
         "Project voice bindings changed after the active synthesis was created."
+    ),
+    "synthesis.stale.project_settings_changed": (
+        "Active synthesis was built with different project synthesis settings."
+    ),
+    "output.stale.project_settings_changed": (
+        "The exported audio does not match the project's desired export settings."
     ),
     "output.missing": "No exported audio file exists for the current composition.",
     "output.invalid": "The stored export state is invalid.",
@@ -53,8 +73,17 @@ def _project_request(
     synthesis: SynthesisRequest | None = None,
     *,
     voice_bindings: Mapping[str, str] | None = None,
+    use_saved_settings: bool = True,
 ) -> PlanRequest:
-    effective_synthesis = synthesis or SynthesisRequest(language=cfg.reader.lang)
+    saved = (
+        project_settings_from_manifest(project.manifest, project.root).synthesis
+        if use_saved_settings
+        else None
+    )
+    if saved is not None:
+        effective_synthesis = merge_project_synthesis_request(saved, synthesis)
+    else:
+        effective_synthesis = synthesis or SynthesisRequest(language=cfg.reader.lang)
     return PlanRequest(
         operation="render",
         input=InputRequest(
@@ -103,6 +132,24 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
     canonical = profile.get("canonical")
     if not isinstance(canonical, dict):
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+    configured_synthesis = project_settings_from_manifest(project.manifest, project.root).synthesis
+    recorded_settings = profile.get("project_settings")
+    if configured_synthesis is None:
+        settings_changed = recorded_settings is not None
+    else:
+        expected_settings_hash = synthesis_request_fingerprint(
+            project_synthesis_request(configured_synthesis), project.root
+        )
+        settings_changed = (
+            not isinstance(recorded_settings, Mapping)
+            or recorded_settings.get("synthesis_sha256") != expected_settings_hash
+        )
+    if settings_changed:
+        return {
+            "stage": "synthesis",
+            "state": "stale",
+            "reason": "synthesis.stale.project_settings_changed",
+        }
     binding_record = profile.get("project_voice_bindings")
     if binding_record is None:
         legacy_provider = {"pykokoro": "kokoro", "piper": "piper"}.get(
@@ -237,8 +284,51 @@ def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _audiobook_desired_output_status(
+    project: Project, desired: Any, states: tuple[dict[str, Any], ...]
+) -> dict[str, Any]:
+    target = audiobook_export_stage.audiobook_export_target(project, desired.output)
+    prepared = audiobook_export_stage.prepare_audiobook_export(
+        project,
+        title=desired.title,
+        author=desired.author,
+        cover=desired.cover,
+        bitrate=desired.bitrate,
+    )
+    if audiobook_export_stage.is_audiobook_export_current(project, target, prepared):
+        return {
+            "stage": "output",
+            "state": "current",
+            "reason": "current",
+            "format": "m4b",
+        }
+
+    for state in states:
+        if (
+            state.get("format") != "readio.audiobook-export-state"
+            or state.get("master_sha256") != prepared.master_sha256
+            or state.get("timeline_sha256") != prepared.timeline_sha256
+        ):
+            continue
+        stored_path = Path(str(state.get("path", "")))
+        path = stored_path if stored_path.is_absolute() else project.root / stored_path
+        if path.is_file() and hash_file(path) == state.get("output_sha256"):
+            return {
+                "stage": "output",
+                "state": "stale",
+                "reason": "output.stale.project_settings_changed",
+            }
+
+    return {
+        "stage": "output",
+        "state": "stale",
+        "reason": "output.missing",
+    }
+
+
 def project_status(project: Project) -> dict[str, Any]:
     rows = semantic_status(project)
+    desired_settings = project_settings_from_manifest(project.manifest, project.root)
     plan_current = rows[-1]["state"] == "current"
     synthesis = (
         _synthesis_status(project)
@@ -269,36 +359,61 @@ def project_status(project: Project) -> dict[str, Any]:
                     if isinstance(identity_payload, dict)
                     else {}
                 )
+                desired_composition = desired_settings.composition
+                if desired_composition is None:
+                    mastering = loudness.get("profile", "spoken-word")
+                    target_lufs = loudness.get("target_lufs")
+                    true_peak_ceiling_dbtp = loudness.get("true_peak_ceiling_dbtp")
+                    peak_policy = loudness.get("peak_policy", "reduce_gain")
+                    clip_policy = (
+                        identity_payload.get("clip_policy", "clamp")
+                        if isinstance(identity_payload, dict)
+                        else "clamp"
+                    )
+                    sample_rate = (
+                        identity_payload.get("sample_rate")
+                        if isinstance(identity_payload, dict)
+                        else None
+                    )
+                else:
+                    mastering = desired_composition.mastering
+                    target_lufs = desired_composition.target_lufs
+                    true_peak_ceiling_dbtp = desired_composition.true_peak_ceiling_dbtp
+                    peak_policy = desired_composition.peak_policy
+                    clip_policy = desired_composition.clip_policy
+                    sample_rate = desired_composition.sample_rate
                 _, current_identity = build_audio_job(
                     project,
-                    mastering=loudness.get("profile", "spoken-word"),
-                    target_lufs=loudness.get("target_lufs"),
-                    true_peak_ceiling_dbtp=loudness.get("true_peak_ceiling_dbtp"),
-                    peak_policy=loudness.get("peak_policy", "reduce_gain"),
-                    clip_policy=identity_payload.get("clip_policy", "clamp")
-                    if isinstance(identity_payload, dict)
-                    else "clamp",
-                    output_sample_rate=identity_payload.get("sample_rate")
-                    if isinstance(identity_payload, dict)
-                    else None,
+                    mastering=mastering,
+                    target_lufs=target_lufs,
+                    true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+                    peak_policy=peak_policy,
+                    clip_policy=clip_policy,
+                    output_sample_rate=sample_rate,
                 )
                 profile_id = read_json(project.paths["synthesis_profile"]).get("profile_id")
-                if (
-                    state.get("composition_id") == current_identity["composition_id"]
-                    and hash_file(project.paths["composition_master"]) == state.get("master_sha256")
-                    and state.get("synthesis_profile_id") == profile_id
-                ):
+                identity_matches = state.get("composition_id") == current_identity["composition_id"]
+                master_matches = hash_file(project.paths["composition_master"]) == state.get(
+                    "master_sha256"
+                )
+                profile_matches = state.get("synthesis_profile_id") == profile_id
+                if identity_matches and master_matches and profile_matches:
                     composition = {
                         "stage": "composition",
                         "state": "current",
                         "reason": "current",
-                        "composition_id": state.get("composition_id"),
+                        "composition_id": current_identity["composition_id"],
                     }
                 else:
+                    reason = (
+                        "composition.stale.project_settings_changed"
+                        if desired_composition is not None and not identity_matches
+                        else "composition.stale.timing_changed"
+                    )
                     composition = {
                         "stage": "composition",
                         "state": "stale",
-                        "reason": "composition.stale.timing_changed",
+                        "reason": reason,
                     }
             except (OSError, ValueError, KeyError):
                 composition = {
@@ -318,28 +433,94 @@ def project_status(project: Project) -> dict[str, Any]:
         try:
             states = project_export_states(project)
             current_master_sha = hash_file(project.paths["composition_master"])
-            for state in states:
-                stored_path = Path(str(state.get("path", "")))
-                path = stored_path if stored_path.is_absolute() else project.root / stored_path
-                if (
-                    path.is_file()
-                    and hash_file(path) == state.get("output_sha256")
-                    and state.get("master_sha256") == current_master_sha
+            desired_export = desired_settings.export
+            if desired_export is None:
+                for state in states:
+                    stored_path = Path(str(state.get("path", "")))
+                    path = stored_path if stored_path.is_absolute() else project.root / stored_path
+                    if (
+                        path.is_file()
+                        and hash_file(path) == state.get("output_sha256")
+                        and state.get("master_sha256") == current_master_sha
+                    ):
+                        output = {
+                            "stage": "output",
+                            "state": "current",
+                            "reason": "current",
+                            "format": str(state.get("audio_format")),
+                        }
+                        break
+                else:
+                    if states:
+                        output = {
+                            "stage": "output",
+                            "state": "stale",
+                            "reason": "output.stale.composition_changed",
+                        }
+            else:
+                audio_format = desired_export.format
+                target = desired_export.output or (
+                    project.root / "output" / f"{project.manifest.name}.{audio_format}"
+                )
+                if not target.is_absolute():
+                    target = project.root / target
+                if is_export_current(
+                    project,
+                    target,
+                    audio_format=audio_format,
+                    bitrate=desired_export.bitrate,
                 ):
                     output = {
                         "stage": "output",
                         "state": "current",
                         "reason": "current",
-                        "format": state.get("audio_format"),
+                        "format": audio_format,
                     }
-                    break
-            else:
-                if states:
-                    output = {
-                        "stage": "output",
-                        "state": "stale",
-                        "reason": "output.stale.composition_changed",
-                    }
+                else:
+                    has_valid_current_export = False
+                    has_current_master_state = False
+                    for state in states:
+                        if state.get("master_sha256") != current_master_sha:
+                            continue
+                        has_current_master_state = True
+                        stored_path = Path(str(state.get("path", "")))
+                        path = (
+                            stored_path if stored_path.is_absolute() else project.root / stored_path
+                        )
+                        if path.is_file() and hash_file(path) == state.get("output_sha256"):
+                            has_valid_current_export = True
+                            break
+                    if has_valid_current_export:
+                        output = {
+                            "stage": "output",
+                            "state": "stale",
+                            "reason": "output.stale.project_settings_changed",
+                        }
+                    elif has_current_master_state:
+                        output = {
+                            "stage": "output",
+                            "state": "stale",
+                            "reason": "output.invalid",
+                        }
+                    elif states:
+                        output = {
+                            "stage": "output",
+                            "state": "stale",
+                            "reason": "output.stale.composition_changed",
+                        }
+        except (OSError, KeyError, TypeError, ValueError):
+            output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
+    if (
+        composition["state"] == "current"
+        and project.manifest.kind == "audiobook"
+        and desired_settings.audiobook_export is not None
+    ):
+        try:
+            output = _audiobook_desired_output_status(
+                project,
+                desired_settings.audiobook_export,
+                project_export_states(project),
+            )
         except (OSError, KeyError, TypeError, ValueError):
             output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
     stages = [*rows, synthesis, composition, output]
@@ -374,13 +555,19 @@ def project_status(project: Project) -> dict[str, Any]:
 def build_project(
     project: Project,
     cfg: Any,
-    request: ProjectBuildRequest,
+    request: ProjectBuildRequest | None,
     *,
     on_synthesis_event: Callable[[Any], None] | None = None,
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
     on_stage: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
+    if request is None:
+        saved = project_settings_from_manifest(project.manifest, project.root)
+        request = ProjectBuildRequest(
+            composition=saved.composition or CompositionOptions(),
+            export=saved.export or ExportOptions(),
+        )
     if request.target not in {"plan", "synthesis", "composition", "export"}:
         raise ValueError(f"unknown project build target: {request.target}")
     operations: list[dict[str, Any]] = []

@@ -9,6 +9,11 @@ from project_support import Adapter
 from readio.engines.registry import _registry
 from readio.stages.pipeline import project_status, render_project
 from readio.stages.planning import plan_project
+from readio.api import AudiobookExportOptions, Readio
+from readio.api.types import ProjectSettings
+from readio.project import hash_file, load_project
+from readio.stages import audiobook_export as audiobook_export_stage
+from readio.stages.export import store_export_state, target_record
 
 
 def test_status_reports_provenance_scope_and_aggregate_cache_freshness(
@@ -59,3 +64,54 @@ def test_status_reports_provenance_scope_and_aggregate_cache_freshness(
     assert changed["plan"]["reason"] == "plan.stale.document_changed"
     assert changed["plan"]["scope_id"] == changed_scope.id
     assert changed["synthesis"]["blocked_by"] == "plan"
+
+
+def test_status_reports_audiobook_desired_output_settings_staleness(tmp_path, monkeypatch) -> None:
+    adapter = Adapter()
+    monkeypatch.setitem(_registry._adapters, "fake", adapter)
+    project, cfg, _ = make_audiobook_project(tmp_path)
+    plan_project(project, cfg)
+    render_project(project, cfg)
+    app = Readio(cfg)
+    old_options = AudiobookExportOptions(
+        output=project.root / "exports" / "old.m4b",
+        title="Old title",
+        bitrate="128k",
+    )
+    app.projects.configure(project.root, ProjectSettings(audiobook_export=old_options))
+    project = load_project(project.root)
+    prepared = audiobook_export_stage.prepare_audiobook_export(
+        project, title=old_options.title, bitrate=old_options.bitrate
+    )
+    old_options.output.parent.mkdir(parents=True, exist_ok=True)
+    old_options.output.write_bytes(b"previous audiobook export")
+    store_export_state(
+        project,
+        old_options.output,
+        {
+            "format": "readio.audiobook-export-state",
+            "export_id": prepared.export_id,
+            "master_sha256": prepared.master_sha256,
+            "timeline_sha256": prepared.timeline_sha256,
+            "path": target_record(project, old_options.output),
+            "output_sha256": hash_file(old_options.output),
+        },
+    )
+    current_stages = {row["stage"]: row for row in project_status(project)["stages"]}
+    assert current_stages["output"]["state"] == "current"
+    app.projects.configure(
+        project.root,
+        ProjectSettings(
+            audiobook_export=AudiobookExportOptions(
+                output=project.root / "exports" / "new.m4b",
+                title="New title",
+                bitrate="192k",
+            )
+        ),
+    )
+    project = load_project(project.root)
+
+    stages = {row["stage"]: row for row in project_status(project)["stages"]}
+
+    assert stages["output"]["state"] == "stale"
+    assert stages["output"]["reason"] == "output.stale.project_settings_changed"

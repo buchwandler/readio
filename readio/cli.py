@@ -652,6 +652,108 @@ def _cmd_project(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_project_settings(args: argparse.Namespace) -> int:
+    app = _api_for(args)
+    project_path = (
+        getattr(args, "project", None) or getattr(args, "settings_project", None) or Path.cwd()
+    )
+    project = app.projects.open(project_path)
+    action = getattr(args, "settings_action", None) or "show"
+    if action == "show":
+        settings = app.projects.settings(project)
+    elif action == "clear":
+        settings = app.projects.update_settings(
+            project,
+            public_api.ProjectSettingsPatch(**{args.section: None}),
+        )
+    elif action == "set":
+        current = app.projects.settings(project)
+        groups = (
+            (
+                "synthesis",
+                public_api.ProjectSynthesisSettings,
+                (
+                    "engine",
+                    "model",
+                    "language",
+                    "voice",
+                    "speed",
+                    "voice_level",
+                    "pause_mode",
+                    "unit",
+                    "voice_file",
+                    "lexicons",
+                    "clear_lexicons",
+                ),
+            ),
+            (
+                "composition",
+                public_api.CompositionOptions,
+                (
+                    "mastering",
+                    "target_lufs",
+                    "true_peak_ceiling_dbtp",
+                    "peak_policy",
+                    "clip_policy",
+                    "sample_rate",
+                ),
+            ),
+            (
+                "export",
+                public_api.ExportOptions,
+                ("export_format", "export_output", "export_bitrate"),
+            ),
+            (
+                "audiobook_export",
+                public_api.AudiobookExportOptions,
+                (
+                    "audiobook_output",
+                    "audiobook_title",
+                    "audiobook_author",
+                    "audiobook_cover",
+                    "audiobook_bitrate",
+                ),
+            ),
+        )
+        updates = {}
+        for section, settings_type, fields in groups:
+            values = {}
+            for name in fields:
+                value = getattr(args, name)
+                if value is not None:
+                    values[name.removeprefix("export_").removeprefix("audiobook_")] = value
+            if values:
+                existing = getattr(current, section) or settings_type()
+                updates[section] = replace(existing, **values)
+        if not updates:
+            raise ValueError("provide at least one project settings option")
+        settings = app.projects.update_settings(project, public_api.ProjectSettingsPatch(**updates))
+    else:
+        raise ValueError(f"unknown project settings action: {action}")
+
+    settings_value = {
+        section: _json_value(value)
+        for section in ("synthesis", "composition", "export", "audiobook_export")
+        if (value := getattr(settings, section)) is not None
+    }
+    payload = {
+        "ok": True,
+        "project": str(project.root),
+        "settings": settings_value,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(f"Project settings: {project.root}")
+        for section in ("synthesis", "composition", "export", "audiobook_export"):
+            value = settings_value.get(section)
+            rendered = (
+                json.dumps(value, ensure_ascii=False) if value is not None else "not configured"
+            )
+            print(f"{section}: {rendered}")
+    return 0
+
+
 def _audiobook_chapter_json(chapter: public_api.AudiobookChapter) -> dict[str, object]:
     return {
         "number": chapter.number,
@@ -1888,6 +1990,57 @@ def build_parser() -> argparse.ArgumentParser:
     project_init.add_argument("-o", "--output", type=Path)
     project_init.add_argument("--json", action="store_true")
     project_init.set_defaults(func=_cmd_project)
+    project_settings = project_sub.add_parser(
+        "settings", help="inspect or configure saved project pipeline settings"
+    )
+    project_settings.add_argument("--project", type=Path, dest="settings_project")
+    project_settings.add_argument("--json", action="store_true")
+    project_settings.set_defaults(func=_cmd_project_settings, settings_action="show")
+    settings_sub = project_settings.add_subparsers(
+        dest="settings_action", title="Settings actions", metavar="ACTION"
+    )
+    settings_show = settings_sub.add_parser("show", help="show saved project pipeline settings")
+    settings_show.add_argument("project", nargs="?", type=Path)
+    settings_show.add_argument("--json", action="store_true")
+    settings_show.set_defaults(func=_cmd_project_settings, settings_action="show")
+    settings_set = settings_sub.add_parser("set", help="set supported pipeline settings")
+    settings_set.add_argument("project", nargs="?", type=Path)
+    settings_set.add_argument("--json", action="store_true")
+    settings_set.add_argument("--engine")
+    settings_set.add_argument("--model")
+    settings_set.add_argument("--language")
+    settings_set.add_argument("--voice")
+    settings_set.add_argument("--speed", type=float)
+    settings_set.add_argument("--voice-level", choices=("off", "calibrated"))
+    settings_set.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
+    settings_set.add_argument("--unit", choices=("sentence", "paragraph"))
+    settings_set.add_argument("--voice-file", type=Path)
+    settings_set.add_argument("--lexicon", action="append", dest="lexicons")
+    settings_set.add_argument("--clear-lexicons", action="store_true", default=None)
+    settings_set.add_argument("--mastering", choices=MASTERING_PROFILE_CHOICES)
+    settings_set.add_argument("--target-lufs", type=float)
+    settings_set.add_argument("--true-peak-ceiling-dbtp", type=float)
+    settings_set.add_argument("--peak-policy", choices=("reduce_gain", "error"))
+    settings_set.add_argument("--clip-policy", choices=("clamp", "error"))
+    settings_set.add_argument("--sample-rate", type=int)
+    settings_set.add_argument("--export-format", choices=public_api.SUPPORTED_AUDIO_FORMATS)
+    settings_set.add_argument("--export-output", type=Path)
+    settings_set.add_argument("--export-bitrate")
+    settings_set.add_argument("--audiobook-output", type=Path)
+    settings_set.add_argument("--audiobook-title")
+    settings_set.add_argument("--audiobook-author")
+    settings_set.add_argument("--audiobook-cover", type=Path)
+    settings_set.add_argument("--audiobook-bitrate")
+    settings_set.set_defaults(func=_cmd_project_settings, settings_action="set")
+    settings_clear = settings_sub.add_parser("clear", help="clear one saved settings section")
+    settings_clear.add_argument("project", nargs="?", type=Path)
+    settings_clear.add_argument(
+        "--section",
+        required=True,
+        choices=("synthesis", "composition", "export", "audiobook_export"),
+    )
+    settings_clear.add_argument("--json", action="store_true")
+    settings_clear.set_defaults(func=_cmd_project_settings, settings_action="clear")
     audiobook_cmd = sub.add_parser(
         "audiobook", help="Inspect EPUBs and create/export audiobook projects."
     )

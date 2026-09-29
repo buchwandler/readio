@@ -28,6 +28,27 @@ Bindings are stored in `project.json` under `settings.ssmd.voice_bindings`, prov
 
 Voice resolution follows `document > invocation --voice-bind > project > global config role > direct voice`. A project binding is an acoustic synthesis setting. Changing it leaves the semantic plan current, marks active synthesis stale with `synthesis.stale.project_voice_bindings_changed`, blocks composition and output, and makes `readio synth` the next action. The content-addressed synthesis cache is retained.
 
+## Desired pipeline settings
+
+Save supported desired settings before planning, synthesis, composition, or export runs:
+
+```bash
+readio project settings show . --json
+readio project settings set . --engine piper --voice en_US-amy-medium \
+  --mastering spoken-word --target-lufs -18 \
+  --export-format mp3 --export-output output/episode.mp3
+readio project settings set . --audiobook-output output/book.m4b \
+  --audiobook-title "My audiobook" --audiobook-bitrate 96k
+readio project settings clear . --section export
+```
+
+Settings are stored in `project.json` under the existing `settings` object. Updates are atomic, retain `settings.ssmd` and unknown namespaces, and keep schema version 2. The CLI exposes named fields only. Relative output and asset paths are interpreted relative to the project root. `force` and `refresh` are invocation-only and are never saved.
+
+The Python API provides immutable `ProjectSettings`, `ProjectSynthesisSettings`, and `ProjectSettingsPatch`. `app.projects.configure(project, settings)` replaces the supported settings sections; `update_settings(project, patch)` changes only sections present in the patch. In a patch, `UNSET` leaves a section unchanged, `None` clears it, and a concrete value replaces it. `settings(project)` returns detached values.
+
+Persisted synthesis choices are resolved before global and engine defaults. Explicit run requests override saved choices without changing the manifest. Requestless `synthesize`, `compose`, generic `export`, and incremental `build` use saved settings. Composition-only changes stale composition and output; generic or audiobook export-only changes stale only output. Synthesis caches and previous outputs are retained for reuse.
+
+For audiobook projects, `app.audiobooks.export(project)` uses saved M4B path, metadata, cover, and bitrate defaults. `app.audiobooks.build(project)` plans, synthesizes, composes, then exports M4B using the saved settings. `create_project(..., settings=...)` can persist those choices during project creation. `readio status` reports when a prior M4B no longer matches the desired audiobook settings.
 Use `readio render --file episode.ssmd --dry-run --json` for one-shot execution planning. `readio plan` is reserved for persistent project build and role management.
 
 ## EPUB audiobook projects

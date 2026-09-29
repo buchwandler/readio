@@ -21,11 +21,15 @@ from ..engines.registry import engine_for_ssmd_provider, get_engine
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..project_settings import (
+    merge_project_synthesis_request,
+    project_settings_from_manifest,
+    project_synthesis_request,
     project_voice_binding_providers,
     project_voice_bindings,
     project_voice_bindings_provenance,
     project_voice_provider,
     resolve_project_voice_provider,
+    synthesis_request_fingerprint,
 )
 from ..selection import resolve_project_selection, resolve_unit_selection
 from ..ssmd import resolve_voice_references
@@ -269,6 +273,26 @@ def _profile_from_route(
     )
 
 
+def _record_project_settings(
+    profile: SynthesisProfile, project: Project, request: SynthesisRequest
+) -> SynthesisProfile:
+    settings = project_settings_from_manifest(project.manifest, project.root).synthesis
+    if settings is None:
+        return profile
+    fingerprint = synthesis_request_fingerprint(request, project.root)
+    provenance = {"synthesis_sha256": fingerprint}
+    identity = {
+        "schema": "readio.project-synthesis-profile.v1",
+        "engine_profile_id": profile.profile_id,
+        "project_settings": provenance,
+    }
+    return replace(
+        profile,
+        profile_id=synthesis_profile_id(identity),
+        payload={**profile.payload, "project_settings": provenance},
+    )
+
+
 def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
     if not path.is_file():
         return None
@@ -442,12 +466,27 @@ def _resolve_profile(
 
 
 def resolve_project_synthesis(
-    project: Project, cfg: Any, request: PlanRequest | None = None
+    project: Project,
+    cfg: Any,
+    request: PlanRequest | None = None,
+    *,
+    merge_saved_settings: bool = True,
 ) -> tuple[PlanRequest, Any, Any, SynthesisProfile]:
     """Resolve a project's effective engine selection without synthesis side effects."""
-    effective_request = _project_request_with_voice_bindings(
-        project, cfg, _request_for_project(project, cfg, request)
+    saved = (
+        project_settings_from_manifest(project.manifest, project.root).synthesis
+        if merge_saved_settings
+        else None
     )
+    effective_request = _request_for_project(project, cfg, request)
+    if saved is not None:
+        if request is None:
+            effective_request = replace(effective_request, synthesis=SynthesisRequest())
+        effective_request = replace(
+            effective_request,
+            synthesis=merge_project_synthesis_request(saved, effective_request.synthesis),
+        )
+    effective_request = _project_request_with_voice_bindings(project, cfg, effective_request)
     resolved, adapter, profile = _resolve_profile(project, cfg, effective_request)
     return effective_request, resolved, adapter, profile
 
@@ -897,6 +936,14 @@ def synthesize_project(
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
+        saved_synthesis = project_settings_from_manifest(project.manifest, project.root).synthesis
+        requested_synthesis = (
+            request.synthesis
+            if request is not None
+            else project_synthesis_request(saved_synthesis)
+            if saved_synthesis is not None
+            else None
+        )
         request, resolved, adapter, profile = resolve_project_synthesis(project, cfg, request)
         route = _build_project_synthesis_route(
             project,
@@ -909,6 +956,8 @@ def synthesize_project(
         )
         profile = _profile_from_route(adapter, route, profile)
         cache_dir = project.root / "synthesis" / "cache"
+        if requested_synthesis is not None:
+            profile = _record_project_settings(profile, project, requested_synthesis)
         cache_dir.mkdir(parents=True, exist_ok=True)
         work: list[dict[str, Any]] = []
         items: list[dict[str, Any]] = []

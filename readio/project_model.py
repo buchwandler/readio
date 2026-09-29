@@ -7,9 +7,23 @@ markers so corrupted or unrelated directories fail early.
 
 from __future__ import annotations
 
+
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+
+from .config import (
+    G2P_FALLBACKS,
+    LANGUAGE_DETECTION_MODES,
+    LEXICON_DATA_POLICIES,
+    SHORT_SENTENCE_POLICIES,
+    SPACY_LEGACY_ALIASES,
+    SPACY_POLICIES,
+    VOICE_LEVEL_MODES,
+)
+from .formats import SUPPORTED_AUDIO_FORMATS
 
 
 class ProjectFormatError(ValueError):
@@ -22,22 +36,213 @@ def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
     return value
 
 
+def _validate_json_value(value: Any, name: str) -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return
+        raise ProjectFormatError(f"{name} must contain only finite JSON numbers")
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_json_value(item, f"{name}[{index}]")
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ProjectFormatError(f"{name} object keys must be strings")
+            _validate_json_value(item, f"{name}.{key}")
+        return
+    raise ProjectFormatError(f"{name} must contain JSON-compatible values")
+
+
+def _require_optional_string(data: Mapping[str, Any], key: str, name: str) -> None:
+    if key in data and data[key] is not None:
+        _require_string(data[key], name)
+
+
+def _require_bool(data: Mapping[str, Any], key: str, name: str) -> None:
+    if key in data and not isinstance(data[key], bool):
+        raise ProjectFormatError(f"{name} must be a boolean")
+
+
+def _require_optional_path(data: Mapping[str, Any], key: str, name: str) -> None:
+    _require_optional_string(data, key, name)
+
+
+def _validate_synthesis_settings(value: Any) -> None:
+    name = "project.settings.synthesis"
+    synthesis = _require_mapping(value, name)
+    if "refresh" in synthesis:
+        raise ProjectFormatError(f"{name}.refresh is invocation-only and cannot be persisted")
+    for key in (
+        "language",
+        "model",
+        "model_source",
+        "quality",
+        "voice",
+        "spacy",
+        "short_sentence",
+        "g2p_fallback",
+        "lexicon_data_policy",
+        "language_detection",
+        "voice_level",
+        "pause_mode",
+        "unit",
+        "engine",
+    ):
+        _require_optional_string(synthesis, key, f"{name}.{key}")
+    if "speaker" in synthesis:
+        speaker = synthesis["speaker"]
+        if speaker is not None and (
+            not isinstance(speaker, (str, int)) or isinstance(speaker, bool) or speaker == ""
+        ):
+            raise ProjectFormatError(f"{name}.speaker must be a non-empty string, integer, or None")
+    for key in ("clear_lexicons", "auto_lexicons", "allow_experimental", "offline"):
+        _require_bool(synthesis, key, f"{name}.{key}")
+    lexicons = synthesis.get("lexicons")
+    if lexicons is not None and (
+        not isinstance(lexicons, list)
+        or any(not isinstance(item, str) or not item for item in lexicons)
+    ):
+        raise ProjectFormatError(f"{name}.lexicons must be a list of non-empty strings or None")
+    languages = synthesis.get("detect_languages")
+    if languages is not None and (
+        not isinstance(languages, list)
+        or any(not isinstance(item, str) or not item for item in languages)
+    ):
+        raise ProjectFormatError(
+            f"{name}.detect_languages must be a list of non-empty strings or None"
+        )
+    speed = synthesis.get("speed")
+    if speed is not None and (
+        isinstance(speed, bool)
+        or not isinstance(speed, (int, float))
+        or not math.isfinite(float(speed))
+        or speed <= 0
+    ):
+        raise ProjectFormatError(f"{name}.speed must be a finite number greater than zero or None")
+    spacy = synthesis.get("spacy")
+    if spacy is not None and spacy not in {*SPACY_POLICIES, *SPACY_LEGACY_ALIASES}:
+        raise ProjectFormatError(f"{name}.spacy has an unsupported policy")
+    if synthesis.get("short_sentence") is not None and (
+        synthesis["short_sentence"] not in SHORT_SENTENCE_POLICIES
+    ):
+        raise ProjectFormatError(f"{name}.short_sentence has an unsupported policy")
+    if synthesis.get("g2p_fallback") is not None and synthesis["g2p_fallback"] not in G2P_FALLBACKS:
+        raise ProjectFormatError(f"{name}.g2p_fallback has an unsupported policy")
+    if (
+        synthesis.get("lexicon_data_policy") is not None
+        and synthesis["lexicon_data_policy"] not in LEXICON_DATA_POLICIES
+    ):
+        raise ProjectFormatError(f"{name}.lexicon_data_policy has an unsupported policy")
+    if (
+        synthesis.get("voice_level") is not None
+        and synthesis["voice_level"] not in VOICE_LEVEL_MODES
+    ):
+        raise ProjectFormatError(f"{name}.voice_level has an unsupported policy")
+    if synthesis.get("pause_mode") is not None and synthesis["pause_mode"] not in {
+        "auto",
+        "manual",
+        "tts",
+    }:
+        raise ProjectFormatError(f"{name}.pause_mode has an unsupported policy")
+    if synthesis.get("unit") is not None and synthesis["unit"] not in {"sentence", "paragraph"}:
+        raise ProjectFormatError(f"{name}.unit has an unsupported value")
+    if synthesis.get("language_detection") is not None and (
+        synthesis["language_detection"] not in LANGUAGE_DETECTION_MODES
+    ):
+        raise ProjectFormatError(f"{name}.language_detection has an unsupported policy")
+    if synthesis.get("clear_lexicons") and synthesis.get("auto_lexicons"):
+        raise ProjectFormatError(f"{name} lexicon modes are mutually exclusive")
+    if lexicons is not None and (synthesis.get("clear_lexicons") or synthesis.get("auto_lexicons")):
+        raise ProjectFormatError(f"{name} lexicon modes are mutually exclusive")
+    if "engine_options" in synthesis:
+        engine_options = _require_mapping(synthesis["engine_options"], f"{name}.engine_options")
+        _validate_json_value(engine_options, f"{name}.engine_options")
+    _require_optional_path(synthesis, "voice_file", f"{name}.voice_file")
+
+
+def _validate_composition_settings(value: Any) -> None:
+    name = "project.settings.composition"
+    composition = _require_mapping(value, name)
+    mastering = composition.get("mastering", "spoken-word")
+    if not isinstance(mastering, str) or mastering not in {
+        "spoken-word",
+        "spoken-word-dual-mono",
+        "broadcast-ebu",
+        "peak-safe",
+        "off",
+    }:
+        raise ProjectFormatError(f"{name}.mastering has an unsupported profile")
+    for key in ("target_lufs", "true_peak_ceiling_dbtp"):
+        number = composition.get(key)
+        if number is not None and (
+            isinstance(number, bool)
+            or not isinstance(number, (int, float))
+            or not math.isfinite(float(number))
+        ):
+            raise ProjectFormatError(f"{name}.{key} must be a finite number or None")
+    peak_policy = composition.get("peak_policy", "reduce_gain")
+    if not isinstance(peak_policy, str) or peak_policy not in {"reduce_gain", "error"}:
+        raise ProjectFormatError(f"{name}.peak_policy has an unsupported value")
+    clip_policy = composition.get("clip_policy", "clamp")
+    if not isinstance(clip_policy, str) or clip_policy not in {"clamp", "warn", "error"}:
+        raise ProjectFormatError(f"{name}.clip_policy has an unsupported value")
+    sample_rate = composition.get("sample_rate")
+    if sample_rate is not None and (
+        not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0
+    ):
+        raise ProjectFormatError(f"{name}.sample_rate must be a positive integer or None")
+
+
+def _validate_export_settings(value: Any, *, audiobook: bool = False) -> None:
+    section = "audiobook_export" if audiobook else "export"
+    name = f"project.settings.{section}"
+    options = _require_mapping(value, name)
+    if "force" in options:
+        raise ProjectFormatError(f"{name}.force is invocation-only and cannot be persisted")
+    audio_format = options.get("format", "m4b" if audiobook else "wav")
+    supported = {"m4b"} if audiobook else set(SUPPORTED_AUDIO_FORMATS)
+    if not isinstance(audio_format, str) or audio_format not in supported:
+        raise ProjectFormatError(f"{name}.format has an unsupported value")
+    _require_optional_path(options, "output", f"{name}.output")
+    _require_optional_string(options, "bitrate", f"{name}.bitrate")
+    if audiobook:
+        _require_optional_string(options, "title", f"{name}.title")
+        _require_optional_string(options, "author", f"{name}.author")
+        _require_optional_path(options, "cover", f"{name}.cover")
+
+
 def _validate_project_settings(value: Any) -> None:
     settings = _require_mapping(value, "project.settings")
-    if "ssmd" not in settings:
-        return
-    ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
-    if "voice_provider" in ssmd:
-        _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
-    if "voice_bindings" not in ssmd:
-        return
-    bindings = _require_mapping(ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings")
-    for provider, raw_roles in bindings.items():
-        _require_string(provider, "project.settings.ssmd.voice_bindings provider")
-        roles = _require_mapping(raw_roles, f"project.settings.ssmd.voice_bindings.{provider}")
-        for role, voice in roles.items():
-            _require_string(role, f"project.settings.ssmd.voice_bindings.{provider} role")
-            _require_string(voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}")
+    if "ssmd" in settings:
+        ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
+        if "voice_provider" in ssmd:
+            _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
+        if "voice_bindings" in ssmd:
+            bindings = _require_mapping(
+                ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings"
+            )
+            for provider, raw_roles in bindings.items():
+                _require_string(provider, "project.settings.ssmd.voice_bindings provider")
+                roles = _require_mapping(
+                    raw_roles, f"project.settings.ssmd.voice_bindings.{provider}"
+                )
+                for role, voice in roles.items():
+                    _require_string(role, f"project.settings.ssmd.voice_bindings.{provider} role")
+                    _require_string(
+                        voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}"
+                    )
+    validators = {
+        "synthesis": _validate_synthesis_settings,
+        "composition": _validate_composition_settings,
+        "export": _validate_export_settings,
+        "audiobook_export": lambda section: _validate_export_settings(section, audiobook=True),
+    }
+    for section, validator in validators.items():
+        if section in settings:
+            validator(settings[section])
 
 
 def _require_string(value: Any, name: str) -> str:
@@ -200,15 +405,19 @@ class DocumentIndex:
 @dataclass(frozen=True, slots=True)
 class PlanIndex:
     scopes: tuple[PlanScope, ...]
+    project_planning_settings_sha256: str | None = None
     schema_version: int = 1
     format: str = "readio.plan-index"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "format": self.format,
             "schema_version": self.schema_version,
             "scopes": [scope.to_dict() for scope in self.scopes],
         }
+        if self.project_planning_settings_sha256 is not None:
+            result["project_planning_settings_sha256"] = self.project_planning_settings_sha256
+        return result
 
     @classmethod
     def from_dict(cls, value: Any) -> PlanIndex:
@@ -220,7 +429,17 @@ class PlanIndex:
         scopes = data.get("scopes")
         if not isinstance(scopes, list) or not scopes:
             raise ProjectFormatError("plan index scopes must be a non-empty list")
-        return cls(tuple(PlanScope.from_dict(item) for item in scopes))
+        settings_sha256 = data.get("project_planning_settings_sha256")
+        if settings_sha256 is not None and (
+            not isinstance(settings_sha256, str) or not settings_sha256.startswith("sha256:")
+        ):
+            raise ProjectFormatError(
+                "plan index project_planning_settings_sha256 must be a sha256 fingerprint"
+            )
+        return cls(
+            tuple(PlanScope.from_dict(item) for item in scopes),
+            project_planning_settings_sha256=settings_sha256,
+        )
 
 
 @dataclass(frozen=True, slots=True)

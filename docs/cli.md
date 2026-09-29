@@ -41,6 +41,25 @@ readio render --file episode.ssmd --format mp3 --dry-run --json
 
 ## Project voice provider and routing
 
+## Saved project pipeline settings
+
+Inspect, patch, or clear supported settings with the project command family:
+
+```text
+readio project settings [--project PROJECT] [--json]
+readio project settings show [PROJECT] [--json]
+readio project settings set [PROJECT] [--engine ENGINE] [--model MODEL] [--language LANG] [--voice VOICE] [--speed FLOAT]
+  [--mastering PROFILE] [--target-lufs FLOAT] [--sample-rate HZ]
+  [--export-format FORMAT] [--export-output PATH] [--export-bitrate RATE]
+  [--audiobook-output PATH] [--audiobook-title TITLE] [--audiobook-author AUTHOR]
+  [--audiobook-cover IMAGE] [--audiobook-bitrate RATE]
+readio project settings clear [PROJECT] --section {synthesis,composition,export,audiobook_export}
+```
+
+`set` updates only sections represented by its flags and preserves other saved section fields. It exposes named supported values, not arbitrary JSON editing. Relative paths are interpreted from the project root. Invocation-only `--force` and `--refresh` flags are never persisted.
+
+Synthesis, composition, generic export, and audiobook export defaults are used by requestless project APIs and builds. Explicit API or stage options override saved values for that invocation only. `readio status` reports stage-specific staleness when saved settings differ from built provenance; synthesis caches and previous outputs are retained.
+
 `project.json` can select an active provider at `settings.ssmd.voice_provider`. Existing projects without that field infer the provider from a single non-empty `voice_bindings` namespace. Projects with neither an active provider nor project binding namespaces keep the global configuration fallback. Multiple provider namespaces without an active provider are ambiguous and must be resolved explicitly. `readio plan bind` can activate a provider from a stable selector, and `readio plan roles` reports bindings from the effective provider.
 
 With no explicit engine, project synthesis selects the engine associated with that provider. It does not inherit global `reader.engine` or `reader.voice` over an active project provider. `readio synth --engine ENGINE` is a run-local override; it never writes project settings. Use `--voice` for a concrete run-local voice override.

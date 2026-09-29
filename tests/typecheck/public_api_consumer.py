@@ -32,6 +32,9 @@ from readio.api import (
     ProjectBuildRequest,
     ProjectBuildResult,
     ProjectRef,
+    ProjectSettings,
+    ProjectSettingsPatch,
+    ProjectSynthesisSettings,
     ProjectRoleMutationResult,
     ProjectStatus,
     Readio,
@@ -152,3 +155,17 @@ def public_audiobook_consumer(
     result: AudiobookExportResult = app.audiobooks.export(project, options)
     assert result.format == AUDIOBOOK_EXPORT_FORMAT
     return result
+
+
+def public_project_settings_consumer(app: Readio, project: ProjectRef) -> ProjectSettings:
+    app.projects.configure(
+        project, ProjectSettings(synthesis=ProjectSynthesisSettings(engine="piper"))
+    )
+    return app.projects.update_settings(
+        project,
+        ProjectSettingsPatch(synthesis=ProjectSynthesisSettings(voice="en_US-amy-medium")),
+    )
+
+
+def public_audiobook_build_consumer(app: Readio, project: ProjectRef) -> AudiobookExportResult:
+    return app.audiobooks.build(project)

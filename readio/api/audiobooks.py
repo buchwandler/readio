@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
@@ -11,6 +12,7 @@ from .. import errors as core_errors
 from .. import jsonutil
 from .. import project as project_internal
 from ..project_model import ProjectFormatError as InternalProjectFormatError
+from ..project_settings import project_settings_from_manifest
 from ..stages import audiobook_export as audiobook_export_internal
 from . import errors as api_errors
 from .events import EventHandler, ReadioEvent, compose_event_handlers
@@ -24,6 +26,7 @@ from .types import (
     AudiobookProjectChapter,
     AudiobookProjectDescription,
     AudiobookProjectResult,
+    ProjectSettings,
     Diagnostic,
     ProjectLike,
     ProjectRef,
@@ -54,6 +57,25 @@ def _audiobook_chapters(
             )
         )
     return tuple(chapters)
+
+
+def _export_options(
+    internal: project_internal.Project,
+    options: AudiobookExportOptions | None,
+) -> AudiobookExportOptions:
+    saved = project_settings_from_manifest(internal.manifest, internal.root).audiobook_export
+    if options is None:
+        return saved or AudiobookExportOptions()
+    if saved is None:
+        return options
+    return replace(
+        options,
+        output=options.output if options.output is not None else saved.output,
+        title=options.title if options.title is not None else saved.title,
+        author=options.author if options.author is not None else saved.author,
+        cover=options.cover if options.cover is not None else saved.cover,
+        bitrate=options.bitrate if options.bitrate is not None else saved.bitrate,
+    )
 
 
 class AudiobookService:
@@ -88,10 +110,11 @@ class AudiobookService:
         *,
         chapters: str = "all",
         output: Path | None = None,
+        settings: ProjectSettings | None = None,
         on_event: EventHandler | None = None,
     ) -> ProjectRef:
         return self.create_project_result(
-            source, chapters=chapters, output=output, on_event=on_event
+            source, chapters=chapters, output=output, settings=settings, on_event=on_event
         ).project
 
     def create_project_result(
@@ -100,6 +123,7 @@ class AudiobookService:
         *,
         chapters: str = "all",
         output: Path | None = None,
+        settings: ProjectSettings | None = None,
         on_event: EventHandler | None = None,
     ) -> AudiobookProjectResult:
         handler = self._handler(on_event)
@@ -116,6 +140,8 @@ class AudiobookService:
             lambda: audiobook_internal.init_audiobook_project(source, output, chapters)
         )
         project_ref = self._project_ref(project)
+        if settings is not None:
+            self._app.projects.configure(project_ref, settings)
         selected = _audiobook_chapters(project)
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
         return AudiobookProjectResult(project=project_ref, source=source, chapters=selected)
@@ -142,8 +168,7 @@ class AudiobookService:
         *,
         on_event: EventHandler | None = None,
     ) -> AudiobookExportResult:
-        options = options or AudiobookExportOptions()
-        if options.format not in SUPPORTED_AUDIOBOOK_FORMATS:
+        if options is not None and options.format not in SUPPORTED_AUDIOBOOK_FORMATS:
             raise api_errors.InvalidRequestError(
                 f"unsupported audiobook export format: {options.format}",
                 code="audiobook.export.format_unsupported",
@@ -153,6 +178,7 @@ class AudiobookService:
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         project_path = project.root if isinstance(project, ProjectRef) else project
         internal = self._call(lambda: project_internal.load_project(project_path))
+        options = _export_options(internal, options)
         self._notify(
             handler, ReadioEvent(kind="stage.started", operation=operation, stage="export")
         )
@@ -188,6 +214,20 @@ class AudiobookService:
             export_id=str(raw["export_id"]),
             chapter_count=int(raw["chapter_count"]),
         )
+
+    def build(
+        self,
+        project: ProjectLike,
+        options: AudiobookExportOptions | None = None,
+        *,
+        on_event: EventHandler | None = None,
+    ) -> AudiobookExportResult:
+        """Plan, synthesize, compose, and export an audiobook project."""
+        self.describe_project(project)
+        self._app.projects.plan(project, on_event=on_event)
+        self._app.projects.synthesize(project, on_event=on_event)
+        self._app.projects.compose(project, on_event=on_event)
+        return self.export(project, options, on_event=on_event)
 
     def _resolve_source(self, source: Path) -> Path:
         try:

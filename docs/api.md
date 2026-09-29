@@ -131,10 +131,45 @@ build = app.projects.build(project, ProjectBuildRequest(target="export"))
 
 `CompositionOptions.mastering` selects `spoken-word` by default (`-16 LUFS/-1 dBTP`); the other profiles are `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), and `off` (no target or ceiling). `target_lufs` and `true_peak_ceiling_dbtp` override profile values when non-`None`; `None` inherits. For example, `CompositionOptions(mastering="broadcast-ebu", target_lufs=-21.0)` keeps the EBU true-peak ceiling and uses a `-21 LUFS` target.
 
+Persist desired pipeline choices through `ProjectService` before running the stages. Settings writes use the project manifest's atomic update path, preserve schema-v2 compatibility and unrelated namespaces, and do not open a TTS session. `ProjectSettingsPatch` uses `UNSET` to leave a section unchanged, `None` to clear it, and a concrete immutable value to replace it:
+
+```python
+from pathlib import Path
+
+from readio.api import (
+    CompositionOptions,
+    ExportOptions,
+    ProjectSettings,
+    ProjectSettingsPatch,
+    ProjectSynthesisSettings,
+    Readio,
+    UNSET,
+)
+
+app = Readio()
+project = app.projects.open(Path("article.readio"))
+app.projects.configure(
+    project,
+    ProjectSettings(
+        synthesis=ProjectSynthesisSettings(engine="piper", voice="en_US-amy-medium"),
+        composition=CompositionOptions(target_lufs=-18.0),
+        export=ExportOptions(format="mp3", output=Path("output/article.mp3")),
+    ),
+)
+app.projects.update_settings(
+    project, ProjectSettingsPatch(composition=None, export=UNSET)
+)
+```
+
+`configure()` replaces supported sections while retaining `settings.ssmd` and unknown namespaces. `update_settings()` patches sections independently. Relative paths resolve from the project root. Saved synthesis settings are applied before global and engine defaults; explicit invocation requests override saved values without persisting those overrides. `force` and synthesis `refresh` remain invocation-only.
+
+Requestless `synthesize()`, `compose()`, `export()`, and `build()` use saved settings. Status compares built provenance to desired settings: synthesis changes invalidate downstream stages, composition changes invalidate composition/output, and export changes invalidate output only. Caches and previous outputs remain available.
+
 `ProjectCompositionResult.loudness` is a typed `LoudnessSummary` with before/after integrated LUFS, sample peak and true peak, requested/applied gain, target status, warning, and analysis/gain/post-gain metric timings. The mastering operation is transparent constant gain: `reduce_gain` may stop short of the LUFS target to honor the true-peak ceiling; this is not a true-peak limiter or ACX compliance check.
 
 `app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
 `describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
+`create_project(..., settings=ProjectSettings(audiobook_export=...))` can save output, metadata, cover, and bitrate defaults at creation time. Omitted export options use those values; explicitly supplied non-`None` values override them for one invocation without mutating the manifest. `app.audiobooks.build(project)` runs the ordinary plan, synthesis, and composition services before M4B export. It respects the project's stored chapter scope and returns an `AudiobookExportResult`.
 
 `app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, planning/provider settings, and pronunciation/resource policies: lexicons, G2P fallback, lexicon data policy, language-detection mode and languages, and experimental-option permission. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
 
