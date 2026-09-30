@@ -22,7 +22,7 @@ readio project init SOURCE -o PROJECT
 readio plan                         # build current project
 readio plan build [PROJECT]
 readio plan roles [PROJECT]
-readio plan bind ROLE VOICE [--project PROJECT]
+readio plan bind ROLE VOICE [PROJECT] [--engine ENGINE] [--provider PROVIDER] [--project PROJECT]
 readio plan unbind ROLE [--project PROJECT]
 readio synth PROJECT [--engine ENGINE] [--voice VOICE] [--select SELECTOR]
 readio preview PROJECT --select SELECTOR [--voice VOICE] [-o PREVIEW.wav]
@@ -39,7 +39,39 @@ readio render PROJECT --format FORMAT
 readio render --file episode.ssmd --format mp3 --dry-run --json
 ```
 
-## Project voice provider and routing
+## Voice role targets and mixed-engine routing
+
+### Global role bindings
+
+Use `readio roles` for persistent user-global role targets:
+
+```bash
+readio roles bind host en_us-ko-4
+readio roles bind guest en_US-amy-medium --engine piper
+readio roles list --json
+readio roles unbind guest
+```
+
+New global targets are saved under the top-level `[roles.<role>]` configuration table and take precedence over legacy `[voices.<provider>.roles]` values. Legacy values remain readable for roles without a new target; conflicting legacy definitions for such a role are ambiguous rather than implicitly assigned to one provider.
+
+### Project role bindings
+
+Project bindings use the same engine-qualified target model. Bind selectors directly; Readio retains the resolved engine, canonical voice, target ID, and selector:
+
+```bash
+readio plan bind host en_us-ko-4
+readio plan bind guest en-pi-13
+readio plan roles
+readio synth
+```
+
+New bindings are stored under `settings.ssmd.role_bindings.<role>` in `project.json`. A binding does not select a project-wide provider or engine. Role inspection reports the engine and derived provider per target. `readio plan roles --provider PROVIDER` filters results; it does not override project bindings.
+
+Run these commands from the project root or a nested directory. An explicit project path can be supplied positionally or through `--project`; supplying conflicting paths is an error. For a raw voice ID that does not identify its engine, pass `--engine`, for example `readio plan bind guest en_US-amy-medium --engine piper`. `--provider` is accepted for compatibility, must agree with the target engine, and does not choose a project-wide route.
+
+Legacy manifests using `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. The optional `settings.ssmd.voice_provider` scopes those legacy bindings when present; it does not control new role-centric bindings. Without an active legacy provider, conflicting definitions for the same role are ambiguous. SSMD document `voice_bindings` syntax is unchanged, and a role bound in multiple provider namespaces is ambiguous. New `plan bind` writes role-centric targets without rewriting unrelated legacy settings. There is no automatic migration command.
+
+Resolution precedence is document binding, invocation `--voice-bind`, project role target, global configured role, then direct concrete voice. The semantic plan remains independent of casting. Project synthesis routes each bound segment through its target engine and uses the normal project synthesis selection for unbound segments, opening reusable sessions per distinct route.
 
 ## Saved project pipeline settings
 
@@ -59,19 +91,6 @@ readio project settings clear [PROJECT] --section {synthesis,composition,export,
 `set` updates only sections represented by its flags and preserves other saved section fields. It exposes named supported values, not arbitrary JSON editing. Relative paths are interpreted from the project root. Invocation-only `--force` and `--refresh` flags are never persisted.
 
 Synthesis, composition, generic export, and audiobook export defaults are used by requestless project APIs and builds. Explicit API or stage options override saved values for that invocation only. `readio status` reports stage-specific staleness when saved settings differ from built provenance; synthesis caches and previous outputs are retained.
-
-`project.json` can select an active provider at `settings.ssmd.voice_provider`. Existing projects without that field infer the provider from a single non-empty `voice_bindings` namespace. Projects with neither an active provider nor project binding namespaces keep the global configuration fallback. Multiple provider namespaces without an active provider are ambiguous and must be resolved explicitly. `readio plan bind` can activate a provider from a stable selector, and `readio plan roles` reports bindings from the effective provider.
-
-With no explicit engine, project synthesis selects the engine associated with that provider. It does not inherit global `reader.engine` or `reader.voice` over an active project provider. `readio synth --engine ENGINE` is a run-local override; it never writes project settings. Use `--voice` for a concrete run-local voice override.
-
-```bash
-readio plan bind narrator en-pi-13
-readio plan roles
-readio synth
-readio synth --engine pykokoro  # one-run override
-```
-
-PyKokoro and Pocket expose request-scoped voice selection; Piper binds each role to a voice-bundle target. Readio validates all target-bound selections before opening sessions and reuses one session per distinct target. Project synthesis preserves semantic plan identity when voice bindings change.
 
 ### Shared speech controls
 

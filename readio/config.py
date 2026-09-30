@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 from .paths import default_config_path, default_ingest_dir, default_output_dir, default_template_dir
+from .role_targets import VoiceTarget, voice_target_from_mapping
 
 DEFAULT_KOKORO_VOICES = (
     "af_sarah",
@@ -114,6 +115,7 @@ class ReadioConfig:
         default_factory=lambda: {"kokoro": VoiceProviderSettings()}
     )
     languages: Mapping[str, LanguageSettings] = field(default_factory=dict)
+    roles: Mapping[str, VoiceTarget] = field(default_factory=dict)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, ReadioConfig):
@@ -124,6 +126,7 @@ class ReadioConfig:
                 and self.paths == other.paths
                 and dict(self.voices) == dict(other.voices)
                 and dict(self.languages) == dict(other.languages)
+                and dict(self.roles) == dict(other.roles)
             )
         if isinstance(other, ReaderSettings):
             return self.reader == other
@@ -270,6 +273,19 @@ def _provider(value: Any, name: str) -> VoiceProviderSettings:
     return VoiceProviderSettings(ids=tuple(ids), roles=dict(roles_value))
 
 
+def _role_targets(values: Any) -> dict[str, VoiceTarget]:
+    if values is None:
+        return {}
+    if not isinstance(values, dict):
+        raise TypeError("[roles] must be a TOML table")
+    result: dict[str, VoiceTarget] = {}
+    for role, value in values.items():
+        if not isinstance(role, str) or not role.strip():
+            raise ValueError("role names must be non-empty strings")
+        result[role] = voice_target_from_mapping(value, name=f"roles.{role}")
+    return result
+
+
 def _optional_string(value: Any, field_name: str) -> str | None:
     if value is None:
         return None
@@ -387,6 +403,9 @@ def validate_config(cfg: ReadioConfig) -> ReadioConfig:
         raise ValueError(
             f"selected voice provider {cfg.ssmd.voice_provider!r} has no voices configuration"
         )
+    for role, target in cfg.roles.items():
+        if not role.strip() or not isinstance(target, VoiceTarget):
+            raise ValueError("roles must map non-empty role names to VoiceTarget values")
     return cfg
 
 
@@ -444,6 +463,7 @@ def _config_from_data(data: Mapping[str, Any]) -> ReadioConfig:
         paths=paths,
         voices=voices,
         languages=_languages(data.get("languages")),
+        roles=_role_targets(data.get("roles")),
     )
     return validate_config(cfg)
 
@@ -479,6 +499,7 @@ def with_overrides(
         paths=cfg.paths,
         voices=cfg.voices,
         languages=cfg.languages,
+        roles=cfg.roles,
     )
 
 
@@ -550,6 +571,11 @@ def _serializable_data(cfg: ReadioConfig, *, schema: int = 2) -> dict[str, Any]:
             }
             for language, settings in cfg.languages.items()
         },
+        **(
+            {"roles": {role: target.to_dict() for role, target in cfg.roles.items()}}
+            if cfg.roles
+            else {}
+        ),
     }
 
 
@@ -582,6 +608,13 @@ def set_config_value(
         value = str(value)
     elif len(parts) == 3 and parts[0] == "voices" and parts[2] == "ids":
         value = [str(item) for item in str(value).split(",") if item]
+    elif len(parts) == 3 and parts[0] == "roles":
+        field_name = parts[2]
+        if field_name not in {"engine", "voice", "target_id", "selector"}:
+            raise KeyError(f"unknown role target field {field_name!r}")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"roles.{parts[1]}.{field_name} must be a non-empty string")
+        data.setdefault("roles", {}).setdefault(parts[1], {})[field_name] = value.strip()
     elif len(parts) == 3 and parts[0] == "languages":
         language = normalize_language_key(parts[1])
         field_name = parts[2]
@@ -656,6 +689,66 @@ def voice_role(cfg: ReadioConfig, role: str, provider: str | None = None) -> str
         raise ValueError(f"voice role {role!r} is not configured for provider {name!r}") from exc
 
 
+def role_targets(cfg: ReadioConfig, provider: str | None = None) -> dict[str, VoiceTarget]:
+    """Resolve role-centric settings and unambiguous legacy provider roles."""
+    targets = {
+        role: target
+        for role, target in cfg.roles.items()
+        if provider is None or target.provider == provider
+    }
+    from .engines.registry import engine_for_ssmd_provider
+
+    legacy: dict[str, dict[str, VoiceTarget]] = {}
+    for legacy_provider, settings in cfg.voices.items():
+        if provider is not None and legacy_provider != provider:
+            continue
+        for role, voice in settings.roles.items():
+            if role in targets:
+                continue
+            engine = engine_for_ssmd_provider(legacy_provider)
+            legacy.setdefault(role, {})[legacy_provider] = VoiceTarget(engine, voice)
+    for role, candidates in legacy.items():
+        if len(candidates) > 1:
+            providers = sorted(candidates)
+            raise ValueError(
+                f"voice role {role!r} is ambiguous across legacy providers: {', '.join(providers)}"
+            )
+        targets[role] = next(iter(candidates.values()))
+    return dict(sorted(targets.items()))
+
+
+def bind_voice_target(cfg: ReadioConfig, role: str, target: VoiceTarget) -> ReadioConfig:
+    """Persist one global role binding in the role-centric configuration."""
+    if not role.strip():
+        raise ValueError("voice role must be a non-empty string")
+    if not isinstance(target, VoiceTarget):
+        raise TypeError("target must be a VoiceTarget")
+    return ReadioConfig(
+        schema=cfg.schema,
+        reader=cfg.reader,
+        ssmd=cfg.ssmd,
+        paths=cfg.paths,
+        voices=cfg.voices,
+        languages=cfg.languages,
+        roles={**cfg.roles, role: target},
+    )
+
+
+def unbind_voice_target(cfg: ReadioConfig, role: str) -> ReadioConfig:
+    """Remove one role-centric global role binding."""
+    if role not in cfg.roles:
+        raise ValueError(f"voice role {role!r} is not configured")
+    return ReadioConfig(
+        schema=cfg.schema,
+        reader=cfg.reader,
+        ssmd=cfg.ssmd,
+        paths=cfg.paths,
+        voices=cfg.voices,
+        languages=cfg.languages,
+        roles={key: value for key, value in cfg.roles.items() if key != role},
+    )
+
+
 def provider_role_map(cfg: ReadioConfig, provider: str | None = None) -> dict[str, tuple[str, ...]]:
     """Return configured logical roles grouped by concrete voice ID."""
     name = provider or cfg.ssmd.voice_provider
@@ -692,6 +785,7 @@ def bind_voice_role(
             paths=cfg.paths,
             voices=voices,
             languages=cfg.languages,
+            roles=cfg.roles,
         )
     return set_config_value(cfg, f"voices.{name}.roles.{role}", voice_id)  # type: ignore[return-value]
 
@@ -716,4 +810,5 @@ def unbind_voice_role(cfg: ReadioConfig, role: str, provider: str | None = None)
         paths=cfg.paths,
         voices=voices,
         languages=cfg.languages,
+        roles=cfg.roles,
     )

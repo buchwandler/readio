@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -11,9 +12,10 @@ from audiocompose import CompositionProgressCallback
 from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
 from ..formats import AudioFormat
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
-from ..project import Project, hash_file, read_json
+from ..project import Project, canonical_json, hash_file, read_json
 from ..project_settings import (
     merge_project_synthesis_request,
+    project_role_targets_provenance,
     project_settings_from_manifest,
     project_synthesis_request,
     project_voice_bindings,
@@ -49,6 +51,9 @@ _STAGE_REASON_MESSAGES = {
     "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
     "synthesis.stale.project_voice_bindings_changed": (
         "Project voice bindings changed after the active synthesis was created."
+    ),
+    "synthesis.stale.project_role_targets_changed": (
+        "Project role targets changed after the active synthesis was created."
     ),
     "synthesis.stale.project_settings_changed": (
         "Active synthesis was built with different project synthesis settings."
@@ -194,6 +199,31 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                 "project_voice_bindings": current_bindings,
             }
 
+    target_record = profile.get("project_role_targets")
+    if target_record is not None:
+        if not isinstance(target_record, Mapping):
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+        stored_targets = target_record.get("bindings")
+        stored_ambiguities = target_record.get("ambiguities")
+        stored_target_hash = target_record.get("sha256")
+        if (
+            not isinstance(stored_targets, Mapping)
+            or not isinstance(stored_ambiguities, Mapping)
+            or not isinstance(stored_target_hash, str)
+        ):
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+        stored_value = {"bindings": stored_targets, "ambiguities": stored_ambiguities}
+        if hashlib.sha256(canonical_json(stored_value)).hexdigest() != stored_target_hash:
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+        current_targets = project_role_targets_provenance(project.manifest)
+        if current_targets["sha256"] != stored_target_hash:
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.stale.project_role_targets_changed",
+                "project_role_targets": current_targets,
+            }
+
     current_plans = {scope.id: (scope, plan) for scope, plan in scoped_plans}
     trace_plans = trace.get("plans")
     if isinstance(trace_plans, list):
@@ -220,15 +250,19 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                     "scope_id": scope.id,
                 }
 
-    from .speech_identity import segment_speech_hash, segment_synthesis_key
+    from .speech_identity import segment_route_profile, segment_speech_hash, segment_synthesis_key
     from .synthesis import _valid_audio
 
     per_scope: dict[str, dict[str, int]] = {}
     for scope, plan in scoped_plans:
         reusable = 0
         for segment in plan.segments:
-            speech_hash = segment_speech_hash(plan, segment, canonical)
-            key = segment_synthesis_key(speech_hash, profile_id)
+            route_identity = segment_route_profile(profile, scope.id, str(segment.id))
+            if route_identity is None:
+                continue
+            route_profile, route_profile_id = route_identity
+            speech_hash = segment_speech_hash(plan, segment, route_profile)
+            key = segment_synthesis_key(speech_hash, route_profile_id)
             cache_path = project.root / "synthesis" / "cache" / f"{key.replace(':', '-')}.wav"
             sidecar_path = project.root / "synthesis" / "cache" / f"{key.replace(':', '-')}.json"
             checked = _valid_audio(cache_path)
@@ -241,7 +275,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             if (
                 sidecar.get("speech_hash") == speech_hash
                 and sidecar.get("synthesis_key") == key
-                and sidecar.get("profile_id") == profile_id
+                and sidecar.get("profile_id") == route_profile_id
                 and sidecar.get("audio_sha256") == checked[3]
             ):
                 reusable += 1

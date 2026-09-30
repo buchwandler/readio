@@ -55,13 +55,22 @@ def ssmd_provider_for_engine(engine: str) -> str | None:
 
 
 def engine_for_ssmd_provider(provider: str) -> str:
-    """Return the canonical synthesis engine for an SSMD provider."""
-    try:
-        return ONNXVOICE_SYSTEM_TO_READIO_ENGINE[provider]
-    except KeyError as exc:
+    """Return the canonical synthesis engine for an SSMD provider namespace."""
+    engine = ONNXVOICE_SYSTEM_TO_READIO_ENGINE.get(provider)
+    if engine is not None:
+        return engine
+    matches = [
+        adapter.id
+        for adapter in iter_engines()
+        if getattr(adapter.capabilities(), "voice_binding_namespace", None) == provider
+    ]
+    if len(matches) == 1:
+        return normalize_engine_id(matches[0])
+    if len(matches) > 1:
         raise ValueError(
-            f"No synthesis engine is registered for SSMD provider {provider!r}."
-        ) from exc
+            f"SSMD provider {provider!r} is exposed by multiple engines: {', '.join(matches)}."
+        )
+    raise ValueError(f"No synthesis engine is registered for SSMD provider {provider!r}.")
 
 
 # ---------------------------------------------------------------------------

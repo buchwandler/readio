@@ -6,12 +6,15 @@ from readio.config import (
     PathSettings,
     ReaderConfig,
     ReadioConfig,
+    VoiceProviderSettings,
     dumps_config,
     load_config,
+    role_targets,
     set_config_value,
     validate_config,
     voice_role,
 )
+from readio.role_targets import VoiceTarget
 
 
 def test_config_round_trip(tmp_path: Path):
@@ -129,3 +132,41 @@ def test_invalid_reader_policies_rejected() -> None:
 
     with pytest.raises(ValueError, match="reader.short_sentence"):
         set_config_value(ReaderConfig(), "short_sentence", "auto")
+
+
+def test_role_target_config_round_trip_and_legacy_compatibility(tmp_path: Path) -> None:
+    target = VoiceTarget(
+        engine="pipersynth",
+        voice="en_US-amy-medium",
+        target_id="amy-asset",
+        selector="en-pi-13",
+    )
+    cfg = ReadioConfig(roles={"guest": target})
+    path = tmp_path / "roles.toml"
+    path.write_text(dumps_config(cfg), encoding="utf-8")
+
+    loaded = load_config(path)
+
+    assert loaded.roles["guest"] == VoiceTarget(
+        engine="piper",
+        voice="en_US-amy-medium",
+        target_id="amy-asset",
+        selector="en-pi-13",
+    )
+    assert role_targets(loaded)["guest"] == loaded.roles["guest"]
+    assert role_targets(loaded, provider="piper")["guest"] == loaded.roles["guest"]
+    assert 'engine = "piper"' in path.read_text(encoding="utf-8")
+
+
+def test_conflicting_legacy_global_roles_are_ambiguous() -> None:
+    cfg = ReadioConfig(
+        voices={
+            "kokoro": VoiceProviderSettings(ids=("af_sarah",), roles={"guest": "af_sarah"}),
+            "piper": VoiceProviderSettings(
+                ids=("en_US-amy-medium",), roles={"guest": "en_US-amy-medium"}
+            ),
+        }
+    )
+
+    with pytest.raises(ValueError, match="ambiguous across legacy providers"):
+        role_targets(cfg)

@@ -214,6 +214,27 @@ def segment_speech_hash(plan: Any, segment: Any, profile: Mapping[str, Any]) -> 
     return f"sha256:{hashlib.sha256(canonical_json(payload)).hexdigest()}"
 
 
+def segment_route_profile(
+    profile: Mapping[str, Any], scope_id: str, segment_id: str
+) -> tuple[Mapping[str, Any], str] | None:
+    canonical = profile.get("canonical")
+    profile_id = profile.get("profile_id")
+    if not isinstance(canonical, Mapping) or not isinstance(profile_id, str):
+        return None
+    routes = canonical.get("routes")
+    if not isinstance(routes, Mapping):
+        return canonical, profile_id
+    segment_routes = profile.get("segment_routes")
+    scope_routes = segment_routes.get(scope_id, {}) if isinstance(segment_routes, Mapping) else {}
+    route_key = scope_routes.get(segment_id) if isinstance(scope_routes, Mapping) else None
+    route_identity = routes.get(route_key)
+    route_ids = canonical.get("route_profile_ids")
+    route_profile_id = route_ids.get(route_key) if isinstance(route_ids, Mapping) else None
+    if not isinstance(route_identity, Mapping) or not isinstance(route_profile_id, str):
+        return None
+    return route_identity, route_profile_id
+
+
 def segment_synthesis_key(speech_hash: str, profile_id: str) -> str:
     payload = {
         "schema": SEGMENT_KEY_SCHEMA,
@@ -230,6 +251,7 @@ __all__ = [
     "SEGMENT_KEY_SCHEMA",
     "canonical_engine_identity",
     "segment_pronunciation_spans",
+    "segment_route_profile",
     "segment_speech_hash",
     "segment_speech_payload",
     "segment_synthesis_key",

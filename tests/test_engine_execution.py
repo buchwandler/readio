@@ -306,3 +306,61 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
     assert resolved.plan.render is not None
     assert resolved.plan.render.role_bindings[0].role == "guest"
     assert resolved.plan.render.role_bindings[0].target.id == "en_US-amy-medium"
+
+
+def test_ssmd_role_plan_serializes_engine_qualified_targets_across_precedence():
+    from types import SimpleNamespace
+
+    from readio.config import VoiceProviderSettings
+    from readio.plan import _resolve_v2_ssmd_roles
+    from readio.role_targets import VoiceTarget
+
+    def segment(role: str):
+        return SimpleNamespace(
+            id=f"segment-{role}",
+            directives=SimpleNamespace(voice=SimpleNamespace(reference=role)),
+        )
+
+    semantic = SimpleNamespace(
+        plan=SimpleNamespace(
+            segments=[segment("guest"), segment("host"), segment("announcer")],
+            document_metadata={"voice_bindings": {"piper": {"guest": "en_US-amy-medium"}}},
+        )
+    )
+    cfg = ReadioConfig(
+        voices={"kokoro": VoiceProviderSettings(ids=("af_sarah",), roles={})},
+        roles={"announcer": VoiceTarget("pykokoro", "af_sarah")},
+    )
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=document_from_text("Hello.")),
+        project_voice_targets={"host": VoiceTarget("piper", "en_US-lessac-medium")},
+    )
+    adapter = SimpleNamespace(
+        capabilities=lambda: SimpleNamespace(voice_binding_scope="voice"),
+        target_metadata=lambda _selection: {"voices": ("af_sarah",)},
+    )
+    selection = SimpleNamespace(engine="pykokoro", target_id="kokoro-model")
+
+    role_bindings, bindings, unresolved, diagnostics = _resolve_v2_ssmd_roles(
+        semantic,
+        cfg,
+        request,
+        "kokoro",
+        adapter,
+        selection,
+        RenderTargetV2(id="kokoro-model", language="en-us"),
+        None,
+    )
+
+    assert unresolved == []
+    assert diagnostics == []
+    assert {item.reference: item.target.engine for item in bindings} == {
+        "guest": "piper",
+        "host": "piper",
+        "announcer": "pykokoro",
+    }
+    serialized = {item.role: item.to_dict() for item in role_bindings}
+    assert serialized["guest"]["voice_target"]["engine"] == "piper"
+    assert serialized["host"]["voice_target"]["engine"] == "piper"
+    assert serialized["announcer"]["voice_target"]["engine"] == "pykokoro"

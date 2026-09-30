@@ -35,7 +35,11 @@ from utterplan import parse_duration
 from ..errors import InputError
 from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
-from ..stages.speech_identity import segment_speech_hash, segment_synthesis_key
+from ..stages.speech_identity import (
+    segment_route_profile,
+    segment_speech_hash,
+    segment_synthesis_key,
+)
 from .planning import load_scope_plan
 from .synthesis import _valid_audio
 
@@ -256,6 +260,11 @@ def _segment_voice_identity(
     canonical = profile_payload.get("canonical", {})
     canonical = canonical if isinstance(canonical, Mapping) else {}
     reference = _segment_voice_reference(segment)
+    segment_routes = profile_payload.get("segment_routes", {})
+    scope_routes = segment_routes.get(scope_id, {}) if isinstance(segment_routes, Mapping) else {}
+    route_key = scope_routes.get(str(segment.id)) if isinstance(scope_routes, Mapping) else None
+    if isinstance(route_key, str):
+        return f"route:{route_key}"
     if reference is not None:
         scoped_bindings = canonical.get("bindings_by_scope", {})
         if isinstance(scoped_bindings, Mapping):
@@ -380,8 +389,12 @@ def _cache_entries(
     cache_dir = project.root / "synthesis" / "cache"
     markers_by_segment = _markers_by_segment(plan, scope_id)
     for segment in plan.segments:
-        speech_hash = segment_speech_hash(plan, segment, canonical)
-        key = segment_synthesis_key(speech_hash, profile_id)
+        route_identity = segment_route_profile(profile, scope_id, str(segment.id))
+        if route_identity is None:
+            raise ValueError(f"synthesis route is missing for {scope_id}:{segment.id}")
+        route_profile, route_profile_id = route_identity
+        speech_hash = segment_speech_hash(plan, segment, route_profile)
+        key = segment_synthesis_key(speech_hash, route_profile_id)
         cache_path = cache_dir / f"{key.replace(':', '-')}.wav"
         sidecar_path = cache_dir / f"{key.replace(':', '-')}.json"
         checked = _valid_audio(cache_path)
@@ -396,7 +409,7 @@ def _cache_entries(
         if (
             sidecar.get("speech_hash") != speech_hash
             or sidecar.get("synthesis_key") != key
-            or sidecar.get("profile_id") != profile_id
+            or sidecar.get("profile_id") != route_profile_id
             or sidecar.get("audio_sha256") != checked[3]
         ):
             raise ValueError(
@@ -407,7 +420,7 @@ def _cache_entries(
             "segment": segment,
             "speech_hash": speech_hash,
             "synthesis_key": key,
-            "profile_id": profile_id,
+            "profile_id": route_profile_id,
             "cache_path": cache_path,
             "audio_sha256": checked[3],
             "sample_rate": checked[0],

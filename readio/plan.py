@@ -37,6 +37,7 @@ from .formats import (
 )
 from .jsonutil import JsonValue
 from .markdown import markdown_to_speech
+from .role_targets import VoiceTarget
 from .voices import resolve_voice_selector
 
 SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
@@ -313,9 +314,12 @@ class PlanRequest:
     input: InputRequest
     synthesis: SynthesisRequest = field(default_factory=SynthesisRequest)
     output: OutputRequest = field(default_factory=OutputRequest)
-    voice_bindings: Mapping[str, str] = field(default_factory=dict)
+    voice_bindings: Mapping[str, str | VoiceTarget] = field(default_factory=dict)
     project_voice_bindings: Mapping[str, str] = field(default_factory=dict)
     scope_voice_bindings: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    project_voice_targets: Mapping[str, VoiceTarget] = field(default_factory=dict)
+    project_voice_ambiguities: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    scope_voice_targets: Mapping[str, Mapping[str, VoiceTarget]] = field(default_factory=dict)
     composition: CompositionOptions = field(default_factory=CompositionOptions)
 
 
@@ -455,12 +459,16 @@ class VoiceBindingPlan:
     origin: str
     locator: str | None = None
 
+    target: VoiceTarget | None = None
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "reference": self.reference,
             "voice": self.voice,
             "origin": self.origin,
         }
+        if self.target is not None:
+            d["target"] = self.target.to_dict()
         if self.locator is not None:
             d["locator"] = self.locator
         return d
@@ -1331,27 +1339,65 @@ def _resolve_v2_ssmd_roles(
 ) -> tuple[
     tuple[RoleTargetBindingV2, ...], tuple[VoiceBindingPlan, ...], list[str], list[PlanDiagnostic]
 ]:
-    """Resolve SSMD roles from the semantic plan without reparsing its source."""
+    """Resolve role bindings without assigning one provider to the whole project."""
+    from .engines.registry import engine_for_ssmd_provider, normalize_engine_id
+
     references: dict[str, str] = {}
     for segment in semantic.plan.segments:
         directive = segment.directives.voice
         if directive is not None and directive.reference:
             references.setdefault(directive.reference, segment.id)
 
+    def as_target(value: str | VoiceTarget, engine_hint: str | None) -> VoiceTarget | None:
+        if isinstance(value, VoiceTarget):
+            return value
+        if not isinstance(value, str):
+            raise TypeError("voice binding must be a string or VoiceTarget")
+        resolved = resolve_voice_selector(
+            value,
+            language=None,
+            model=None,
+            source=None,
+            offline=False,
+            refresh=False,
+            engine=engine_hint,
+        )
+        if resolved is None:
+            return None
+        target_engine = resolved.engine or engine_hint
+        if target_engine is None:
+            return None
+        return VoiceTarget(
+            normalize_engine_id(target_engine),
+            resolved.voice,
+            target_id=getattr(resolved, "model", None),
+            selector=getattr(resolved, "selector", None),
+        )
+
     metadata = semantic.plan.document_metadata
     raw_document_bindings = metadata.get("voice_bindings", {})
-    document_bindings = (
-        raw_document_bindings.get(provider, {})
-        if isinstance(raw_document_bindings, Mapping)
-        else {}
-    )
-    document_bindings = document_bindings if isinstance(document_bindings, Mapping) else {}
+    document_candidates: dict[str, list[tuple[str, str]]] = {}
+    if isinstance(raw_document_bindings, Mapping):
+        for namespace, values in raw_document_bindings.items():
+            if not isinstance(values, Mapping):
+                continue
+            for role, voice in values.items():
+                if isinstance(role, str) and isinstance(voice, str):
+                    document_candidates.setdefault(role, []).append((namespace, voice))
+
     invocation_bindings = dict(request.voice_bindings)
     project_bindings = dict(request.project_voice_bindings)
-    voice_settings = cfg.voices.get(provider)
-    configured_roles = voice_settings.roles if voice_settings is not None else {}
+    project_targets = dict(request.project_voice_targets)
+    project_ambiguities = dict(request.project_voice_ambiguities)
+    legacy_candidates: dict[str, list[tuple[str, str]]] = {}
+    for legacy_provider, settings in cfg.voices.items():
+        for role, voice in settings.roles.items():
+            if role not in cfg.roles:
+                legacy_candidates.setdefault(role, []).append((legacy_provider, voice))
+
     target_metadata = getattr(adapter, "target_metadata", lambda _selection: {})(selection)
     available = set(target_metadata.get("voices", ()))
+    voice_settings = cfg.voices.get(provider)
     if voice_settings is not None:
         available.update(voice_settings.ids)
     if adapter.capabilities().voice_binding_scope == "target":
@@ -1361,70 +1407,165 @@ def _resolve_v2_ssmd_roles(
     role_targets: list[RoleTargetBindingV2] = []
     unresolved: list[str] = []
     diagnostics: list[PlanDiagnostic] = []
+
+    def error(reference: str, code: str, message: str) -> None:
+        unresolved.append(reference)
+        diagnostics.append(
+            PlanDiagnostic(
+                code=code,
+                severity="error",
+                message=message,
+                field=f"ssmd.bindings.{reference}",
+                source_path=source_path,
+            )
+        )
+
     for reference, locator in references.items():
         origin: str | None = None
-        selected_voice: str | None = None
+        selected_target: VoiceTarget | None = None
         selected_locator: str | None = locator
-        if reference in document_bindings:
-            selected_voice = document_bindings[reference]
+        candidates = document_candidates.get(reference, [])
+        if len(candidates) > 1:
+            error(
+                reference,
+                "ssmd.voice_binding_ambiguous_engine",
+                f"Document role {reference!r} is bound in multiple provider namespaces: "
+                + ", ".join(namespace for namespace, _voice in candidates),
+            )
+            continue
+        if candidates:
+            namespace, voice = candidates[0]
+            try:
+                selected_target = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
+            except ValueError as exc:
+                error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
+                continue
             origin = ORIGIN_DOCUMENT
             selected_locator = "utterplan.document_metadata.voice_bindings"
         elif reference in invocation_bindings:
-            selected_voice = invocation_bindings[reference]
+            try:
+                selected_target = as_target(invocation_bindings[reference], selection.engine)
+            except (TypeError, ValueError) as exc:
+                error(
+                    reference,
+                    "ssmd.voice_binding_invalid",
+                    f"Invocation binding {reference!r} could not be resolved: {exc}",
+                )
+                continue
             origin = ORIGIN_CLI
             selected_locator = "request.voice_bindings"
+        elif reference in project_targets:
+            selected_target = project_targets[reference]
+            origin = "project"
+            selected_locator = f"project.settings.ssmd.role_bindings.{reference}"
+        elif reference in project_ambiguities:
+            error(
+                reference,
+                "ssmd.voice_binding_ambiguous_engine",
+                f"Project role {reference!r} is ambiguous across provider namespaces: "
+                + ", ".join(project_ambiguities[reference]),
+            )
+            continue
         elif reference in project_bindings:
-            selected_voice = project_bindings[reference]
+            try:
+                selected_target = VoiceTarget(
+                    engine_for_ssmd_provider(provider), project_bindings[reference]
+                )
+            except ValueError as exc:
+                error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
+                continue
             origin = "project"
             selected_locator = f"project.settings.ssmd.voice_bindings.{provider}.{reference}"
-        elif reference in configured_roles:
-            selected_voice = configured_roles[reference]
+        elif reference in cfg.roles:
+            selected_target = cfg.roles[reference]
             origin = ORIGIN_CONFIG_VOICE_ROLE
-            selected_locator = f"voices.{provider}.roles.{reference}"
-        elif reference in available:
-            selected_voice = reference
+            selected_locator = f"roles.{reference}"
+        elif reference in legacy_candidates:
+            candidates = legacy_candidates[reference]
+            if len(candidates) > 1:
+                error(
+                    reference,
+                    "ssmd.voice_binding_ambiguous_engine",
+                    f"Configured role {reference!r} is ambiguous across providers: "
+                    + ", ".join(namespace for namespace, _voice in candidates),
+                )
+                continue
+            namespace, voice = candidates[0]
+            try:
+                selected_target = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
+            except ValueError as exc:
+                error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
+                continue
+            origin = ORIGIN_CONFIG_VOICE_ROLE
+            selected_locator = f"voices.{namespace}.roles.{reference}"
+        else:
+            direct = [
+                (namespace, reference)
+                for namespace, settings in cfg.voices.items()
+                if reference in settings.ids
+            ]
+            if len(direct) > 1:
+                error(
+                    reference,
+                    "ssmd.voice_binding_ambiguous_engine",
+                    f"Direct voice {reference!r} is present in multiple provider inventories: "
+                    + ", ".join(namespace for namespace, _voice in direct),
+                )
+                continue
+            if direct:
+                namespace, voice = direct[0]
+                try:
+                    selected_target = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
+                except ValueError as exc:
+                    error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
+                    continue
+            elif reference in available:
+                selected_target = VoiceTarget(selection.engine, reference)
+            else:
+                error(
+                    reference,
+                    DIAG_SSMD_UNRESOLVED_VOICE,
+                    f"Cannot resolve SSMD voice reference {reference!r}.",
+                )
+                continue
             origin = "direct"
             selected_locator = None
 
-        if selected_voice is None:
-            unresolved.append(reference)
-            diagnostics.append(
-                PlanDiagnostic(
-                    code=DIAG_SSMD_UNRESOLVED_VOICE,
-                    severity="error",
-                    message=f"Cannot resolve SSMD voice reference {reference!r}.",
-                    field=f"ssmd.bindings.{reference}",
-                    source_path=source_path,
-                )
+        if selected_target is None:
+            error(
+                reference,
+                DIAG_SSMD_UNRESOLVED_VOICE,
+                f"Cannot resolve SSMD voice reference {reference!r} to an engine-qualified target.",
             )
             continue
-        if selected_voice not in available:
-            diagnostics.append(
-                PlanDiagnostic(
-                    code=DIAG_SSMD_VOICE_UNAVAILABLE,
-                    severity="error",
-                    message=f"SSMD role {reference!r} resolves to unavailable voice {selected_voice!r}.",
-                    field=f"ssmd.bindings.{reference}",
-                    source_path=source_path,
-                )
+        if selected_target.engine == selection.engine and selected_target.voice not in available:
+            error(
+                reference,
+                DIAG_SSMD_VOICE_UNAVAILABLE,
+                f"SSMD role {reference!r} resolves to unavailable voice {selected_target.voice!r}.",
             )
             continue
 
         binding = VoiceBindingPlan(
             reference=reference,
-            voice=selected_voice,
+            voice=selected_target.voice,
             origin=origin or "direct",
             locator=selected_locator,
+            target=selected_target,
         )
         bindings.append(binding)
         decisions_locator = selected_locator or f"ssmd.voice.{reference}"
-        if adapter.capabilities().voice_binding_scope == "target":
-            role_selection = replace(selection, target_id=selected_voice)
+        if (
+            selected_target.engine == selection.engine
+            and adapter.capabilities().voice_binding_scope == "target"
+        ):
+            target_id = selected_target.target_id or selected_target.voice
+            role_selection = replace(selection, target_id=target_id)
             role_metadata = getattr(adapter, "target_metadata", lambda _selection: {})(
                 role_selection
             )
             role_target = RenderTargetV2(
-                id=selected_voice,
+                id=target_id,
                 language=default_target.language,
                 speaker=default_target.speaker,
                 options=default_target.options,
@@ -1434,7 +1575,7 @@ def _resolve_v2_ssmd_roles(
             role_target = RenderTargetV2(
                 id=default_target.id,
                 language=default_target.language,
-                voice=VoiceSourceV2(kind="named", value=selected_voice),
+                voice=VoiceSourceV2(kind="named", value=selected_target.voice),
                 speaker=default_target.speaker,
                 options=default_target.options,
                 metadata=default_target.metadata,
@@ -1445,6 +1586,7 @@ def _resolve_v2_ssmd_roles(
                 target=role_target,
                 origin=origin or "direct",
                 locator=decisions_locator,
+                voice_target=selected_target,
             )
         )
     return tuple(role_targets), tuple(bindings), unresolved, diagnostics
@@ -1550,7 +1692,10 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             "pause_mode": candidate.pause_mode,
             "short_sentence": candidate.short_sentence,
             "allow_experimental": candidate.allow_experimental,
-            "ssmd_voice_bindings": dict(request.voice_bindings),
+            "ssmd_voice_bindings": {
+                role: value.to_dict() if isinstance(value, VoiceTarget) else value
+                for role, value in request.voice_bindings.items()
+            },
         }
         optional_options = {
             "model_source": candidate.source,
@@ -1640,10 +1785,14 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         except (ImportError, AttributeError, TypeError, ValueError) as exc:
             diagnostics.append(
                 PlanDiagnostic(
-                    code="engine_resolution_failed",
+                    code=getattr(exc, "diagnostic_code", "engine_resolution_failed"),
                     severity="error",
-                    message=f"{engine_id} selection failed: {exc}",
-                    field="synthesis.engine",
+                    message=(
+                        str(exc)
+                        if hasattr(exc, "diagnostic_code")
+                        else f"{engine_id} selection failed: {exc}"
+                    ),
+                    field=getattr(exc, "diagnostic_field", "synthesis.engine"),
                 )
             )
 
@@ -1946,6 +2095,7 @@ class RoleTargetBindingV2:
     target: RenderTargetV2
     origin: str
     locator: str | None = None
+    voice_target: VoiceTarget | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -1953,6 +2103,8 @@ class RoleTargetBindingV2:
             "target": self.target.to_dict(),
             "origin": self.origin,
         }
+        if self.voice_target is not None:
+            result["voice_target"] = self.voice_target.to_dict()
         if self.locator is not None:
             result["locator"] = self.locator
         return result

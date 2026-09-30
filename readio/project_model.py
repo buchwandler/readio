@@ -232,6 +232,29 @@ def _validate_project_settings(value: Any) -> None:
                     _require_string(
                         voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}"
                     )
+        if "role_bindings" in ssmd:
+            role_bindings = _require_mapping(
+                ssmd["role_bindings"], "project.settings.ssmd.role_bindings"
+            )
+            for role, target in role_bindings.items():
+                role_name = _require_string(role, "project.settings.ssmd.role_bindings role")
+                target_values = _require_mapping(
+                    target, f"project.settings.ssmd.role_bindings.{role_name}"
+                )
+                _require_string(
+                    target_values.get("engine"),
+                    f"project.settings.ssmd.role_bindings.{role_name}.engine",
+                )
+                _require_string(
+                    target_values.get("voice"),
+                    f"project.settings.ssmd.role_bindings.{role_name}.voice",
+                )
+                for field in ("target_id", "selector"):
+                    if field in target_values:
+                        _require_string(
+                            target_values[field],
+                            f"project.settings.ssmd.role_bindings.{role_name}.{field}",
+                        )
     validators = {
         "synthesis": _validate_synthesis_settings,
         "composition": _validate_composition_settings,

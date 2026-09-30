@@ -11,6 +11,7 @@ from typing import Any
 from .errors import ReadioError
 from .project import canonical_json
 from .project_model import ProjectFormatError, ProjectManifest
+from .role_targets import VoiceTarget, voice_target_from_mapping
 
 
 def project_ssmd_settings(manifest: ProjectManifest) -> dict[str, Any]:
@@ -37,9 +38,13 @@ def project_voice_provider(manifest: ProjectManifest) -> str | None:
 def project_voice_binding_providers(
     manifest: ProjectManifest, *, non_empty_only: bool = True
 ) -> tuple[str, ...]:
-    """Return provider namespaces with project-local role bindings."""
-    bindings = project_ssmd_settings(manifest).get("voice_bindings", {})
-    providers = (provider for provider, roles in bindings.items() if not non_empty_only or roles)
+    """Return providers represented by legacy or role-centric project bindings."""
+    settings = project_ssmd_settings(manifest)
+    bindings = settings.get("voice_bindings", {})
+    providers = {provider for provider, roles in bindings.items() if not non_empty_only or roles}
+    for target in project_role_bindings(manifest).values():
+        if target.provider is not None:
+            providers.add(target.provider)
     return tuple(sorted(providers))
 
 
@@ -85,10 +90,100 @@ def resolve_project_voice_provider(
 
 
 def project_voice_bindings(manifest: ProjectManifest, provider: str) -> dict[str, str]:
-    """Return project-local role bindings for one provider."""
+    """Return effective role voices for one provider, with new settings winning."""
     settings = project_ssmd_settings(manifest)
-    bindings = settings.get("voice_bindings", {})
-    return dict(bindings.get(provider, {}))
+    legacy = dict(settings.get("voice_bindings", {}).get(provider, {}))
+    targets = project_role_bindings(manifest)
+    for role in targets:
+        legacy.pop(role, None)
+    legacy.update(
+        {role: target.voice for role, target in targets.items() if target.provider == provider}
+    )
+    return legacy
+
+
+def project_role_bindings(manifest: ProjectManifest) -> dict[str, VoiceTarget]:
+    """Return role-centric project targets, normalized to canonical engine IDs."""
+    values = project_ssmd_settings(manifest).get("role_bindings", {})
+    if not isinstance(values, Mapping):
+        raise ProjectFormatError("project.settings.ssmd.role_bindings must be a mapping")
+    return {
+        role: voice_target_from_mapping(value, name=f"project role binding {role!r}")
+        for role, value in values.items()
+    }
+
+
+def effective_project_role_targets(
+    manifest: ProjectManifest,
+) -> tuple[dict[str, VoiceTarget], dict[str, tuple[str, ...]]]:
+    """Return role-centric targets plus unambiguous legacy provider bindings."""
+    from .engines.registry import engine_for_ssmd_provider
+
+    targets = project_role_bindings(manifest)
+    active_provider = project_voice_provider(manifest)
+    legacy = project_ssmd_settings(manifest).get("voice_bindings", {})
+    candidates: dict[str, list[tuple[str, str]]] = {}
+    for namespace, values in legacy.items():
+        if active_provider is not None and namespace != active_provider:
+            continue
+        if not isinstance(values, Mapping):
+            continue
+        for role, voice in values.items():
+            candidates.setdefault(role, []).append((namespace, voice))
+
+    ambiguities: dict[str, tuple[str, ...]] = {}
+    for role, values in candidates.items():
+        if role in targets:
+            continue
+        if len(values) != 1:
+            ambiguities[role] = tuple(namespace for namespace, _voice in values)
+            continue
+        namespace, voice = values[0]
+        try:
+            targets[role] = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
+        except ValueError:
+            ambiguities[role] = (namespace,)
+    return targets, ambiguities
+
+
+def project_role_targets_provenance(manifest: ProjectManifest) -> dict[str, Any]:
+    """Return a deterministic fingerprint for effective role targets and conflicts."""
+    targets, ambiguities = effective_project_role_targets(manifest)
+    bindings = {role: target.to_dict() for role, target in sorted(targets.items())}
+    conflicts = {role: list(namespaces) for role, namespaces in sorted(ambiguities.items())}
+    value = {"bindings": bindings, "ambiguities": conflicts}
+    return {**value, "sha256": hashlib.sha256(canonical_json(value)).hexdigest()}
+
+
+def with_project_role_binding(
+    manifest: ProjectManifest, *, role: str, target: VoiceTarget
+) -> ProjectManifest:
+    """Persist a role-centric target without changing legacy settings."""
+    _require_non_empty_string(role, "role")
+    if not isinstance(target, VoiceTarget):
+        raise TypeError("target must be a VoiceTarget")
+    settings = dict(manifest.settings)
+    ssmd = dict(settings.get("ssmd", {}))
+    role_bindings = dict(ssmd.get("role_bindings", {}))
+    role_bindings[role] = target.to_dict()
+    ssmd["role_bindings"] = role_bindings
+    settings["ssmd"] = ssmd
+    return replace(manifest, settings=settings)
+
+
+def without_project_role_binding(manifest: ProjectManifest, *, role: str) -> ProjectManifest:
+    """Remove one role-centric project target while preserving other settings."""
+    _require_non_empty_string(role, "role")
+    settings = dict(manifest.settings)
+    ssmd = dict(settings.get("ssmd", {}))
+    role_bindings = dict(ssmd.get("role_bindings", {}))
+    role_bindings.pop(role, None)
+    if role_bindings:
+        ssmd["role_bindings"] = role_bindings
+    else:
+        ssmd.pop("role_bindings", None)
+    settings["ssmd"] = ssmd
+    return replace(manifest, settings=settings)
 
 
 def project_voice_bindings_provenance(provider: str, bindings: Mapping[str, str]) -> dict[str, Any]:
@@ -496,25 +591,30 @@ def merge_project_synthesis_request(project_settings: Any, invocation_request: A
 
 
 __all__ = [
+    "ProjectVoiceProviderError",
     "apply_project_settings_patch",
+    "effective_project_role_targets",
     "merge_project_synthesis_request",
     "project_pipeline_settings",
-    "project_settings_fingerprint",
     "project_planning_config",
     "project_planning_settings_fingerprint",
-    "synthesis_request_fingerprint",
+    "project_role_bindings",
+    "project_role_targets_provenance",
+    "project_settings_fingerprint",
     "project_settings_from_manifest",
     "project_settings_to_dict",
-    "project_synthesis_request",
-    "with_project_settings",
-    "ProjectVoiceProviderError",
     "project_ssmd_settings",
+    "project_synthesis_request",
     "project_voice_binding_providers",
     "project_voice_bindings",
     "project_voice_bindings_provenance",
     "project_voice_provider",
     "resolve_project_voice_provider",
+    "synthesis_request_fingerprint",
+    "with_project_role_binding",
+    "with_project_settings",
     "with_project_voice_binding",
     "with_project_voice_provider",
+    "without_project_role_binding",
     "without_project_voice_binding",
 ]

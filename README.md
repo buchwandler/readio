@@ -86,14 +86,14 @@ readio config init
 readio config show
 readio config validate
 readio config set reader.voice bf_emma
-readio config set voices.kokoro.roles.analyst am_michael
+readio roles bind analyst am_michael --engine pykokoro
 readio config set reader.pause_mode auto
 readio config set ssmd.voice_provider kokoro
 ```
 
 The default configuration uses `platformdirs` for the config, template, ingest, and output locations. `READIO_CONFIG` overrides the config file path. Existing legacy files containing only `[reader]` continue to load and are upgraded to schema 2 when saved.
 
-The configuration contains reader settings, SSMD defaults, provider-specific voice IDs, and logical role bindings. Templates refer to roles such as `host`, `analyst`, `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`.
+The configuration contains reader settings, SSMD defaults, provider-specific voice catalogs, and engine-qualified global role targets. Use `readio roles bind` for new role bindings; existing `[voices.<provider>.roles]` entries remain readable as legacy inputs when no role-centric target overrides that role. Conflicting legacy definitions for an otherwise unbound role are reported as ambiguous. `ssmd.voice_provider` remains a default namespace for provider-qualified SSMD metadata and legacy inputs, not an engine selector for role-centric bindings. Templates refer to roles such as `host`, `analyst`, `guest`, and `narrator`, while ordinary literal text continues to use `reader.voice`.
 
 ### Model discovery and language defaults
 
@@ -404,9 +404,9 @@ Doctor is offline/local by default and supports `readio doctor --json`. It repor
 
 The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary file management, or manual cleanup for normal podcast workflows.
 
-## SSMD voice resolution
+## SSMD voice resolution and project role targets
 
-Use document-local bindings when a portable SSMD file should carry its speaker choices:
+Document-local SSMD bindings retain the provider-qualified `voice_bindings` syntax. They keep a portable document's speaker choices with the source:
 
 ```yaml
 voice_bindings:
@@ -415,8 +415,11 @@ voice_bindings:
     architect: am_michael
 ```
 
-Discover runnable registry voices and stable selectors with `readio voices list --json` or `readio voices list --lang de`. For Kokoro, a real en-US identity is `en_us-ko-4` -> `af_heart` (Kokoro v1.0); `--lang en-us` filters the inventory, while `en_us-ko-4` is the normalized stable selector. Inspect it with `readio voices show en_us-ko-4 --json`. Kokoro selectors use `<lang>-ko-<slot>` and Piper selectors use `<lang>-pi-<slot>`; these identities come from the authoritative voice registry, while canonical engine voice IDs remain visible and accepted. Persist reusable SSMD roles with `readio roles bind ROLE VOICE_ID` and inspect them with `readio roles list`. Selectors are stable short lookup aliases; persisted configuration and SSMD continue to use canonical concrete voice IDs. For deterministic one-run automation, use repeatable options:
-Runtime voice inventories are model-specific. Use `readio voices list --model MODEL --json` for concrete IDs; a configured portable role such as `host` must be bound to a voice supported by the selected model. Readio reports the active model and valid voices before inference when a binding is incompatible.
+SSMD syntax is unchanged. A role bound in more than one provider namespace in the same document is ambiguous; Readio reports an error rather than selecting one. Resolution precedence is document binding, invocation `--voice-bind`, project role target, global configured role, then direct concrete voice. Document bindings remain authoritative.
+
+Discover runnable registry voices and stable selectors with `readio voices list --json` or `readio voices list --lang de`. For Kokoro, `en_us-ko-4` resolves to `af_heart` (Kokoro v1.0). Kokoro selectors use `<lang>-ko-<slot>` and Piper selectors use `<lang>-pi-<slot>`. Persist global roles with `readio roles bind ROLE VOICE_ID`; use `--engine ENGINE` when binding an ambiguous raw voice ID. Readio retains the resolved engine, canonical voice, target ID, and selector. `readio roles list` reports each role's engine and derived provider. Legacy `[voices.<provider>.roles]` settings remain readable when unambiguous.
+
+For deterministic one-run automation, use repeatable `--voice-bind ROLE=VOICE_ID` options. Readio resolves stable selectors to engine-qualified targets; document bindings continue to take precedence:
 
 ```bash
 readio render --file episode.ssmd \
@@ -424,32 +427,24 @@ readio render --file episode.ssmd \
   --voice-bind architect=am_michael
 ```
 
-`--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind` instead. Document bindings remain authoritative, and unresolved roles are reported before TTS or external publishing work begins. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
+`--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind`. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
 
-Project-local role choices belong to the project rather than portable SSMD or user-global config:
+Project-local role targets let one SSMD document use multiple synthesis engines without changing the semantic SSMD speaker references:
 
 ```bash
 cd episode.readio
+readio plan bind host en_us-ko-4
+readio plan bind guest en-pi-13
 readio plan roles
-readio plan bind narrator en_us-ko-4
-readio plan unbind narrator
 readio plan
-```
-
-Resolution precedence is document binding, invocation `--voice-bind`, project binding, global configured role, then direct concrete voice. `readio plan bind` does not rewrite SSMD or change the semantic plan ID. It changes acoustic synthesis settings, so `readio status` leaves planning current and reports synthesis stale; run `readio synth` to refresh it.
-
-A project may persist `settings.ssmd.voice_provider` as its active SSMD provider. If it is absent, Readio infers the provider when there is exactly one non-empty provider binding namespace. Projects with neither an active provider nor project binding namespaces retain the global configuration fallback; multiple namespaces without an active provider are reported as ambiguous. `readio plan roles`, `bind`, `unbind`, and project synthesis use this same effective provider. Binding a stable selector such as `en-pi-13` stores its canonical Piper voice and activates Piper for that project.
-
-Project synthesis defaults its engine from the active provider rather than inheriting global `reader.engine` or `reader.voice`. An explicit `readio synth --engine ...` is a run-local override and does not change project settings. For example:
-
-```bash
-readio plan bind narrator en-pi-13
-readio plan roles
 readio synth
-readio synth --engine pykokoro  # this run only
 ```
 
-PyKokoro and Pocket use request-scoped voice selection; Piper is target-bound. Readio resolves roles, validates concrete targets before opening sessions, and reuses one session per target. Project role bindings affect synthesis, not the semantic plan identity.
+New bindings are stored role-centrically in `project.json` under `settings.ssmd.role_bindings`, with each target's `engine`, canonical `voice`, and optional `target_id` and `selector`. Binding a stable selector retains its resolved identity and does not set a project-wide provider. Use `readio plan bind ROLE VOICE PROJECT` or `--project PROJECT` from outside the project; nested working directories are discovered. For raw voice IDs, pass `--engine` when the engine cannot be inferred.
+
+Legacy `settings.ssmd.voice_bindings.<provider>.<role>` entries remain readable. The legacy `settings.ssmd.voice_provider`, when present, scopes those provider-keyed inputs; it does not select or override new role-centric targets. Without an active legacy provider, conflicting definitions for the same role are reported as ambiguous. There is no automatic migration command. `readio plan roles --provider PROVIDER` filters inspection output; it does not override project bindings.
+
+`readio plan bind` does not rewrite SSMD or change the semantic plan ID. It changes acoustic synthesis settings, so `readio status` leaves planning current and reports synthesis stale; run `readio synth` to refresh it. Synthesis routes bound segments through each target's engine and uses the normal project synthesis selection for unbound segments. Engines and sessions are resolved per route, so a mixed-engine project does not require one project-wide provider.
 
 ## Persistent incremental projects
 

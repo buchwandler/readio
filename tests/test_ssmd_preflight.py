@@ -18,6 +18,48 @@ def config() -> ReadioConfig:
     )
 
 
+def test_role_resolution_preserves_engine_qualified_document_and_global_targets():
+    from readio.role_targets import VoiceTarget
+    from readio.ssmd import resolve_voice_references
+
+    cfg = config()
+    cfg = ReadioConfig(
+        voices=cfg.voices,
+        roles={"host": VoiceTarget("pykokoro", "af_sarah")},
+    )
+    text = (
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n  piper:\n"
+        "    guest: en_US-amy-medium\n---\n"
+        + _voice_block("guest", "Question.")
+        + "\n"
+        + _voice_block("host", "Opening.")
+    )
+
+    resolved = resolve_voice_references(
+        text, cfg, available_voices=("af_sarah",), provider="kokoro"
+    )
+
+    assert [(item.reference, item.target.engine, item.target.voice) for item in resolved] == [
+        ("guest", "piper", "en_US-amy-medium"),
+        ("host", "pykokoro", "af_sarah"),
+    ]
+
+
+def test_document_role_bindings_in_multiple_provider_namespaces_are_ambiguous():
+    from readio.ssmd import resolve_voice_references
+
+    text = (
+        "---\nssmd_version: '0.9'\nvoice_bindings:\n"
+        "  kokoro:\n    guest: af_sarah\n"
+        "  piper:\n    guest: en_US-amy-medium\n---\n" + _voice_block("guest", "Hello.")
+    )
+
+    resolved = resolve_voice_references(text, config(), provider="kokoro")
+
+    assert resolved[0].target is None
+    assert resolved[0].diagnostic.code == "ssmd.voice_binding_ambiguous_engine"
+
+
 def _voice_block(role: str, text: str) -> str:
     return f':::{{voice="{role}"}}\n{text}\n:::'
 

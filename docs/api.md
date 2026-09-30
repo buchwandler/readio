@@ -227,9 +227,28 @@ for voice in listing.items:
     print(voice.selector, voice.id)
 ```
 
-Catalogs also provide singular lookups and voice-selector resolution. `app.roles` lists and mutates global role bindings and inspects, binds, or unbinds project-local roles. Mutations persist; use a new `Readio` instance to observe changed configuration snapshots.
+Catalogs also provide singular lookups and voice-selector resolution. `app.roles` lists and mutates global role bindings and inspects, binds, or unbinds project-local roles. New bindings resolve to the public `VoiceTarget` type, which contains canonical `engine` and `voice` values plus optional `target_id` and `selector`; `provider` is derived from the engine. `RoleBinding.target`, `ProjectRole.effective_target`, and `ProjectRole.project_target` expose these values. Project inspection's summary `provider` is `None` when effective roles use multiple providers. The JSON target objects include both engine and derived provider fields.
 
-`unbind_project_result(project, role)` returns a `ProjectRoleMutationResult` with the removed `previous_project_binding`, resulting `project_binding`, newly `effective_voice`, `origin`, and `status`. It avoids reopening the project just to inspect the state transition. The original `unbind_project()` remains available and continues returning `None` for API-v1 compatibility.
+Bind mixed-engine roles through the same API used by the CLI:
+
+```python
+from pathlib import Path
+from readio.api import Readio
+
+app = Readio()
+project = app.projects.open(Path("episode.readio"))
+app.roles.bind_project(project, "host", "en_us-ko-4")
+app.roles.bind_project(project, "guest", "en-pi-13")
+inspection = app.roles.inspect_project(project)
+for role in inspection.roles:
+    target = role.effective_target
+    if target is not None:
+        print(role.role, target.engine, target.voice, target.provider)
+```
+
+`bind_global(role, voice, engine=...)` and `bind_project(project, role, voice, engine=...)` accept an explicit engine for raw voice IDs; stable selectors resolve their engine and retain target identity. Optional `provider` arguments remain for compatibility, engine/namespace validation, and inspection filtering; they do not select a project-wide route. A role-centric global target is stored in the top-level `[roles.<role>]` configuration. Legacy `[voices.<provider>.roles]` configuration and project `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. Conflicting legacy definitions for the same global role or an unscoped project role produce explicit ambiguity diagnostics. The legacy project `settings.ssmd.voice_provider` scopes provider-keyed legacy inputs only. New project bindings use `settings.ssmd.role_bindings`, and no automatic migration command is provided. SSMD `voice_bindings` syntax is unchanged. Global configuration mutations persist; create a new `Readio` instance to use the saved configuration snapshot.
+
+`unbind_project_result(project, role)` returns a `ProjectRoleMutationResult` with the removed `previous_project_binding`, resulting `project_binding`, newly effective target and voice, `origin`, and `status`. It avoids reopening the project just to inspect the state transition. The original `unbind_project()` remains available and continues returning `None` for API-v1 compatibility.
 
 ## SSMD, configuration, templates, and ingest
 

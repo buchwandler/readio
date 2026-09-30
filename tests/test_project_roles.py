@@ -16,14 +16,18 @@ from readio.project_roles import (
 )
 from readio.project_settings import (
     ProjectVoiceProviderError,
+    project_role_bindings,
     project_voice_binding_providers,
     project_voice_bindings,
     project_voice_bindings_provenance,
     resolve_project_voice_provider,
+    with_project_role_binding,
     with_project_voice_binding,
     with_project_voice_provider,
+    without_project_role_binding,
     without_project_voice_binding,
 )
+from readio.role_targets import VoiceTarget
 
 
 def _project(tmp_path, text: str):
@@ -414,15 +418,25 @@ def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
     ssmd = updated.manifest.settings["ssmd"]
 
     assert result["provider"] == "piper"
+    assert result["engine"] == "piper"
     assert result["stored_voice"] == "en_US-amy-medium"
-    assert ssmd["voice_provider"] == "piper"
-    assert ssmd["voice_bindings"] == {
-        "kokoro": {"guest": "af_bella"},
-        "piper": {"guest": "en_US-amy-medium"},
+    assert result["target"] == {
+        "engine": "piper",
+        "voice": "en_US-amy-medium",
+        "selector": "en-pi-13",
+    }
+    assert "voice_provider" not in ssmd
+    assert ssmd["voice_bindings"] == {"kokoro": {"guest": "af_bella"}}
+    assert ssmd["role_bindings"] == {
+        "guest": {
+            "engine": "piper",
+            "voice": "en_US-amy-medium",
+            "selector": "en-pi-13",
+        }
     }
 
 
-def test_project_roles_explicit_provider_overrides_active_provider(tmp_path) -> None:
+def test_project_roles_explicit_provider_filters_effective_targets(tmp_path) -> None:
     project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
@@ -437,7 +451,7 @@ def test_project_roles_explicit_provider_overrides_active_provider(tmp_path) -> 
     inspection = inspect_project_roles(project, ReadioConfig(), provider="kokoro")
 
     assert inspection.provider == "kokoro"
-    assert inspection.roles[0].effective_voice == "af_bella"
+    assert inspection.roles == ()
 
 
 def test_unbind_defaults_to_active_provider_and_removes_empty_namespace(tmp_path) -> None:
@@ -492,3 +506,67 @@ def test_bind_checks_document_binding_in_selector_provider(tmp_path, monkeypatch
 
     assert document_bound.value.code == "readio.project_role.document_bound"
     assert document_bound.value.details["provider"] == "piper"
+
+
+def test_role_centric_project_binding_preserves_legacy_settings(tmp_path) -> None:
+    project = _project(tmp_path, '[Hello.]{voice="guest"}')
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest, provider="kokoro", role="host", voice="af_sarah"
+        ),
+    )
+    target = VoiceTarget(
+        engine="pipersynth",
+        voice="en_US-amy-medium",
+        target_id="amy-asset",
+        selector="en-pi-13",
+    )
+
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_role_binding(manifest, role="guest", target=target),
+    )
+
+    assert project_role_bindings(project.manifest)["guest"] == VoiceTarget(
+        engine="piper",
+        voice="en_US-amy-medium",
+        target_id="amy-asset",
+        selector="en-pi-13",
+    )
+    settings = project.manifest.settings["ssmd"]
+    assert settings["role_bindings"]["guest"]["engine"] == "piper"
+    assert settings["voice_bindings"] == {"kokoro": {"host": "af_sarah"}}
+
+    assert "voice_provider" not in settings
+
+    project = update_project_manifest(
+        project,
+        lambda manifest: without_project_role_binding(manifest, role="guest"),
+    )
+    assert project_role_bindings(project.manifest) == {}
+    assert project.manifest.settings["ssmd"]["voice_bindings"] == {"kokoro": {"host": "af_sarah"}}
+
+
+def test_inspection_resolves_mixed_project_targets_without_project_provider_selection(
+    tmp_path,
+) -> None:
+    project = _project(
+        tmp_path,
+        '[Hello.]{voice="host"}\n\n[Question.]{voice="guest"}',
+    )
+    project = update_project_manifest(
+        project,
+        lambda manifest: with_project_role_binding(
+            with_project_voice_binding(manifest, provider="kokoro", role="host", voice="af_sarah"),
+            role="guest",
+            target=VoiceTarget("piper", "en_US-amy-medium"),
+        ),
+    )
+
+    inspection = inspect_project_roles(project, ReadioConfig())
+    roles = {role.role: role for role in inspection.roles}
+
+    assert inspection.provider is None
+    assert roles["host"].effective_target == VoiceTarget("pykokoro", "af_sarah")
+    assert roles["guest"].effective_target == VoiceTarget("piper", "en_US-amy-medium")

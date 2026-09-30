@@ -37,7 +37,6 @@ from .base import (
 )
 from .catalog import CatalogRequest, SynthesisTarget
 
-
 PIPER_RENDER_OPTIONS = frozenset(
     {
         "length_scale",
@@ -54,6 +53,18 @@ PIPER_RENDER_OPTIONS = frozenset(
         "force_download",
     }
 )
+
+
+class PiperTargetRequiredError(ValueError):
+    diagnostic_code = "piper.voice_required"
+    diagnostic_field = "render.target.id"
+
+    def __init__(self, language: str) -> None:
+        super().__init__(
+            "piper.voice_required: Piper needs a voice bundle target. Supply --model <bundle-id>, "
+            "--voice <bundle-id>, or bind the role to a Piper voice selector. Discover bundle IDs "
+            f"with `readio voices list --engine piper --lang {language}`."
+        )
 
 
 def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> SynthesisTarget:
@@ -323,6 +334,7 @@ class PiperSynthEngineAdapter:
         return EngineCapabilities(
             id=self.id,
             voice_binding_namespace="piper",
+            supports_named_voices=True,
             voice_binding_scope="target",
             option_names=PIPER_RENDER_OPTIONS,
             supports_speakers=True,
@@ -350,10 +362,7 @@ class PiperSynthEngineAdapter:
         voice = getattr(request, "voice", None)
         target_id = getattr(request, "target_id", None) or voice
         if not target_id:
-            raise ValueError(
-                "piper.voice_required: Piper requires a voice bundle; pass --model <id> or "
-                f"run `readio voices list --engine piper --lang {language}`."
-            )
+            raise PiperTargetRequiredError(language)
         options = dict(getattr(request, "options", {}) or {})
         options.update(dict(getattr(request, "engine_options", {}) or {}))
         speed = options.pop("speed", options.pop("rate", None))

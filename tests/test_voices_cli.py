@@ -213,13 +213,48 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
         cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"]))
         == 0
     )
-    assert saved[-1].voices["kokoro"].roles["moderator"] == "new_voice"
-    assert "new_voice" in saved[-1].voices["kokoro"].ids
+    assert saved[-1].roles["moderator"].voice == "new_voice"
+    assert saved[-1].roles["moderator"].engine == "pykokoro"
 
     bound = saved[-1]
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: bound)
     assert cli._cmd_roles(cli.build_parser().parse_args(["roles", "unbind", "moderator"])) == 0
-    assert "moderator" not in saved[-1].voices["kokoro"].roles
+    assert "moderator" not in saved[-1].roles
+
+
+def test_role_cli_json_reports_engine_and_provider_per_binding(monkeypatch, tmp_path, capsys):
+    cfg = config(tmp_path)
+    saved = []
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
+    monkeypatch.setattr(
+        "readio.config.save_config",
+        lambda updated: saved.append(updated) or Path("config.toml"),
+    )
+    monkeypatch.setattr("readio.api.roles.resolve_voice_selector", lambda *args, **kwargs: None)
+
+    bind_args = cli.build_parser().parse_args(
+        ["roles", "bind", "guest", "en_US-amy-medium", "--engine", "piper", "--json"]
+    )
+    assert cli._cmd_roles(bind_args) == 0
+    bound = json.loads(capsys.readouterr().out)
+    assert bound["engine"] == "piper"
+    assert bound["provider"] == "piper"
+    assert bound["voice"] == "en_US-amy-medium"
+
+    cfg = saved[-1]
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
+    list_args = cli.build_parser().parse_args(["roles", "list", "--json"])
+    assert cli._cmd_roles(list_args) == 0
+    listing = json.loads(capsys.readouterr().out)
+    guest = next(item for item in listing["roles"] if item["role"] == "guest")
+    assert guest["engine"] == "piper"
+    assert guest["provider"] == "piper"
+
+    unbind_args = cli.build_parser().parse_args(["roles", "unbind", "guest", "--json"])
+    assert cli._cmd_roles(unbind_args) == 0
+    removed = json.loads(capsys.readouterr().out)
+    assert removed["removed_target"]["engine"] == "piper"
+    assert removed["provider"] == "piper"
 
 
 def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):

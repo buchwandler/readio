@@ -109,22 +109,23 @@ sidecars. Composition currentness is derived from the current layout and policy.
 `compose` and preview can use the cache without a current-plan trace and do not
 load a TTS engine.
 
-## Project voice bindings
+## Project role targets and resolution
 
-Project-local logical-role assignments live in `project.json` at `settings.ssmd.voice_bindings`, keyed by provider and role. `settings.ssmd.voice_provider` optionally selects the active provider. When it is absent, Readio infers a provider only if exactly one non-empty binding namespace exists. Projects with no project bindings retain the global configuration fallback; multiple namespaces without an active provider are ambiguous. `readio plan roles`, `bind`, `unbind`, and synthesis use the same effective provider. Binding a stable selector stores its canonical voice and activates that selector's provider without modifying global configuration.
+Project-local role assignments are stored role-centrically in `project.json` at `settings.ssmd.role_bindings`. Each role maps to an engine-qualified target: canonical engine and voice, with optional target ID and stable selector. Provider is derived from the engine for presentation and compatibility; it is not the identity of a project-wide cast. Global role targets use the same engine-qualified model, while the legacy `[voices.<provider>.roles]` inputs remain readable when unambiguous.
 
-`readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective sources without requiring a generated plan index. The shared synthesis request attaches project bindings as a distinct resolution layer; bindings are never written into UtterPlan or the SSMD source.
+Existing projects with `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. The optional legacy `settings.ssmd.voice_provider` scopes those provider-keyed values; it does not select or override new role targets. Without an active legacy provider, conflicting legacy definitions for the same role are surfaced as ambiguity. New bindings do not rewrite unrelated legacy data, and no automatic migration command is provided. SSMD document `voice_bindings` remains provider-qualified and unchanged; multiple provider bindings for the same role are ambiguous.
 
-The binding precedence is `document > invocation CLI > project > global configured role > direct concrete voice`. Document bindings remain authoritative per scope. Concrete project choices affect synthesis only, so changing them does not alter semantic `plan_id` or invalidate plan artifacts.
+`readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective targets without requiring a generated plan index. The `--provider` inspection filter selects which effective targets to display; it does not override role resolution. Bindings are carried in the synthesis request and are never written into UtterPlan or SSMD source.
 
-With no explicit engine, project synthesis selects the engine associated with the effective project provider and does not inherit global `reader.engine` or `reader.voice`. An explicit `readio synth --engine ...` chooses a run-local engine/provider and never mutates project settings.
+Binding precedence is `document > invocation CLI > project > global configured role > direct concrete voice`. A document binding remains authoritative per scope. Project role changes affect synthesis only, so they do not alter semantic `plan_id` or invalidate plan artifacts.
 
-The synthesis profile records provider, sorted project bindings, and a SHA-256 provenance hash under `project_voice_bindings`. Grouped target-route profiles use the v3 canonical identity with target selections, per-scope bindings, and the project-binding fingerprint. Status compares current project settings with recorded provenance and reports `synthesis.stale.project_voice_bindings_changed` on mismatch. Plan remains current, synthesis becomes stale, composition and output are blocked downstream, and `readio synth` is the next action. Cached audio is not deleted.
+## Mixed-engine synthesis routing
 
-## Engine voice-binding modes
+For each selected segment, Readio resolves the symbolic role in that document scope to a `VoiceTarget`, then resolves the target engine adapter and engine selection. Unbound segments use the normal project synthesis selection. A project can therefore route one role through PyKokoro and another through Piper or Pocket without selecting one project-wide provider or engine.
 
-Engine capabilities declare whether voice selection is request-scoped or target-scoped. A request-scoped engine can switch a voice on each `SpeechRequest`; a target-scoped engine requires Readio to resolve roles to distinct `SynthesisTarget`s. Pocket reference voices are explicit content-addressed voice sources, not entries in a global named-voice catalog.
-For target-bound execution, Readio resolves every speech segment's symbolic role for its document scope, validates all distinct target selections before opening any session, and groups segments by target. It opens one reusable session per distinct target, not one model per segment. The semantic plan remains unchanged and retains symbolic role references. Aggregate v3 synthesis profiles identify the targets, per-scope bindings, and project-binding fingerprint; progress events include target IDs and report target-specific model loading.
+Every distinct engine-target route is validated before synthesis sessions open. Readio groups routed segments, opens one reusable session per target, and writes ordinary canonical speech artifacts consumed by composition. The semantic plan retains symbolic role references and remains independent of casting. Changing role bindings leaves the plan current and makes only synthesis and downstream stages stale; cached audio is retained.
+
+Mixed-engine synthesis profiles use a deterministic, sorted set of route identities, per-scope role targets, and role-binding provenance. Speech cache identity includes the selected route, so changing a guest target does not invalidate unchanged host audio on another engine-target route. Status compares current role-target provenance with the active synthesis profile and reports `synthesis.stale.project_voice_bindings_changed` when bindings differ.
 
 ## End-to-end acceptance scenario
 

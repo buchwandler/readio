@@ -15,6 +15,7 @@ from readio.api.roles import RoleService
 from readio.cli import build_parser
 from readio.config import ReadioConfig
 from readio.project import init_project
+from readio.role_targets import VoiceTarget
 
 
 def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, capsys) -> None:
@@ -77,6 +78,8 @@ def test_plan_roles_json_reports_project_roles(tmp_path, monkeypatch, capsys) ->
     assert result["provider"] == "kokoro"
     assert result["roles"][0]["role"] == "narrator"
     assert result["roles"][0]["origin"] == "config.voice_role"
+    assert result["roles"][0]["effective_target"]["engine"] == "pykokoro"
+    assert result["roles"][0]["effective_target"]["provider"] == "kokoro"
 
 
 def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, capsys) -> None:
@@ -93,6 +96,7 @@ def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, 
 
     output = capsys.readouterr().out
     assert "unbound" in output
+    assert "ENGINE" in output and "PROVIDER" in output
     assert "Unresolved roles: unbound" in output
     assert "readio voices list --lang en-us" in output
     assert "readio plan bind unbound <voice>" in output
@@ -108,13 +112,18 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
     calls = {}
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
-    def bind(self, project_path, role, voice, *, provider=None, discovery):
+    def bind(self, project_path, role, voice, *, provider=None, engine=None, discovery):
         calls["project"] = project_path
         calls["role"] = role
         calls["voice"] = voice
         calls["provider"] = provider
+        calls["engine"] = engine
         calls["discovery"] = discovery
-        return SimpleNamespace(role=role, project_binding=voice)
+        return SimpleNamespace(
+            role=role,
+            project_binding=voice,
+            project_target=VoiceTarget(engine or "pykokoro", voice),
+        )
 
     monkeypatch.setattr(RoleService, "bind_project", bind)
     args = build_parser().parse_args(
@@ -125,8 +134,9 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
             "en-us/sarah",
             "--provider",
             "kokoro",
-            "--project",
             str(project.root),
+            "--engine",
+            "pykokoro",
             "--offline",
             "--json",
         ]
@@ -137,9 +147,13 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
     assert calls["role"] == "narrator"
     assert calls["voice"] == "en-us/sarah"
     assert calls["provider"] == "kokoro"
+    assert calls["engine"] == "pykokoro"
     assert calls["discovery"].offline is True
     assert calls["discovery"].refresh is False
-    assert json.loads(capsys.readouterr().out)["stored_voice"] == "en-us/sarah"
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stored_voice"] == "en-us/sarah"
+    assert payload["stored_target"]["engine"] == "pykokoro"
+    assert payload["stored_target"]["provider"] == "kokoro"
 
 
 def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -> None:
@@ -205,14 +219,71 @@ def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -
     assert output["removed_voice"] == "af_heart"
     assert output["effective_voice"] is None
     assert output["origin"] == "unresolved"
+    assert output["removed_target"] is None
+    assert output["effective_target"] is None
     assert set(output) == {
         "ok",
         "project",
         "role",
         "removed_voice",
+        "removed_target",
         "effective_voice",
+        "effective_target",
         "origin",
     }
+
+
+def test_plan_commands_discover_projects_from_nested_cwd(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "nested.ssmd"
+    source.write_text(
+        '---\nssmd_version: "0.9"\n---\n:::{voice="narrator"}\nHello.\n:::\n',
+        encoding="utf-8",
+    )
+    project = init_project(source, tmp_path / "nested.readio")
+    nested = project.root / "documents" / "nested"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
+    calls = {}
+
+    def bind(self, project_path, role, voice, *, provider=None, engine=None, discovery):
+        calls["project"] = project_path
+        return SimpleNamespace(
+            role=role,
+            project_binding=voice,
+            project_target=VoiceTarget(engine or "pykokoro", voice),
+        )
+
+    monkeypatch.setattr(RoleService, "bind_project", bind)
+    args = build_parser().parse_args(
+        ["plan", "bind", "narrator", "af_sarah", "--engine", "pykokoro", "--json"]
+    )
+    assert args.func(args) == 0
+    assert calls["project"] == nested
+    assert json.loads(capsys.readouterr().out)["project"] == str(project.root)
+
+    roles_args = build_parser().parse_args(["plan", "roles", "--json"])
+    assert roles_args.func(roles_args) == 0
+    assert json.loads(capsys.readouterr().out)["project"] == str(project.root)
+
+
+def test_plan_binding_rejects_positional_and_option_projects(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "conflict.ssmd"
+    source.write_text("Hello.\n", encoding="utf-8")
+    project = init_project(source, tmp_path / "conflict.readio")
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
+    args = build_parser().parse_args(
+        [
+            "plan",
+            "unbind",
+            "narrator",
+            str(project.root),
+            "--project",
+            str(project.root),
+        ]
+    )
+    with pytest.raises(ValueError, match="specify the project once"):
+        args.func(args)
 
 
 def test_render_dry_run_still_resolves_one_shot_text(capsys) -> None:

@@ -32,6 +32,8 @@ from readio.api import (
     ProjectBuildRequest,
     ProjectBuildResult,
     ProjectRef,
+    ProjectRole,
+    ProjectRoleInspection,
     ProjectRoleMutationResult,
     ProjectSettings,
     ProjectSettingsPatch,
@@ -41,10 +43,12 @@ from readio.api import (
     ReadioEvent,
     RenderResult,
     ResolvedPlan,
+    RoleBinding,
     SSMDCheckResult,
     SynthesisRequest,
     VoiceInfo,
     VoiceQuery,
+    VoiceTarget,
     document_from_file,
     document_from_text,
 )
@@ -92,7 +96,23 @@ def public_api_consumer(
     assert file_rendered
     project: ProjectRef = app.projects.create(source)
     app.projects.resolve_synthesis(project, SynthesisRequest(), use_saved_settings=False)
+    target: VoiceTarget = VoiceTarget("piper", "en_US-amy-medium", target_id="amy-asset")
+    global_binding: RoleBinding = app.roles.bind_global(
+        "typed_guest", target.voice, engine=target.engine
+    )
+    global_target: VoiceTarget = global_binding.target
+    project_role: ProjectRole = app.roles.bind_project(
+        project, "narrator", target.voice, engine=target.engine
+    )
+    inspection: ProjectRoleInspection = app.roles.inspect_project(project)
+    effective_target: VoiceTarget | None = project_role.effective_target
+    assert global_target.engine == target.engine
+    assert inspection.roles
+    assert effective_target is not None
     mutation: ProjectRoleMutationResult = app.roles.unbind_project_result(project, "narrator")
+    role_json: dict[str, JsonValue] = project_role.to_dict()
+    mutation_target: VoiceTarget | None = mutation.previous_project_target
+    assert role_json and mutation_target is not None
     app.roles.unbind_project(project, "narrator")
     assert mutation.status
     role_payload: dict[str, JsonValue] = mutation.to_dict()

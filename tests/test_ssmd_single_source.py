@@ -83,6 +83,8 @@ def test_ssmd_role_binding_comes_from_compiled_semantic_metadata(monkeypatch):
     binding = resolved.plan.render.role_bindings[0]
     assert binding.role == "host"
     assert binding.target.voice.value == "af_bella"
+    assert binding.voice_target.to_dict() == {"engine": "pykokoro", "voice": "af_bella"}
+    assert binding.to_dict()["voice_target"]["engine"] == "pykokoro"
     assert binding.origin == "document"
     assert (
         next(

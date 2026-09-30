@@ -26,6 +26,7 @@ from ..plan import (
     SynthesisRequest,
 )
 from ..plan import ReadioPlanV2 as ResolvedPlan
+from ..role_targets import VoiceTarget
 
 AudiobookExportFormat = Literal["m4b"]
 AUDIOBOOK_EXPORT_FORMAT: AudiobookExportFormat = "m4b"
@@ -807,12 +808,34 @@ class AudioFormatInfo:
 
 @dataclass(frozen=True, slots=True)
 class RoleBinding:
-    provider: str
     role: str
-    voice: str
+    target: VoiceTarget
+
+    @property
+    def provider(self) -> str | None:
+        return self.target.provider
+
+    @property
+    def engine(self) -> str:
+        return self.target.engine
+
+    @property
+    def voice(self) -> str:
+        return self.target.voice
+
+    @property
+    def target_id(self) -> str | None:
+        return self.target.target_id
+
+    @property
+    def selector(self) -> str | None:
+        return self.target.selector
 
     def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
+        return cast(
+            dict[str, JsonValue],
+            json_value({"role": self.role, **self.target.to_dict(), "provider": self.provider}),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -836,6 +859,9 @@ class ProjectRole:
     origin: str
     status: str
     effective_by_scope: Mapping[str, Mapping[str, JsonValue]]
+    project_target: VoiceTarget | None = None
+    config_target: VoiceTarget | None = None
+    effective_target: VoiceTarget | None = None
 
     @property
     def scope_count(self) -> int:
@@ -846,13 +872,29 @@ class ProjectRole:
         values = set(self.document_bindings.values())
         return next(iter(values)) if len(values) == 1 else None
 
+    @property
+    def effective_engine(self) -> str | None:
+        return self.effective_target.engine if self.effective_target else None
+
+    @property
+    def effective_provider(self) -> str | None:
+        return self.effective_target.provider if self.effective_target else None
+
     def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
+        result = cast(dict[str, JsonValue], json_value(self))
+        for name in ("project_target", "config_target", "effective_target"):
+            target = getattr(self, name)
+            if target is not None:
+                result[name] = cast(
+                    JsonValue,
+                    json_value({**target.to_dict(), "provider": target.provider}),
+                )
+        return result
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectRoleInspection:
-    provider: str
+    provider: str | None
     roles: tuple[ProjectRole, ...]
 
     @property
@@ -860,7 +902,15 @@ class ProjectRoleInspection:
         return tuple(role.role for role in self.roles if role.effective_voice is None)
 
     def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
+        return cast(
+            dict[str, JsonValue],
+            json_value(
+                {
+                    "provider": self.provider,
+                    "roles": [role.to_dict() for role in self.roles],
+                }
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -872,9 +922,20 @@ class ProjectRoleMutationResult:
     effective_voice: str | None
     origin: str | None
     status: str
+    previous_project_target: VoiceTarget | None = None
+    project_target: VoiceTarget | None = None
+    effective_target: VoiceTarget | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
+        result = cast(dict[str, JsonValue], json_value(self))
+        for name in ("previous_project_target", "project_target", "effective_target"):
+            target = getattr(self, name)
+            if target is not None:
+                result[name] = cast(
+                    JsonValue,
+                    json_value({**target.to_dict(), "provider": target.provider}),
+                )
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -1075,14 +1136,14 @@ __all__ = [
     "ProjectPlanResult",
     "ProjectPlanScope",
     "ProjectRef",
-    "ProjectSettings",
-    "ProjectSettingsPatch",
-    "ProjectSynthesisSettings",
     "ProjectRole",
     "ProjectRoleInspection",
     "ProjectRoleMutationResult",
+    "ProjectSettings",
+    "ProjectSettingsPatch",
     "ProjectStatus",
     "ProjectSynthesisResult",
+    "ProjectSynthesisSettings",
     "ProjectTarget",
     "ReaderSettings",
     "ReadioConfig",

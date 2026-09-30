@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
+import pytest
 from project_support import assert_neutral_session_contract
 
 from readio.engines import EngineSelection, SpeechRequest
@@ -22,10 +23,39 @@ def test_piper_identity_capabilities_and_supported_options():
     assert capabilities.id == "piper"
     assert capabilities.voice_binding_namespace == "piper"
     assert capabilities.voice_binding_scope == "target"
+    assert capabilities.supports_named_voices
     assert capabilities.supports_live
     assert capabilities.supports_speakers
     assert not capabilities.supports_lexicons
     assert {"length_scale", "noise_scale", "noise_w_scale"} <= capabilities.option_names
+
+
+def test_piper_named_role_target_resolves_to_a_voice_bundle():
+    selection, diagnostics = PiperSynthEngineAdapter().resolve(
+        EngineRequest(
+            engine="piper",
+            target_id="en_US-amy-medium",
+            language="en-us",
+            voice="en_US-amy-medium",
+        )
+    )
+
+    assert diagnostics == ()
+    assert selection.target_id == "en_US-amy-medium"
+    assert selection.voice == "en_US-amy-medium"
+
+
+def test_piper_missing_target_has_actionable_target_diagnostic():
+    from readio.engines.pipersynth import PiperTargetRequiredError
+
+    with pytest.raises(PiperTargetRequiredError, match="piper.voice_required") as error:
+        PiperSynthEngineAdapter().resolve(EngineRequest(engine="piper", language="en-us"))
+
+    assert error.value.diagnostic_code == "piper.voice_required"
+    assert error.value.diagnostic_field == "render.target.id"
+    assert "--model" in str(error.value)
+    assert "--voice" in str(error.value)
+    assert "role" in str(error.value)
 
 
 def test_piper_discovery_maps_published_voice_metadata(monkeypatch):
