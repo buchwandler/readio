@@ -1538,13 +1538,47 @@ def _resolve_v2_ssmd_roles(
                 f"Cannot resolve SSMD voice reference {reference!r} to an engine-qualified target.",
             )
             continue
-        if selected_target.engine == selection.engine and selected_target.voice not in available:
-            error(
-                reference,
-                DIAG_SSMD_VOICE_UNAVAILABLE,
-                f"SSMD role {reference!r} resolves to unavailable voice {selected_target.voice!r}.",
-            )
-            continue
+        if selected_target.engine == selection.engine:
+            if adapter.capabilities().voice_binding_scope == "target":
+                validation_selection = replace(
+                    selection,
+                    target_id=selected_target.target_id or selected_target.voice,
+                    voice=selected_target.voice,
+                )
+                validate_selection = getattr(adapter, "validate_selection", None)
+                if validate_selection is None:
+                    if selected_target.voice not in available:
+                        error(
+                            reference,
+                            DIAG_SSMD_VOICE_UNAVAILABLE,
+                            f"SSMD role {reference!r} resolves to unavailable voice {selected_target.voice!r}.",
+                        )
+                        continue
+                else:
+                    target_diagnostics = validate_selection(validation_selection)
+                    target_error = next(
+                        (
+                            diagnostic
+                            for diagnostic in target_diagnostics
+                            if getattr(diagnostic, "severity", "error") == "error"
+                        ),
+                        None,
+                    )
+                    if target_error is not None:
+                        error(
+                            reference,
+                            getattr(target_error, "code", DIAG_SSMD_VOICE_UNAVAILABLE),
+                            f"SSMD role {reference!r} resolves to unavailable target "
+                            f"{validation_selection.target_id!r}: {target_error.message}",
+                        )
+                        continue
+            elif selected_target.voice not in available:
+                error(
+                    reference,
+                    DIAG_SSMD_VOICE_UNAVAILABLE,
+                    f"SSMD role {reference!r} resolves to unavailable voice {selected_target.voice!r}.",
+                )
+                continue
 
         binding = VoiceBindingPlan(
             reference=reference,

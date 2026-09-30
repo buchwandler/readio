@@ -3,11 +3,18 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import numpy as np
+import pytest
 
 from readio.config import ReaderSettings, ReadioConfig, VoiceProviderSettings
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
-from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
+from readio.plan import (
+    InputRequest,
+    OutputRequest,
+    PlanDiagnostic,
+    PlanRequest,
+    SynthesisRequest,
+)
 from readio.project import init_project, update_project_manifest
 from readio.project_settings import (
     with_project_role_binding,
@@ -69,12 +76,18 @@ class _PiperTargetAdapter:
             (),
         )
 
-    def target_metadata(self, _selection):
-        return {"voices": self.target_ids}
+    def target_metadata(self, selection):
+        return {"voices": (selection.target_id,)}
 
     def validate_selection(self, selection):
         if selection.target_id not in self.target_ids:
-            raise AssertionError(f"unexpected Piper target: {selection.target_id}")
+            return (
+                PlanDiagnostic(
+                    code="piper.voice_not_found",
+                    severity="error",
+                    message=f"Piper target {selection.target_id!r} is unavailable.",
+                ),
+            )
         return ()
 
     def canonical_synthesis_identity(self, selection):
@@ -117,7 +130,7 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
     cfg = ReadioConfig(
         reader=ReaderSettings(engine=adapter.id, voice=adapter.target_ids[0], spacy="off"),
-        voices={"piper": VoiceProviderSettings(ids=adapter.target_ids)},
+        voices={},
     )
     source = tmp_path / "cast.ssmd.md"
     source.write_text(
@@ -164,6 +177,18 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
         ],
         adapter.target_ids[1]: [(adapter.target_ids[1], "Second line.")],
     }
+
+    invalid_project = update_project_manifest(
+        project,
+        lambda manifest: with_project_voice_binding(
+            manifest,
+            provider=adapter.id,
+            role="guest",
+            voice="missing-target",
+        ),
+    )
+    with pytest.raises(ValueError, match="unavailable target 'missing-target'"):
+        synthesize_project(invalid_project, cfg, request=request)
 
     project = update_project_manifest(
         project,
