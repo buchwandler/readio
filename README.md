@@ -103,6 +103,8 @@ Supported optional engine runtimes are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2
 
 `readio voices list` accepts engine IDs and concrete target IDs. The canonical engine IDs are `pykokoro`, `piper`, and `pocket`; `kokoro` and `pipersynth` remain aliases.
 
+Voice metadata distinguishes three fields: `language` is the lowercase base language (for example `en`), `locale` is the canonical descriptive locale (for example `en-US`), and `selector_language` is the stable selector namespace (for example `en` or `en_us`). A stable selector such as `en-pi-13` may therefore identify an `en-US` voice without encoding that locale in the selector.
+A Pocket bundle advertising generic `en` can satisfy `--lang en-us`; a bundle explicitly advertising `en-GB` does not. Generic language metadata stays generic and is not assigned unsupported locale specificity.
 Common `--speed` is a positive synthesis multiplier, not a composition tempo: PyKokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
 
 Adapters make one strict native synthesis request for each Readio-shaped child and do not invoke native text splitters. Readio owns capacity measurement and exact-text subdivision, preserves linguistic and pronunciation boundaries, and merges child audio and local timings. Unsupported explicit semantics and unsplittable requests fail with stable Readio errors instead of being discarded or truncated.

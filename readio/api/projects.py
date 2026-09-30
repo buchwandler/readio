@@ -306,11 +306,22 @@ class ProjectService:
         request: SynthesisRequest | None = None,
         *,
         voice_bindings: Mapping[str, str] | None = None,
+        use_saved_settings: bool = True,
     ) -> SynthesisResolution:
-        """Resolve effective project synthesis settings without rendering audio."""
+        """Resolve project synthesis without rendering or mutation.
+
+        Set ``use_saved_settings=False`` to resolve a fresh candidate for a
+        configuration editor or guided setup flow, ignoring persisted project
+        synthesis preferences while retaining normal Readio defaults.
+        """
         internal = self._load(project)
         request = request or SynthesisRequest()
-        return self._resolve_synthesis_internal(internal, request, voice_bindings=voice_bindings)
+        return self._resolve_synthesis_internal(
+            internal,
+            request,
+            voice_bindings=voice_bindings,
+            merge_saved_settings=use_saved_settings,
+        )
 
     def _resolve_synthesis_internal(
         self,

@@ -7,8 +7,15 @@ import warnings
 from dataclasses import dataclass
 from typing import Any
 
-from onnxvoice import is_voice_selector, parse_voice_selector, selector_for_voice
+from onnxvoice import (
+    is_voice_selector,
+    language_base,
+    normalize_language_tag,
+    parse_voice_selector,
+    selector_for_voice,
+)
 from onnxvoice import resolve_voice_selector as onnxvoice_resolve_voice_selector
+from onnxvoice.inventory import normalize_gender
 
 from .config import normalize_language_key
 from .engines.catalog import CatalogResult
@@ -273,7 +280,26 @@ def _piper_voice_catalog(
     for target in result.targets:
         identity = _identity_for_piper(target)
         selector, slot, selector_language, selector_engine_code = _entry_selector_fields(identity)
-        target_language = target.languages[0] if target.languages else "unknown"
+        metadata = target.metadata
+        locale = normalize_language_tag(
+            metadata.get("locale")
+            or metadata.get("language_code")
+            or (target.languages[0] if target.languages else None)
+        )
+        language = language_base(
+            metadata.get("language") or metadata.get("language_family") or locale
+        )
+        language_label = metadata.get("language_label")
+        if (
+            not isinstance(language_label, str)
+            or not language_label.strip()
+            or (
+                len(language_label.strip()) == 2
+                and language_label.strip().isalpha()
+                and language_label.strip().isupper()
+            )
+        ):
+            language_label = locale or language or "unknown"
         entries.append(
             VoiceCatalogEntry(
                 selector=selector,
@@ -281,14 +307,10 @@ def _piper_voice_catalog(
                 selector_language=selector_language,
                 selector_engine_code=selector_engine_code,
                 id=target.id,
-                gender="unknown",
-                language=target_language,
-                locale=target_language,
-                language_label=str(
-                    target.metadata.get("region")
-                    or target.metadata.get("language_family")
-                    or "unknown"
-                ),
+                gender=normalize_gender(metadata.get("gender")),
+                language=language,
+                locale=locale,
+                language_label=language_label,
                 model=target.id,
                 source="pipersynth",
                 default=False,

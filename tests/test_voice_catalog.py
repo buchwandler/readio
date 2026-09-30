@@ -312,3 +312,37 @@ def test_piper_discovery_projects_authoritative_selector(monkeypatch) -> None:
     assert entries[0].selector == "de-pi-9"
     assert entries[0].slot == 9
     assert entries[0].id == "de_DE-thorsten-medium"
+    assert entries[0].language == "de"
+    assert entries[0].locale == "de-DE"
+    assert entries[0].language_label == "de-DE"
+    assert entries[0].gender == "unknown"
+
+
+def test_piper_catalog_preserves_normalized_metadata_without_changing_selector(monkeypatch) -> None:
+    import readio.voices as voices_module
+    from readio.engines.catalog import CatalogResult, SynthesisTarget
+
+    target = SynthesisTarget(
+        engine="piper",
+        id="en_US-amy-medium",
+        display_name="Amy",
+        languages=("en_US",),
+        metadata={
+            "language": "en-US",
+            "locale": "en_US",
+            "language_label": "American English",
+            "gender": "female",
+        },
+    )
+    monkeypatch.setattr(
+        voices_module,
+        "discover_targets",
+        lambda **kwargs: CatalogResult(targets=(target,)),
+    )
+
+    entries, _ = voices_module.discover_voice_catalog(engine="piper", language="en-us")
+    assert entries[0].selector == "en-pi-13"
+    assert entries[0].language == "en"
+    assert entries[0].locale == "en-US"
+    assert entries[0].language_label == "American English"
+    assert entries[0].gender == "female"

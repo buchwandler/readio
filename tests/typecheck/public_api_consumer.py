@@ -91,6 +91,7 @@ def public_api_consumer(
     )
     assert file_rendered
     project: ProjectRef = app.projects.create(source)
+    app.projects.resolve_synthesis(project, SynthesisRequest(), use_saved_settings=False)
     mutation: ProjectRoleMutationResult = app.roles.unbind_project_result(project, "narrator")
     app.roles.unbind_project(project, "narrator")
     assert mutation.status

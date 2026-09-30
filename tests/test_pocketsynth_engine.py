@@ -131,9 +131,87 @@ def test_pocket_discovery_maps_bundle_catalog(monkeypatch):
     assert targets[0].sample_rate == 24000
     assert targets[0].qualities == ("fp32", "int8")
     assert targets[0].voices == ("alba", "bella")
-    assert _AssetManager.instances[-1].list_request == ("en-us", False)
+    assert _AssetManager.instances[-1].list_request == ("en", False)
     assert engine_for_ssmd_provider("pocket") == "pocket"
     assert ssmd_provider_for_engine("pocket") == "pocket"
+
+    assert targets[0].metadata.get("voice_details", ()) == ()
+
+
+def test_pocket_discovery_includes_generic_language_but_excludes_other_region(monkeypatch):
+    _install_fakes(monkeypatch)
+    british_bundle = SimpleNamespace(
+        id="english-gb",
+        aliases=(),
+        sample_rate=24000,
+        voices=("british",),
+        metadata={
+            "language": "en-GB",
+            "predefined_voice_names": ["british"],
+            "profiles": {"int8": {}},
+        },
+    )
+    monkeypatch.setattr(_AssetManager, "bundles", (_Bundle(), british_bundle))
+
+    targets = PocketSynthEngineAdapter().discover(CatalogRequest(engine="pocket", language="en-us"))
+
+    assert [target.id for target in targets] == ["english-2026"]
+    assert targets[0].languages == ("en",)
+    assert _AssetManager.instances[-1].list_request == ("en", False)
+
+
+def test_pocket_discovery_normalizes_bundle_and_voice_details(monkeypatch):
+    _install_fakes(monkeypatch)
+    bundle = SimpleNamespace(
+        id="english-us",
+        aliases=(),
+        sample_rate=24000,
+        voices=("alba", "bella"),
+        metadata={
+            "language": "en_US",
+            "predefined_voice_names": ["alba", "bella"],
+            "profiles": {"int8": {}},
+            "voice_details": [
+                {
+                    "id": "alba",
+                    "language": "en",
+                    "locale": "en",
+                    "language_label": "English",
+                    "gender": "female",
+                },
+                {
+                    "id": "bella",
+                    "language": "en_GB",
+                    "locale": "en_GB",
+                    "language_label": "GB",
+                    "gender": None,
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr(_AssetManager, "bundles", (bundle,))
+
+    targets = PocketSynthEngineAdapter().discover(CatalogRequest(engine="pocket", language="en-us"))
+
+    assert len(targets) == 1
+    assert targets[0].languages == ("en-US",)
+    assert targets[0].metadata["language"] == "en-US"
+    assert targets[0].metadata["voice_details"] == (
+        {
+            "id": "alba",
+            "language": "en",
+            "locale": "en",
+            "language_label": "English",
+            "gender": "female",
+        },
+        {
+            "id": "bella",
+            "language": "en",
+            "locale": "en-GB",
+            "language_label": "en-GB",
+            "gender": "unknown",
+        },
+    )
 
 
 def test_pocket_resolves_precision_and_rejects_incompatible_language(monkeypatch):

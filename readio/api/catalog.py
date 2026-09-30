@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
+
+from onnxvoice import language_base, language_tags_match, normalize_language_tag
+from onnxvoice.inventory import normalize_gender
 
 from .. import formats as formats_internal
 from .. import lexicons as lexicons_internal
@@ -44,6 +47,34 @@ _DEFAULT_TARGET_QUERY = TargetQuery()
 _DEFAULT_MODEL_QUERY = ModelQuery()
 _DEFAULT_VOICE_QUERY = VoiceQuery()
 _DEFAULT_LEXICON_QUERY = LexiconQuery()
+
+
+def _normalized_voice_metadata(
+    language: Any,
+    locale: Any,
+    language_label: Any,
+    gender: Any,
+) -> tuple[str, str, str, str]:
+    locale = normalize_language_tag(locale or language)
+    language = language_base(language) or language_base(locale)
+    if (
+        not isinstance(language_label, str)
+        or not language_label.strip()
+        or (
+            len(language_label.strip()) == 2
+            and language_label.strip().isalpha()
+            and language_label.strip().isupper()
+        )
+    ):
+        language_label = locale or language or "unknown"
+    else:
+        language_label = language_label.strip()
+    return (
+        normalize_gender(gender),
+        language or "unknown",
+        locale or "unknown",
+        language_label,
+    )
 
 
 class CatalogService:
@@ -267,7 +298,7 @@ class CatalogService:
         except Exception as error:
             raise self._discovery_error(error, "catalog.voices_failed") from error
 
-        normalized_query = query.language.casefold().replace("_", "-") if query.language else None
+        normalized_query = normalize_language_tag(query.language) if query.language else None
         filtered = tuple(
             item
             for item in entries
@@ -577,13 +608,16 @@ class CatalogService:
         )
 
     def _voice_info(self, entry: voices_internal.VoiceCatalogEntry) -> VoiceInfo:
+        gender, language, locale, language_label = _normalized_voice_metadata(
+            entry.language, entry.locale, entry.language_label, entry.gender
+        )
         return VoiceInfo(
             selector=entry.selector,
             id=entry.id,
-            gender=entry.gender,
-            language=entry.language,
-            locale=entry.locale,
-            language_label=entry.language_label,
+            gender=gender,
+            language=language,
+            locale=locale,
+            language_label=language_label,
             model=entry.model,
             source=entry.source,
             default=entry.default,
@@ -609,29 +643,38 @@ class CatalogService:
             if isinstance(details, (list, tuple))
             else {}
         )
-        language = target.languages[0] if target.languages else "unknown"
-        return tuple(
-            VoiceInfo(
-                selector=None,
-                id=voice,
-                gender=str(indexed.get(voice, {}).get("gender", "unknown")),
-                language=str(indexed.get(voice, {}).get("language", language)),
-                locale=str(indexed.get(voice, {}).get("locale", language)),
-                language_label=str(indexed.get(voice, {}).get("language_label", language)),
-                model=target.id,
-                source=target.engine,
-                default=voice == target.metadata.get("default_voice"),
-                status=target.status,
-                experimental=target.status == "experimental",
-                runtime_available=target.runtime_available,
-                distribution_id=target.id,
-                provider=str(target.metadata["provider"])
-                if target.metadata.get("provider")
-                else None,
-                engine=target.engine,
+        bundle_language = target.languages[0] if target.languages else "unknown"
+        voices = []
+        for voice in target.voices:
+            detail = indexed.get(voice, {})
+            gender, language, locale, language_label = _normalized_voice_metadata(
+                detail.get("language") or bundle_language,
+                detail.get("locale") or detail.get("language") or bundle_language,
+                detail.get("language_label"),
+                detail.get("gender"),
             )
-            for voice in target.voices
-        )
+            voices.append(
+                VoiceInfo(
+                    selector=None,
+                    id=voice,
+                    gender=gender,
+                    language=language,
+                    locale=locale,
+                    language_label=language_label,
+                    model=target.id,
+                    source=target.engine,
+                    default=voice == target.metadata.get("default_voice"),
+                    status=target.status,
+                    experimental=target.status == "experimental",
+                    runtime_available=target.runtime_available,
+                    distribution_id=target.id,
+                    provider=str(target.metadata["provider"])
+                    if target.metadata.get("provider")
+                    else None,
+                    engine=target.engine,
+                )
+            )
+        return tuple(voices)
 
     def _lexicon_info(self, entry: lexicons_internal.LexiconCatalogEntry) -> LexiconInfo:
         return LexiconInfo(
@@ -651,12 +694,7 @@ class CatalogService:
         )
 
     def _language_matches(self, requested: str, voice: VoiceInfo) -> bool:
-        locale = voice.locale.casefold().replace("_", "-")
-        language = voice.language.casefold().replace("_", "-")
-        if "-" in requested:
-            return requested in {locale, language}
-        base = requested.partition("-")[0]
-        return locale.partition("-")[0] == base or language.partition("-")[0] == base
+        return language_tags_match(requested, voice.locale or voice.language)
 
     def _discovery_metadata(
         self, raw: object | None, options: DiscoveryOptions

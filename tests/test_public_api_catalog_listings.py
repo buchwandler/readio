@@ -156,3 +156,100 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
         )
     assert error.value.code == "catalog.lexicon_ambiguous"
     assert len(error.value.details["asset_ids"]) == 2
+
+
+def test_public_voice_metadata_is_canonical_and_language_matching_is_regional(monkeypatch) -> None:
+    def entry(selector, voice_id, language, locale, label, gender):
+        return VoiceCatalogEntry(
+            selector=selector,
+            slot=None,
+            id=voice_id,
+            gender=gender,
+            language=language,
+            locale=locale,
+            language_label=label,
+            model=voice_id,
+            source="pipersynth",
+            default=False,
+            status="ready",
+            experimental=False,
+            runtime_available=True,
+            engine="piper",
+        )
+
+    entries = (
+        entry("en-pi-13", "american", "en-US", "en_US", "US", "FEMALE"),
+        entry(None, "generic", "en", "en", "English", "unknown"),
+        entry("en-pi-14", "british", "en-GB", "en_GB", "British English", "male"),
+    )
+    monkeypatch.setattr(
+        "readio.api.catalog.discover_voice_catalog", lambda **_: (entries, SimpleNamespace())
+    )
+    app = Readio(default_config())
+
+    specific = app.catalog.voices(VoiceQuery(language="en-us", engine="piper"))
+    assert [voice.id for voice in specific] == ["american", "generic"]
+    assert specific[0].to_dict()["selector"] == "en-pi-13"
+    assert (specific[0].gender, specific[0].language, specific[0].locale) == (
+        "female",
+        "en",
+        "en-US",
+    )
+    assert specific[0].language_label == "en-US"
+    assert (specific[1].language, specific[1].locale, specific[1].language_label) == (
+        "en",
+        "en",
+        "English",
+    )
+
+    generic = app.catalog.voices(VoiceQuery(language="en", engine="piper"))
+    assert [voice.id for voice in generic] == ["american", "generic", "british"]
+
+
+def test_pocket_voice_details_are_normalized_and_filtered_by_locale(monkeypatch) -> None:
+    from readio.api.types import SynthesisTargetInfo
+
+    target = SynthesisTargetInfo(
+        engine="pocket",
+        id="english",
+        display_name="English",
+        languages=("en",),
+        voices=("alba", "british"),
+        metadata={
+            "voice_details": [
+                {
+                    "id": "alba",
+                    "language": "en",
+                    "locale": "en",
+                    "language_label": "English",
+                    "gender": "female",
+                },
+                {
+                    "id": "british",
+                    "language": "en_GB",
+                    "locale": "en_GB",
+                    "language_label": "GB",
+                },
+            ]
+        },
+    )
+    app = Readio(default_config())
+    monkeypatch.setattr(app.catalog, "targets", lambda *_args, **_kwargs: (target,))
+
+    specific = app.catalog.voices(VoiceQuery(language="en-us", engine="pocket"))
+    assert [voice.id for voice in specific] == ["alba"]
+    assert (specific[0].selector, specific[0].language, specific[0].locale) == (
+        None,
+        "en",
+        "en",
+    )
+    assert specific[0].gender == "female"
+
+    generic = app.catalog.voices(VoiceQuery(language="en", engine="pocket"))
+    assert [voice.id for voice in generic] == ["alba", "british"]
+    assert (generic[1].language, generic[1].locale, generic[1].language_label) == (
+        "en",
+        "en-GB",
+        "en-GB",
+    )
+    assert generic[1].gender == "unknown"

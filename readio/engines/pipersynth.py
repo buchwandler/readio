@@ -9,6 +9,9 @@ from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
+from onnxvoice import language_base, normalize_language_tag
+from onnxvoice.inventory import normalize_gender
+
 from ..config import normalize_language_key
 from ..errors import (
     EmptySpeechTextError,
@@ -34,6 +37,7 @@ from .base import (
 )
 from .catalog import CatalogRequest, SynthesisTarget
 
+
 PIPER_RENDER_OPTIONS = frozenset(
     {
         "length_scale",
@@ -55,11 +59,25 @@ PIPER_RENDER_OPTIONS = frozenset(
 def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> SynthesisTarget:
     speaker_map = dict(getattr(metadata, "speaker_id_map", {}) or {})
     language_code = getattr(metadata, "language_code", None)
+    locale = normalize_language_tag(language_code)
+    language_family = getattr(metadata, "language_family", None)
+    language = language_base(language_family) or language_base(locale)
+    language_label = getattr(metadata, "language_label", None)
+    if (
+        not isinstance(language_label, str)
+        or not language_label.strip()
+        or (
+            len(language_label.strip()) == 2
+            and language_label.strip().isalpha()
+            and language_label.strip().isupper()
+        )
+    ):
+        language_label = locale or language or "unknown"
     return SynthesisTarget(
         engine=engine,
         id=metadata.id,
         display_name=getattr(metadata, "name", None) or metadata.id,
-        languages=(language_code,) if language_code else (),
+        languages=(locale,) if locale else (),
         status="ready",
         runtime_available=True,
         sample_rate=getattr(metadata, "sample_rate", None),
@@ -69,9 +87,13 @@ def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> Synthes
         aliases=tuple(getattr(metadata, "aliases", ()) or ()),
         capabilities=frozenset({"speakers"}),
         metadata={
+            "language": language,
+            "locale": locale,
+            "language_label": language_label,
+            "gender": normalize_gender(getattr(metadata, "gender", None)),
             "language_code": language_code,
-            "languages": ((language_code,) if language_code else ()),
-            "language_family": getattr(metadata, "language_family", None),
+            "languages": ((locale,) if locale else ()),
+            "language_family": language_family,
             "region": getattr(metadata, "region", None),
             "num_speakers": getattr(metadata, "num_speakers", 0),
             "speaker_id_map": speaker_map,
@@ -425,15 +447,8 @@ class PiperSynthEngineAdapter:
             )
         except (ImportError, KeyError, LookupError, OSError, ValueError):
             return {}
-        language = metadata.language_code
         return {
-            "language_code": language,
-            "languages": (language,) if language else (),
-            "language_family": metadata.language_family,
-            "region": metadata.region,
-            "num_speakers": metadata.num_speakers,
-            "speaker_id_map": dict(metadata.speaker_id_map),
-            "source_revision": metadata.source_revision,
+            **_target_from_voice_metadata(metadata).metadata,
             "quality": metadata.quality,
             "sample_rate": getattr(metadata, "sample_rate", None),
         }

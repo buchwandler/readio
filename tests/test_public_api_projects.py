@@ -361,7 +361,10 @@ def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
         short_sentence="phrase",
     )
     resolution = app.projects.resolve_synthesis(
-        project, request, voice_bindings={"narrator": "bound-voice"}
+        project,
+        request,
+        voice_bindings={"narrator": "bound-voice"},
+        use_saved_settings=False,
     )
 
     assert resolution.language == "fr-fr"
@@ -642,6 +645,18 @@ def test_saved_synthesis_precedence_overrides_and_status(tmp_path: Path, monkeyp
     assert saved.model == "saved-model"
     assert saved.voice == "saved-voice"
     assert saved.speed == 1.2
+    fresh = app.projects.resolve_synthesis(
+        project,
+        SynthesisRequest(),
+        use_saved_settings=False,
+    )
+    assert fresh.engine == "fake"
+    assert fresh.language == "en-us"
+    assert fresh.model != "saved-model"
+    assert fresh.voice == "global-voice"
+    assert fresh.speed == 1.0
+    assert manifest_path.read_bytes() == before_override
+    assert app.projects.settings(project) == configured
     overridden = app.projects.resolve_synthesis(project, SynthesisRequest(speed=1.75, refresh=True))
     assert overridden.language == "fr-fr"
     assert overridden.speed == 1.75
@@ -839,3 +854,26 @@ def test_requestless_build_and_stage_apis_use_saved_composition_and_export(
     direct_export = app.projects.export(project)
     assert direct_export.output_path == output_path
     assert app.projects.status(project).stage("output").state == "current"
+
+
+@pytest.mark.parametrize(
+    ("engine", "expected_error"),
+    (("piper", "piper.voice_required"), ("pocket", "pocket.bundle_required")),
+)
+def test_fresh_resolution_preserves_strict_incomplete_engine_errors(
+    tmp_path: Path, engine: str, expected_error: str
+) -> None:
+    app = Readio(ReadioConfig())
+    source = tmp_path / f"{engine}.txt"
+    source.write_text("Incomplete selections stay invalid.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / f"{engine}.readio")
+    before = _project_snapshot(project.root)
+
+    with pytest.raises(InvalidRequestError, match=expected_error):
+        app.projects.resolve_synthesis(
+            project,
+            SynthesisRequest(engine=engine, voice="alba" if engine == "pocket" else None),
+            use_saved_settings=False,
+        )
+
+    assert _project_snapshot(project.root) == before

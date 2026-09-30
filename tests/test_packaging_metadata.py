@@ -57,7 +57,7 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
     dependencies = _project_dependencies()
     optional = _project_optional_dependencies()
 
-    assert "onnxvoice>=0.1.12,<0.2" in dependencies
+    assert "onnxvoice>=0.1.13,<0.2" in dependencies
     assert optional["kokoro"] == ["pykokoro[playback]>=0.10.0,<0.11"]
     assert "pykokoro[playback]>=0.10.0,<0.11" in optional["all"]
     assert optional["piper"] == ["pipersynth>=0.2.0,<0.3"]

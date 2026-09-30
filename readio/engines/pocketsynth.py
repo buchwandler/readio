@@ -10,6 +10,9 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 
+from onnxvoice import language_base, language_tags_match, normalize_language_tag
+from onnxvoice.inventory import normalize_gender
+
 from ..config import normalize_language_key
 from ..errors import (
     EmptySpeechTextError,
@@ -60,35 +63,71 @@ def _bundle_fields(
     metadata = metadata if isinstance(metadata, Mapping) else {}
     bundle_id = str(getattr(bundle, "id", None) or getattr(bundle, "bundle_id", ""))
     display_name = str(metadata.get("display_name") or metadata.get("name") or bundle_id)
-    language = metadata.get("language")
-    languages = (
-        (normalize_language_key(language),) if isinstance(language, str) and language else ()
-    )
+    raw_language = metadata.get("language")
+    language = normalize_language_tag(raw_language) if isinstance(raw_language, str) else ""
+    languages = (language,) if language else ()
     raw_voices = metadata.get("predefined_voice_names", getattr(bundle, "voices", ()))
     voices = tuple(str(name) for name in raw_voices if isinstance(name, str))
     profiles = metadata.get("profiles", {})
     qualities = (
         tuple(sorted(str(name) for name in profiles)) if isinstance(profiles, Mapping) else ()
     )
+    raw_voice_details = metadata.get("voice_details")
+    voice_details = []
+    if isinstance(raw_voice_details, (list, tuple)):
+        for detail in raw_voice_details:
+            if not isinstance(detail, Mapping):
+                continue
+            voice_id = detail.get("id")
+            if not isinstance(voice_id, str) or not voice_id:
+                continue
+            locale = normalize_language_tag(
+                detail.get("locale") or detail.get("language") or language
+            )
+            voice_language = language_base(detail.get("language") or locale)
+            language_label = detail.get("language_label")
+            if (
+                not isinstance(language_label, str)
+                or not language_label.strip()
+                or (
+                    len(language_label.strip()) == 2
+                    and language_label.strip().isalpha()
+                    and language_label.strip().isupper()
+                )
+            ):
+                language_label = locale or voice_language or "unknown"
+            else:
+                language_label = language_label.strip()
+            voice_details.append(
+                {
+                    "id": voice_id,
+                    "language": voice_language,
+                    "locale": locale,
+                    "language_label": language_label,
+                    "gender": normalize_gender(detail.get("gender")),
+                }
+            )
     sample_rate = getattr(bundle, "sample_rate", None)
+    normalized_metadata = {
+        **dict(metadata),
+        "language": language,
+        "profiles": dict(profiles) if isinstance(profiles, Mapping) else {},
+        "qualities": qualities,
+    }
+    if raw_voice_details is not None:
+        normalized_metadata["voice_details"] = tuple(voice_details)
     return (
         bundle_id,
         display_name,
         languages,
         voices,
         sample_rate,
-        {
-            **dict(metadata),
-            "profiles": dict(profiles) if isinstance(profiles, Mapping) else {},
-            "qualities": qualities,
-        },
+        normalized_metadata,
     )
 
 
 def _matches_language(requested: str, available: str) -> bool:
-    requested = normalize_language_key(requested)
-    available = normalize_language_key(available)
-    return requested == available or requested.split("-", 1)[0] == available.split("-", 1)[0]
+    return language_tags_match(requested, available)
 
 
 def _voice_source(selection: EngineSelection) -> Mapping[str, Any] | None:
@@ -460,9 +499,11 @@ class PocketSynthEngineAdapter:
         )
 
     def discover(self, request: CatalogRequest) -> tuple[SynthesisTarget, ...]:
+        requested = normalize_language_tag(request.language) if request.language else None
+        upstream_language = language_base(requested) if requested else None
         try:
             bundles = _manager(options={}, offline=request.offline).list_bundles(
-                language=request.language,
+                language=upstream_language,
                 refresh=request.refresh,
             )
         except ImportError:
@@ -486,7 +527,12 @@ class PocketSynthEngineAdapter:
                     metadata=metadata,
                 )
             )
-        return tuple(targets)
+        return tuple(
+            target
+            for target in targets
+            if requested is None
+            or any(language_tags_match(requested, available) for available in target.languages)
+        )
 
     def resolve(self, request: Any) -> tuple[EngineSelection, tuple[Any, ...]]:
         language = normalize_language_key(getattr(request, "language", None) or "en-us")

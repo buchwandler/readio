@@ -90,6 +90,9 @@ readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-file reference.wa
 
 For `readio voices list`, registered engine names passed as `--model` are shortcuts only when `--engine` is omitted: `piper` and `pipersynth` select Piper, `pykokoro` and `kokoro` select PyKokoro, and `pocket` selects PocketSynth. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and Pocket bundle IDs remain model filters.
 
+Voice metadata keeps `language` (lowercase base language, such as `en`), `locale` (canonical descriptive locale, such as `en-US`), and `selector_language` (the stable selector namespace, such as `en` or `en_us`) distinct. For example, `en-pi-13` can remain the selector for an `en-US` Piper voice.
+Pocket language filtering treats a generic bundle language as compatible with a specific query: `--lang en-us` includes a bundle advertising `en`, but excludes one explicitly advertising `en-GB`. The generic voice remains labeled `en`; Readio does not infer a regional locale.
+
 ```bash
 readio voices list --model piper --lang en-us
 readio voices list --engine piper --model en_US-amy-medium

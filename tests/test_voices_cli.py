@@ -318,3 +318,124 @@ def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
     assert target_payload["filters"]["engine"] == "piper"
     assert target_payload["filters"]["model"] == "de_DE-thorsten-medium"
     assert target_payload["voices"][0]["id"] == "de_DE-thorsten-medium"
+
+
+def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
+    monkeypatch.setattr(
+        CatalogService,
+        "engines",
+        lambda _self: (SimpleNamespace(id="piper"), SimpleNamespace(id="pocket")),
+    )
+    entries = (
+        VoiceCatalogEntry(
+            selector="en-pi-13",
+            slot=13,
+            id="en_US-amy-medium",
+            gender="female",
+            language="en-US",
+            locale="en_US",
+            language_label="American English",
+            model="en_US-amy-medium",
+            source="pipersynth",
+            default=False,
+            status="ready",
+            experimental=False,
+            runtime_available=True,
+            engine="piper",
+        ),
+        VoiceCatalogEntry(
+            selector="en-pi-14",
+            slot=14,
+            id="en_US-lee-medium",
+            gender="unknown",
+            language="en-US",
+            locale="en_US",
+            language_label="US",
+            model="en_US-lee-medium",
+            source="pipersynth",
+            default=False,
+            status="ready",
+            experimental=False,
+            runtime_available=True,
+            engine="piper",
+        ),
+    )
+    discovery = SimpleNamespace(
+        registry_source="fixture", cache_fallback=False, offline=False, refreshed=False
+    )
+    monkeypatch.setattr(
+        "readio.api.catalog.discover_voice_catalog",
+        lambda **_kwargs: (entries, discovery),
+    )
+
+    json_args = cli.build_parser().parse_args(
+        ["voices", "list", "--engine", "piper", "--lang", "en-us", "--json"]
+    )
+    assert cli._cmd_voices(json_args) == 0
+    voices = json.loads(capsys.readouterr().out)["voices"]
+    assert [voice["selector"] for voice in voices] == ["en-pi-13", "en-pi-14"]
+    assert [voice["locale"] for voice in voices] == ["en-US", "en-US"]
+    assert [voice["language"] for voice in voices] == ["en", "en"]
+    assert [voice["gender"] for voice in voices] == ["female", "unknown"]
+    assert voices[1]["language_label"] == "en-US"
+
+    table_args = cli.build_parser().parse_args(
+        ["voices", "list", "--engine", "piper", "--lang", "en-us"]
+    )
+    assert cli._cmd_voices(table_args) == 0
+    table = capsys.readouterr().out
+    assert "en-pi-13" in table and "female" in table
+    assert "en-pi-14" in table and "unknown" in table
+    assert "en-US" in table and "American English" in table
+
+
+def test_pocket_voice_cli_includes_generic_bundle_for_specific_language(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    from readio.api.types import SynthesisTargetInfo
+
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
+    monkeypatch.setattr(
+        CatalogService,
+        "engines",
+        lambda _self: (SimpleNamespace(id="pocket"),),
+    )
+    targets = (
+        SynthesisTargetInfo(
+            engine="pocket",
+            id="generic-english",
+            display_name="Generic English",
+            languages=("en",),
+            voices=("alba",),
+            metadata={
+                "voice_details": [
+                    {
+                        "id": "alba",
+                        "language": "en",
+                        "locale": "en",
+                        "language_label": "English",
+                        "gender": "female",
+                    }
+                ]
+            },
+        ),
+        SynthesisTargetInfo(
+            engine="pocket",
+            id="british-english",
+            display_name="British English",
+            languages=("en-GB",),
+            voices=("british",),
+        ),
+    )
+    monkeypatch.setattr(CatalogService, "targets", lambda *_args, **_kwargs: targets)
+
+    args = cli.build_parser().parse_args(
+        ["voices", "list", "--engine", "pocket", "--lang", "en-us", "--json"]
+    )
+    assert cli._cmd_voices(args) == 0
+    voices = json.loads(capsys.readouterr().out)["voices"]
+    assert [voice["id"] for voice in voices] == ["alba"]
+    assert voices[0]["locale"] == "en"
+    assert voices[0]["gender"] == "female"
+    assert voices[0]["selector"] is None

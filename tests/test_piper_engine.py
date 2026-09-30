@@ -29,11 +29,10 @@ def test_piper_identity_capabilities_and_supported_options():
 
 
 def test_piper_discovery_maps_published_voice_metadata(monkeypatch):
-
     metadata = SimpleNamespace(
         id="de_DE-thorsten-medium",
         name="Thorsten",
-        language_code="de-DE",
+        language_code="de_DE",
         language_family="de",
         region="DE",
         quality="medium",
@@ -65,9 +64,58 @@ def test_piper_discovery_maps_published_voice_metadata(monkeypatch):
     assert len(targets) == 1
     assert targets[0].id == metadata.id
     assert targets[0].languages == ("de-DE",)
+    assert targets[0].metadata["language"] == "de"
+    assert targets[0].metadata["locale"] == "de-DE"
+    assert targets[0].metadata["language_label"] == "de-DE"
+    assert targets[0].metadata["gender"] == "unknown"
     assert targets[0].speakers == ("narrator", "announcer")
     assert targets[0].qualities == ("medium",)
     assert targets[0].metadata["source_revision"] == "rev-1"
+
+
+def test_piper_discovery_preserves_optional_authoritative_metadata(monkeypatch):
+    metadata = SimpleNamespace(
+        id="en_US-amy-medium",
+        name="Amy",
+        language_code="en_US",
+        language_family="en",
+        region="US",
+        language_label="American English",
+        gender="FEMALE",
+        quality="medium",
+    )
+
+    class VoiceAssetManager:
+        def __init__(self, *, offline):
+            pass
+
+        def list_voices(self, *, language, refresh):
+            return (metadata,)
+
+        def get_voice_metadata(self, voice, *, refresh=False):
+            assert voice == metadata.id
+            return metadata
+
+    piper_module = ModuleType("pipersynth")
+    asset_manager_module = ModuleType("pipersynth.asset_manager")
+    asset_manager_module.VoiceAssetManager = VoiceAssetManager
+    monkeypatch.setitem(sys.modules, "pipersynth", piper_module)
+    monkeypatch.setitem(sys.modules, "pipersynth.asset_manager", asset_manager_module)
+    targets = PiperSynthEngineAdapter().discover(CatalogRequest(engine="piper"))
+
+    target_metadata = PiperSynthEngineAdapter().target_metadata(
+        EngineSelection(engine="piper", target_id=metadata.id, language="en-us")
+    )
+    assert target_metadata["language"] == "en"
+    assert target_metadata["locale"] == "en-US"
+    assert target_metadata["language_label"] == "American English"
+    assert target_metadata["gender"] == "female"
+    assert len(targets) == 1
+    assert targets[0].languages == ("en-US",)
+    assert targets[0].metadata["language"] == "en"
+    assert targets[0].metadata["locale"] == "en-US"
+    assert targets[0].metadata["language_label"] == "American English"
+    assert targets[0].metadata["gender"] == "female"
 
 
 def test_piper_resolution_maps_generic_speed_to_length_scale():
