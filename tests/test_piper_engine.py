@@ -196,6 +196,8 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
         pronunciation_overrides: tuple[object, ...] = ()
 
     class Voice:
+        config = SimpleNamespace(espeak_voice="en-us")
+
         @classmethod
         def from_pretrained(cls, voice_id, **kwargs):
             calls["voice_id"] = voice_id
@@ -233,7 +235,7 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
     request = SpeechRequest(
         id="piper-request",
         text="Hi",
-        language="en-us",
+        language="en",
         voice="lessac",
         speaker="narrator",
     )
@@ -242,7 +244,9 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
         rendered = assert_neutral_session_contract(session, request)
 
     assert calls["voice_id"] == selection.target_id
+    assert "frontend_options" not in calls["load_options"]
     assert calls["request"].text == "Hi"
+    assert calls["request"].language == "en-us"
     assert calls["request"].speaker == "narrator"
     assert calls["config"].length_scale == 0.5
     assert calls["config"].noise_scale == 0.4

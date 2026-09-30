@@ -49,7 +49,6 @@ PIPER_RENDER_OPTIONS = frozenset(
         "providers",
         "provider_options",
         "session_options",
-        "frontend_options",
         "force_download",
     }
 )
@@ -224,6 +223,16 @@ def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
     }
 
 
+def _piper_request_language(language: str, voice: Any) -> str:
+    """Resolve a base language to the model locale Piper requires."""
+    active_language = getattr(getattr(voice, "config", None), "espeak_voice", None)
+    requested = normalize_language_key(language)
+    active = normalize_language_key(active_language) if active_language else None
+    if active and "-" not in requested and active.split("-", 1)[0] == requested:
+        return active
+    return language
+
+
 class PiperSynthEngineSession:
     """Adapt one exact Readio request to one open PiperVoice."""
 
@@ -250,7 +259,7 @@ class PiperSynthEngineSession:
             native = pipersynth.SynthesisRequest(
                 id=request.id,
                 text=request.text,
-                language=request.language,
+                language=_piper_request_language(request.language, self._voice),
                 speaker=request.speaker,
                 tokens=tuple(_piper_token(token, pipersynth) for token in request.tokens),
                 pronunciation_overrides=tuple(
@@ -487,7 +496,6 @@ class PiperSynthEngineAdapter:
                 providers=options.get("providers"),
                 provider_options=options.get("provider_options"),
                 session_options=options.get("session_options"),
-                frontend_options=options.get("frontend_options"),
             )
             config = pipersynth.SynthesisConfig(
                 length_scale=options.get("length_scale"),
