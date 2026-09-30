@@ -366,12 +366,18 @@ class PiperSynthEngineAdapter:
         voices = manager.list_voices(language=request.language, refresh=request.refresh)
         return tuple(_target_from_voice_metadata(item, self.id) for item in voices)
 
+    def validate_request(self, request: Any) -> None:
+        """Validate required selection fields without touching PiperSynth APIs."""
+        language = normalize_language_key(getattr(request, "language", None) or "en-us")
+        target_id = getattr(request, "target_id", None) or getattr(request, "voice", None)
+        if not target_id:
+            raise PiperTargetRequiredError(language)
+
     def resolve(self, request: Any) -> tuple[EngineSelection, tuple[Any, ...]]:
         language = normalize_language_key(getattr(request, "language", None) or "en-us")
         voice = getattr(request, "voice", None)
         target_id = getattr(request, "target_id", None) or voice
-        if not target_id:
-            raise PiperTargetRequiredError(language)
+        self.validate_request(request)
         options = dict(getattr(request, "options", {}) or {})
         options.update(dict(getattr(request, "engine_options", {}) or {}))
         speed = options.pop("speed", options.pop("rate", None))

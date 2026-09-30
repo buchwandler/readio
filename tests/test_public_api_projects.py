@@ -861,9 +861,12 @@ def test_requestless_build_and_stage_apis_use_saved_composition_and_export(
     (("piper", "piper.voice_required"), ("pocket", "pocket.bundle_required")),
 )
 def test_fresh_resolution_preserves_strict_incomplete_engine_errors(
-    tmp_path: Path, engine: str, expected_error: str
+    tmp_path: Path, engine: str, expected_error: str, monkeypatch
 ) -> None:
     app = Readio(ReadioConfig())
+    adapter = _registry.get(engine)
+    assert adapter is not None
+    monkeypatch.setattr(adapter, "compatible_api", lambda: False)
     source = tmp_path / f"{engine}.txt"
     source.write_text("Incomplete selections stay invalid.", encoding="utf-8")
     project = app.projects.create(source, output=tmp_path / f"{engine}.readio")

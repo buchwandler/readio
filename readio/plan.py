@@ -1703,6 +1703,32 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         if adapter is not None
         else cfg.ssmd.voice_provider
     )
+    # Preserve structural request errors without invoking an incompatible runtime adapter.
+    if adapter is not None and not adapter_api_compatible:
+        validate_request = getattr(adapter, "validate_request", None)
+        if validate_request is not None:
+            try:
+                validate_request(
+                    EngineRequest(
+                        engine=engine_id,
+                        target_id=candidate.model,
+                        language=candidate.language,
+                        voice=candidate.voice,
+                        offline=request.synthesis.offline,
+                        refresh=request.synthesis.refresh,
+                        engine_options=dict(request.synthesis.engine_options),
+                    )
+                )
+            except (ImportError, AttributeError, TypeError, ValueError) as exc:
+                diagnostics.append(
+                    PlanDiagnostic(
+                        code=getattr(exc, "diagnostic_code", "engine_resolution_failed"),
+                        severity="error",
+                        message=str(exc),
+                        field=getattr(exc, "diagnostic_field", "synthesis.engine"),
+                    )
+                )
+
     if adapter is not None and adapter_api_compatible:
         resolve_defaults = getattr(adapter, "resolve_defaults", None)
         if resolve_defaults is not None:

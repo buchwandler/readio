@@ -534,16 +534,23 @@ class PocketSynthEngineAdapter:
             or any(language_tags_match(requested, available) for available in target.languages)
         )
 
+    def validate_request(self, request: Any) -> None:
+        """Validate bundle selection without touching PocketSynth runtime APIs."""
+        language = normalize_language_key(getattr(request, "language", None) or "en-us")
+        options = dict(getattr(request, "options", {}) or {})
+        options.update(dict(getattr(request, "engine_options", {}) or {}))
+        if not (getattr(request, "target_id", None) or options.get("bundle")):
+            raise ValueError(
+                "pocket.bundle_required: PocketSynth requires a bundle; pass --model <bundle-id> "
+                f"or run `readio voices list --engine pocket --lang {language}`."
+            )
+
     def resolve(self, request: Any) -> tuple[EngineSelection, tuple[Any, ...]]:
         language = normalize_language_key(getattr(request, "language", None) or "en-us")
         options = dict(getattr(request, "options", {}) or {})
         options.update(dict(getattr(request, "engine_options", {}) or {}))
         target_id = getattr(request, "target_id", None) or options.get("bundle")
-        if not target_id:
-            raise ValueError(
-                "pocket.bundle_required: PocketSynth requires a bundle; pass --model <bundle-id> "
-                f"or run `readio voices list --engine pocket --lang {language}`."
-            )
+        self.validate_request(request)
         precision = options.get("precision", options.get("quality", "int8"))
         if not isinstance(precision, str) or not precision:
             raise ValueError("pocket.precision_invalid: precision must be int8 or fp32")
