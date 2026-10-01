@@ -3,21 +3,20 @@ schema_version: 2
 object_type: release
 versioning:
   schema_version: 1
-  revision: 6
-version: v0.3.5
-status: released
+  revision: 1
+version: v0.3.6
+status: planned
 history_state: curated
-title: Readio 0.3.5
-released_at: "2026-10-01"
-previous_version: v0.3.4
+title: Readio 0.3.6
+released_at: null
+previous_version: v0.3.5
 cancel_reason: null
 superseded_by: null
 changelog_file: docs/changelog.md
 boundary_ref: null
-source_refs:
-  - tl:task-0062
+source_refs: []
 source_count: null
-entry_count: 4
+entry_count: 0
 artifact_count: 0
 git_base_ref: null
 git_base_sha: null
