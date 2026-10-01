@@ -119,7 +119,7 @@ def test_render_cli_uses_plan_attached_to_typed_failure(monkeypatch, capsys) -> 
 
 def test_single_existing_positional_ssmd_is_normalized_to_file(tmp_path: Path):
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    source.write_text("---\nssmd_version: '0.9'\n---\nHello.\n", encoding="utf-8")
     args = build_parser().parse_args(["render", str(source), "-o", str(tmp_path / "out.mp3")])
 
     cli._normalize_positional_input(args)
@@ -141,7 +141,8 @@ def test_existing_positional_markdown_uses_markdown_format(tmp_path: Path):
 
     document = cli._read_input(args, ReadioConfig())
     assert document.source_path == source
-    assert document.format == "markdown"
+    assert document.format == "ssmd"
+    assert "Heading" in document.text
 
 
 def test_existing_positional_txt_is_loaded_as_file(tmp_path: Path):
@@ -152,9 +153,34 @@ def test_existing_positional_txt_is_loaded_as_file(tmp_path: Path):
     cli._normalize_positional_input(args)
 
     document = cli._read_input(args, ReadioConfig())
-    assert document.text == "hello"
-    assert document.format == "text"
+    assert document.format == "ssmd"
+    assert "hello" in document.text
     assert document.source_path == source
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    (".text", ".html", ".htm", ".xhtml", ".pdf", ".docx", ".epub"),
+)
+def test_supported_document_suffixes_are_detected_as_files(tmp_path: Path, suffix: str):
+    source = tmp_path / f"document{suffix}"
+    source.write_text("source", encoding="utf-8")
+    args = build_parser().parse_args(["render", str(source)])
+
+    cli._normalize_positional_input(args)
+
+    assert args.file == source
+    assert args.text == []
+
+
+def test_ssmdbook_suffix_is_not_a_generic_document_suffix(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["render", "book.ssmdbook"])
+
+    cli._normalize_positional_input(args)
+
+    assert args.file is None
+    assert args.text == ["book.ssmdbook"]
 
 
 def test_explicit_text_format_keeps_existing_filename_literal(tmp_path: Path):
@@ -212,7 +238,7 @@ def test_multiple_positional_tokens_remain_literal_text():
 
 def test_single_positional_path_with_spaces_and_symlink_is_loaded(tmp_path: Path):
     source = tmp_path / "weekly review.ssmd"
-    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    source.write_text("---\nssmd_version: '0.9'\n---\nHello.\n", encoding="utf-8")
     link = tmp_path / "linked review.ssmd"
     link.symlink_to(source)
     args = build_parser().parse_args(["speak", str(link)])
@@ -220,12 +246,12 @@ def test_single_positional_path_with_spaces_and_symlink_is_loaded(tmp_path: Path
     cli._normalize_positional_input(args)
 
     assert args.file == link
-    assert cli._read_input(args, ReadioConfig()).source_path == link
+    assert cli._read_input(args, ReadioConfig()).source_path == source.resolve()
 
 
 def test_positional_ssmd_is_passed_to_the_public_speech_service(monkeypatch, tmp_path: Path):
     source = tmp_path / "episode.ssmd"
-    body = '<div voice="host">File body.</div>'
+    body = "---\nssmd_version: '0.9'\n---\nFile body.\n"
     source.write_text(body, encoding="utf-8")
     args = build_parser().parse_args(["speak", str(source)])
     captured = []
@@ -240,12 +266,12 @@ def test_positional_ssmd_is_passed_to_the_public_speech_service(monkeypatch, tmp
     document = captured[0].input.document
     assert document.format == "ssmd"
     assert document.source_path == source
-    assert document.text == body
+    assert "File body." in document.text
 
 
 def test_render_resolves_output_with_normalized_positional_path(monkeypatch, tmp_path: Path):
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    source.write_text("---\nssmd_version: '0.9'\n---\nHello.\n", encoding="utf-8")
     cfg = ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
     )
@@ -286,7 +312,7 @@ def test_input_help_describes_positional_files_and_literal_escape(capsys):
     help_text = capsys.readouterr().out
     assert "one existing file path" in help_text
     assert "unambiguous scripting form" in help_text
-    assert "explicit text disables" in help_text
+    assert "forces textual interpretation" in help_text
     assert "positional file detection" in help_text
 
 

@@ -494,12 +494,6 @@ def unbind_project_role(
 
 
 def _scope_ssmd_text(project: Project, scope: Any) -> str:
-    if (
-        project.manifest.kind == "document"
-        and scope.id == "document"
-        and project.manifest.source_format.casefold() == "ssmd"
-    ):
-        return project.paths["source"].read_text(encoding="utf-8")
     return project.load_document_scope(scope).text
 
 

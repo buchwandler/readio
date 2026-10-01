@@ -84,15 +84,15 @@ def _add_input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--file",
         type=Path,
-        help="unambiguous scripting form; read UTF-8 text from a file",
+        help="unambiguous scripting form; read or convert a document file",
     )
     parser.add_argument(
         "--input-format",
         choices=("auto", "text", "markdown", "ssmd"),
         default="auto",
         help=(
-            "input interpretation; auto infers from a resolved file suffix and otherwise "
-            "uses text; explicit text disables positional file detection"
+            "auto uses ssmdconvert for file inputs; explicit text/markdown/ssmd "
+            "forces textual interpretation; text disables positional file detection"
         ),
     )
     parser.add_argument(

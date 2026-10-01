@@ -10,7 +10,22 @@ from . import api
 from .progress import TerminalProgress
 
 _KNOWN_DOCUMENT_SUFFIXES = frozenset(
-    {".txt", ".ssmd", ".ssmd.md", ".md", ".markdown", ".mdown", ".mkd"}
+    {
+        ".txt",
+        ".text",
+        ".ssmd",
+        ".ssmd.md",
+        ".md",
+        ".markdown",
+        ".mdown",
+        ".mkd",
+        ".html",
+        ".htm",
+        ".xhtml",
+        ".pdf",
+        ".docx",
+        ".epub",
+    }
 )
 
 

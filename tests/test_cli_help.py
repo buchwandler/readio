@@ -33,6 +33,17 @@ def test_explicit_root_help_exits_zero(argv: list[str], capsys: pytest.CaptureFi
     assert "error:" not in captured.err
 
 
+def test_file_input_help_describes_conversion(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["speak", "--help"])
+
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "read or convert a document file" in help_text
+    assert "auto uses ssmdconvert for file inputs" in help_text
+    assert "explicit text/markdown/ssmd forces textual interpretation" in help_text
+
+
 def test_root_help_uses_backend_neutral_description_and_lists_commands(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

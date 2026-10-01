@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .conversion import convert_document_source
+
 InputFormat = Literal["text", "markdown", "ssmd"]
 InputFormatRequest = Literal["auto", "text", "markdown", "ssmd"]
 MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".mkd"})
@@ -51,10 +53,13 @@ def document_from_file(
     input_format: InputFormatRequest = "auto",
 ) -> InputDocument:
     source = path.expanduser()
+    if input_format == "auto":
+        converted = convert_document_source(source)
+        return InputDocument(text=converted.ssmd, source_path=converted.source, format="ssmd")
     return InputDocument(
         text=source.read_text(encoding="utf-8"),
         source_path=source,
-        format=resolve_input_format(input_format, source_path=source),
+        format=input_format,
     )
 
 

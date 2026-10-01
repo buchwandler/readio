@@ -10,6 +10,7 @@ from typing import Any
 from utterplan import UtterancePlan
 
 from ..document import InputDocument
+from ..errors import SSMDInputError
 from ..markdown import markdown_to_speech
 from ..plan import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
 from ..planning.compiler import CompiledSemanticPlan, compile_semantic_plan
@@ -29,6 +30,7 @@ from ..project_settings import (
     project_settings_from_manifest,
 )
 from ..reader import prepare_input_document
+from ..ssmd import parse_ssmd_09
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +77,7 @@ def _write_plan_artifact(path: Path, compiled: CompiledSemanticPlan) -> str:
 
 
 def prepare_project_document(project: Project) -> InputDocument:
-    """Refresh the normalized document snapshot from the editable project source."""
+    """Legacy schema-v1 source normalization only."""
     paths = project.paths
     source = paths["source"]
     raw = source.read_text(encoding="utf-8")
@@ -209,11 +211,7 @@ def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
         document_scopes = project.document_scopes()
         planned_scopes = []
         for scope in document_scopes:
-            if project.manifest.schema_version == 1 or (
-                project.manifest.kind == "document"
-                and len(document_scopes) == 1
-                and scope.id == "document"
-            ):
+            if project.manifest.schema_version == 1:
                 document = prepare_project_document(project)
             else:
                 document = project.load_document_scope(scope)
@@ -370,7 +368,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                 "details": {
                     "scope_id": scope.id,
                     "stored": actual_format,
-                    "expected": expected_format,
+                    "expected": expected_scope_format,
                 },
             }
     return {"state": "current", "reason": "current", "details": {"scopes": len(index.scopes)}}
@@ -380,49 +378,65 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
     paths = project.paths
     source_exists = paths["source"].is_file()
     source_sha = hash_file(paths["source"]) if source_exists else None
-    source_state = "current" if source_exists else "stale"
-    document_state = "stale"
-    if project.manifest.kind == "audiobook":
-        if source_sha is None:
-            source_reason = "source.missing"
-        elif source_sha != project.manifest.source_sha256:
-            source_reason = "source.stale.hash_changed"
-        else:
-            source_reason = "current"
-        source_state = "current" if source_reason == "current" else "stale"
+    if not source_exists:
+        source_reason = "source.missing"
+    elif source_sha != project.manifest.source_sha256:
+        source_reason = "source.stale.hash_changed"
+    else:
+        source_reason = "current"
+    source_state = "current" if source_reason == "current" else "stale"
+
+    if project.manifest.schema_version == 2:
         document_state = "current"
         document_reason = "current"
         document_details: dict[str, Any] = {}
         try:
             document_index = project.load_document_index()
-            source_numbers = tuple(scope.source_number for scope in document_index.scopes)
-            if (
-                any(number is None or number < 1 for number in source_numbers)
-                or tuple(sorted(set(source_numbers))) != source_numbers
-                or tuple(document_index.selection) != source_numbers
-            ):
-                raise ValueError("document index selection/order is invalid")
+            if project.manifest.kind == "audiobook":
+                source_numbers = tuple(scope.source_number for scope in document_index.scopes)
+                if (
+                    any(number is None or number < 1 for number in source_numbers)
+                    or tuple(sorted(set(source_numbers))) != source_numbers
+                    or tuple(document_index.selection) != source_numbers
+                ):
+                    raise ValueError("document index selection/order is invalid")
             for scope in document_index.scopes:
-                if not project.path(scope.path).is_file():
+                scope_path = project.path(scope.path)
+                if not scope_path.is_file():
                     document_state = "stale"
-                    document_reason = "document.chapter.missing"
+                    document_reason = (
+                        "document.chapter.missing"
+                        if scope.kind == "chapter"
+                        else "document.scope.missing"
+                    )
                     document_details = {"scope_id": scope.id}
                     break
+                document = project.load_document_scope(scope)
+                if scope.input_format.casefold() == "ssmd":
+                    try:
+                        parse_ssmd_09(document.text, source_path=scope_path)
+                    except SSMDInputError:
+                        document_state = "stale"
+                        document_reason = "document.scope.invalid"
+                        document_details = {"scope_id": scope.id}
+                        break
+                elif scope.input_format.casefold() not in {"text", "markdown"}:
+                    raise ValueError(f"unsupported semantic input format: {scope.input_format}")
         except (OSError, UnicodeError, ValueError, TypeError, KeyError):
             document_state = "stale"
             document_reason = "document.index.invalid"
-        if document_state == "current":
-            if not paths["plan_index"].is_file():
-                plan_state, plan_reason, plan_details = "stale", "plan.index.missing", {}
-            else:
-                validation = _plan_artifact_status(project, "text")
-                plan_state = validation["state"]
-                plan_reason = validation["reason"]
-                plan_details = validation["details"]
-        else:
+
+        if not paths["plan_index"].is_file():
+            plan_state, plan_reason, plan_details = "stale", "plan.index.missing", {}
+        elif document_state != "current":
             plan_state = "stale"
             plan_reason = "plan.stale.document_changed"
             plan_details = dict(document_details)
+        else:
+            validation = _plan_artifact_status(project, "text")
+            plan_state = validation["state"]
+            plan_reason = validation["reason"]
+            plan_details = validation["details"]
         return [
             {
                 "stage": "source",
@@ -443,16 +457,16 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
                 **plan_details,
             },
         ]
+
     document_format = project.manifest.source_format
+    document_state = "stale"
     if (
         paths["document_metadata"].is_file()
         and paths["document_text"].is_file()
         and source_sha is not None
     ):
         try:
-            metadata = __import__("json").loads(
-                paths["document_metadata"].read_text(encoding="utf-8")
-            )
+            metadata = json.loads(paths["document_metadata"].read_text(encoding="utf-8"))
             input_format = metadata.get("input_format", project.manifest.source_format)
             document_format = metadata.get("document_format") or (
                 "ssmd" if input_format == "ssmd" else "text"
@@ -473,7 +487,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
         {
             "stage": "source",
             "state": source_state,
-            "reason": "current" if source_state == "current" else "source.missing",
+            "reason": source_reason,
             "sha256": source_sha,
         },
         {

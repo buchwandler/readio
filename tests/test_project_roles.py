@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from document_support import write_test_pdf
 
 from readio.config import ReadioConfig
 from readio.project import init_project, load_project, update_project_manifest
@@ -42,6 +43,22 @@ def _roles(project, cfg=None):
     return {role.role: role for role in inspection.roles}
 
 
+def test_pdf_provenance_does_not_hide_ssmd_roles(tmp_path) -> None:
+    source = tmp_path / "book.pdf"
+    write_test_pdf(source, "PDF source text")
+    project = init_project(source, tmp_path / "book.readio")
+    scope = project.document_scopes()[0]
+    project.path(scope.path).write_text(
+        "---\nssmd_version: '0.9'\n---\n[Hello.]{voice=\"guest\"}", encoding="utf-8"
+    )
+
+    roles = _roles(project)
+
+    assert project.manifest.source_format == "pdf"
+    assert scope.input_format == "ssmd"
+    assert roles["guest"].uses == 1
+
+
 def test_project_voice_binding_provenance_is_order_independent() -> None:
     first = project_voice_bindings_provenance(
         "kokoro", {"narrator": "af_heart", "guest": "af_bella"}
@@ -62,14 +79,17 @@ def test_discovers_source_roles_and_counts_before_semantic_plan_exists(tmp_path)
         for index in range(count)
     ]
     project = _project(tmp_path, "\n".join(lines))
-    project.paths["source"].write_text('[Only current source.]{voice="guest"}', encoding="utf-8")
+    project.paths["document_text"].write_text(
+        "---\nssmd_version: '0.9'\n---\n[Only current source.]{voice=\"guest\"}",
+        encoding="utf-8",
+    )
     assert not project.paths["plan_index"].exists()
 
     roles = _roles(project)
 
     assert {name: role.uses for name, role in roles.items()} == {"guest": 1}
     assert roles["guest"].locations[0].scope_id == "document"
-    assert roles["guest"].locations[0].lines == (1,)
+    assert roles["guest"].locations[0].lines == (4,)
     assert roles["guest"].origin == "config.voice_role"
 
 
@@ -88,7 +108,7 @@ def test_collects_all_sample_role_counts_and_config_fallback(tmp_path) -> None:
     assert roles["narrator"].effective_voice == "af_sarah"
     assert roles["narrator"].origin == "config.voice_role"
     assert roles["guest"].effective_voice == "af_bella"
-    assert roles["guest"].locations[0].lines == tuple(range(19, 30))
+    assert roles["guest"].locations[0].lines == tuple(range(23, 34))
 
 
 def test_project_binding_overrides_config_role(tmp_path) -> None:
@@ -127,7 +147,7 @@ def test_document_binding_overrides_project_binding(tmp_path) -> None:
     assert narrator.origin == "document"
     assert narrator.document_binding == "af_bella"
     assert narrator.project_binding == "af_heart"
-    assert narrator.locations[0].lines == (7,)
+    assert narrator.locations[0].lines == (8,)
 
 
 def test_multiscope_document_bindings_report_mixed_values(tmp_path) -> None:

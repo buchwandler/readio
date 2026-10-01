@@ -16,12 +16,12 @@ def test_init_creates_project_layout_and_is_suffix_independent(tmp_path):
     project = init_project(source, root)
     assert (root / "project.json").is_file()
     assert (root / "source" / "book.md").is_file()
-    assert (root / "document" / "document.txt").is_file()
+    assert (root / "document" / "document.ssmd.md").is_file()
     assert load_project(root).root == root.resolve()
     assert project.manifest.source_path == "source/book.md"
 
     assert project.manifest.schema_version == 2
-    assert project.document_scopes()[0].path == "document/document.txt"
+    assert project.document_scopes()[0].path == "document/document.ssmd.md"
     assert (root / "document" / "index.json").is_file()
 
 

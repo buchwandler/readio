@@ -224,7 +224,7 @@ def prepare_audiobook_export(
 ) -> PreparedAudiobookExport:
     if project.manifest.kind != "audiobook":
         raise AudiobookExportError(
-            "M4B export requires an audiobook project created from an EPUB",
+            "M4B export requires an audiobook project created from a supported book source",
             code="audiobook.export.not_audiobook",
         )
     master = project.paths["composition_master"]

@@ -322,6 +322,7 @@ class DocumentScope:
     char_count: int | None = None
     extracted_sha256: str | None = None
     diagnostics: tuple[Mapping[str, Any], ...] = ()
+    source_parent_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -336,6 +337,7 @@ class DocumentScope:
             ("source_id", self.source_id),
             ("href", self.href),
             ("parent_id", self.parent_id),
+            ("source_parent_id", self.source_parent_id),
             ("level", self.level),
             ("char_count", self.char_count),
             ("extracted_sha256", self.extracted_sha256),
@@ -361,7 +363,14 @@ class DocumentScope:
                 raise ProjectFormatError(f"document scope {key} must be an integer")
             optional_ints[key] = item
         optional_strings = {}
-        for key in ("title", "source_id", "href", "parent_id", "extracted_sha256"):
+        for key in (
+            "title",
+            "source_id",
+            "href",
+            "parent_id",
+            "source_parent_id",
+            "extracted_sha256",
+        ):
             item = data.get(key)
             if item is not None and not isinstance(item, str):
                 raise ProjectFormatError(f"document scope {key} must be a string")
@@ -470,7 +479,7 @@ class ProjectManifest:
     source_format: str
     source_sha256: str
     document_metadata_path: str = "document/metadata.json"
-    document_text_path: str = "document/document.txt"
+    document_text_path: str = "document/document.ssmd.md"
     document_index_path: str = "document/index.json"
     plan_index_path: str = "plan/index.json"
     synthesis_profile_path: str = "synthesis/profile.json"
@@ -552,7 +561,7 @@ class ProjectManifest:
         else:
             document_index_path = _require_string(document.get("index_path"), "document.index_path")
             document_metadata_path = "document/metadata.json"
-            document_text_path = "document/document.txt"
+            document_text_path = "document/document.ssmd.md"
             kind = _require_string(data.get("kind"), "kind")
         return cls(
             project_id=_require_string(data.get("project_id"), "project_id"),

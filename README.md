@@ -66,7 +66,7 @@ readio spotify publish episode.ssmd --title "Episode"
 
 For scripts, prefer the explicit `--file PATH` form. A missing path-like token fails instead of being spoken as a filename. Use `--input-format text` to force an existing filename to remain literal text.
 
-Readio parses `.ssmd` and `.ssmd.md` as SSMD. It parses `.md`, `.markdown`, `.mdown`, and `.mkd` as Markdown before synthesis. Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected into speech-friendly text. Ordinary Markdown is isolated from SSMD controls; use an SSMD extension when explicit voices, rate, volume, pitch, breaks, or markers are required.
+In auto mode, filesystem documents are converted to canonical SSMD by `ssmdconvert` before synthesis. This includes supported text, Markdown, HTML, PDF, DOCX, EPUB, and SSMD files. Explicit `--input-format text`, `markdown`, or `ssmd` forces textual interpretation instead of conversion. Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter are projected according to the converter; ordinary Markdown remains isolated from SSMD controls.
 
 Markdown can also be supplied explicitly through stdin or literal input:
 
@@ -462,11 +462,13 @@ readio status manuscript.readio --json
 readio render manuscript.readio --format mp3  # build stale stages
 ```
 
-For EPUB audiobooks, Readio discovers selectable chapters and persists the chosen chapter Markdown as editable project inputs:
+Chapter-aware audiobook projects accept EPUB files and `.ssmdbook` directory or `.ssmdbook.zip` bundles produced by ssmdconvert. Book inspection and conversion use ssmdconvert's public API; Readio stores the resulting standalone SSMD chapter documents as editable project inputs:
 
 ```bash
 readio audiobook chapters novel.epub
 readio audiobook init novel.epub --chapters 2-20
+readio audiobook chapters novel.ssmdbook.zip
+readio audiobook init novel.ssmdbook --chapters 3-4,7
 cd novel.readio
 readio plan roles
 readio plan
@@ -478,10 +480,11 @@ readio audiobook export . --format m4b --cover cover.jpg
 readio render novel.readio --format m4a
 ```
 
-Chapter numbers are the flat, 1-based order reported by `readio audiobook chapters`. Selection is saved during initialization, so later project commands do not need `--chapters`. Edit files under `document/chapters/` to change semantic inputs. Readio replans and resynthesizes only affected content. The copied EPUB is provenance; if it changes, status reports a stale source and the project must be reinitialized rather than silently reimported. EPUB is not a direct render input or a separate build pipeline.
+Chapter selectors use the available 1-based source chapter numbers reported by `readio audiobook chapters` and preserve source order. This also works for bundle subsets with non-contiguous chapter numbers. Edit the canonical SSMD files under `document/chapters/` to change semantics. Readio replans and resynthesizes only affected content. The original source snapshot under `source/` is provenance. A changed source is reported but is never silently reconverted; reinitialize from the updated source to ingest its changes. A generic EPUB render is one combined document, so use the audiobook commands for chapter-aware processing.
 
-Audiobook projects can be exported separately as M4B with embedded chapters: `readio audiobook export . --format m4b`. Title and author default from the EPUB project metadata and can be overridden with `--title` and `--author`. Readio's AAC bitrate default is 192k; use `--bitrate` to choose another supported bitrate.
+Audiobook projects can be exported as M4B with embedded chapters: `readio audiobook export . --format m4b`. Title and author default from the book's metadata and can be overridden with `--title` and `--author`. Readio's AAC bitrate default is 192k; use `--bitrate` to choose another supported bitrate.
 
-Cover art is explicit-only for this first release: pass `--cover cover.jpg` or a PNG path. Readio validates, hashes, attaches, and tracks the image, but does not extract a cover automatically because the installed `epub2text` public API has no cover-extraction API. M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus, never M4B.
+Cover art is explicit-only: pass `--cover cover.jpg` or a PNG path. Readio validates, hashes, attaches, and tracks the image. Automatic source cover extraction is not part of the current ssmdconvert integration; provide a JPEG/PNG cover explicitly. M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus, never M4B.
+
 See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout, cache identities, status diagnostics, and invalidation matrix.
 Project synthesis, composition, and export defaults can be saved before execution with `readio project settings set PROJECT ...`; inspect with `readio project settings show PROJECT --json`. Requestless project operations use saved settings, while explicit invocation overrides remain transient. Audiobook M4B output, metadata, cover, and bitrate can also be saved and are checked by `readio status`. See [project settings](docs/projects.md#desired-pipeline-settings), [CLI reference](docs/cli.md#saved-project-pipeline-settings), and [Python API](docs/api.md#projects-and-audiobooks).

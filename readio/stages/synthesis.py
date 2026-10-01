@@ -354,8 +354,6 @@ def _project_request_with_voice_bindings(
     project: Project, cfg: Any, request: PlanRequest
 ) -> PlanRequest:
     document = project.load_document_scope(project.document_scopes()[0])
-    if document.format != "ssmd" and project.manifest.source_format == "ssmd":
-        document = replace(document, format="ssmd")
 
     ssmd_settings = project_ssmd_settings(project.manifest)
     legacy_bindings = ssmd_settings.get("voice_bindings", {})
@@ -427,8 +425,6 @@ def _project_scope_voice_targets(
     project_bindings = project_voice_bindings(project.manifest, provider)
     for scope in project.document_scopes():
         document = project.load_document_scope(scope)
-        if document.format != "ssmd" and project.manifest.source_format == "ssmd":
-            document = replace(document, format="ssmd")
         if document.format != "ssmd":
             targets_by_scope[scope.id] = {}
             continue

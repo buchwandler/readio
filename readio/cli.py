@@ -30,15 +30,15 @@ def _add_input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--file",
         type=Path,
-        help="unambiguous scripting form; read UTF-8 text from a file",
+        help="unambiguous scripting form; read or convert a document file",
     )
     parser.add_argument(
         "--input-format",
         choices=("auto", "text", "markdown", "ssmd"),
         default="auto",
         help=(
-            "input interpretation; auto infers from a resolved file suffix and otherwise "
-            "uses text; explicit text disables positional file detection"
+            "auto uses ssmdconvert for file inputs; explicit text/markdown/ssmd "
+            "forces textual interpretation; text disables positional file detection"
         ),
     )
     parser.add_argument(
@@ -761,6 +761,7 @@ def _audiobook_chapter_json(chapter: public_api.AudiobookChapter) -> dict[str, o
         "title": chapter.title,
         "href": chapter.href,
         "parent_id": chapter.parent_id,
+        "source_parent_id": chapter.source_parent_id,
         "level": chapter.level,
         "char_count": chapter.char_count,
         "diagnostics": [item.to_dict() for item in chapter.diagnostics],
@@ -2037,7 +2038,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="project_command", required=False, title="Commands", metavar="COMMAND"
     )
     project_init = project_sub.add_parser(
-        "init", help="initialize a project from a source document"
+        "init", help="initialize a project from a document supported by ssmdconvert"
     )
     project_init.add_argument("source", type=Path)
     project_init.add_argument("-o", "--output", type=Path)
@@ -2095,18 +2096,18 @@ def build_parser() -> argparse.ArgumentParser:
     settings_clear.add_argument("--json", action="store_true")
     settings_clear.set_defaults(func=_cmd_project_settings, settings_action="clear")
     audiobook_cmd = sub.add_parser(
-        "audiobook", help="Inspect EPUBs and create/export audiobook projects."
+        "audiobook", help="Inspect book sources and create/export audiobook projects."
     )
     audiobook_cmd.set_defaults(func=show_help, _help_parser=audiobook_cmd)
     audiobook_sub = audiobook_cmd.add_subparsers(
         dest="audiobook_command", required=False, title="Commands", metavar="COMMAND"
     )
-    audiobook_chapters = audiobook_sub.add_parser("chapters", help="list selectable EPUB chapters")
+    audiobook_chapters = audiobook_sub.add_parser("chapters", help="list selectable book chapters")
     audiobook_chapters.add_argument("source", type=Path)
     audiobook_chapters.add_argument("--json", action="store_true")
     audiobook_chapters.set_defaults(func=_cmd_audiobook_chapters)
     audiobook_init = audiobook_sub.add_parser(
-        "init", help="initialize a chapter-scoped project from an EPUB"
+        "init", help="initialize a chapter-scoped audiobook project from a book source"
     )
     audiobook_init.add_argument("source", type=Path)
     audiobook_init.add_argument("--chapters", default="all")

@@ -1,4 +1,4 @@
-"""EPUB audiobook inspection and project creation through :mod:`readio.api`."""
+"""Book-source inspection and project creation through :mod:`readio.api`."""
 
 from __future__ import annotations
 
@@ -6,6 +6,16 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeVar, cast
+
+from ssmdconvert import (
+    BookBundleError,
+    BookBundleValidationError,
+    BookError,
+    ChapterSelectionError,
+    MissingDependencyError,
+    SSMDConvertError,
+    UnsupportedBookSourceError,
+)
 
 from .. import audiobook as audiobook_internal
 from .. import errors as core_errors
@@ -79,7 +89,7 @@ def _export_options(
 
 
 class AudiobookService:
-    """Inspect EPUB chapters and create ordinary chapter-scoped projects."""
+    """Inspect book sources and create chapter-scoped audiobook projects."""
 
     def __init__(self, app: Readio) -> None:
         self._app = app
@@ -94,13 +104,9 @@ class AudiobookService:
         operation = "audiobooks.inspect"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         source = self._resolve_source(source)
-        if not source.is_file():
-            raise api_errors.InputError(
-                f"EPUB source is not a regular file: {source}",
-                source_path=source,
-                code="input.not_found",
-            )
-        inspection = self._call(lambda: audiobook_internal.inspect_epub(source))
+        inspection = self._call(
+            lambda: audiobook_internal.inspect_book_source(source), source_path=source
+        )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
         return self._inspection(inspection)
 
@@ -130,14 +136,9 @@ class AudiobookService:
         operation = "audiobooks.create_project"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         source = self._resolve_source(source)
-        if not source.is_file():
-            raise api_errors.InputError(
-                f"EPUB source is not a regular file: {source}",
-                source_path=source,
-                code="input.not_found",
-            )
         project = self._call(
-            lambda: audiobook_internal.init_audiobook_project(source, output, chapters)
+            lambda: audiobook_internal.init_audiobook_project(source, output, chapters),
+            source_path=source,
         )
         project_ref = self._project_ref(project)
         if settings is not None:
@@ -244,10 +245,10 @@ class AudiobookService:
                 source_id=chapter.source_id,
                 title=chapter.title,
                 href=chapter.href,
+                source_parent_id=chapter.source_parent_id,
                 parent_id=chapter.parent_id,
                 level=chapter.level,
                 char_count=chapter.char_count,
-                markdown=chapter.markdown,
                 diagnostics=tuple(self._diagnostic(row) for row in chapter.diagnostics),
             )
             for chapter in inspection.chapters
@@ -301,7 +302,7 @@ class AudiobookService:
                 code="event.handler_failed",
             ) from error
 
-    def _call(self, callback: Callable[[], T]) -> T:
+    def _call(self, callback: Callable[[], T], *, source_path: Path | None = None) -> T:
         try:
             return callback()
         except core_errors.ReadioError:
@@ -314,10 +315,38 @@ class AudiobookService:
             raise api_errors.ExecutionError(
                 str(error), details=error.details, code=error.code
             ) from error
+        except ChapterSelectionError as error:
+            raise api_errors.InvalidRequestError(
+                str(error), source_path=source_path, code="request.chapter_selection_invalid"
+            ) from error
+        except UnsupportedBookSourceError as error:
+            raise api_errors.InputError(
+                str(error), source_path=source_path, code="input.book_format_unsupported"
+            ) from error
+        except BookBundleValidationError as error:
+            raise api_errors.InputError(
+                str(error), source_path=source_path, code="input.book_bundle_invalid"
+            ) from error
+        except BookBundleError as error:
+            raise api_errors.InputError(
+                str(error), source_path=source_path, code="input.book_bundle_failed"
+            ) from error
+        except MissingDependencyError as error:
+            raise api_errors.IntegrationError(
+                str(error), source_path=source_path, code="input.book_dependency_missing"
+            ) from error
+        except BookError as error:
+            raise api_errors.InputError(
+                str(error), source_path=source_path, code="input.book_conversion_failed"
+            ) from error
+        except SSMDConvertError as error:
+            raise api_errors.InputError(
+                str(error), source_path=source_path, code="input.book_conversion_failed"
+            ) from error
         except FileNotFoundError as error:
             raise api_errors.InputError(
                 str(error),
-                source_path=Path(error.filename) if error.filename else None,
+                source_path=source_path or (Path(error.filename) if error.filename else None),
                 code="input.not_found",
             ) from error
         except InternalProjectFormatError as error:

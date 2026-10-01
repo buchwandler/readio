@@ -10,9 +10,11 @@ import shutil
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from .document import InputDocument, infer_input_format
+from .conversion import convert_document_source
+from .document import InputDocument
+from .jsonutil import json_value
 from .project_model import (
     DocumentIndex,
     DocumentScope,
@@ -245,25 +247,44 @@ def update_project_manifest(
 
 def init_project(source: Path | str, output: Path | str | None = None) -> Project:
     source_path = Path(source).expanduser().resolve()
-    if not source_path.is_file():
-        raise ProjectError(f"source is not a regular file: {source_path}")
     root = Path(output or f"{source_path.stem}.readio").expanduser()
     if not root.is_absolute():
         root = Path.cwd() / root
     root = root.resolve()
     if root.exists():
         raise ProjectError(f"project destination already exists: {root}")
-    temporary = root.with_name(f".{root.name}.tmp-{secrets.token_hex(8)}")
+
+    converted = convert_document_source(source_path)
+    document_text = converted.ssmd
+    document_sha = sha256_bytes(document_text.encode("utf-8"))
+    title_value = converted.metadata.get("title")
+    title = title_value if isinstance(title_value, str) and title_value else root.stem
     source_name = source_path.name
     source_relative = Path("source") / source_name
     source_sha = hash_file(source_path)
-    document_text = source_path.read_text(encoding="utf-8")
-    input_format = infer_input_format(source_path)
+    source_format = converted.source_format
+    index_metadata = cast(
+        dict[str, Any],
+        json_value(
+            {
+                "title": title,
+                "author": converted.metadata.get("author"),
+                "language": converted.metadata.get("language"),
+                "conversion": {
+                    "tool": "ssmdconvert",
+                    "version": converted.converter_version,
+                    "source_format": source_format,
+                    "media_type": converted.media_type,
+                    "source_name": converted.source_name,
+                },
+            }
+        ),
+    )
     project_payload = {
         "name": root.stem,
         "source": {
             "path": source_relative.as_posix(),
-            "format": input_format,
+            "format": source_format,
             "sha256": source_sha,
         },
     }
@@ -272,9 +293,10 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
         project_id=project_id,
         name=root.stem,
         source_path=source_relative.as_posix(),
-        source_format=input_format,
+        source_format=source_format,
         source_sha256=source_sha,
     )
+    temporary = root.with_name(f".{root.name}.tmp-{secrets.token_hex(8)}")
     try:
         for directory in (
             "source",
@@ -290,18 +312,6 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
         shutil.copyfile(source_path, temporary / source_relative)
         (temporary / manifest.document_text_path).write_text(document_text, encoding="utf-8")
         atomic_write_json(
-            temporary / manifest.document_metadata_path,
-            {
-                "format": "readio.document",
-                "schema_version": 1,
-                "source_sha256": source_sha,
-                "document_sha256": sha256_bytes(document_text.encode("utf-8")),
-                "input_format": input_format,
-                "document_format": "ssmd" if input_format == "ssmd" else "text",
-                "source_path": f"../{source_relative.as_posix()}",
-            },
-        )
-        atomic_write_json(
             temporary / manifest.document_index_path,
             DocumentIndex(
                 scopes=(
@@ -309,11 +319,12 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
                         id="document",
                         kind="document",
                         path=manifest.document_text_path,
-                        input_format=input_format,
-                        title=root.stem,
-                        extracted_sha256=sha256_bytes(document_text.encode("utf-8")),
+                        input_format="ssmd",
+                        title=title,
+                        extracted_sha256=document_sha,
                     ),
-                )
+                ),
+                metadata=index_metadata,
             ).to_dict(),
         )
         atomic_write_json(temporary / "project.json", manifest.to_dict())

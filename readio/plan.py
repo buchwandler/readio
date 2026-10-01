@@ -27,7 +27,7 @@ from .config import (
     normalize_spacy_policy,
     normalize_voice_level,
 )
-from .document import InputDocument, InputFormat, InputFormatRequest, resolve_input_format
+from .document import InputDocument, InputFormat, InputFormatRequest
 from .errors import RenderError
 from .formats import (
     AudioFormat,
@@ -632,8 +632,8 @@ def _plan_input(
     doc = request.document
 
     # Resolve format
-    effective_format: InputFormat = resolve_input_format(
-        request.requested_format, source_path=doc.source_path
+    effective_format: InputFormat = (
+        doc.format if request.requested_format == "auto" else request.requested_format
     )
 
     if request.source_kind is not None:

@@ -37,6 +37,7 @@ def test_document_index_round_trips_scope_provenance_and_metadata() -> None:
                 href="Text/chapter-one.xhtml",
                 parent_id="part-two",
                 level=2,
+                source_parent_id="source-nav:part-two",
                 char_count=42,
                 extracted_sha256="abc123",
                 diagnostics=({"code": "note", "message": "example"},),
@@ -83,6 +84,21 @@ def test_schema_one_manifest_and_project_are_read_as_one_document_scope(tmp_path
     source = tmp_path / "book.txt"
     source.write_text("Hello.", encoding="utf-8")
     project = init_project(source, tmp_path / "book.readio")
+    legacy_document = project.root / "document" / "document.txt"
+    legacy_document.write_text("Hello.", encoding="utf-8")
+    legacy_metadata = project.root / "document" / "metadata.json"
+    legacy_metadata.write_text(
+        json.dumps(
+            {
+                "format": "readio.document",
+                "schema_version": 1,
+                "source_sha256": project.manifest.source_sha256,
+                "input_format": "text",
+                "document_format": "text",
+            }
+        ),
+        encoding="utf-8",
+    )
     manifest_payload = json.loads((project.root / "project.json").read_text(encoding="utf-8"))
     manifest_payload["schema_version"] = 1
     manifest_payload.pop("kind")

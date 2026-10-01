@@ -386,7 +386,9 @@ def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     assert all(isinstance(item, EngineDiagnostic) for item in report.engines)
     assert all(isinstance(item, DependencyDiagnostic) for item in report.dependencies)
     assert {"pykokoro", "piper"} <= {item.id for item in report.engines}
-    assert {"utterplan", "audiocompose", "ssmd"} <= {item.id for item in report.dependencies}
+    assert {"utterplan", "audiocompose", "ssmd", "ssmdconvert"} <= {
+        item.id for item in report.dependencies
+    }
     assert all(isinstance(item, AudioFormatDiagnostic) for item in report.audio_formats)
     assert {"wav", "flac", "mp3", "m4a", "ogg", "opus"} == {
         item.id for item in report.audio_formats

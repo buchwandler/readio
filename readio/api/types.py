@@ -313,13 +313,13 @@ class AudiobookProjectDescription:
 @dataclass(frozen=True, slots=True)
 class AudiobookChapter:
     number: int
-    source_id: str
+    source_id: str | None
     title: str
     href: str | None
+    source_parent_id: str | None
     parent_id: str | None
     level: int
-    char_count: int
-    markdown: str
+    char_count: int | None
     diagnostics: tuple[Diagnostic, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:

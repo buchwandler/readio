@@ -171,16 +171,32 @@ jobs:
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install dist/*.whl
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" - <<'PY'
+          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" - <<'PY'
           import importlib.metadata
           import importlib.resources
+          from pathlib import Path
+
           import readio
+          from document_support import write_test_docx, write_test_pdf
+          from readio.api import document_from_file
 
           distribution_version = importlib.metadata.version("readio")
           assert readio.__version__ == distribution_version
+          assert importlib.metadata.version("ssmdconvert")
           assert importlib.resources.files("readio").joinpath("py.typed").is_file()
           assert importlib.resources.files("readio.resources.templates").joinpath(
               "podcast.ssmd"
           ).is_file()
+
+          root = Path.cwd()
+          html = root / "sample.html"
+          html.write_text("<html><body><p>HTML wheel smoke</p></body></html>", encoding="utf-8")
+          pdf = root / "sample.pdf"
+          write_test_pdf(pdf, "PDF wheel smoke")
+          docx = root / "sample.docx"
+          write_test_docx(docx)
+          for source in (html, pdf, docx):
+              document = document_from_file(source)
+              assert document.format == "ssmd"
           PY
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/readio" --version

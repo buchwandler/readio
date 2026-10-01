@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from audiobook_support import make_epub
+from audiobook_support import make_epub, make_subset_book_bundle
 
 from readio import cli
 from readio.api import AudiobookExportResult, ProjectExportResult, ProjectRef
-from readio.audiobook import inspect_epub
+from readio.audiobook import inspect_book_source
 
 
 def run_cli(argv: list[str], capsys) -> str:
@@ -17,7 +17,7 @@ def run_cli(argv: list[str], capsys) -> str:
     return capsys.readouterr().out
 
 
-def test_audiobook_chapters_json_uses_real_epub_extraction(tmp_path, capsys) -> None:
+def test_audiobook_chapters_json_uses_ssmdconvert_book_inspection(tmp_path, capsys) -> None:
     source = tmp_path / "book.epub"
     make_epub(source)
 
@@ -58,7 +58,7 @@ def test_synthetic_spine_chapter_receives_flat_number(tmp_path) -> None:
     source = tmp_path / "fallback.epub"
     make_epub(source, with_navigation=False)
 
-    inspection = inspect_epub(source)
+    inspection = inspect_book_source(source)
 
     assert len(inspection.chapters) == 5
     assert [chapter.number for chapter in inspection.chapters] == [1, 2, 3, 4, 5]
@@ -75,7 +75,7 @@ def test_malformed_epub_json_error_has_no_partial_chapter_list(tmp_path, capsys)
     assert exit_info.value.code == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
-    assert "could not read EPUB" in payload["error"]
+    assert payload["code"] == "input.book_conversion_failed"
 
 
 def test_audiobook_export_cli_uses_public_api_options(tmp_path, capsys, monkeypatch) -> None:
@@ -219,3 +219,38 @@ def test_generic_export_cli_forwards_flac_format_and_force(tmp_path, capsys, mon
     assert options.bitrate == "320k"
     assert options.output == output
     assert options.force is True
+
+
+@pytest.mark.parametrize(
+    ("format", "bundle_name"),
+    [("directory", "novel.ssmdbook"), ("zip", "novel.ssmdbook.zip")],
+)
+def test_audiobook_cli_inspects_and_initializes_book_bundles(
+    tmp_path, capsys, format: str, bundle_name: str
+) -> None:
+    epub = tmp_path / "novel.epub"
+    make_epub(epub)
+    bundle = tmp_path / bundle_name
+    make_subset_book_bundle(epub, bundle, format=format)
+
+    chapters = json.loads(run_cli(["audiobook", "chapters", str(bundle), "--json"], capsys))
+    assert [chapter["number"] for chapter in chapters["chapters"]] == [2, 3, 4, 7]
+
+    project_path = tmp_path / "novel.readio"
+    initialized = json.loads(
+        run_cli(
+            [
+                "audiobook",
+                "init",
+                str(bundle),
+                "--chapters",
+                "3-4",
+                "--output",
+                str(project_path),
+                "--json",
+            ],
+            capsys,
+        )
+    )
+    assert initialized["selected_chapters"] == 2
+    assert [chapter["number"] for chapter in initialized["chapters"]] == [3, 4]

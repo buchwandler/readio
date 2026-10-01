@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from ebooklib import epub
+from ssmdconvert import convert_book, write_book_bundle
 
 
 def make_epub(path: Path, *, with_navigation: bool = True) -> None:
@@ -55,3 +57,13 @@ def make_epub(path: Path, *, with_navigation: bool = True) -> None:
         book.toc = ()
         book.spine = [*chapters]
     epub.write_epub(str(path), book)
+
+
+def make_subset_book_bundle(
+    epub_source: Path,
+    output: Path,
+    *,
+    format: Literal["directory", "zip"],
+) -> Path:
+    book = convert_book(epub_source, chapters="2-4,7")
+    return write_book_bundle(book, output, format=format)

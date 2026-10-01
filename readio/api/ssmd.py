@@ -154,7 +154,14 @@ class SSMDService:
     def _document(self, document: Document | Path) -> InputDocument:
         try:
             if isinstance(document, Path):
-                resolved = document_from_file(document)
+                resolved = document_from_file(
+                    document,
+                    input_format=(
+                        "ssmd"
+                        if document.name.casefold().endswith((".ssmd", ".ssmd.md"))
+                        else "auto"
+                    ),
+                )
             elif isinstance(document, InputDocument):
                 resolved = document
             else:

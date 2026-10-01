@@ -1,0 +1,145 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 3
+release_version: v0.3.6
+git_base_ref: v0.3.5
+git_base_sha: 630dc65f7594c79bc9adfd0d963dcd5cfdf2da34
+git_head_ref: HEAD
+git_head_sha: b7624e26e1b1adf018bedcaa7ec213744080795e
+git_range: 630dc65f7594c79bc9adfd0d963dcd5cfdf2da34..b7624e26e1b1adf018bedcaa7ec213744080795e
+commit_count: 2
+rows:
+  - sha: 4a8270fecb1de75b87595063ac59e4f2acc2f473
+    source_ref: git:4a8270fecb1de75b87595063ac59e4f2acc2f473
+    short_sha: 4a8270f
+    changed_paths:
+      - README.md
+      - docs/api.md
+      - docs/architecture.md
+      - docs/cli.md
+      - docs/index.md
+      - docs/projects.md
+      - readio/api/catalog.py
+      - readio/api/configuration.py
+      - readio/api/roles.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/engines/pipersynth.py
+      - readio/plan.py
+      - readio/project_model.py
+      - readio/project_roles.py
+      - readio/role_targets.py
+      - readio/spotify_cli.py
+      - readio/ssmd.py
+      - readio/stages/synthesis.py
+      - readio/synthesis.py
+      - readio/voice_refs.py
+      - readio/voices.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/ssmd.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_config.py
+      - tests/test_project_roles.py
+      - tests/test_public_api_catalog_listings.py
+      - tests/test_public_api_catalog_roles_ssmd_extensions.py
+      - tests/test_public_api_configuration_templates_ingest_diagnostics.py
+      - tests/test_public_api_projects.py
+      - tests/test_pykokoro_10_regressions.py
+      - tests/test_role_targets.py
+      - tests/test_voice_api.py
+      - tests/test_voice_catalog.py
+      - tests/test_voice_refs.py
+      - tests/test_voice_resolution.py
+      - tests/test_voices_cli.py
+    stats:
+      files_changed: 40
+      insertions: 1397
+      deletions: 1202
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/api.md
+      - docs/architecture.md
+      - docs/cli.md
+      - docs/index.md
+      - docs/projects.md
+      - readio/api/catalog.py
+      - readio/api/configuration.py
+      - readio/api/roles.py
+      - readio/api/types.py
+      - readio/cli.py
+      - readio/config.py
+      - readio/engines/pipersynth.py
+      - readio/plan.py
+      - readio/project_model.py
+      - readio/project_roles.py
+      - readio/role_targets.py
+      - readio/spotify_cli.py
+      - readio/ssmd.py
+      - readio/stages/synthesis.py
+      - readio/synthesis.py
+      - readio/voice_refs.py
+      - readio/voices.py
+      - skill/readio/SKILL.md
+      - skill/readio/references/cli.md
+      - skill/readio/references/ssmd.md
+      - skill/readio/references/troubleshooting.md
+      - tests/test_config.py
+      - tests/test_project_roles.py
+      - tests/test_public_api_catalog_listings.py
+      - tests/test_public_api_catalog_roles_ssmd_extensions.py
+      - tests/test_public_api_configuration_templates_ingest_diagnostics.py
+      - tests/test_public_api_projects.py
+      - tests/test_pykokoro_10_regressions.py
+      - tests/test_role_targets.py
+      - tests/test_voice_api.py
+      - tests/test_voice_catalog.py
+      - tests/test_voice_refs.py
+      - tests/test_voice_resolution.py
+      - tests/test_voices_cli.py
+    observed_behavior:
+      Replaces numbered voice selectors with structured semantic references
+      in SYSTEM:TARGET[/VOICE] form. Catalog, CLI, API, synthesis, SSMD, and role binding
+      paths resolve these references consistently; native voice IDs still work when
+      discovery context identifies them uniquely. Role targets persist engine, target,
+      and voice identity without selector metadata.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: change voice identifier to a more stable version"
+    target_entry_id: entry-0001
+    notes:
+      Focused voice-reference tests cover parsing, resolution, ambiguity, catalog/API
+      output, CLI behavior, and structured role targets.
+  - sha: b7624e26e1b1adf018bedcaa7ec213744080795e
+    source_ref: git:b7624e26e1b1adf018bedcaa7ec213744080795e
+    short_sha: b7624e2
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.5/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.6/release.md
+      - docs/changelog.md
+    stats:
+      files_changed: 4
+      insertions: 38
+      deletions: 5
+    inspected: true
+    inspected_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.5/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.3.6/release.md
+      - docs/changelog.md
+    observed_behavior:
+      Updates release metadata and the generated changelog only; it
+      does not change product behavior.
+    public_impact: internal
+    decision: internal
+    stale: false
+    evidence_subject: "doc: changelog"
+    notes:
+      Release bookkeeping and generated changelog updates are not a separate user-facing
+      change.

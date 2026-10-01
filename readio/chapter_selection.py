@@ -1,13 +1,17 @@
-"""Parsing for stable, 1-based EPUB chapter selection."""
+"""Parsing for stable, 1-based book chapter selection."""
 
 from __future__ import annotations
 
 import re
 
 
-def parse_chapter_selection(spec: str | None, total: int) -> tuple[int, ...]:
-    """Return selected 0-based chapter indices in source order."""
-    if total < 1:
+def parse_chapter_selection(
+    spec: str | None,
+    *,
+    available_numbers: tuple[int, ...],
+) -> tuple[int, ...]:
+    """Return selected source chapter numbers in available source order."""
+    if not available_numbers:
         raise ValueError("no chapters are available for selection")
     value = "all" if spec is None else spec.strip()
     if not value:
@@ -18,8 +22,9 @@ def parse_chapter_selection(spec: str | None, total: int) -> tuple[int, ...]:
     if any(part.lower() == "all" for part in parts):
         if len(parts) != 1:
             raise ValueError("'all' must be used alone")
-        return tuple(range(total))
+        return available_numbers
 
+    available = set(available_numbers)
     selected: set[int] = set()
     for part in parts:
         match = re.fullmatch(r"(\d+)\s*(?:-\s*(\d+))?", part)
@@ -31,14 +36,16 @@ def parse_chapter_selection(spec: str | None, total: int) -> tuple[int, ...]:
             raise ValueError("chapter numbers must be positive")
         if end < start:
             raise ValueError(f"invalid chapter selection {part!r}: range start must be <= end")
-        if start > total or end > total:
-            number = start if start > total else end
-            raise ValueError(f"chapter {number} is out of range; EPUB has {total} chapters")
-        selected.update(range(start - 1, end))
+        requested = set(range(start, end + 1))
+        missing = requested - available
+        if missing:
+            number = min(missing)
+            raise ValueError(f"chapter {number} is not available in this book source")
+        selected.update(requested)
 
     if not selected:
         raise ValueError("chapter selection is empty")
-    return tuple(index for index in range(total) if index in selected)
+    return tuple(number for number in available_numbers if number in selected)
 
 
 __all__ = ["parse_chapter_selection"]

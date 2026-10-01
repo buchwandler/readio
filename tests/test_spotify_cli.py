@@ -10,7 +10,7 @@ from readio.spotify import SpotifyCommandError, SpotifyProtocolError
 
 def test_spotify_publish_normalizes_input_before_public_service_call(monkeypatch, tmp_path):
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    source.write_text("---\nssmd_version: '0.9'\n---\nHello.\n", encoding="utf-8")
     args = cli.build_parser().parse_args(["spotify", "publish", str(source), "--title", "Episode"])
     seen = {}
 

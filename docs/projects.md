@@ -59,13 +59,15 @@ Persisted synthesis choices are resolved before global and engine defaults. Expl
 For audiobook projects, `app.audiobooks.export(project)` uses saved M4B path, metadata, cover, and bitrate defaults. `app.audiobooks.build(project)` plans, synthesizes, composes, then exports M4B using the saved settings. `create_project(..., settings=...)` can persist those choices during project creation. `readio status` reports when a prior M4B no longer matches the desired audiobook settings.
 Use `readio render --file episode.ssmd --dry-run --json` for one-shot execution planning. `readio plan` is reserved for persistent project build and role management.
 
-## EPUB audiobook projects
+## Book-source audiobook projects
 
-Create a chapter-scoped project with the EPUB-specific ingestion commands, then use the ordinary Readio stages:
+Create a chapter-scoped project from an EPUB or an ssmdconvert `.ssmdbook` directory/ZIP bundle, then use the ordinary Readio stages:
 
 ```bash
 readio audiobook chapters novel.epub
 readio audiobook init novel.epub --chapters 2-20
+readio audiobook chapters novel.ssmdbook
+readio audiobook init novel.ssmdbook.zip --chapters 3-4,7
 cd novel.readio
 readio plan
 readio synth --voice en-ko-01
@@ -76,17 +78,17 @@ readio audiobook export . --format m4b --cover cover.jpg
 readio render novel.readio --format m4a
 ```
 
-Chapter numbers are 1-based and match the flat order printed by `readio audiobook chapters`, including nested navigation entries. The selector accepts `all`, single numbers, inclusive ranges, and comma-separated combinations. Selection order follows the EPUB chapter order, and the selected source numbers and scope IDs are persisted in `document/index.json`.
+Book inspection and conversion are delegated to ssmdconvert's public API. Chapter selectors address available 1-based source chapter numbers, including non-contiguous numbers in bundle subsets. Selected chapters retain source order; their source numbers and scope IDs are persisted in `document/index.json`.
 
-Each selected chapter is extracted through the public `epub2text` chapter-document API and stored as Markdown under `document/chapters/`. This Markdown is the editable semantic source. `readio plan` builds one plan per indexed scope, while synthesis and composition operate across all scopes in order. Identical speech can share the content-addressed synthesis cache. Composition preserves scope-qualified item IDs, per-chapter part directories, and chapter start samples in `composition/timeline.json`.
+Readio stores the resulting standalone SSMD chapter documents under `document/chapters/` as editable semantic inputs. `readio plan` builds one plan per indexed scope, while synthesis and composition operate across all scopes in order. Identical speech can share the content-addressed synthesis cache. Composition preserves scope-qualified item IDs, per-chapter part directories, and chapter start samples in `composition/timeline.json`.
 
-The copied EPUB under `source/` records extraction provenance. Changing chapter Markdown does not trigger EPUB extraction and only invalidates affected planning and speech work. Changing the copied EPUB produces `source.stale.hash_changed`; reinitialize the project to use the changed source. Readio will not silently remap chapter numbers or refresh extracted documents. The EPUB is an ingestion format, not a direct `InputDocument` or an audiobook-specific build pipeline.
+The original EPUB or bundle snapshot under `source/` records provenance. Editing chapter SSMD replans only affected content and does not trigger source conversion. A changed source snapshot is reported as `source.stale.hash_changed`, but it does not replace or invalidate the persisted semantic SSMD. Reinitialize from the updated source to ingest its changes. Generic EPUB input is converted as one combined document; use the audiobook workflow for chapter-scoped processing.
 
-Audiobook projects support an audiobook-specific M4B export with embedded chapter metadata: `readio audiobook export PROJECT --format m4b`. Title and author default from the EPUB metadata; callers may override them. M4B uses AAC with a Readio default of 192k. Cover art is optional and explicit-only (`--cover image.jpg` or PNG); automatic EPUB cover extraction is not included because `epub2text` exposes no public cover-extraction API. The selected cover is hashed into export identity.
+Audiobook projects support an audiobook-specific M4B export with embedded chapter metadata: `readio audiobook export PROJECT --format m4b`. Title and author default from book metadata; callers may override them. M4B uses AAC with a Readio default of 192k. Cover art is optional and explicit-only (`--cover image.jpg` or PNG); automatic source cover extraction is not part of the current ssmdconvert integration, so provide a JPEG/PNG explicitly. The selected cover is hashed into export identity.
 
 M4B is deliberately excluded from generic `readio export`. Generic exports include FLAC and Opus; `.ogg` remains Ogg/Vorbis, while `.opus` is distinct. Changing the master, chapter timeline/title, resolved book metadata, cover, or bitrate invalidates only the M4B output, not planning or synthesis. Untracked or user-modified destination files require `--force`; unchanged Readio-owned outputs can be reused or replaced atomically.
 
-Projects preserve a source snapshot and normalized document, an engine-neutral
+Projects preserve the original source snapshot and canonical editable SSMD semantics,
 `plan/document.utterplan.json`, `plan/index.json`, synthesis cache/trace,
 bundle-local Audiocompose files, a composed master/timeline, and encoded output.
 All manifest and audio writes use temporary siblings followed by atomic replace.
@@ -135,7 +137,7 @@ Next:
   readio plan
 ```
 
-Project document metadata keeps editable `input_format` separate from semantic `document_format`. SSMD remains SSMD through project planning; legacy metadata without `document_format` infers SSMD only when its input format is SSMD.
+For schema-v2 projects, `project.json` records the original source format, while `document/index.json` records the editable semantic scopes as SSMD (`input_format: ssmd`). Their canonical content is persisted under `document/*.ssmd.md`; planning, role discovery, and status use those files rather than reopening the original source. Editing semantic SSMD invalidates the affected plan. A changed provenance source is reported but does not silently reconvert or invalidate persisted semantics. Legacy schema-v1 metadata without `document_format` infers SSMD only when its input format is SSMD.
 
 ## Synthesis observability
 

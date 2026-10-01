@@ -23,7 +23,9 @@ def _project_optional_dependencies() -> dict[str, list[str]]:
 def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
 
-    assert "ssmd>=0.9.0,<0.10" in dependencies
+    assert "ssmd>=0.9.2,<0.10" in dependencies
+    assert "ssmdconvert[pdf,docx]>=0.1.0,<0.2" in dependencies
+    assert not any(item.startswith("epub2text") for item in dependencies)
     assert "utterplan>=0.3.0,<0.4" in dependencies
     assert "audiocompose>=0.2.0,<0.3" in dependencies
     assert "ssmd>=0.8.7,<0.9" not in dependencies
@@ -51,6 +53,10 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     assert "pykokoro.git@" not in workflow
     assert "ssmd.git@" not in workflow
     assert "0.9.9" not in workflow
+
+    assert "write_test_pdf" in workflow
+    assert "write_test_docx" in workflow
+    assert "document_from_file" in workflow
 
 
 def test_engine_runtime_dependency_floors_are_declared() -> None:

@@ -35,7 +35,7 @@ def test_publish_cli_builds_public_request_and_delegates(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:
     source = tmp_path / "episode.ssmd"
-    source.write_text('<div voice="host">Hello.</div>', encoding="utf-8")
+    source.write_text("Hello.", encoding="utf-8")
     output = tmp_path / "published.mp3"
     app = Readio(ReadioConfig())
     seen = {}

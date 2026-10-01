@@ -6,14 +6,18 @@ from pathlib import Path
 from readio.api import (
     AUDIOBOOK_EXPORT_FORMAT,
     UNSET,
+    AudiobookChapter,
     AudiobookExportOptions,
     AudiobookExportResult,
+    AudiobookInspection,
+    AudiobookProjectResult,
     AudioSink,
     CatalogListing,
     ConfigurationInitResult,
     Diagnostic,
     DiscoveryOptions,
     DoctorReport,
+    Document,
     EventHandler,
     EventKind,
     EventStage,
@@ -176,6 +180,23 @@ def public_audiobook_consumer(
     result: AudiobookExportResult = app.audiobooks.export(project, options)
     assert result.format == AUDIOBOOK_EXPORT_FORMAT
     return result
+
+
+def public_book_ingestion_consumer(
+    app: Readio,
+) -> tuple[
+    Document,
+    ProjectRef,
+    AudiobookInspection,
+    AudiobookChapter | None,
+    AudiobookProjectResult,
+]:
+    document: Document = document_from_file(Path("report.pdf"))
+    project: ProjectRef = app.projects.create(Path("report.pdf"))
+    inspection: AudiobookInspection = app.audiobooks.inspect(Path("book.ssmdbook.zip"))
+    typed_chapter: AudiobookChapter | None = inspection.chapters[0] if inspection.chapters else None
+    audiobook: AudiobookProjectResult = app.audiobooks.create_project_result(Path("book.ssmdbook"))
+    return document, project, inspection, typed_chapter, audiobook
 
 
 def public_project_settings_consumer(app: Readio, project: ProjectRef) -> ProjectSettings:

@@ -117,16 +117,18 @@ readio voices list --model piper --lang en-us
 readio voices list --engine piper --model en_US-amy-medium
 ```
 
-## EPUB audiobook ingestion
+Project initialization converts supported filesystem document inputs through ssmdconvert. Ordinary document inputs include text/Markdown, HTML, PDF, DOCX, EPUB, and SSMD. The original file is retained under `source/` as provenance; the editable semantic input is canonical SSMD under `document/document.ssmd.md`. Planning reads the persisted SSMD, not the original source. Editing it replans changed semantics. If the source snapshot changes, status reports the provenance change but does not silently reconvert; initialize a new project from the updated source to ingest it. `readio project init novel.epub` creates one combined document project. `.ssmdbook` bundles are multi-chapter audiobook inputs and are rejected by generic project initialization.
+
+## Book-source audiobook ingestion
 
 ```text
-readio audiobook chapters EPUB [--json]
-readio audiobook init EPUB [--chapters SPEC] [-o PROJECT] [--json]
+readio audiobook chapters SOURCE [--json]
+readio audiobook init SOURCE [--chapters SPEC] [-o PROJECT] [--json]
 ```
 
-`chapters` reports flat 1-based chapter numbers, titles, and EPUB metadata. `init` defaults to all chapters and otherwise accepts comma-separated numbers and inclusive ranges such as `2-4,7`. The selected chapter numbers are persisted in the new project, so `plan`, `synth`, `compose`, `export`, `preview`, and `render` use the project selection without an EPUB-specific downstream option.
+`SOURCE` may be an EPUB file, an `.ssmdbook` directory, or an `.ssmdbook.zip` file created by ssmdconvert. `chapters` reports metadata and selectable chapter source numbers. `init` defaults to all chapters and otherwise accepts comma-separated numbers and inclusive ranges such as `2-4,7`. Selectors address the available 1-based source chapter numbers, including non-contiguous numbers in bundle subsets, and selected chapters retain source order. The selection is persisted in the project, so downstream commands need no book-specific option.
 
-Initialization copies the EPUB as provenance and writes each selected chapter as editable Markdown under `document/chapters/`. The Markdown is the semantic input. Editing it does not re-extract the EPUB. If the copied EPUB hash changes, status reports `source.stale.hash_changed`; reinitialize from the updated EPUB instead of silently remapping old chapter numbers. EPUB is not accepted as a direct `InputDocument` format and does not use a separate audiobook renderer.
+Book inspection and conversion use ssmdconvert's public API. Readio persists each selected standalone chapter as editable SSMD under `document/chapters/`; the original book source is retained as provenance. Editing chapter SSMD replans affected content without re-extracting the source. A changed source snapshot is reported, but it does not overwrite or invalidate persisted semantic SSMD. Reinitialize into a new project from the updated source to ingest changed content.
 
 Export the composed audiobook master with embedded chapter metadata using the audiobook-only command:
 
@@ -135,7 +137,7 @@ readio audiobook export PROJECT --format m4b --output book.m4b \
   --title "Optional title" --author "Optional author" --cover cover.jpg --bitrate 96k
 ```
 
-Title and author default from the project's EPUB metadata. `--cover` is optional and accepts an explicit JPEG/PNG file; automatic EPUB cover extraction is not supported in this release. M4B uses AAC with a Readio default bitrate of 192k. Existing unrelated output files require `--force`; unchanged Readio-owned outputs are safely reusable/replaced. Generic `readio export` supports FLAC and Opus; `.ogg` continues to mean Ogg/Vorbis.
+Title and author default from the book metadata. `--cover` is optional and accepts an explicit JPEG/PNG file; automatic source cover extraction is not part of the current ssmdconvert integration, so provide a cover explicitly. M4B uses AAC with a Readio default bitrate of 192k. Existing unrelated output files require `--force`; unchanged Readio-owned outputs are safely reusable/replaced. Generic `readio export` supports FLAC and Opus; `.ogg` continues to mean Ogg/Vorbis.
 
 ## Persistent project status
 

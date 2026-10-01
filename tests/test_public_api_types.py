@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from readio.api import (
+    AudiobookChapter,
+    AudiobookInspection,
     AudiobookProjectChapter,
     AudiobookProjectDescription,
     CompositionOptions,
@@ -41,7 +43,7 @@ def test_public_request_defaults_and_document_helpers(tmp_path: Path) -> None:
     source = tmp_path / "input.ssmd"
     source.write_text("Hello", encoding="utf-8")
     from_file = document_from_file(source)
-    assert from_file.text == "Hello"
+    assert "Hello" in from_file.text
     assert from_file.source_path == source
     assert from_file.format == "ssmd"
 
@@ -237,3 +239,26 @@ def test_project_settings_types_are_immutable_and_copy_nested_engine_options() -
     assert settings.synthesis is synthesis
     with pytest.raises(TypeError):
         synthesis.engine_options["nested"]["new"] = "value"  # type: ignore[index]
+
+
+def test_audiobook_inspection_exposes_inventory_without_chapter_content(tmp_path: Path) -> None:
+    chapter = AudiobookChapter(
+        number=7,
+        source_id=None,
+        title="Epilogue",
+        href="epilogue.xhtml",
+        source_parent_id=None,
+        parent_id=None,
+        level=1,
+        char_count=None,
+    )
+    inspection = AudiobookInspection(
+        source=tmp_path / "book.ssmdbook.zip",
+        metadata={"title": "Book"},
+        chapters=(chapter,),
+    )
+
+    payload = json.loads(json.dumps(inspection.to_dict()))
+    assert payload["chapters"][0]["number"] == 7
+    assert "markdown" not in payload["chapters"][0]
+    assert payload["chapters"][0]["source_parent_id"] is None

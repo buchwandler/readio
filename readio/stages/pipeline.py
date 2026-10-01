@@ -65,10 +65,11 @@ _STAGE_REASON_MESSAGES = {
     "output.invalid": "The stored export state is invalid.",
     "output.stale.composition_changed": "Output is blocked by stale composition.",
     "source.stale.hash_changed": (
-        "EPUB source changed after initialization; reinitialize the audiobook project."
+        "The original source changed after project initialization. Persisted semantic SSMD remains "
+        "authoritative; reinitialize or import again to use the changed source."
     ),
     "document.index.invalid": "The audiobook document index is invalid.",
-    "document.chapter.missing": "An indexed chapter Markdown input is missing.",
+    "document.chapter.missing": "An indexed chapter SSMD input is missing.",
 }
 
 

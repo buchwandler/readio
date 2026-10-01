@@ -30,6 +30,7 @@ _DEPENDENCIES = (
     "utterplan",
     "audiocompose",
     "ssmd",
+    "ssmdconvert",
     "onnxvoice",
     "sounddevice",
     "soundfile",

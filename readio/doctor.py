@@ -30,6 +30,11 @@ def check_ssmd() -> dict[str, Any]:
     return _check_distribution("ssmd")
 
 
+def check_ssmdconvert() -> dict[str, Any]:
+    """Check ssmdconvert availability."""
+    return _check_distribution("ssmdconvert")
+
+
 def check_audiocompose() -> dict[str, Any]:
     """Check AudioCompose availability."""
     return _check_distribution("audiocompose")
@@ -62,6 +67,7 @@ def run_doctor() -> str:
     dependencies = {
         "UtterPlan": check_utterplan(),
         "SSMD": check_ssmd(),
+        "SSMDConvert": check_ssmdconvert(),
         "AudioCompose": check_audiocompose(),
         "OnnxVoice": check_onnxvoice(),
     }
@@ -94,6 +100,7 @@ __all__ = [
     "check_engine_status",
     "check_onnxvoice",
     "check_ssmd",
+    "check_ssmdconvert",
     "check_utterplan",
     "run_doctor",
 ]

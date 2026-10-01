@@ -71,7 +71,7 @@ if plan.ok:
     print(result.output_path)
 ```
 
-`document_from_file(path)` constructs an input document from a file. Choose `requested_format="markdown"` or `"ssmd"` when the input format is known, or leave it as `"auto"`. A successful bounded `render()` owns its output file and sink. It returns a typed `RenderResult`; when requested, the colocated render manifest is available as `result.manifest_path`.
+`document_from_file(path)` constructs an input document from a file. In auto mode, it calls the ssmdconvert integration and returns canonical SSMD for supported text, Markdown, HTML, PDF, DOCX, EPUB, and SSMD inputs. Choose `requested_format="markdown"` or `"ssmd"` when a textual file's format is known; explicit `text`, `markdown`, or `ssmd` reads the file as text instead of invoking conversion. A successful bounded `render()` owns its output file and sink. It returns a typed `RenderResult`; when requested, the colocated render manifest is available as `result.manifest_path`.
 
 `SynthesisRequest.speed` is a finite positive engine synthesis multiplier and is not also applied as composition rate. `voice_level` accepts `"off"` or `"calibrated"`; both settings are passed through typed planning and are part of the effective speech identity. PocketSynth currently supports only speed `1.0` and reports unsupported explicit values as a resolution error.
 
@@ -156,9 +156,7 @@ app.projects.configure(
         export=ExportOptions(format="mp3", output=Path("output/article.mp3")),
     ),
 )
-app.projects.update_settings(
-    project, ProjectSettingsPatch(composition=None, export=UNSET)
-)
+app.projects.update_settings(project, ProjectSettingsPatch(composition=None, export=UNSET))
 ```
 
 `configure()` replaces supported sections while retaining `settings.ssmd` and unknown namespaces. `update_settings()` patches sections independently. Relative paths resolve from the project root. Saved synthesis settings are applied before global and engine defaults; explicit invocation requests override saved values without persisting those overrides. `force` and synthesis `refresh` remain invocation-only.
@@ -167,7 +165,8 @@ Requestless `synthesize()`, `compose()`, `export()`, and `build()` use saved set
 
 `ProjectCompositionResult.loudness` is a typed `LoudnessSummary` with before/after integrated LUFS, sample peak and true peak, requested/applied gain, target status, warning, and analysis/gain/post-gain metric timings. The mastering operation is transparent constant gain: `reduce_gain` may stop short of the LUFS target to honor the true-peak ceiling; this is not a true-peak limiter or ACX compliance check.
 
-`app.audiobooks.inspect(epub_path)` returns typed EPUB metadata and chapters. `create_project()` creates an ordinary Readio project; `create_project_result()` additionally returns the selected chapter numbers and scope IDs. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+`app.audiobooks.inspect(source)` accepts an EPUB file, an `.ssmdbook` directory, or an `.ssmdbook.zip` bundle and returns typed book metadata plus a chapter inventory. Each `AudiobookChapter.number` is its original 1-based source chapter number. `create_project()` creates a chapter-scoped Readio project from the same source types; `create_project_result()` additionally returns the selected source chapter numbers and scope IDs. Selectors address available source numbers and preserve source order, including when a bundle contains a non-contiguous subset. Readio stores each chapter as standalone editable SSMD and retains the input as provenance. Directory bundles are snapshotted as deterministic ZIP files. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+Unsupported document formats, missing converter adapters, conversion failures, invalid bundle sources, and invalid chapter selections are translated to Readio API errors with stable codes and the original source path where applicable. Common codes include `input.format_unsupported`, `input.converter_dependency_missing`, `input.conversion_failed`, `input.book_bundle_invalid`, and `request.chapter_selection_invalid`.
 `describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
 `create_project(..., settings=ProjectSettings(audiobook_export=...))` can save output, metadata, cover, and bitrate defaults at creation time. Omitted export options use those values; explicitly supplied non-`None` values override them for one invocation without mutating the manifest. `app.audiobooks.build(project)` runs the ordinary plan, synthesis, and composition services before M4B export. It respects the project's stored chapter scope and returns an `AudiobookExportResult`.
 
@@ -207,7 +206,7 @@ m4b = app.audiobooks.export(
 )
 ```
 
-Title and author default from the project's EPUB metadata and can be overridden. The audiobook M4B AAC bitrate defaults to 192k; generic M4A also defaults to 192k and generic Opus to 96k. These are Readio defaults, not a claim of TTSForge default parity. M4B identity includes the master/timeline, resolved metadata, explicit cover hash, and effective bitrate.
+Title and author default from the project's persisted book metadata and can be overridden. The audiobook M4B AAC bitrate defaults to 192k; generic M4A also defaults to 192k and generic Opus to 96k. These are Readio defaults, not a claim of TTSForge default parity. M4B identity includes the master/timeline, resolved metadata, explicit cover hash, and effective bitrate. Automatic source cover extraction is not part of the current ssmdconvert integration; pass an explicit JPEG/PNG cover.
 
 ## Discovery and roles
 

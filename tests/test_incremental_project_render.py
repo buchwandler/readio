@@ -37,8 +37,10 @@ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
         "skipped",
     ]
     assert adapter.open_calls == 1
-    project_source = project.root / "source" / "book.txt"
-    project_source.write_text("Alpha.\n\nChanged.\n\nGamma.", encoding="utf-8")
+    semantic_path = project.path(project.document_scopes()[0].path)
+    semantic_text = semantic_path.read_text(encoding="utf-8")
+    assert "Beta." in semantic_text
+    semantic_path.write_text(semantic_text.replace("Beta.", "Changed."), encoding="utf-8")
     edited = render_project(project, cfg, audio_format="wav")
     assert edited["operations"][0]["action"] == "rebuilt"
     assert edited["operations"][1]["rendered"] == 1
@@ -73,7 +75,9 @@ def test_render_project_forwards_composition_progress(tmp_path, monkeypatch):
     assert any(phase.startswith("Composition state written in ") for phase in phases)
 
 
-def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatch):
+def test_status_reports_source_provenance_drift_without_invalidating_semantics(
+    tmp_path, monkeypatch
+):
     adapter = Adapter()
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
@@ -86,12 +90,16 @@ def test_status_propagates_source_staleness_and_next_action(tmp_path, monkeypatc
 
     status = project_status(project)
     stages = {row["stage"]: row for row in status["stages"]}
-    assert stages["plan"]["reason"] == "plan.stale.source_changed"
-    assert stages["composition"]["blocked_by"] == "synthesis"
-    assert stages["output"]["blocked_by"] == "composition"
-    assert status["next_actions"] == [
-        {"stage": "plan", "command": "readio plan", "reason": "plan.stale.source_changed"}
-    ]
+    assert stages["source"]["reason"] == "source.stale.hash_changed"
+    assert stages["document"]["state"] == "current"
+    assert stages["plan"]["state"] == "current"
+    assert stages["synthesis"]["state"] == "current"
+    assert stages["composition"]["state"] == "current"
+    assert stages["output"]["state"] == "current"
+    assert status["next_actions"] == []
+    assert "Persisted semantic SSMD remains authoritative" in next(
+        issue["message"] for issue in status["issues"] if issue["stage"] == "source"
+    )
 
 
 def test_status_suggests_export_for_current_composition_without_output(tmp_path, monkeypatch):
