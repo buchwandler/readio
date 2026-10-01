@@ -61,7 +61,7 @@ class PiperTargetRequiredError(ValueError):
     def __init__(self, language: str) -> None:
         super().__init__(
             "piper.voice_required: Piper needs a voice bundle target. Supply --model <bundle-id>, "
-            "--voice <bundle-id>, or bind the role to a Piper voice selector. Discover bundle IDs "
+            "--voice <bundle-id>, or bind the role to a semantic Piper voice reference. Discover bundle IDs "
             f"with `readio voices list --engine piper --lang {language}`."
         )
 

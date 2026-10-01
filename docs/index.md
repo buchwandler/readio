@@ -173,7 +173,7 @@ Plans preserve engine-neutral render targets, request options, SSMD role binding
 Planning policy stores UtterPlan linguistic options separately from engine render controls. Readio compiles one semantic plan, lowers its segments to requests, then delegates acoustic synthesis to the selected engine without passing the UtterPlan object to adapters.
 UtterPlan receives `synthesis.spacy` and `synthesis.short_sentence` as typed linguistic policy. Readio records those settings in the semantic plan; an engine adapter maps them only when the selected published engine API supports them.
 
-One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=VOICE_ID` for an invocation or `readio plan bind ROLE VOICE` for a project setting.
+One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=REF` for an invocation or `readio plan bind ROLE REF` for a project setting.
 
 ## Durable render manifests
 
@@ -323,16 +323,16 @@ SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and
 
 ````bash
 readio voices list --lang de --json
-readio voices show de-ko-3 --json
+readio voices show kokoro:v1.0/af_heart --json
 readio roles list --provider kokoro
 
-For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`; stable selectors are engine-qualified lookup aliases (`en_us-ko-4` -> `af_heart` on Kokoro v1.0, `de-ko-3`, `de-pi-9`), while `--lang en-us` is a locale filter and bindings remain canonical concrete voice IDs. Selector identities come from the authoritative registry rather than Readio-owned numbering. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles. Readio rejects a concrete target outside the active model roster and lists the valid voices.
-Use `readio roles bind ROLE VOICE_ID` for an explicit persistent mapping. For automation, pass missing logical roles only for one invocation:
+For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`. References use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, or `pocket:english_2026-04/alba`; numbered voice selectors are removed. `--engine`, `--model`, `--lang`, and `--gender` filter catalog metadata. Native voice IDs need enough discovery context to resolve uniquely; prefer a semantic reference when the target must be explicit. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles.
+Use `readio roles bind ROLE REF` for an explicit persistent mapping. Native voice IDs can be used when their engine and target resolve uniquely. For automation, pass missing logical roles only for one invocation:
 
 ```bash
 readio render --file episode.ssmd \
-  --voice-bind moderator=af_sarah \
-  --voice-bind architect=am_michael
+  --voice-bind moderator=kokoro:v1.0/af_sarah \
+  --voice-bind architect=kokoro:v1.0/am_michael
 ````
 
-`--resolve-voices` is an explicit interactive convenience. It prompts once per unique missing role only on a usable TTY and never persists choices. JSON and non-TTY execution never prompts. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` is the explicit source-materialization workflow; ordinary `speak`, `render`, and `spotify` commands do not mutate SSMD.
+`--resolve-voices` is an explicit interactive convenience. It prompts once per unique missing role only on a usable TTY and never persists choices. JSON and non-TTY execution never prompts. `readio ssmd bind FILE --voice-bind ROLE=REF -o OUTPUT.ssmd` is the explicit source-materialization workflow; ordinary `speak`, `render`, and `spotify` commands do not mutate SSMD.

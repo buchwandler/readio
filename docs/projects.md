@@ -7,8 +7,8 @@ The `.readio` suffix is conventional; the manifest is authoritative.
 readio project init episode.ssmd -o episode.readio
 cd episode.readio
 readio plan roles
-readio plan bind host en_us-ko-4
-readio plan bind guest en-pi-13
+readio plan bind host kokoro:v1.0/af_sarah
+readio plan bind guest piper:en_US-amy-medium
 readio plan                         # build semantic plan
 readio synth
 readio compose --progress
@@ -17,22 +17,22 @@ readio export --format mp3
 
 ## Project-local SSMD role targets
 
-`readio plan roles` discovers logical roles from project source before a semantic plan exists. It reports each role's effective voice, engine, provider, and source. Bind or remove a project override with stable selectors:
+`readio plan roles` discovers logical roles from project source before a semantic plan exists. It reports each role's effective voice, engine, provider, and source. Bind or remove a project override with semantic voice references:
 
 ```bash
-readio plan bind host en_us-ko-4
-readio plan bind guest en-pi-13
+readio plan bind host kokoro:v1.0/af_sarah
+readio plan bind guest piper:en_US-amy-medium
 readio plan roles
 readio plan unbind host
 ```
 
-New bindings are stored role-centrically in `project.json` under `settings.ssmd.role_bindings`. Each entry contains an engine-qualified target with `engine` and canonical `voice`, plus optional `target_id` and `selector`. Binding a selector preserves its resolved target identity and does not set a project-wide provider. For raw voice IDs, pass `--engine` if Readio cannot infer the engine. Binding and unbinding leave SSMD source, user-global roles, and Utterplan `plan_id` unchanged.
+New bindings are stored role-centrically in `project.json` under `settings.ssmd.role_bindings`. Each entry contains structured `engine` and canonical `voice`, plus optional `target_id`; selector provenance is not persisted. Binding a semantic reference preserves its target identity and does not set a project-wide provider. For native voice IDs, pass `--engine` if Readio cannot infer the engine and use a semantic reference when the target must be explicit. Binding and unbinding leave SSMD source, user-global roles, and Utterplan `plan_id` unchanged.
 
 A document-local SSMD binding remains authoritative; a project binding is rejected rather than saved as an ineffective override. SSMD `voice_bindings` syntax remains provider-qualified and unchanged. If the same role is bound in multiple document provider namespaces, or conflicting unscoped legacy project bindings exist for that role, Readio reports an ambiguity instead of choosing one.
 
 Existing manifests using `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. The optional legacy `settings.ssmd.voice_provider` scopes those provider-keyed inputs when present; it does not choose an engine or affect new `role_bindings`. When no legacy provider is selected, conflicting legacy definitions for the same role are ambiguous. `readio plan bind` writes the new role-centric format without rewriting unrelated legacy settings. There is no automatic migration command.
 
-Voice resolution follows `document > invocation --voice-bind > project > global config role > direct voice`. A project role target is an acoustic synthesis setting. Changing it leaves the semantic plan current, marks active synthesis stale with `synthesis.stale.project_voice_bindings_changed`, blocks composition and output, and makes `readio synth` the next action. The content-addressed synthesis cache is retained.
+Voice resolution follows `document > invocation --voice-bind > project > global config role > direct semantic reference or context-resolved native voice ID`. A project role target is an acoustic synthesis setting. Changing it leaves the semantic plan current, marks active synthesis stale with `synthesis.stale.project_voice_bindings_changed`, blocks composition and output, and makes `readio synth` the next action. The content-addressed synthesis cache is retained.
 
 Each bound segment is routed to its target's engine. Unbound segments use the normal project synthesis selection. One project can therefore use Kokoro for one role and Piper for another, without choosing one provider project-wide. `readio plan roles --provider PROVIDER` filters inspection output and does not override bindings.
 

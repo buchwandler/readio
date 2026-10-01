@@ -134,28 +134,39 @@ def test_invalid_reader_policies_rejected() -> None:
         set_config_value(ReaderConfig(), "short_sentence", "auto")
 
 
-def test_role_target_config_round_trip_and_legacy_compatibility(tmp_path: Path) -> None:
+def test_role_target_config_round_trip_drops_legacy_selector(tmp_path: Path) -> None:
     target = VoiceTarget(
         engine="pipersynth",
         voice="en_US-amy-medium",
         target_id="amy-asset",
-        selector="en-pi-13",
     )
     cfg = ReadioConfig(roles={"guest": target})
     path = tmp_path / "roles.toml"
     path.write_text(dumps_config(cfg), encoding="utf-8")
 
     loaded = load_config(path)
-
     assert loaded.roles["guest"] == VoiceTarget(
         engine="piper",
         voice="en_US-amy-medium",
         target_id="amy-asset",
-        selector="en-pi-13",
     )
     assert role_targets(loaded)["guest"] == loaded.roles["guest"]
     assert role_targets(loaded, provider="piper")["guest"] == loaded.roles["guest"]
-    assert 'engine = "piper"' in path.read_text(encoding="utf-8")
+    serialized = path.read_text(encoding="utf-8")
+    assert 'engine = "piper"' in serialized
+    assert "selector" not in serialized
+
+    legacy_path = tmp_path / "legacy-roles.toml"
+    legacy_path.write_text(
+        '[roles.guest]\nengine = "piper"\nvoice = "en_US-amy-medium"\n'
+        'target_id = "amy-asset"\nselector = "legacy-selector-value"\n',
+        encoding="utf-8",
+    )
+    legacy_loaded = load_config(legacy_path)
+    assert legacy_loaded.roles["guest"] == loaded.roles["guest"]
+    assert "selector" not in dumps_config(legacy_loaded)
+    with pytest.raises(KeyError):
+        set_config_value(legacy_loaded, "roles.guest.selector", "old-value")
 
 
 def test_conflicting_legacy_global_roles_are_ambiguous() -> None:

@@ -84,12 +84,12 @@ Use `readio plan` only for persistent project planning and role settings. Inspec
 readio project init episode.ssmd -o episode.readio
 cd episode.readio
 readio plan roles
-readio plan bind narrator en_us-ko-4
+readio plan bind narrator kokoro:v1.0/af_heart
 readio plan
 readio synth
 ```
 
-Project bindings are distinct from portable SSMD front matter, user-global `readio roles bind`, and invocation-only `--voice-bind`. Resolution precedence is document, invocation, project, global configured role, then direct voice. Project binding changes do not rewrite source or change Utterplan identity. They make synthesis stale without invalidating the plan; `readio status` reports the change and recommends `readio synth`. Use `readio render --dry-run` for one-shot execution planning.
+Project bindings are distinct from portable SSMD front matter, user-global `readio roles bind`, and invocation-only `--voice-bind`. Bind semantic references such as `kokoro:v1.0/af_heart` or `piper:en_US-amy-medium`; native voice IDs need enough context to resolve uniquely. Resolution precedence is document, invocation, project, global configured role, then direct semantic reference or context-resolved native voice ID. Project binding changes do not rewrite source or change Utterplan identity. They make synthesis stale without invalidating the plan; `readio status` reports the change and recommends `readio synth`. Use `readio render --dry-run` for one-shot execution planning.
 
 ## Command references
 

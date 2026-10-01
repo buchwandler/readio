@@ -50,7 +50,7 @@ readio render --file input.ssmd --format mp3
 - `decisions` records winning sources and locators, including `ssmd.bindings.<role>` origins such as `document`, `cli`, `project`, `config.voice_role`, and `direct`.
 - `environment` reports package versions and `ffmpeg_available`.
 
-Exit code is 0 for `ok: true` and 1 for a rejected plan. One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=VOICE_ID` for an invocation or persistent project bindings for a reusable cast.
+Exit code is 0 for `ok: true` and 1 for a rejected plan. One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=REF` for an invocation or persistent project bindings for a reusable cast.
 
 ## Persistent project planning
 
@@ -75,7 +75,7 @@ Use PyKokoro >=0.10.0,<0.11 metadata to inspect its model and voice catalog. Pip
 
 ````bash
 readio voices list --lang de --offline --json
-readio voices show de-ko-3 --offline --json
+readio voices show kokoro:v1.0/af_heart --offline --json
 readio models show de-thorsten --offline --json
 readio models list --preference huggingface --json
 
@@ -83,6 +83,7 @@ readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 `--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
 Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. `--model-source github|huggingface` selects a distribution only for engines that advertise that capability. Voices are model-scoped where the engine exposes a roster; SSMD checks the active target's roster.
+Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, and `pocket:english_2026-04/alba`. `--engine`, `--model`, `--lang`, and `--gender` filter catalog metadata; they do not change reference identity. Native IDs work when discovery context resolves them uniquely. Readio does not accept numbered voice selectors.
 
 Readio supports PyKokoro, PiperSynth, and PocketSynth through a neutral strict request API. Use `--engine BACKEND` to select an installed engine; engine target catalogs and capabilities are not interchangeable. Readio owns exact-text capacity fitting and subdivision, while each adapter makes one native synthesis request per child and does not invoke a native splitter.
 

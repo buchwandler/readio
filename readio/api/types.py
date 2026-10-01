@@ -726,7 +726,7 @@ class VoiceQuery:
 
 @dataclass(frozen=True, slots=True)
 class VoiceInfo:
-    selector: str | None
+    ref: str | None
     id: str
     gender: str
     language: str
@@ -741,31 +741,40 @@ class VoiceInfo:
     distribution_id: str | None = None
     provider: str | None = None
     engine: str = "pykokoro"
-    slot: int | None = None
-    selector_language: str | None = None
-    selector_engine_code: str | None = None
+
+    @property
+    def target_id(self) -> str:
+        return self.model
 
     @property
     def qualified_id(self) -> str:
-        return f"{self.engine}:{self.model}:{self.id}"
+        return f"{self.engine}:{self.target_id}:{self.id}"
 
     def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
+        result = cast(dict[str, JsonValue], json_value(self))
+        result["target_id"] = self.target_id
+        return result
 
 
 @dataclass(frozen=True, slots=True)
 class VoiceResolution:
     requested: str
-    selector: str | None
+    ref: str | None
     language: str | None
-    model: str | None
-    source: str | None
+    target_id: str
+    source: str
     voice: str
-    engine: str | None = None
+    engine: str
     catalog_entry: VoiceInfo | None = None
 
+    @property
+    def model(self) -> str:
+        return self.target_id
+
     def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
+        result = cast(dict[str, JsonValue], json_value(self))
+        result["model"] = self.model
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -826,10 +835,6 @@ class RoleBinding:
     @property
     def target_id(self) -> str | None:
         return self.target.target_id
-
-    @property
-    def selector(self) -> str | None:
-        return self.target.selector
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(

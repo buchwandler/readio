@@ -610,7 +610,7 @@ def set_config_value(
         value = [str(item) for item in str(value).split(",") if item]
     elif len(parts) == 3 and parts[0] == "roles":
         field_name = parts[2]
-        if field_name not in {"engine", "voice", "target_id", "selector"}:
+        if field_name not in {"engine", "voice", "target_id"}:
             raise KeyError(f"unknown role target field {field_name!r}")
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"roles.{parts[1]}.{field_name} must be a non-empty string")

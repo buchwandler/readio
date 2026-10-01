@@ -201,7 +201,7 @@ def test_direct_and_unresolved_references_are_reported_without_model_loading(tmp
     assert roles["not-configured"].origin == "unresolved"
 
 
-def test_bind_stable_selector_persists_canonical_voice_without_editing_sources(
+def test_bind_semantic_reference_persists_structured_target_without_editing_sources(
     tmp_path, monkeypatch
 ) -> None:
     project = _project(tmp_path, '[Hello.]{voice="narrator"}')
@@ -211,24 +211,28 @@ def test_bind_stable_selector_persists_canonical_voice_without_editing_sources(
     config_roles_before = dict(cfg.voices["kokoro"].roles)
 
     monkeypatch.setattr(
-        "readio.project_roles.resolve_voice_selector",
+        "readio.project_roles.resolve_voice_reference",
         lambda voice, **kwargs: SimpleNamespace(
             requested=voice,
-            selector="en_us-ko-4",
+            ref="kokoro:v1.0/af_heart",
             engine="pykokoro",
             voice="af_heart",
+            target_id="v1.0",
         ),
     )
 
-    result = bind_project_role(project, cfg, "narrator", "en_us-ko-4")
+    result = bind_project_role(project, cfg, "narrator", "kokoro:v1.0/af_heart")
 
     assert result["provider"] == "kokoro"
-    assert result["requested_voice"] == "en_us-ko-4"
+    assert result["requested_voice"] == "kokoro:v1.0/af_heart"
     assert result["stored_voice"] == "af_heart"
+    assert result["target"] == {"engine": "pykokoro", "voice": "af_heart", "target_id": "v1.0"}
     assert result["effective_voice"] == "af_heart"
     assert result["origin"] == "project"
     updated = load_project(project.root)
-    assert project_voice_bindings(updated.manifest, "kokoro") == {"narrator": "af_heart"}
+    assert project_role_bindings(updated.manifest)["narrator"] == VoiceTarget(
+        "pykokoro", "af_heart", target_id="v1.0"
+    )
     assert updated.paths["source"].read_bytes() == source_before
     assert updated.paths["document_text"].read_bytes() == document_before
     assert dict(cfg.voices["kokoro"].roles) == config_roles_before
@@ -255,17 +259,22 @@ def test_bind_rejects_unknown_and_document_bound_roles(tmp_path) -> None:
     assert document_bound.value.details["scopes"] == ["document"]
 
 
-def test_bind_rejects_selector_provider_mismatch(tmp_path, monkeypatch) -> None:
+def test_bind_rejects_semantic_reference_provider_mismatch(tmp_path, monkeypatch) -> None:
     project = _project(tmp_path, '[Hello.]{voice="narrator"}')
     monkeypatch.setattr(
-        "readio.project_roles.resolve_voice_selector",
+        "readio.project_roles.resolve_voice_reference",
         lambda voice, **kwargs: SimpleNamespace(
-            selector="en_us-ko-4", engine="pykokoro", voice="af_heart"
+            ref="kokoro:v1.0/af_heart",
+            engine="pykokoro",
+            voice="af_heart",
+            target_id="v1.0",
         ),
     )
 
     with pytest.raises(ProjectRoleError) as mismatch:
-        bind_project_role(project, ReadioConfig(), "narrator", "en_us-ko-4", provider="piper")
+        bind_project_role(
+            project, ReadioConfig(), "narrator", "kokoro:v1.0/af_heart", provider="piper"
+        )
     assert mismatch.value.code == "readio.project_role.provider_mismatch"
 
 
@@ -387,9 +396,7 @@ def test_empty_binding_namespace_is_not_inferred(tmp_path) -> None:
     assert resolve_project_voice_provider(project.manifest, ReadioConfig()) == "kokoro"
 
 
-def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
-    tmp_path, monkeypatch
-) -> None:
+def test_piper_semantic_reference_binding_persists_structured_target(tmp_path, monkeypatch) -> None:
     project = _project(tmp_path, '[Hello.]{voice="guest"}')
     project = update_project_manifest(
         project,
@@ -398,12 +405,13 @@ def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
         ),
     )
     monkeypatch.setattr(
-        "readio.project_roles.resolve_voice_selector",
+        "readio.project_roles.resolve_voice_reference",
         lambda voice, **kwargs: SimpleNamespace(
             requested=voice,
-            selector="en-pi-13",
+            ref="piper:en_US-amy-medium",
             engine="piper",
             voice="en_US-amy-medium",
+            target_id="en_US-amy-medium",
         ),
     )
     monkeypatch.setattr(
@@ -413,27 +421,22 @@ def test_piper_selector_binding_sets_active_provider_and_preserves_kokoro(
         ),
     )
 
-    result = bind_project_role(project, ReadioConfig(), "guest", "en-pi-13")
+    result = bind_project_role(project, ReadioConfig(), "guest", "piper:en_US-amy-medium")
     updated = load_project(project.root)
     ssmd = updated.manifest.settings["ssmd"]
 
     assert result["provider"] == "piper"
     assert result["engine"] == "piper"
     assert result["stored_voice"] == "en_US-amy-medium"
-    assert result["target"] == {
+    expected_target = {
         "engine": "piper",
         "voice": "en_US-amy-medium",
-        "selector": "en-pi-13",
+        "target_id": "en_US-amy-medium",
     }
+    assert result["target"] == expected_target
     assert "voice_provider" not in ssmd
     assert ssmd["voice_bindings"] == {"kokoro": {"guest": "af_bella"}}
-    assert ssmd["role_bindings"] == {
-        "guest": {
-            "engine": "piper",
-            "voice": "en_US-amy-medium",
-            "selector": "en-pi-13",
-        }
-    }
+    assert ssmd["role_bindings"] == {"guest": expected_target}
 
 
 def test_project_roles_explicit_provider_filters_effective_targets(tmp_path) -> None:
@@ -479,30 +482,24 @@ def test_unbind_defaults_to_active_provider_and_removes_empty_namespace(tmp_path
     assert ssmd["voice_bindings"] == {"kokoro": {"guest": "af_heart"}}
 
 
-def test_bind_checks_document_binding_in_selector_provider(tmp_path, monkeypatch) -> None:
+def test_bind_checks_document_binding_for_semantic_target(tmp_path, monkeypatch) -> None:
     text = (
         "---\nssmd_version: '0.9'\nvoice_bindings:\n  piper:\n    guest: en_US-bryce-medium\n---\n"
         '[Hello.]{voice="guest"}'
     )
     project = _project(tmp_path, text)
     monkeypatch.setattr(
-        "readio.project_roles.resolve_voice_selector",
+        "readio.project_roles.resolve_voice_reference",
         lambda voice, **kwargs: SimpleNamespace(
-            requested=voice,
-            selector="en-pi-13",
+            ref="piper:en_US-amy-medium",
             engine="piper",
             voice="en_US-amy-medium",
-        ),
-    )
-    monkeypatch.setattr(
-        "readio.engines.registry.get_engine",
-        lambda engine: SimpleNamespace(
-            capabilities=lambda: SimpleNamespace(voice_binding_namespace="piper")
+            target_id="en_US-amy-medium",
         ),
     )
 
     with pytest.raises(ProjectRoleError) as document_bound:
-        bind_project_role(project, ReadioConfig(), "guest", "en-pi-13")
+        bind_project_role(project, ReadioConfig(), "guest", "piper:en_US-amy-medium")
 
     assert document_bound.value.code == "readio.project_role.document_bound"
     assert document_bound.value.details["provider"] == "piper"
@@ -520,7 +517,6 @@ def test_role_centric_project_binding_preserves_legacy_settings(tmp_path) -> Non
         engine="pipersynth",
         voice="en_US-amy-medium",
         target_id="amy-asset",
-        selector="en-pi-13",
     )
 
     project = update_project_manifest(
@@ -532,10 +528,15 @@ def test_role_centric_project_binding_preserves_legacy_settings(tmp_path) -> Non
         engine="piper",
         voice="en_US-amy-medium",
         target_id="amy-asset",
-        selector="en-pi-13",
     )
     settings = project.manifest.settings["ssmd"]
     assert settings["role_bindings"]["guest"]["engine"] == "piper"
+    assert settings["role_bindings"]["guest"] == {
+        "engine": "piper",
+        "voice": "en_US-amy-medium",
+        "target_id": "amy-asset",
+    }
+    assert "selector" not in settings["role_bindings"]["guest"]
     assert settings["voice_bindings"] == {"kokoro": {"host": "af_sarah"}}
 
     assert "voice_provider" not in settings

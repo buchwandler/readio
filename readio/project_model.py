@@ -249,12 +249,11 @@ def _validate_project_settings(value: Any) -> None:
                     target_values.get("voice"),
                     f"project.settings.ssmd.role_bindings.{role_name}.voice",
                 )
-                for field in ("target_id", "selector"):
-                    if field in target_values:
-                        _require_string(
-                            target_values[field],
-                            f"project.settings.ssmd.role_bindings.{role_name}.{field}",
-                        )
+                if "target_id" in target_values:
+                    _require_string(
+                        target_values["target_id"],
+                        f"project.settings.ssmd.role_bindings.{role_name}.target_id",
+                    )
     validators = {
         "synthesis": _validate_synthesis_settings,
         "composition": _validate_composition_settings,

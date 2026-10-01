@@ -18,7 +18,7 @@ from .config import (
 )
 from .models import ModelInfo, get_model_info, validate_language_settings
 from .plan import SynthesisRequest
-from .voices import resolve_voice_selector
+from .voices import resolve_voice_reference
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ def resolve_synthesis(
 
 def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> ResolvedSynthesis:
     """Resolve synthesis preferences without CLI-shaped state."""
-    selector_resolution = resolve_voice_selector(
+    voice_resolution = resolve_voice_reference(
         request.voice,
         language=request.language,
         model=request.model,
@@ -176,14 +176,14 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
         preference=request.model_source or "auto",
         engine=request.engine,
     )
-    if selector_resolution is not None and selector_resolution.selector is not None:
+    if voice_resolution is not None:
         request = replace(
             request,
-            language=selector_resolution.language,
-            model=selector_resolution.model,
-            model_source=selector_resolution.source,
-            voice=selector_resolution.voice,
-            engine=selector_resolution.backend,
+            language=voice_resolution.language,
+            model=voice_resolution.target_id,
+            model_source=voice_resolution.source,
+            voice=voice_resolution.voice,
+            engine=voice_resolution.engine,
         )
     language, profile, cli_language = _raw_synthesis_selection(cfg, request)
 

@@ -120,7 +120,9 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--engine", help="synthesis backend; default from configuration")
     parser.add_argument("--offline", action="store_true", help="do not fetch engine assets")
     parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
-    parser.add_argument("--voice", help="stable selector or canonical backend voice ID")
+    parser.add_argument(
+        "--voice", help="semantic voice reference or context-resolved native voice ID"
+    )
     parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
     parser.add_argument("--model", help="runtime model ID")

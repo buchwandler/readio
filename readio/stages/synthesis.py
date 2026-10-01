@@ -389,7 +389,13 @@ def _project_request_with_voice_bindings(
     synthesis = replace(request.synthesis, engine=engine, voice=voice)
 
     scope_targets = _project_scope_voice_targets(
-        project, cfg, provider, request.voice_bindings, project_targets, project_ambiguities
+        project,
+        cfg,
+        provider,
+        request.voice_bindings,
+        project_targets,
+        project_ambiguities,
+        engine=engine,
     )
     scope_bindings = {
         scope: {role: target.voice for role, target in bindings.items()}
@@ -414,6 +420,8 @@ def _project_scope_voice_targets(
     invocation_bindings: Mapping[str, str | VoiceTarget],
     project_targets: Mapping[str, VoiceTarget],
     project_ambiguities: Mapping[str, tuple[str, ...]],
+    *,
+    engine: str | None = None,
 ) -> dict[str, dict[str, VoiceTarget]]:
     targets_by_scope: dict[str, dict[str, VoiceTarget]] = {}
     project_bindings = project_voice_bindings(project.manifest, provider)
@@ -433,6 +441,7 @@ def _project_scope_voice_targets(
             project_ambiguities=project_ambiguities,
             configured_targets=cfg.roles,
             provider=provider,
+            engine=engine,
             source_path=project.path(scope.path),
         )
         unresolved = next((item for item in resolved if item.target is None), None)

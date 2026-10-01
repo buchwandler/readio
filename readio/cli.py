@@ -102,7 +102,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
     parser.add_argument(
         "--voice",
-        help="stable selector or canonical backend voice ID, e.g. de-ko-3, de-pi-9, or af_sarah",
+        help="semantic voice reference or native voice ID, e.g. kokoro:v1.0/af_heart, piper:en_US-amy-medium, or pocket:english_2026-04/alba",
     )
     parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
     parser.add_argument(
@@ -1382,11 +1382,7 @@ def _model_cli_dict(model: public_api.ModelInfo) -> dict[str, object]:
 
 
 def _voice_cli_dict(entry: public_api.VoiceInfo) -> dict[str, object]:
-    payload = dict(entry.to_dict())
-    payload["number"] = entry.slot
-    payload["backend"] = entry.engine
-    payload["selector_status"] = "assigned" if entry.selector else "unassigned"
-    return payload
+    return dict(entry.to_dict())
 
 
 def _cmd_models(args: argparse.Namespace) -> int:
@@ -1477,26 +1473,21 @@ def _cmd_models(args: argparse.Namespace) -> int:
 
 
 def _voice_entry_human(entry: public_api.VoiceInfo) -> None:
-    print(f"Selector:       {entry.selector or '-'}")
+    print(f"Voice ref:      {entry.ref}")
     print(f"Engine:         {entry.engine}")
-    print(f"Slot:           {entry.slot if entry.slot is not None else '-'}")
-    print(f"Selector status: {entry.status}")
+    print(f"Target ID:      {entry.target_id}")
     print(f"Qualified ID:   {entry.qualified_id}")
     print(f"Voice:          {entry.id}")
     print(f"Gender:         {entry.gender}")
     print(f"Locale:         {entry.locale}")
     print(f"Language:       {entry.language_label}")
-    print(f"Model:          {entry.model}")
     print(f"Source:         {entry.source}")
     print(f"Default voice:  {'yes' if entry.default else 'no'}")
     print(f"Status:         {entry.status}")
     print(f"Experimental:   {'yes' if entry.experimental else 'no'}")
     print()
-    print("Equivalent selection:")
-    print(
-        f"  --lang {entry.locale} --model {entry.model} "
-        f"--model-source {entry.source} --voice {entry.id}"
-    )
+    print("Use with:")
+    print(f"  readio speak --voice {entry.ref} <text>")
 
 
 def _lexicon_entry_human(entry: public_api.LexiconInfo) -> None:
@@ -1644,22 +1635,22 @@ def _cmd_voices(args: argparse.Namespace) -> int:
         print(f"Voices: {len(voices)}")
         print()
         print(
-            "SELECTOR  ENGINE    VOICE             GENDER   LOCALE    "
-            "LANGUAGE                 MODEL          STATUS"
+            "VOICE REF                                 ENGINE   VOICE                 GENDER   "
+            "LOCALE   LANGUAGE                 TARGET                 STATUS"
         )
         print(
-            "--------  --------  ----------------  -------  --------  "
-            "-----------------------  -------------  ------------"
+            "----------------------------------------  -------  --------------------  -------  "
+            "-------  -----------------------  ---------------------  ------------"
         )
         for entry in voices:
             print(
-                f"{entry.selector or '-':<9} {entry.engine:<9} {entry.id:<17} {entry.gender:<8} "
-                f"{entry.locale:<9} {entry.language_label:<24} {entry.model:<14} {entry.status}"
+                f"{entry.ref:<40} {entry.engine:<8} {entry.id:<21} {entry.gender:<8} "
+                f"{entry.locale:<8} {entry.language_label:<24} {entry.target_id:<22} {entry.status}"
             )
         return 0
 
     listing = app.catalog.voice_listing(
-        args.selector,
+        args.reference,
         query=public_api.VoiceQuery(language=language, engine=args.engine),
         discovery=discovery,
     )
@@ -2336,8 +2327,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
-    voices_show = voices_sub.add_parser("show", help="show one voice selector or canonical ID")
-    voices_show.add_argument("selector")
+    voices_show = voices_sub.add_parser(
+        "show", help="show one semantic voice reference or native ID"
+    )
+    voices_show.add_argument("reference")
     voices_show.add_argument("--engine", help="filter by synthesis backend")
     voices_show.add_argument("--offline", action="store_true")
     voices_show.add_argument("--refresh", action="store_true")

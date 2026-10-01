@@ -416,14 +416,14 @@ def test_resolve_synthesis_matches_actual_profile_and_rejects_invalid_voice(
     original_resolve = adapter.resolve
 
     def reject_bad_voice(engine_request):
-        if engine_request.voice == "invalid-selector":
-            raise ValueError("unknown voice selector 'invalid-selector'")
+        if engine_request.voice == "invalid-voice-reference":
+            raise ValueError("unknown voice reference 'invalid-voice-reference'")
         return original_resolve(engine_request)
 
     monkeypatch.setattr(adapter, "resolve", reject_bad_voice)
-    with pytest.raises(InvalidRequestError, match="unknown voice selector") as invalid:
+    with pytest.raises(InvalidRequestError, match="unknown voice reference") as invalid:
         app.projects.resolve_synthesis(
-            project, SynthesisRequest(engine="fake", voice="invalid-selector")
+            project, SynthesisRequest(engine="fake", voice="invalid-voice-reference")
         )
     assert invalid.value.code == "request.invalid"
 
@@ -576,18 +576,18 @@ def test_project_settings_validation_is_atomic(tmp_path: Path, monkeypatch) -> N
     original_resolve = adapter.resolve
 
     def reject_invalid_voice(request):
-        if request.voice == "invalid-selector":
-            raise ValueError("unknown voice selector")
+        if request.voice == "invalid-voice-reference":
+            raise ValueError("unknown voice reference")
         return original_resolve(request)
 
     monkeypatch.setattr(adapter, "resolve", reject_invalid_voice)
-    with pytest.raises(InvalidRequestError, match="unknown voice selector"):
+    with pytest.raises(InvalidRequestError, match="unknown voice reference"):
         app.projects.configure(
             project,
             ProjectSettings(
                 synthesis=ProjectSynthesisSettings(
                     engine="fake",
-                    voice="invalid-selector",
+                    voice="invalid-voice-reference",
                 ),
             ),
         )

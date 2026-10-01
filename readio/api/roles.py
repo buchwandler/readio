@@ -15,7 +15,7 @@ from ..project_roles import (
     unbind_project_role,
 )
 from ..role_targets import VoiceTarget
-from ..voices import resolve_voice_selector
+from ..voices import resolve_voice_reference
 from . import errors as api_errors
 from .types import (
     DiscoveryOptions,
@@ -80,7 +80,7 @@ class RoleService:
                     f"provider {provider!r} maps to engine {provider_engine!r}, "
                     f"not requested engine {requested_engine!r}"
                 )
-            resolved = resolve_voice_selector(
+            resolved = resolve_voice_reference(
                 voice,
                 language=None,
                 model=None,
@@ -90,43 +90,14 @@ class RoleService:
                 preference=discovery.preference,
                 engine=requested_engine,
             )
-            if resolved is not None and resolved.selector is not None:
-                target_engine = normalize_engine_id(resolved.engine or "")
-                if requested_engine is not None and target_engine != requested_engine:
-                    raise ValueError(
-                        f"voice selector {voice!r} resolves to engine {target_engine!r}, "
-                        f"not requested engine {requested_engine!r}"
-                    )
-                target = VoiceTarget(
-                    target_engine,
-                    resolved.voice,
-                    target_id=resolved.model,
-                    selector=resolved.selector,
-                )
-            else:
-                if requested_engine is None:
-                    matches = [
-                        name for name, settings in cfg.voices.items() if voice in settings.ids
-                    ]
-                    if len(matches) == 1:
-                        requested_engine = engine_for_ssmd_provider(matches[0])
-                    elif len(matches) > 1:
-                        raise ValueError(
-                            f"raw voice ID {voice!r} is configured for multiple engines; "
-                            "specify engine explicitly"
-                        )
-                    elif len(cfg.voices) == 1:
-                        requested_engine = engine_for_ssmd_provider(next(iter(cfg.voices)))
-                    else:
-                        raise ValueError(
-                            f"raw voice ID {voice!r} does not identify an engine; "
-                            "specify engine explicitly"
-                        )
-                target = VoiceTarget(
-                    requested_engine,
-                    resolved.voice if resolved is not None else voice,
-                    target_id=resolved.model if resolved is not None else None,
-                )
+            if resolved is None:
+                raise ValueError("a voice reference or native voice ID is required")
+            target_engine = normalize_engine_id(resolved.engine)
+            target = VoiceTarget(
+                target_engine,
+                resolved.voice,
+                target_id=resolved.target_id,
+            )
             if provider is not None and target.provider != provider:
                 raise ValueError(
                     f"voice target engine {target.engine!r} uses provider {target.provider!r}, "

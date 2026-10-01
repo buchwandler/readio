@@ -11,7 +11,7 @@ from .. import config as config_internal
 from ..config import LanguageSettings, ReadioConfig
 from ..errors import ReadioError
 from ..models import ModelDiscoveryError, get_model_info, validate_language_settings
-from ..voices import resolve_voice_selector
+from ..voices import resolve_voice_reference
 from . import errors as api_errors
 from .types import (
     ConfigurationInitResult,
@@ -350,7 +350,7 @@ class ConfigurationService:
         voice = settings.voice
         quality = settings.quality
         if voice is not None:
-            resolution = resolve_voice_selector(
+            resolution = resolve_voice_reference(
                 voice,
                 language=language,
                 model=model_id,
@@ -360,9 +360,9 @@ class ConfigurationService:
                 preference=source or discovery.preference,
                 engine=settings.engine,
             )
-            if resolution is not None and resolution.selector is not None:
+            if resolution is not None:
                 profile_language = resolution.language or language
-                model_id = resolution.model
+                model_id = resolution.target_id
                 source = resolution.source
                 voice = resolution.voice
         resolved = replace(

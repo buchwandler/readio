@@ -38,7 +38,7 @@ from .formats import (
 from .jsonutil import JsonValue
 from .markdown import markdown_to_speech
 from .role_targets import VoiceTarget
-from .voices import resolve_voice_selector
+from .voices import resolve_voice_reference
 
 SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
 if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
@@ -691,7 +691,7 @@ def _resolve_synthesis_candidate(
     """Apply Readio precedence rules and record provenance."""
     decisions: list[ResolutionDecision] = []
 
-    selector_resolution = resolve_voice_selector(
+    voice_resolution = resolve_voice_reference(
         request.voice,
         language=request.language,
         model=request.model,
@@ -701,28 +701,26 @@ def _resolve_synthesis_candidate(
         preference=request.model_source or "auto",
         engine=request.engine,
     )
-    requested_selector = (
-        request.voice if selector_resolution and selector_resolution.selector else None
-    )
-    if selector_resolution is not None and selector_resolution.selector is not None:
+    if voice_resolution is not None:
+        requested_ref = voice_resolution.ref or voice_resolution.requested
         request = replace(
             request,
-            language=selector_resolution.language,
-            model=selector_resolution.model,
-            model_source=selector_resolution.source,
-            voice=selector_resolution.voice,
-            engine=selector_resolution.backend,
+            language=voice_resolution.language,
+            model=voice_resolution.target_id,
+            model_source=voice_resolution.source,
+            voice=voice_resolution.voice,
+            engine=voice_resolution.engine,
         )
         decisions.append(
             ResolutionDecision(
-                field="synthesis.voice_selector",
-                value=requested_selector,
+                field="synthesis.voice_ref",
+                value=requested_ref,
                 origin=ORIGIN_CLI,
                 locator="request.voice",
                 reason=(
-                    f"voice selector {requested_selector!r} resolved via OnnxVoice to "
-                    f"engine {selector_resolution.backend!r} / model "
-                    f"{selector_resolution.model!r} / voice {selector_resolution.voice!r}"
+                    f"voice identifier {requested_ref!r} resolved to engine "
+                    f"{voice_resolution.engine!r} / target {voice_resolution.target_id!r} "
+                    f"/ voice {voice_resolution.voice!r}"
                 ),
             )
         )
@@ -1341,6 +1339,7 @@ def _resolve_v2_ssmd_roles(
 ]:
     """Resolve role bindings without assigning one provider to the whole project."""
     from .engines.registry import engine_for_ssmd_provider, normalize_engine_id
+    from .voice_refs import public_system_for_engine
 
     references: dict[str, str] = {}
     for segment in semantic.plan.segments:
@@ -1353,7 +1352,7 @@ def _resolve_v2_ssmd_roles(
             return value
         if not isinstance(value, str):
             raise TypeError("voice binding must be a string or VoiceTarget")
-        resolved = resolve_voice_selector(
+        resolved = resolve_voice_reference(
             value,
             language=None,
             model=None,
@@ -1363,6 +1362,12 @@ def _resolve_v2_ssmd_roles(
             engine=engine_hint,
         )
         if resolved is None:
+            if engine_hint is None:
+                return None
+            try:
+                public_system_for_engine(engine_hint)
+            except ValueError:
+                return VoiceTarget(normalize_engine_id(engine_hint), value)
             return None
         target_engine = resolved.engine or engine_hint
         if target_engine is None:
@@ -1370,8 +1375,7 @@ def _resolve_v2_ssmd_roles(
         return VoiceTarget(
             normalize_engine_id(target_engine),
             resolved.voice,
-            target_id=getattr(resolved, "model", None),
-            selector=getattr(resolved, "selector", None),
+            target_id=resolved.target_id,
         )
 
     metadata = semantic.plan.document_metadata

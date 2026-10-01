@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-from readio.models import ModelDiscoveryError, ModelInfo, VoiceMetadata
-from readio.voices import (
-    VoiceCatalogEntry,
-    build_voice_catalog,
-    filter_voice_catalog,
-    resolve_voice_selector,
-)
+from readio.models import ModelInfo, VoiceMetadata
+from readio.voices import build_voice_catalog, filter_voice_catalog
 
 
 def model(
@@ -16,8 +9,8 @@ def model(
     voices: tuple[str, ...],
     details: tuple[VoiceMetadata, ...],
     *,
+    engine: str = "pykokoro",
     source: str = "github",
-    priority_status: str = "ready",
 ) -> ModelInfo:
     return ModelInfo(
         id=model_id,
@@ -29,296 +22,111 @@ def model(
         g2p_backend="kokorog2p",
         lexicons=(),
         frontend="frontend",
-        status=priority_status,
-        experimental=priority_status == "experimental",
+        status="ready",
+        experimental=False,
         runtime_available=True,
         redistribution_allowed=True,
         voice_details=details,
+        backend=engine,
     )
 
 
-def identity(selector: str, language: str, slot: int, asset_id: str, voice_id: str):
-    return SimpleNamespace(
-        selector=selector,
-        language=language,
-        engine_code="ko",
-        slot=slot,
-        system="kokoro",
-        asset_id=asset_id,
-        voice_id=voice_id,
-    )
-
-
-def test_catalog_consumes_packaged_onnxvoice_en_us_registry() -> None:
-    expected = (
-        ("en_us-ko-1", "v1.0", "af_alloy"),
-        ("en_us-ko-2", "v1.0", "af_aoede"),
-        ("en_us-ko-3", "v1.0", "af_bella"),
-        ("en_us-ko-4", "v1.0", "af_heart"),
-        ("en_us-ko-5", "v1.0", "af_jessica"),
-        ("en_us-ko-6", "v1.0", "af_kore"),
-        ("en_us-ko-7", "v1.0", "af_nicole"),
-        ("en_us-ko-8", "v1.0", "af_nova"),
-        ("en_us-ko-9", "v1.0", "af_river"),
-        ("en_us-ko-10", "v1.0", "af_sarah"),
-        ("en_us-ko-11", "v1.0", "af_sky"),
-        ("en_us-ko-12", "v1.0", "am_adam"),
-        ("en_us-ko-13", "v1.0", "am_echo"),
-        ("en_us-ko-14", "v1.0", "am_eric"),
-        ("en_us-ko-15", "v1.0", "am_fenrir"),
-        ("en_us-ko-16", "v1.0", "am_liam"),
-        ("en_us-ko-17", "v1.0", "am_michael"),
-        ("en_us-ko-18", "v1.0", "am_onyx"),
-        ("en_us-ko-19", "v1.0", "am_puck"),
-        ("en_us-ko-20", "v1.0", "am_santa"),
-        ("en_us-ko-21", "v1.0", "af_ameliaearhart"),
-        ("en_us-ko-22", "v1.0", "af_libritts5338"),
-        ("en_us-ko-23", "v1.0", "am_libritts1272"),
-        ("en_us-ko-24", "v1.0", "am_libritts6241"),
-        ("en_us-ko-25", "v1.0", "am_vincentprice"),
-        ("en_us-ko-26", "v1.1-zh", "af_maple"),
-        ("en_us-ko-27", "v1.1-zh", "af_sol"),
-    )
-    v1_0_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.0")
-    v1_1_voices = tuple(voice for _, model_id, voice in expected if model_id == "v1.1-zh")
-
-    def details(voices: tuple[str, ...]) -> tuple[VoiceMetadata, ...]:
-        return tuple(
-            VoiceMetadata(voice, "unknown", "en", "en-US", "American English") for voice in voices
-        )
-
+def test_catalog_builds_semantic_refs_for_all_voice_shapes() -> None:
     catalog = build_voice_catalog(
         (
-            model("v1.0", v1_0_voices, details(v1_0_voices)),
-            model("v1.1-zh", v1_1_voices, details(v1_1_voices)),
-            model(
-                "de-anna",
-                ("df_anna",),
-                (VoiceMetadata("df_anna", "female", "de", "de", "German"),),
-            ),
-        )
-    )
-    assert [
-        (entry.selector, entry.model, entry.id)
-        for entry in catalog.voices
-        if entry.locale == "en-US"
-    ] == list(expected)
-    german = next(entry for entry in catalog.voices if entry.id == "df_anna")
-    assert (german.selector, german.model, german.id) == ("de-ko-1", "de-anna", "df_anna")
-
-
-def test_catalog_projects_authoritative_identities_and_display_orders(monkeypatch) -> None:
-    identities = {
-        ("v1.0", "af_a"): identity("en_us-ko-1", "en_us", 1, "v1.0", "af_a"),
-        ("v1.0", "af_b"): identity("en_us-ko-2", "en_us", 2, "v1.0", "af_b"),
-        ("v1.0", "bf_a"): identity("en_gb-ko-1", "en_gb", 1, "v1.0", "bf_a"),
-        ("de-model", "anna"): identity("de-ko-1", "de", 1, "de-model", "anna"),
-        ("de-model", "martin"): identity("de-ko-2", "de", 2, "de-model", "martin"),
-    }
-    monkeypatch.setattr(
-        "readio.voices.selector_for_voice",
-        lambda *, system, asset_id, voice_id: identities.get((asset_id, voice_id)),
-    )
-    catalog = build_voice_catalog(
-        (
-            model(
-                "de-model",
-                ("anna", "martin"),
-                (
-                    VoiceMetadata("anna", "female", "de", "de", "German"),
-                    VoiceMetadata("martin", "male", "de", "de", "German"),
-                ),
-            ),
             model(
                 "v1.0",
-                ("af_a", "af_b", "bf_a"),
-                (
-                    VoiceMetadata("af_a", "female", "en", "en-US", "American English"),
-                    VoiceMetadata("af_b", "female", "en", "en-US", "American English"),
-                    VoiceMetadata("bf_a", "female", "en", "en-GB", "British English"),
-                ),
+                ("af_heart",),
+                (VoiceMetadata("af_heart", "female", "en", "en-US", "American English"),),
+            ),
+            model("en_US-amy-medium", ("en_US-amy-medium",), (), engine="piper"),
+            model(
+                "english_2026-04",
+                ("alba",),
+                (VoiceMetadata("alba", "female", "en", "en", "English"),),
+                engine="pocket",
             ),
         )
     )
-    assert [(entry.selector, entry.id) for entry in catalog.voices] == [
-        ("en_us-ko-1", "af_a"),
-        ("en_us-ko-2", "af_b"),
-        ("en_gb-ko-1", "bf_a"),
-        ("de-ko-1", "anna"),
-        ("de-ko-2", "martin"),
+
+    assert [entry.ref for entry in catalog.voices] == [
+        "kokoro:v1.0/af_heart",
+        "piper:en_US-amy-medium",
+        "pocket:english_2026-04/alba",
     ]
-    assert catalog.voices[-1].slot == 2
-    assert catalog.voices[-1].number == 2
+    assert [entry.target_id for entry in catalog.voices] == [
+        "v1.0",
+        "en_US-amy-medium",
+        "english_2026-04",
+    ]
+    assert all(entry.to_dict()["ref"] for entry in catalog.voices)
+    assert all("selector" not in entry.to_dict() for entry in catalog.voices)
 
 
-def test_filtering_does_not_renumber_and_language_is_regional(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "readio.voices.selector_for_voice",
-        lambda *, system, asset_id, voice_id: (
-            identity("de-ko-1", "de", 1, asset_id, voice_id)
-            if asset_id == "de-model" and voice_id == "anna"
-            else identity("de-ko-2", "de", 2, asset_id, voice_id)
-            if asset_id == "de-model" and voice_id == "martin"
-            else None
-        ),
-    )
+def test_catalog_reference_does_not_depend_on_order_or_language_metadata() -> None:
+    first = build_voice_catalog(
+        (
+            model(
+                "model-a",
+                ("voice-a",),
+                (VoiceMetadata("voice-a", "female", "en", "en-US", "American English"),),
+            ),
+            model(
+                "model-b",
+                ("voice-b",),
+                (VoiceMetadata("voice-b", "female", "en", "en-GB", "British English"),),
+            ),
+        )
+    ).voices
+    reordered = build_voice_catalog(
+        (
+            model(
+                "model-b",
+                ("voice-b",),
+                (VoiceMetadata("voice-b", "female", "en", "en", "English"),),
+            ),
+            model(
+                "model-a",
+                ("voice-a",),
+                (VoiceMetadata("voice-a", "female", "en", "en", "English"),),
+            ),
+        )
+    ).voices
+
+    refs_by_id = {entry.id: entry.ref for entry in first}
+    assert {entry.id: entry.ref for entry in reordered} == refs_by_id
+    assert refs_by_id == {
+        "voice-a": "kokoro:model-a/voice-a",
+        "voice-b": "kokoro:model-b/voice-b",
+    }
+
+
+def test_catalog_filters_use_voice_metadata_without_changing_refs() -> None:
     entries = build_voice_catalog(
         (
             model(
-                "de-model",
-                ("anna", "martin", "petra"),
+                "kokoro-v1",
+                ("american", "british", "unassigned"),
                 (
-                    VoiceMetadata("anna", "female", "de", "de", "German"),
-                    VoiceMetadata("martin", "male", "de", "de", "German"),
-                    VoiceMetadata("petra", "female", "de", "de", "German"),
-                ),
-            ),
-            model(
-                "en-model",
-                ("us", "gb"),
-                (
-                    VoiceMetadata("us", "female", "en", "en-US", "American English"),
-                    VoiceMetadata("gb", "female", "en", "en-GB", "British English"),
+                    VoiceMetadata("american", "female", "en", "en-US", "American English"),
+                    VoiceMetadata("british", "male", "en", "en-GB", "British English"),
                 ),
             ),
         )
     ).voices
-    assert [entry.selector for entry in filter_voice_catalog(entries, gender="male")] == ["de-ko-2"]
-    assert [
-        entry.selector
-        for entry in filter_voice_catalog(entries, gender="female")
-        if entry.id == "petra"
-    ] == [None]
-    assert {entry.locale for entry in filter_voice_catalog(entries, language="en")} == {
-        "en-US",
-        "en-GB",
+
+    assert {entry.ref for entry in filter_voice_catalog(entries, language="en-us")} == {
+        "kokoro:kokoro-v1/american"
     }
-    assert {entry.locale for entry in filter_voice_catalog(entries, language="en-us")} == {"en-US"}
+    assert {entry.ref for entry in filter_voice_catalog(entries, gender="male")} == {
+        "kokoro:kokoro-v1/british"
+    }
+    unassigned = next(entry for entry in entries if entry.id == "unassigned")
+    assert unassigned.ref == "kokoro:kokoro-v1/unassigned"
+    assert unassigned.locale == "en"
 
 
-def test_unassigned_voice_never_receives_local_slot(monkeypatch) -> None:
-    monkeypatch.setattr("readio.voices.selector_for_voice", lambda **_: None)
-    entry = build_voice_catalog((model("future", ("voice",), ()),)).voices[0]
-    assert entry.selector is None
-    assert entry.slot is None
-    assert entry.to_dict()["selector_status"] == "unassigned"
-
-
-def test_selector_resolution_expands_canonical_identity(monkeypatch) -> None:
-    entry = VoiceCatalogEntry(
-        selector="de-ko-3",
-        slot=3,
-        selector_language="de",
-        selector_engine_code="ko",
-        id="thorsten",
-        gender="male",
-        language="de",
-        locale="de",
-        language_label="German",
-        model="de-thorsten",
-        source="github",
-        default=True,
-        status="ready",
-        experimental=False,
-        runtime_available=True,
-        engine="pykokoro",
-    )
-    monkeypatch.setattr(
-        "readio.voices.discover_voice_catalog",
-        lambda **_: ((entry,), SimpleNamespace()),
-    )
-    resolved = resolve_voice_selector("de-ko-3", language=None, model=None, source=None)
-    assert resolved is not None
-    assert (
-        resolved.selector,
-        resolved.language,
-        resolved.model,
-        resolved.source,
-        resolved.voice,
-    ) == (
-        "de-ko-3",
-        "de",
-        "de-thorsten",
-        "github",
-        "thorsten",
-    )
-
-
-def test_legacy_selector_is_canonicalized_with_warning(monkeypatch) -> None:
-    entry = VoiceCatalogEntry(
-        selector="de-ko-3",
-        slot=3,
-        id="thorsten",
-        gender="male",
-        language="de",
-        locale="de",
-        language_label="German",
-        model="de-thorsten",
-        source="github",
-        default=True,
-        status="ready",
-        experimental=False,
-        runtime_available=True,
-        engine="pykokoro",
-    )
-    monkeypatch.setattr(
-        "readio.voices.discover_voice_catalog", lambda **_: ((entry,), SimpleNamespace())
-    )
-    import pytest
-
-    with pytest.warns(UserWarning, match="de-ko-3"):
-        resolved = resolve_voice_selector("de-3", language=None, model=None, source=None)
-    assert resolved is not None
-    assert resolved.selector == "de-ko-3"
-
-
-def test_cross_engine_selector_conflict_is_explicit() -> None:
-    import pytest
-
-    with pytest.raises(ModelDiscoveryError, match="engine.*requested") as error:
-        resolve_voice_selector("de-pi-9", language=None, model=None, source=None, engine="kokoro")
-    assert "de-pi-9" in str(error.value)
-
-
-def test_piper_discovery_projects_authoritative_selector(monkeypatch) -> None:
-    import readio.voices as voices_module
-    from readio.engines.catalog import CatalogResult, SynthesisTarget
-
-    target = SynthesisTarget(
-        engine="piper",
-        id="de_DE-thorsten-medium",
-        display_name="Thorsten",
-        languages=("de-DE",),
-        qualities=("medium",),
-        metadata={"language_family": "de", "region": "DE"},
-    )
-    monkeypatch.setattr(
-        voices_module,
-        "discover_targets",
-        lambda **kwargs: CatalogResult(
-            targets=(target,),
-            registry_source="engine-adapters",
-            offline=kwargs["offline"],
-            refreshed=kwargs["refresh"],
-        ),
-    )
-
-    entries, result = voices_module.discover_voice_catalog(
-        engine="pipersynth", language="de", offline=True, refresh=True
-    )
-    assert result.offline is True
-    assert result.refreshed is True
-    assert entries[0].engine == "piper"
-    assert entries[0].selector == "de-pi-9"
-    assert entries[0].slot == 9
-    assert entries[0].id == "de_DE-thorsten-medium"
-    assert entries[0].language == "de"
-    assert entries[0].locale == "de-DE"
-    assert entries[0].language_label == "de-DE"
-    assert entries[0].gender == "unknown"
-
-
-def test_piper_catalog_preserves_normalized_metadata_without_changing_selector(monkeypatch) -> None:
+def test_piper_discovery_preserves_target_identity_and_language_metadata(monkeypatch) -> None:
     import readio.voices as voices_module
     from readio.engines.catalog import CatalogResult, SynthesisTarget
 
@@ -340,9 +148,11 @@ def test_piper_catalog_preserves_normalized_metadata_without_changing_selector(m
         lambda **kwargs: CatalogResult(targets=(target,)),
     )
 
-    entries, _ = voices_module.discover_voice_catalog(engine="piper", language="en-us")
-    assert entries[0].selector == "en-pi-13"
-    assert entries[0].language == "en"
-    assert entries[0].locale == "en-US"
-    assert entries[0].language_label == "American English"
-    assert entries[0].gender == "female"
+    entries, _ = voices_module.discover_voice_catalog(engine="pipersynth", language="en-us")
+    entry = entries[0]
+    assert entry.ref == "piper:en_US-amy-medium"
+    assert entry.target_id == "en_US-amy-medium"
+    assert entry.language == "en"
+    assert entry.locale == "en-US"
+    assert entry.language_label == "American English"
+    assert entry.gender == "female"

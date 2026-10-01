@@ -23,7 +23,8 @@ from .project_settings import (
 )
 from .role_targets import VoiceTarget
 from .ssmd import document_voice_bindings, parse_ssmd_09, resolve_voice_references
-from .voices import resolve_voice_selector
+from .voice_refs import public_system_for_engine
+from .voices import resolve_voice_reference
 
 
 class ProjectRoleError(ReadioError):
@@ -195,7 +196,6 @@ def inspect_project_roles(
                 "provider": target.provider if target else None,
                 "voice": target.voice if target else None,
                 "target_id": target.target_id if target else None,
-                "selector": target.selector if target else None,
                 "origin": resolved.origin,
                 "document_binding": role["document_bindings"].get(scope.id),
             }
@@ -217,7 +217,8 @@ def inspect_project_roles(
         project_target = project_targets.get(reference)
         config_target = configured_targets.get(reference)
         if provider is not None and (
-            effective_target is None or effective_target.provider != provider
+            effective_target is None
+            or (effective_target.provider or effective_target.engine) != provider
         ):
             continue
         roles.append(
@@ -291,7 +292,12 @@ def bind_project_role(
 
     try:
         provider_engine = engine_for_ssmd_provider(provider) if provider is not None else None
-        requested_engine = normalize_engine_id(engine) if engine is not None else provider_engine
+        requested_engine = (
+            normalize_engine_id(engine)
+            if engine is not None
+            else provider_engine
+            or (normalize_engine_id(provider) if provider in cfg.voices else None)
+        )
         if provider_engine is not None and requested_engine != provider_engine:
             raise ProjectRoleError(
                 f"Provider {provider!r} maps to engine {provider_engine!r}, "
@@ -299,7 +305,7 @@ def bind_project_role(
                 code="readio.project_role.provider_mismatch",
                 details={"provider": provider, "engine": requested_engine},
             )
-        selection = resolve_voice_selector(
+        selection = resolve_voice_reference(
             requested_voice,
             language=None,
             model=None,
@@ -309,74 +315,57 @@ def bind_project_role(
             engine=requested_engine,
         )
     except ModelDiscoveryError as exc:
-        if not exc.code.startswith("readio.voice_selector"):
+        if not exc.code.startswith("readio.voice_reference"):
             raise
         raise ProjectRoleError(
             str(exc),
-            code="readio.project_role.voice_selector_invalid",
+            code="readio.project_role.voice_reference_invalid",
             details={"requested_voice": requested_voice},
         ) from exc
-    assert selection is not None
-
-    if selection.selector is not None:
-        target_engine = normalize_engine_id(selection.engine or "")
+    if selection is None:
+        if requested_engine is None:
+            raise ProjectRoleError(
+                f"Voice {requested_voice!r} requires an engine context.",
+                code="readio.project_role.voice_reference_invalid",
+                details={"requested_voice": requested_voice},
+            )
+        try:
+            public_system_for_engine(requested_engine)
+        except ValueError:
+            target = VoiceTarget(requested_engine, requested_voice)
+        else:
+            raise ProjectRoleError(
+                f"Voice {requested_voice!r} is not a valid reference for engine {requested_engine!r}.",
+                code="readio.project_role.voice_reference_invalid",
+                details={"requested_voice": requested_voice, "engine": requested_engine},
+            )
+    else:
+        target_engine = normalize_engine_id(selection.engine)
         if requested_engine is not None and target_engine != requested_engine:
             raise ProjectRoleError(
-                f"Voice selector {requested_voice!r} resolves to engine {target_engine!r}, "
+                f"Voice reference {selection.ref!r} resolves to engine {target_engine!r}, "
                 f"not requested engine {requested_engine!r}.",
                 code=(
                     "readio.project_role.provider_mismatch"
                     if provider is not None
                     else "readio.project_role.engine_mismatch"
                 ),
-                details={"engine": requested_engine, "selector_engine": target_engine},
+                details={"engine": requested_engine, "reference_engine": target_engine},
             )
         target = VoiceTarget(
             target_engine,
             selection.voice,
-            target_id=getattr(selection, "model", None),
-            selector=selection.selector,
+            target_id=selection.target_id,
         )
-    else:
-        if requested_engine is None:
-            matches = [name for name, settings in cfg.voices.items() if voice in settings.ids]
-            if len(matches) == 1:
-                requested_engine = engine_for_ssmd_provider(matches[0])
-            elif len(matches) > 1:
-                raise ProjectRoleError(
-                    f"Raw voice ID {voice!r} is configured for multiple engines; "
-                    "specify an engine explicitly.",
-                    code="readio.project_role.engine_required",
-                    details={"voice": voice, "providers": matches},
-                )
-            elif len(cfg.voices) == 1:
-                requested_engine = engine_for_ssmd_provider(next(iter(cfg.voices)))
-            else:
-                raise ProjectRoleError(
-                    f"Raw voice ID {voice!r} does not identify an engine; specify an engine explicitly.",
-                    code="readio.project_role.engine_required",
-                    details={"voice": voice},
-                )
-        target = VoiceTarget(
-            requested_engine,
-            selection.voice,
-            target_id=getattr(selection, "model", None),
-        )
-
-    if provider is not None and target.provider != provider:
+    target_provider = target.provider or target.engine
+    if provider is not None and target_provider != provider:
         raise ProjectRoleError(
-            f"Voice target engine {target.engine!r} uses provider {target.provider!r}, "
+            f"Voice target engine {target.engine!r} uses provider {target_provider!r}, "
             f"not requested provider {provider!r}.",
             code="readio.project_role.provider_mismatch",
             details={"provider": provider, "engine": target.engine},
         )
-    selected_provider = target.provider
-    if selected_provider is None:
-        raise ProjectRoleError(
-            f"Voice target engine {target.engine!r} has no SSMD provider namespace.",
-            code="readio.project_role.engine_unsupported",
-            details={"engine": target.engine},
-        )
+    selected_provider = target_provider
 
     inspection = inspect_project_roles(project, cfg)
     if role not in {item.role for item in inspection.roles}:

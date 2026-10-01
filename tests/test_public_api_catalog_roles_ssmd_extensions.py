@@ -145,10 +145,13 @@ def test_global_roles_persist_and_return_typed_bindings(tmp_path: Path, monkeypa
     assert binding.provider == "kokoro"
     assert binding.engine == "pykokoro"
     assert binding.voice == "af_heart"
-    assert binding.target.target_id is None
+    assert binding.target.target_id == "v1.0"
     assert "api_test" not in app.config.roles
     assert "api_test" not in app.config.voices["kokoro"].roles
     assert "[roles.api_test]" in config_path.read_text(encoding="utf-8")
+    serialized = config_path.read_text(encoding="utf-8")
+    assert 'target_id = "v1.0"' in serialized
+    assert "selector" not in serialized
     reloaded = Readio()
     restored = next(item for item in reloaded.roles.list_global() if item.role == "api_test")
     assert restored.target == binding.target
@@ -158,35 +161,34 @@ def test_global_roles_persist_and_return_typed_bindings(tmp_path: Path, monkeypa
     assert all(item.role != "api_test" for item in Readio().roles.list_global())
 
 
-def test_global_role_binding_retains_stable_selector_identity(tmp_path, monkeypatch) -> None:
+def test_global_role_binding_persists_structured_target(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("READIO_CONFIG", str(tmp_path / "readio.toml"))
     monkeypatch.setattr(
-        "readio.api.roles.resolve_voice_selector",
+        "readio.api.roles.resolve_voice_reference",
         lambda voice, **kwargs: SimpleNamespace(
-            selector="en-pi-13",
             engine="piper",
             voice="en_US-amy-medium",
-            model="amy-asset",
+            target_id="amy-asset",
         ),
     )
 
-    binding = Readio(default_config()).roles.bind_global("guest", "en-pi-13")
+    binding = Readio(default_config()).roles.bind_global("guest", "piper:en_US-amy-medium")
 
     assert binding.target == VoiceTarget(
         engine="piper",
         voice="en_US-amy-medium",
         target_id="amy-asset",
-        selector="en-pi-13",
     )
-
     assert binding.to_dict() == {
         "role": "guest",
         "engine": "piper",
         "voice": "en_US-amy-medium",
         "target_id": "amy-asset",
-        "selector": "en-pi-13",
         "provider": "piper",
     }
+    serialized = (tmp_path / "readio.toml").read_text(encoding="utf-8")
+    assert 'target_id = "amy-asset"' in serialized
+    assert "selector" not in serialized
 
 
 def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> None:
@@ -206,7 +208,9 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
     assert isinstance(bound, ProjectRole)
     assert bound.effective_voice == "af_heart"
     assert bound.origin == "project"
-    assert bound.project_target == VoiceTarget(engine="pykokoro", voice="af_heart")
+    assert bound.project_target == VoiceTarget(
+        engine="pykokoro", voice="af_heart", target_id="v1.0"
+    )
     assert bound.effective_target == bound.project_target
     assert app.roles.inspect_project(project).unresolved == ()
 
@@ -215,10 +219,13 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
     assert mutation.project.root == project.root
     assert mutation.previous_project_binding == "af_heart"
     assert mutation.project_binding is None
-    assert mutation.previous_project_target == VoiceTarget(engine="pykokoro", voice="af_heart")
+    assert mutation.previous_project_target == VoiceTarget(
+        engine="pykokoro", voice="af_heart", target_id="v1.0"
+    )
     assert mutation.to_dict()["previous_project_target"] == {
         "engine": "pykokoro",
         "voice": "af_heart",
+        "target_id": "v1.0",
         "provider": "kokoro",
     }
     assert mutation.effective_voice is None
@@ -236,12 +243,12 @@ def test_public_project_role_binding_uses_engine_qualified_piper_target(
 ) -> None:
     monkeypatch.setenv("READIO_CONFIG", str(tmp_path / "readio.toml"))
     monkeypatch.setattr(
-        "readio.project_roles.resolve_voice_selector",
-        lambda selector, **kwargs: SimpleNamespace(
-            selector=selector,
+        "readio.project_roles.resolve_voice_reference",
+        lambda voice, **kwargs: SimpleNamespace(
+            ref="piper:en_US-amy-medium",
             engine="piper",
             voice="en_US-amy-medium",
-            model="amy-asset",
+            target_id="amy-asset",
         ),
     )
     source = tmp_path / "piper-role.ssmd"
@@ -252,11 +259,9 @@ def test_public_project_role_binding_uses_engine_qualified_piper_target(
     app = Readio(default_config())
     project = app.projects.create(source, output=tmp_path / "piper-role.readio")
 
-    bound = app.roles.bind_project(project, "guest", "en-pi-13", engine="piper")
+    bound = app.roles.bind_project(project, "guest", "piper:en_US-amy-medium", engine="piper")
     assert isinstance(bound, ProjectRole)
-    assert bound.project_target == VoiceTarget(
-        "piper", "en_US-amy-medium", target_id="amy-asset", selector="en-pi-13"
-    )
+    assert bound.project_target == VoiceTarget("piper", "en_US-amy-medium", target_id="amy-asset")
     assert bound.effective_provider == "piper"
     inspection = app.roles.inspect_project(project)
     assert inspection.provider == "piper"
@@ -268,6 +273,12 @@ def test_public_project_role_binding_uses_engine_qualified_piper_target(
     ssmd = manifest["settings"]["ssmd"]
     assert "voice_provider" not in ssmd
     assert ssmd["role_bindings"]["guest"]["engine"] == "piper"
+    assert ssmd["role_bindings"]["guest"] == {
+        "engine": "piper",
+        "voice": "en_US-amy-medium",
+        "target_id": "amy-asset",
+    }
+    assert "selector" not in ssmd["role_bindings"]["guest"]
 
     removed = app.roles.unbind_project_result(project, "guest")
     assert isinstance(removed, ProjectRoleMutationResult)

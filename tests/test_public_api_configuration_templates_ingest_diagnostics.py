@@ -112,12 +112,12 @@ def test_configuration_profile_runtime_resolution(
     app, _paths = _app(tmp_path)
     calls: dict[str, object] = {}
 
-    def resolve_selector(voice: str, **kwargs: object) -> SimpleNamespace:
-        calls["selector"] = (voice, kwargs)
+    def resolve_reference(voice: str, **kwargs: object) -> SimpleNamespace:
+        calls["reference"] = (voice, kwargs)
         return SimpleNamespace(
-            selector="de:thorsten",
+            ref=voice,
+            target_id="de-model",
             language="de",
-            model="de-model",
             source="upstream",
             voice="thorsten",
         )
@@ -136,13 +136,13 @@ def test_configuration_profile_runtime_resolution(
         calls["validated"] = (language, settings, model)
         return settings
 
-    monkeypatch.setattr("readio.api.configuration.resolve_voice_selector", resolve_selector)
+    monkeypatch.setattr("readio.api.configuration.resolve_voice_reference", resolve_reference)
     monkeypatch.setattr("readio.api.configuration.get_model_info", get_model)
     monkeypatch.setattr("readio.api.configuration.validate_language_settings", validate_profile)
 
     result = app.configuration.update_language_profile(
         "de-DE",
-        LanguageProfilePatch(voice="de:thorsten"),
+        LanguageProfilePatch(voice="kokoro:de-model/thorsten"),
         discovery=DiscoveryOptions(offline=True, preference="upstream"),
     )
 
@@ -152,8 +152,9 @@ def test_configuration_profile_runtime_resolution(
         quality="fp32",
         voice="thorsten",
     )
-    assert calls["selector"][1]["offline"] is True
-    assert calls["selector"][1]["preference"] == "upstream"
+    assert calls["reference"][0] == "kokoro:de-model/thorsten"
+    assert calls["reference"][1]["offline"] is True
+    assert calls["reference"][1]["preference"] == "upstream"
     assert calls["model"][1]["engine"] is None
     assert calls["validated"][0] == "de"
     assert app.configuration.load().languages == {"de": result}

@@ -111,7 +111,7 @@ load a TTS engine.
 
 ## Project role targets and resolution
 
-Project-local role assignments are stored role-centrically in `project.json` at `settings.ssmd.role_bindings`. Each role maps to an engine-qualified target: canonical engine and voice, with optional target ID and stable selector. Provider is derived from the engine for presentation and compatibility; it is not the identity of a project-wide cast. Global role targets use the same engine-qualified model, while the legacy `[voices.<provider>.roles]` inputs remain readable when unambiguous.
+Project-local role assignments are stored role-centrically in `project.json` at `settings.ssmd.role_bindings`. Each role maps to a structured target with canonical engine and voice, plus optional target ID. Selector provenance is not part of the target identity or serialized role binding. Provider is derived from the engine for presentation and compatibility; it is not the identity of a project-wide cast. Global role targets use the same structured model, while the legacy `[voices.<provider>.roles]` inputs remain readable when unambiguous.
 
 Existing projects with `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. The optional legacy `settings.ssmd.voice_provider` scopes those provider-keyed values; it does not select or override new role targets. Without an active legacy provider, conflicting legacy definitions for the same role are surfaced as ambiguity. New bindings do not rewrite unrelated legacy data, and no automatic migration command is provided. SSMD document `voice_bindings` remains provider-qualified and unchanged; multiple provider bindings for the same role are ambiguous.
 

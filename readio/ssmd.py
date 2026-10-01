@@ -12,7 +12,8 @@ from .engines.registry import engine_for_ssmd_provider, normalize_engine_id
 from .errors import SSMDInputError, VoiceResolutionError
 from .role_targets import VoiceTarget
 from .synthesis import ResolvedSynthesis
-from .voices import resolve_voice_selector
+from .voice_refs import public_system_for_engine
+from .voices import resolve_voice_reference
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +152,7 @@ def _resolve_voice_target(
         return value
     if not isinstance(value, str) or not value.strip():
         return None
-    resolved = resolve_voice_selector(
+    resolved = resolve_voice_reference(
         value,
         language=None,
         model=None,
@@ -161,6 +162,12 @@ def _resolve_voice_target(
         engine=engine_hint,
     )
     if resolved is None:
+        if engine_hint is None:
+            return None
+        try:
+            public_system_for_engine(engine_hint)
+        except ValueError:
+            return VoiceTarget(normalize_engine_id(engine_hint), value)
         return None
     target_engine = resolved.engine or engine_hint
     if target_engine is None:
@@ -168,8 +175,7 @@ def _resolve_voice_target(
     return VoiceTarget(
         normalize_engine_id(target_engine),
         resolved.voice,
-        target_id=resolved.model,
-        selector=resolved.selector,
+        target_id=resolved.target_id,
     )
 
 

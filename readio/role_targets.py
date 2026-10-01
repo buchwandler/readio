@@ -21,7 +21,6 @@ class VoiceTarget:
     engine: str
     voice: str
     target_id: str | None = None
-    selector: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.engine, str) or not isinstance(self.voice, str):
@@ -34,15 +33,10 @@ class VoiceTarget:
             raise ValueError("voice target voice must be a non-empty string")
         object.__setattr__(self, "engine", engine)
         object.__setattr__(self, "voice", voice)
-        for name in ("target_id", "selector"):
-            value = getattr(self, name)
-            if value is not None:
-                if not isinstance(value, str):
-                    raise ValueError(f"voice target {name} must be a non-empty string or None")
-                value = value.strip()
-                if not value:
-                    raise ValueError(f"voice target {name} must be a non-empty string or None")
-                object.__setattr__(self, name, value)
+        if self.target_id is not None:
+            if not isinstance(self.target_id, str) or not self.target_id.strip():
+                raise ValueError("voice target target_id must be a non-empty string or None")
+            object.__setattr__(self, "target_id", self.target_id.strip())
 
     @property
     def provider(self) -> str | None:
@@ -58,8 +52,6 @@ class VoiceTarget:
         result = {"engine": self.engine, "voice": self.voice}
         if self.target_id is not None:
             result["target_id"] = self.target_id
-        if self.selector is not None:
-            result["selector"] = self.selector
         return result
 
 
@@ -72,13 +64,10 @@ def voice_target_from_mapping(value: object, *, name: str = "voice target") -> V
         raise ValueError(f"{name}.engine must be a non-empty string")
     if not isinstance(voice, str) or not voice.strip():
         raise ValueError(f"{name}.voice must be a non-empty string")
-    optional: dict[str, str | None] = {}
-    for field in ("target_id", "selector"):
-        item = value.get(field)
-        if item is not None and (not isinstance(item, str) or not item.strip()):
-            raise ValueError(f"{name}.{field} must be a non-empty string or None")
-        optional[field] = item
-    return VoiceTarget(engine=engine, voice=voice, **optional)
+    target_id = value.get("target_id")
+    if target_id is not None and not isinstance(target_id, str):
+        raise ValueError(f"{name}.target_id must be a non-empty string or None")
+    return VoiceTarget(engine=engine, voice=voice, target_id=target_id)
 
 
 __all__ = ["VoiceTarget", "voice_target_from_mapping"]

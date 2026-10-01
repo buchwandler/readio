@@ -7,8 +7,10 @@ from types import SimpleNamespace
 from readio import cli
 from readio.api import Readio, default_config
 from readio.api.catalog import CatalogService
+from readio.api.types import VoiceInfo
 from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
 from readio.models import ModelInfo, VoiceMetadata
+from readio.voice_refs import public_system_for_engine
 from readio.voices import VoiceCatalogEntry, build_voice_catalog
 
 
@@ -83,8 +85,7 @@ def config(tmp_path: Path) -> ReadioConfig:
 
 def catalog_entry() -> VoiceCatalogEntry:
     return VoiceCatalogEntry(
-        selector="de-ko-3",
-        slot=3,
+        ref="kokoro:de-model/martin",
         id="martin",
         gender="male",
         language="de",
@@ -110,8 +111,28 @@ def _patch_voice_listing(monkeypatch, entries, *, registry_source="fixture", cal
             "offline": bool(discovery and discovery.offline),
             "refreshed": bool(discovery and discovery.refresh),
         }
+        items = tuple(
+            VoiceInfo(
+                ref=entry.ref,
+                id=entry.id,
+                gender=entry.gender,
+                language=entry.language,
+                locale=entry.locale,
+                language_label=entry.language_label,
+                model=entry.model,
+                source=entry.source,
+                default=entry.default,
+                status=entry.status,
+                experimental=entry.experimental,
+                runtime_available=entry.runtime_available,
+                distribution_id=entry.distribution_id,
+                provider=entry.provider,
+                engine=public_system_for_engine(entry.engine),
+            )
+            for entry in entries
+        )
         return SimpleNamespace(
-            items=entries,
+            items=items,
             discovery=SimpleNamespace(to_dict=lambda: metadata, cache_fallback=False),
         )
 
@@ -132,19 +153,22 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     )
     listed = json.loads(capsys.readouterr().out)
     assert listed["filters"]["language"] == "de"
-    assert listed["voices"][0]["selector"] == "de-ko-3"
+    assert listed["voices"][0]["ref"] == "kokoro:de-model/martin"
     assert listed["voices"][0]["id"] == "martin"
 
     assert (
-        cli._cmd_voices(cli.build_parser().parse_args(["voices", "show", "de-ko-3", "--json"])) == 0
+        cli._cmd_voices(
+            cli.build_parser().parse_args(["voices", "show", "kokoro:de-model/martin", "--json"])
+        )
+        == 0
     )
     shown = json.loads(capsys.readouterr().out)
-    assert shown["voice"]["selector"] == "de-ko-3"
+    assert shown["voice"]["ref"] == "kokoro:de-model/martin"
     assert shown["voice"]["model"] == "de-model"
     assert shown["registry"]["source"] == "cache"
 
 
-def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(monkeypatch, capsys):
+def test_voices_list_en_us_uses_real_registry_and_shows_semantic_reference(monkeypatch, capsys):
     entries = real_en_us_catalog()
     _patch_voice_listing(monkeypatch, entries, registry_source="packaged")
     args = cli.build_parser().parse_args(
@@ -154,30 +178,31 @@ def test_voices_list_en_us_uses_real_registry_and_show_canonicalizes_hyphens(mon
     listed = json.loads(capsys.readouterr().out)
     voices = listed["voices"]
     assert len(voices) == 27
-    assert [voice["selector"] for voice in voices] == [f"en_us-ko-{i}" for i in range(1, 28)]
-    assert all(voice["selector"] is not None for voice in voices)
+    assert [voice["ref"] for voice in voices] == [
+        f"kokoro:{voice['model']}/{voice['id']}" for voice in voices
+    ]
+    assert all("selector" not in voice for voice in voices)
     assert [voice["model"] for voice in voices[:25]] == ["v1.0"] * 25
     assert [voice["model"] for voice in voices[25:]] == ["v1.1-zh"] * 2
     by_id = {voice["id"]: voice for voice in voices}
-    assert by_id["af_heart"]["selector"] == "en_us-ko-4"
-    assert by_id["af_maple"]["selector"] == "en_us-ko-26"
-    assert by_id["af_sol"]["selector"] == "en_us-ko-27"
-    for requested in ("en_us-ko-4", "en-us-ko-4"):
-        args = cli.build_parser().parse_args(["voices", "show", requested, "--json"])
-        assert cli._cmd_voices(args) == 0
-        shown = json.loads(capsys.readouterr().out)["voice"]
-        assert (shown["selector"], shown["id"], shown["model"]) == (
-            "en_us-ko-4",
-            "af_heart",
-            "v1.0",
-        )
+    assert by_id["af_heart"]["ref"] == "kokoro:v1.0/af_heart"
+    assert by_id["af_maple"]["ref"] == "kokoro:v1.1-zh/af_maple"
+    assert by_id["af_sol"]["ref"] == "kokoro:v1.1-zh/af_sol"
+
+    args = cli.build_parser().parse_args(["voices", "show", "kokoro:v1.0/af_heart", "--json"])
+    assert cli._cmd_voices(args) == 0
+    shown = json.loads(capsys.readouterr().out)["voice"]
+    assert (shown["ref"], shown["id"], shown["model"]) == (
+        "kokoro:v1.0/af_heart",
+        "af_heart",
+        "v1.0",
+    )
 
 
 def test_pipersynth_alias_filters_canonical_piper(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
     piper_entry = VoiceCatalogEntry(
-        selector="de-pi-9",
-        slot=9,
+        ref="piper:de_DE-thorsten-medium",
         id="de_DE-thorsten-medium",
         gender="unknown",
         language="de",
@@ -207,7 +232,10 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
         "readio.config.save_config",
         lambda updated: saved.append(updated) or Path("config.toml"),
     )
-    monkeypatch.setattr("readio.api.roles.resolve_voice_selector", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "readio.api.roles.resolve_voice_reference",
+        lambda voice, **kwargs: SimpleNamespace(engine="pykokoro", voice=voice, target_id="v1.0"),
+    )
 
     assert (
         cli._cmd_roles(cli.build_parser().parse_args(["roles", "bind", "moderator", "new_voice"]))
@@ -230,7 +258,14 @@ def test_role_cli_json_reports_engine_and_provider_per_binding(monkeypatch, tmp_
         "readio.config.save_config",
         lambda updated: saved.append(updated) or Path("config.toml"),
     )
-    monkeypatch.setattr("readio.api.roles.resolve_voice_selector", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "readio.api.roles.resolve_voice_reference",
+        lambda voice, **kwargs: SimpleNamespace(
+            engine=kwargs.get("engine") or "pykokoro",
+            voice=voice,
+            target_id="v1.0",
+        ),
+    )
 
     bind_args = cli.build_parser().parse_args(
         ["roles", "bind", "guest", "en_US-amy-medium", "--engine", "piper", "--json"]
@@ -305,8 +340,7 @@ def test_model_piper_alias_uses_engine_discovery_and_preserves_target_filter(
 ):
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
     piper_entry = VoiceCatalogEntry(
-        selector="de-pi-9",
-        slot=9,
+        ref="piper:de_DE-thorsten-medium",
         id="de_DE-thorsten-medium",
         gender="unknown",
         language="de",
@@ -364,8 +398,7 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
     )
     entries = (
         VoiceCatalogEntry(
-            selector="en-pi-13",
-            slot=13,
+            ref="piper:en_US-amy-medium",
             id="en_US-amy-medium",
             gender="female",
             language="en-US",
@@ -380,8 +413,7 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
             engine="piper",
         ),
         VoiceCatalogEntry(
-            selector="en-pi-14",
-            slot=14,
+            ref="piper:en_US-lee-medium",
             id="en_US-lee-medium",
             gender="unknown",
             language="en-US",
@@ -409,7 +441,11 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
     )
     assert cli._cmd_voices(json_args) == 0
     voices = json.loads(capsys.readouterr().out)["voices"]
-    assert [voice["selector"] for voice in voices] == ["en-pi-13", "en-pi-14"]
+    assert [voice["ref"] for voice in voices] == [
+        "piper:en_US-amy-medium",
+        "piper:en_US-lee-medium",
+    ]
+    assert all("selector" not in voice for voice in voices)
     assert [voice["locale"] for voice in voices] == ["en-US", "en-US"]
     assert [voice["language"] for voice in voices] == ["en", "en"]
     assert [voice["gender"] for voice in voices] == ["female", "unknown"]
@@ -420,50 +456,40 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
     )
     assert cli._cmd_voices(table_args) == 0
     table = capsys.readouterr().out
-    assert "en-pi-13" in table and "female" in table
-    assert "en-pi-14" in table and "unknown" in table
+    assert "piper:en_US-amy-medium" in table and "female" in table
+    assert "piper:en_US-lee-medium" in table and "unknown" in table
     assert "en-US" in table and "American English" in table
 
 
 def test_pocket_voice_cli_includes_generic_bundle_for_specific_language(
     monkeypatch, tmp_path, capsys
 ) -> None:
-    from readio.api.types import SynthesisTargetInfo
-
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
+    entry = VoiceCatalogEntry(
+        ref="pocket:generic-english/alba",
+        id="alba",
+        gender="female",
+        language="en",
+        locale="en",
+        language_label="English",
+        model="generic-english",
+        source="pocket",
+        default=True,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+        engine="pocket",
+    )
+    discovery = SimpleNamespace(
+        registry_source="engine-adapters",
+        cache_fallback=False,
+        offline=False,
+        refreshed=False,
+    )
     monkeypatch.setattr(
-        CatalogService,
-        "engines",
-        lambda _self: (SimpleNamespace(id="pocket"),),
+        "readio.api.catalog.discover_voice_catalog",
+        lambda **_kwargs: ((entry,), discovery),
     )
-    targets = (
-        SynthesisTargetInfo(
-            engine="pocket",
-            id="generic-english",
-            display_name="Generic English",
-            languages=("en",),
-            voices=("alba",),
-            metadata={
-                "voice_details": [
-                    {
-                        "id": "alba",
-                        "language": "en",
-                        "locale": "en",
-                        "language_label": "English",
-                        "gender": "female",
-                    }
-                ]
-            },
-        ),
-        SynthesisTargetInfo(
-            engine="pocket",
-            id="british-english",
-            display_name="British English",
-            languages=("en-GB",),
-            voices=("british",),
-        ),
-    )
-    monkeypatch.setattr(CatalogService, "targets", lambda *_args, **_kwargs: targets)
 
     args = cli.build_parser().parse_args(
         ["voices", "list", "--engine", "pocket", "--lang", "en-us", "--json"]
@@ -471,6 +497,7 @@ def test_pocket_voice_cli_includes_generic_bundle_for_specific_language(
     assert cli._cmd_voices(args) == 0
     voices = json.loads(capsys.readouterr().out)["voices"]
     assert [voice["id"] for voice in voices] == ["alba"]
+    assert voices[0]["ref"] == "pocket:generic-english/alba"
     assert voices[0]["locale"] == "en"
     assert voices[0]["gender"] == "female"
-    assert voices[0]["selector"] is None
+    assert "selector" not in voices[0]

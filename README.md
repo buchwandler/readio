@@ -101,9 +101,9 @@ Readio uses one registry for `pykokoro`, `piper`, and `pocket`; model, voice, an
 
 Supported optional engine runtimes are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. Install them individually with `readio[kokoro]`, `readio[piper]`, or `readio[pocket]`, or together with `readio[kokoro,piper,pocket]`. `readio[all]` also installs the optional spaCy integration.
 
-`readio voices list` accepts engine IDs and concrete target IDs. The canonical engine IDs are `pykokoro`, `piper`, and `pocket`; `kokoro` and `pipersynth` remain aliases.
+`readio voices list` shows runnable voices with semantic references. Public engine names are `kokoro`, `piper`, and `pocket`; `pykokoro` and `pipersynth` remain accepted aliases for engine filters. Filter listings with `--engine`, `--model`, `--lang`, and `--gender`.
 
-Voice metadata distinguishes three fields: `language` is the lowercase base language (for example `en`), `locale` is the canonical descriptive locale (for example `en-US`), and `selector_language` is the stable selector namespace (for example `en` or `en_us`). A stable selector such as `en-pi-13` may therefore identify an `en-US` voice without encoding that locale in the selector.
+Voice references use `SYSTEM:TARGET[/VOICE]`: `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, or `pocket:english_2026-04/alba`. The system and target identify the engine and model/bundle; the voice suffix is omitted when the target itself is the voice. `readio voices show REF` inspects one reference. Native voice IDs can be used when discovery context resolves them uniquely; supply engine or target context where the command supports it. References identify voices, while `--lang` and `--gender` filter their descriptive metadata.
 A Pocket bundle advertising generic `en` can satisfy `--lang en-us`; a bundle explicitly advertising `en-GB` does not. Generic language metadata stays generic and is not assigned unsupported locale specificity.
 Common `--speed` is a positive synthesis multiplier, not a composition tempo: PyKokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
 
@@ -415,16 +415,16 @@ voice_bindings:
     architect: am_michael
 ```
 
-SSMD syntax is unchanged. A role bound in more than one provider namespace in the same document is ambiguous; Readio reports an error rather than selecting one. Resolution precedence is document binding, invocation `--voice-bind`, project role target, global configured role, then direct concrete voice. Document bindings remain authoritative.
+SSMD syntax is unchanged. A role bound in more than one provider namespace in the same document is ambiguous; Readio reports an error rather than selecting one. Resolution precedence is document binding, invocation `--voice-bind`, project role target, global configured role, then a direct semantic reference or context-resolved native voice ID. Document bindings remain authoritative.
 
-Discover runnable registry voices and stable selectors with `readio voices list --json` or `readio voices list --lang de`. For Kokoro, `en_us-ko-4` resolves to `af_heart` (Kokoro v1.0). Kokoro selectors use `<lang>-ko-<slot>` and Piper selectors use `<lang>-pi-<slot>`. Persist global roles with `readio roles bind ROLE VOICE_ID`; use `--engine ENGINE` when binding an ambiguous raw voice ID. Readio retains the resolved engine, canonical voice, target ID, and selector. `readio roles list` reports each role's engine and derived provider. Legacy `[voices.<provider>.roles]` settings remain readable when unambiguous.
+Discover runnable voices with `readio voices list --json` or filter with `readio voices list --lang de`. Semantic references replace numbered voice selectors. For example, bind Kokoro with `kokoro:v1.0/af_heart` and Piper with `piper:en_US-amy-medium`. Persist global roles with `readio roles bind ROLE REF`; use `--engine ENGINE` for a native voice ID when its engine cannot be inferred, and prefer a semantic reference when its target must be explicit. `readio roles list` reports each role's engine and derived provider. Legacy `[voices.<provider>.roles]` settings remain readable when unambiguous.
 
-For deterministic one-run automation, use repeatable `--voice-bind ROLE=VOICE_ID` options. Readio resolves stable selectors to engine-qualified targets; document bindings continue to take precedence:
+For deterministic one-run automation, use repeatable `--voice-bind ROLE=REF` options. Readio resolves semantic references to engine-qualified targets; document bindings continue to take precedence:
 
 ```bash
 readio render --file episode.ssmd \
-  --voice-bind moderator=af_sarah \
-  --voice-bind architect=am_michael
+  --voice-bind moderator=kokoro:v1.0/af_sarah \
+  --voice-bind architect=kokoro:v1.0/am_michael
 ```
 
 `--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind`. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
@@ -433,14 +433,14 @@ Project-local role targets let one SSMD document use multiple synthesis engines 
 
 ```bash
 cd episode.readio
-readio plan bind host en_us-ko-4
-readio plan bind guest en-pi-13
+readio plan bind host kokoro:v1.0/af_sarah
+readio plan bind guest piper:en_US-amy-medium
 readio plan roles
 readio plan
 readio synth
 ```
 
-New bindings are stored role-centrically in `project.json` under `settings.ssmd.role_bindings`, with each target's `engine`, canonical `voice`, and optional `target_id` and `selector`. Binding a stable selector retains its resolved identity and does not set a project-wide provider. Use `readio plan bind ROLE VOICE PROJECT` or `--project PROJECT` from outside the project; nested working directories are discovered. For raw voice IDs, pass `--engine` when the engine cannot be inferred.
+New bindings are stored role-centrically in `project.json` under `settings.ssmd.role_bindings`, with each target's `engine`, canonical `voice`, and optional `target_id`. Selector provenance is not persisted. Binding a semantic reference retains its structured engine and target identity and does not set a project-wide provider. Use `readio plan bind ROLE REF PROJECT` or `--project PROJECT` from outside the project; nested working directories are discovered. For native voice IDs, pass `--engine` when needed and use a semantic reference if the target is ambiguous.
 
 Legacy `settings.ssmd.voice_bindings.<provider>.<role>` entries remain readable. The legacy `settings.ssmd.voice_provider`, when present, scopes those provider-keyed inputs; it does not select or override new role-centric targets. Without an active legacy provider, conflicting definitions for the same role are reported as ambiguous. There is no automatic migration command. `readio plan roles --provider PROVIDER` filters inspection output; it does not override project bindings.
 

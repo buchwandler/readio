@@ -213,7 +213,7 @@ Title and author default from the project's EPUB metadata and can be overridden.
 
 `app.catalog.engines()`, `targets()`, `models()`, `voices()`, `lexicons()`, and `audio_formats()` expose typed discovery data. Listing methods such as `models_listing()` and `voices_listing()` wrap entries with `CatalogDiscovery` metadata, including source, cache fallback, offline, and refresh state. Pass `DiscoveryOptions(offline=True)` to prevent a network refresh.
 Engine aliases `kokoro` -> `pykokoro` and `pipersynth` -> `piper` are canonical for engine, target, model, and voice catalog operations. `pocket` is a canonical engine ID. `app.catalog.normalize_engine()` exposes alias normalization. Lexicon queries are filtered through engine capabilities. The `voices list` CLI retains the convenience of treating a registered engine name supplied to `--model` as an engine filter when `--engine` is omitted.
-Voice metadata distinguishes the lowercase base `language` (for example `en`), canonical descriptive `locale` (for example `en-US`), and stable `selector_language` namespace (for example `en` or `en_us`). A stable selector such as `en-pi-13` may identify an `en-US` voice without encoding the locale in its identity. Pocket generic language `en` matches a specific `en-US` query, while an explicit `en-GB` locale does not; generic metadata is not assigned unsupported regional specificity.
+Voice references use `SYSTEM:TARGET[/VOICE]`, for example `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, and `pocket:english_2026-04/alba`. Public voice records expose `ref`, `target_id`, and public engine names. Metadata filtering uses descriptive language, locale, and gender fields and does not affect identity. Pocket generic language `en` matches a specific `en-US` query, while an explicit `en-GB` locale does not; generic metadata is not assigned unsupported regional specificity.
 
 ```python
 from readio.api import DiscoveryOptions, Readio, VoiceQuery
@@ -224,10 +224,10 @@ listing = app.catalog.voices_listing(
     discovery=DiscoveryOptions(offline=True),
 )
 for voice in listing.items:
-    print(voice.selector, voice.id)
+    print(voice.ref, voice.target_id, voice.id)
 ```
 
-Catalogs also provide singular lookups and voice-selector resolution. `app.roles` lists and mutates global role bindings and inspects, binds, or unbinds project-local roles. New bindings resolve to the public `VoiceTarget` type, which contains canonical `engine` and `voice` values plus optional `target_id` and `selector`; `provider` is derived from the engine. `RoleBinding.target`, `ProjectRole.effective_target`, and `ProjectRole.project_target` expose these values. Project inspection's summary `provider` is `None` when effective roles use multiple providers. The JSON target objects include both engine and derived provider fields.
+Catalogs also provide singular lookups and semantic voice-reference resolution. `app.roles` lists and mutates global role bindings and inspects, binds, or unbinds project-local roles. New bindings resolve to the public `VoiceTarget` type, which contains canonical `engine` and `voice` values plus optional `target_id`; `provider` is derived from the engine. Selector provenance is not part of role identity or serialization. `RoleBinding.target`, `ProjectRole.effective_target`, and `ProjectRole.project_target` expose these values. Project inspection's summary `provider` is `None` when effective roles use multiple providers. The JSON target objects include both engine and derived provider fields.
 
 Bind mixed-engine roles through the same API used by the CLI:
 
@@ -237,8 +237,8 @@ from readio.api import Readio
 
 app = Readio()
 project = app.projects.open(Path("episode.readio"))
-app.roles.bind_project(project, "host", "en_us-ko-4")
-app.roles.bind_project(project, "guest", "en-pi-13")
+app.roles.bind_project(project, "host", "kokoro:v1.0/af_sarah")
+app.roles.bind_project(project, "guest", "piper:en_US-amy-medium")
 inspection = app.roles.inspect_project(project)
 for role in inspection.roles:
     target = role.effective_target
@@ -246,7 +246,7 @@ for role in inspection.roles:
         print(role.role, target.engine, target.voice, target.provider)
 ```
 
-`bind_global(role, voice, engine=...)` and `bind_project(project, role, voice, engine=...)` accept an explicit engine for raw voice IDs; stable selectors resolve their engine and retain target identity. Optional `provider` arguments remain for compatibility, engine/namespace validation, and inspection filtering; they do not select a project-wide route. A role-centric global target is stored in the top-level `[roles.<role>]` configuration. Legacy `[voices.<provider>.roles]` configuration and project `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. Conflicting legacy definitions for the same global role or an unscoped project role produce explicit ambiguity diagnostics. The legacy project `settings.ssmd.voice_provider` scopes provider-keyed legacy inputs only. New project bindings use `settings.ssmd.role_bindings`, and no automatic migration command is provided. SSMD `voice_bindings` syntax is unchanged. Global configuration mutations persist; create a new `Readio` instance to use the saved configuration snapshot.
+`bind_global(role, voice, engine=...)` and `bind_project(project, role, voice, engine=...)` accept semantic references and context-resolved native voice IDs. Supply an explicit engine for a native ID when it cannot be inferred; use a semantic reference to identify its target. Optional `provider` arguments remain for compatibility, engine/namespace validation, and inspection filtering; they do not select a project-wide route. A role-centric global target is stored in the top-level `[roles.<role>]` configuration as engine, voice, and optional target ID, without selector provenance. Legacy `[voices.<provider>.roles]` configuration and project `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. Conflicting legacy definitions for the same global role or an unscoped project role produce explicit ambiguity diagnostics. The legacy project `settings.ssmd.voice_provider` scopes provider-keyed legacy inputs only. New project bindings use `settings.ssmd.role_bindings`, and no automatic migration command is provided. SSMD `voice_bindings` syntax is unchanged. Global configuration mutations persist; create a new `Readio` instance to use the saved configuration snapshot.
 
 `unbind_project_result(project, role)` returns a `ProjectRoleMutationResult` with the removed `previous_project_binding`, resulting `project_binding`, newly effective target and voice, `origin`, and `status`. It avoids reopening the project just to inspect the state transition. The original `unbind_project()` remains available and continues returning `None` for API-v1 compatibility.
 

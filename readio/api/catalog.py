@@ -17,7 +17,13 @@ from ..errors import ReadioError
 from ..jsonutil import JsonValue, json_value
 from ..lexicons import discover_lexicon_catalog
 from ..models import discover_model_info, get_model_info
-from ..voices import discover_voice_catalog, resolve_voice_selector
+from ..voice_refs import (
+    engine_for_public_system,
+    is_voice_ref,
+    parse_voice_ref,
+    public_system_for_engine,
+)
+from ..voices import discover_voice_catalog, resolve_voice_reference
 from . import errors as api_errors
 from .types import (
     AudioFormatInfo,
@@ -47,6 +53,13 @@ _DEFAULT_TARGET_QUERY = TargetQuery()
 _DEFAULT_MODEL_QUERY = ModelQuery()
 _DEFAULT_VOICE_QUERY = VoiceQuery()
 _DEFAULT_LEXICON_QUERY = LexiconQuery()
+
+
+def _public_voice_engine(engine: str) -> str:
+    try:
+        return public_system_for_engine(engine)
+    except ValueError:
+        return engine
 
 
 def _normalized_voice_metadata(
@@ -258,41 +271,15 @@ class CatalogService:
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[VoiceInfo]:
         engine = self.normalize_engine(query.engine) if query.engine else None
-        entries: list[VoiceInfo] = []
-        raw_discovery = None
         try:
-            if engine in {None, "pykokoro"}:
-                found, raw_discovery = discover_voice_catalog(
-                    offline=discovery.offline,
-                    refresh=discovery.refresh,
-                    preference=discovery.preference,
-                    engine="pykokoro",
-                    language=query.language,
-                )
-                entries.extend(self._voice_info(entry) for entry in found)
-            if engine in {None, "piper"}:
-                try:
-                    found, piper_discovery = discover_voice_catalog(
-                        offline=discovery.offline,
-                        refresh=discovery.refresh,
-                        preference=discovery.preference,
-                        engine="piper",
-                        language=query.language,
-                    )
-                except (ImportError, ValueError):
-                    if engine is not None:
-                        raise
-                else:
-                    entries.extend(self._voice_info(entry) for entry in found)
-                    raw_discovery = raw_discovery or piper_discovery
-            if engine not in {"pykokoro", "piper"}:
-                targets = self.targets(
-                    TargetQuery(engine=engine, language=query.language),
-                    discovery=discovery,
-                )
-                for target in targets:
-                    if target.engine not in {"pykokoro", "piper"}:
-                        entries.extend(self._target_voices(target))
+            found, raw_discovery = discover_voice_catalog(
+                offline=discovery.offline,
+                refresh=discovery.refresh,
+                preference=discovery.preference,
+                engine=engine,
+                language=query.language,
+            )
+            entries = tuple(self._voice_info(entry) for entry in found)
         except ReadioError:
             raise
         except Exception as error:
@@ -303,43 +290,60 @@ class CatalogService:
             item
             for item in entries
             if (query.gender is None or item.gender == query.gender)
-            and (query.model is None or item.model == query.model)
-            and (engine is None or item.engine == engine)
+            and (query.model is None or item.target_id == query.model)
+            and (engine is None or item.engine == _public_voice_engine(engine))
             and (normalized_query is None or self._language_matches(normalized_query, item))
         )
         return CatalogListing(filtered, self._discovery_metadata(raw_discovery, discovery))
 
     def voice_listing(
         self,
-        selector: str,
+        reference: str,
         *,
         query: VoiceQuery = _DEFAULT_VOICE_QUERY,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[VoiceInfo]:
+        if is_voice_ref(reference):
+            parsed = parse_voice_ref(reference)
+            reference_engine = engine_for_public_system(parsed.system)
+            if query.engine is not None and self.normalize_engine(query.engine) != reference_engine:
+                raise api_errors.DiscoveryError(
+                    f"Voice reference {parsed.value!r} resolves to engine {reference_engine!r}, "
+                    f"not requested engine {self.normalize_engine(query.engine)!r}.",
+                    code="catalog.voice_reference_engine_conflict",
+                )
+            if query.model is not None and query.model != parsed.target_id:
+                raise api_errors.DiscoveryError(
+                    f"Voice reference {parsed.value!r} targets {parsed.target_id!r}, "
+                    f"not requested target {query.model!r}.",
+                    code="catalog.voice_reference_target_conflict",
+                )
         listing = self.voices_listing(query, discovery=discovery)
-        raw = selector.casefold()
-        normalized = raw.replace("_", "-")
-        matches = tuple(
-            item
-            for item in listing.items
-            if raw in {item.id.casefold(), item.qualified_id.casefold()}
-            or (
-                item.selector is not None
-                and normalized
-                in {item.selector.casefold(), item.selector.casefold().replace("_", "-")}
+        if is_voice_ref(reference):
+            parsed = parse_voice_ref(reference)
+            engine = parsed.system
+            matches = tuple(
+                item
+                for item in listing.items
+                if item.engine == engine
+                and item.target_id == parsed.target_id
+                and (parsed.voice_id is None or item.id == parsed.voice_id)
             )
-        )
+        else:
+            matches = tuple(
+                item for item in listing.items if reference in {item.id, item.qualified_id}
+            )
         if not matches:
             raise api_errors.DiscoveryError(
-                f"Unknown voice {selector!r}.",
-                details={"selector": selector},
+                f"Unknown voice {reference!r}.",
+                details={"ref": reference},
                 code="catalog.voice_not_found",
             )
         if len(matches) > 1:
             raise api_errors.DiscoveryError(
-                f"Voice {selector!r} is ambiguous.",
+                f"Voice {reference!r} is ambiguous.",
                 details={
-                    "selectors": [item.selector for item in matches],
+                    "refs": [item.ref for item in matches],
                     "qualified_ids": [item.qualified_id for item in matches],
                 },
                 code="catalog.voice_ambiguous",
@@ -348,27 +352,25 @@ class CatalogService:
 
     def voice(
         self,
-        selector: str,
+        reference: str,
         *,
         engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> VoiceInfo:
-        return self.voice_listing(
-            selector,
-            query=VoiceQuery(engine=engine),
-            discovery=discovery,
-        ).items[0]
+        resolution = self.resolve_voice(reference, engine=engine, discovery=discovery)
+        assert resolution.catalog_entry is not None
+        return resolution.catalog_entry
 
     def resolve_voice(
         self,
-        selector: str,
+        reference: str,
         *,
         engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> VoiceResolution:
         try:
-            resolved = resolve_voice_selector(
-                selector,
+            resolved = resolve_voice_reference(
+                reference,
                 language=None,
                 model=None,
                 source=None,
@@ -377,44 +379,16 @@ class CatalogService:
                 preference=discovery.preference,
                 engine=engine,
             )
-            if resolved is not None and resolved.selector is not None:
-                entry = self._voice_info(resolved.catalog_entry) if resolved.catalog_entry else None
-                if entry is None:
-                    candidates = self.voices(
-                        VoiceQuery(model=resolved.model, engine=resolved.engine),
-                        discovery=discovery,
-                    )
-                    entry = next((item for item in candidates if item.id == resolved.voice), None)
-                return VoiceResolution(
-                    requested=resolved.requested,
-                    selector=resolved.selector,
-                    language=resolved.language,
-                    model=resolved.model,
-                    source=resolved.source,
-                    voice=resolved.voice,
-                    engine=resolved.engine,
-                    catalog_entry=entry,
-                )
-
-            candidates = self.voices(VoiceQuery(engine=engine), discovery=discovery)
-            matches = tuple(
-                item
-                for item in candidates
-                if item.id == selector or item.selector == selector or item.qualified_id == selector
-            )
-            if len(matches) != 1:
-                raise ValueError(
-                    f"voice selector {selector!r} matched {len(matches)} catalog entries"
-                )
-            entry = matches[0]
+            assert resolved is not None
+            entry = self._voice_info(resolved.catalog_entry)
             return VoiceResolution(
-                requested=selector,
-                selector=entry.selector,
-                language=entry.locale,
-                model=entry.model,
-                source=entry.source,
-                voice=entry.id,
-                engine=entry.engine,
+                requested=resolved.requested,
+                ref=resolved.ref,
+                language=resolved.language,
+                target_id=resolved.target_id,
+                source=resolved.source,
+                voice=resolved.voice,
+                engine=public_system_for_engine(resolved.engine),
                 catalog_entry=entry,
             )
         except ReadioError:
@@ -611,8 +585,9 @@ class CatalogService:
         gender, language, locale, language_label = _normalized_voice_metadata(
             entry.language, entry.locale, entry.language_label, entry.gender
         )
+        public_engine = _public_voice_engine(entry.engine)
         return VoiceInfo(
-            selector=entry.selector,
+            ref=entry.ref,
             id=entry.id,
             gender=gender,
             language=language,
@@ -626,55 +601,8 @@ class CatalogService:
             runtime_available=entry.runtime_available,
             distribution_id=entry.distribution_id,
             provider=entry.provider,
-            engine=entry.engine,
-            slot=entry.slot,
-            selector_language=entry.selector_language,
-            selector_engine_code=entry.selector_engine_code,
+            engine=public_engine,
         )
-
-    def _target_voices(self, target: SynthesisTargetInfo) -> tuple[VoiceInfo, ...]:
-        details = target.metadata.get("voice_details", ())
-        indexed = (
-            {
-                str(item.get("id")): item
-                for item in details
-                if isinstance(item, dict) and item.get("id") is not None
-            }
-            if isinstance(details, (list, tuple))
-            else {}
-        )
-        bundle_language = target.languages[0] if target.languages else "unknown"
-        voices = []
-        for voice in target.voices:
-            detail = indexed.get(voice, {})
-            gender, language, locale, language_label = _normalized_voice_metadata(
-                detail.get("language") or bundle_language,
-                detail.get("locale") or detail.get("language") or bundle_language,
-                detail.get("language_label"),
-                detail.get("gender"),
-            )
-            voices.append(
-                VoiceInfo(
-                    selector=None,
-                    id=voice,
-                    gender=gender,
-                    language=language,
-                    locale=locale,
-                    language_label=language_label,
-                    model=target.id,
-                    source=target.engine,
-                    default=voice == target.metadata.get("default_voice"),
-                    status=target.status,
-                    experimental=target.status == "experimental",
-                    runtime_available=target.runtime_available,
-                    distribution_id=target.id,
-                    provider=str(target.metadata["provider"])
-                    if target.metadata.get("provider")
-                    else None,
-                    engine=target.engine,
-                )
-            )
-        return tuple(voices)
 
     def _lexicon_info(self, entry: lexicons_internal.LexiconCatalogEntry) -> LexiconInfo:
         return LexiconInfo(
