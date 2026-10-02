@@ -15,7 +15,7 @@ from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
-from readio.execution import execute_bounded_v2
+from readio.execution import execute_render_v2
 from readio.plan import (
     InputRequest,
     OutputRequest,
@@ -224,7 +224,7 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
             pass
 
     sink = Sink()
-    result = execute_bounded_v2(resolved, sink)
+    result = execute_render_v2(resolved, sink)
     assert adapter.open_calls == 1
     assert len(adapter.received_requests) == 1
     assert adapter.received_requests[0].text == "hello world"
@@ -246,10 +246,10 @@ def test_explicit_engine_switch_does_not_inherit_reader_voice() -> None:
 
 def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> None:
     import readio.ssmd as legacy_ssmd
-    from readio.config import VoiceProviderSettings
     from readio.document import document_from_text
     from readio.engines.base import EngineCapabilities, EngineSelection
     from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
+    from readio.role_targets import VoiceTarget
 
     def reject_legacy_parser(*_args, **_kwargs):
         raise AssertionError("plan.v2 must not reparse SSMD with Readio's legacy parser")
@@ -278,12 +278,7 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
             return "test"
 
     monkeypatch.setitem(_registry._adapters, "fake-piper", FakePiperAdapter())
-    cfg = ReadioConfig(
-        voices={
-            "kokoro": VoiceProviderSettings(ids=("af_sarah",), roles={"guest": "af_sarah"}),
-            "piper": VoiceProviderSettings(ids=("en_US-amy-medium",), roles={"guest": "af_sarah"}),
-        }
-    )
+    cfg = ReadioConfig()
     request = PlanRequest(
         operation="render",
         input=InputRequest(
@@ -294,7 +289,7 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
         ),
         synthesis=SynthesisRequest(engine="fake-piper", voice="en_US-amy-medium"),
         output=OutputRequest(mode="file"),
-        project_voice_bindings={"guest": "en_US-amy-medium"},
+        project_voice_targets={"guest": VoiceTarget("piper", "en_US-amy-medium")},
     )
 
     resolved = resolve_execution_v2(cfg, request)
@@ -311,7 +306,6 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
 def test_ssmd_role_plan_serializes_engine_qualified_targets_across_precedence():
     from types import SimpleNamespace
 
-    from readio.config import VoiceProviderSettings
     from readio.plan import _resolve_v2_ssmd_roles
     from readio.role_targets import VoiceTarget
 
@@ -327,10 +321,7 @@ def test_ssmd_role_plan_serializes_engine_qualified_targets_across_precedence():
             document_metadata={"voice_bindings": {"piper": {"guest": "en_US-amy-medium"}}},
         )
     )
-    cfg = ReadioConfig(
-        voices={"kokoro": VoiceProviderSettings(ids=("af_sarah",), roles={})},
-        roles={"announcer": VoiceTarget("pykokoro", "af_sarah")},
-    )
+    cfg = ReadioConfig(roles={"announcer": VoiceTarget("kokoro", "af_sarah")})
     request = PlanRequest(
         operation="render",
         input=InputRequest(document=document_from_text("Hello.")),
@@ -340,7 +331,7 @@ def test_ssmd_role_plan_serializes_engine_qualified_targets_across_precedence():
         capabilities=lambda: SimpleNamespace(voice_binding_scope="voice"),
         target_metadata=lambda _selection: {"voices": ("af_sarah",)},
     )
-    selection = SimpleNamespace(engine="pykokoro", target_id="kokoro-model")
+    selection = SimpleNamespace(engine="kokoro", target_id="kokoro-model")
 
     role_bindings, bindings, unresolved, diagnostics = _resolve_v2_ssmd_roles(
         semantic,
@@ -358,9 +349,9 @@ def test_ssmd_role_plan_serializes_engine_qualified_targets_across_precedence():
     assert {item.reference: item.target.engine for item in bindings} == {
         "guest": "piper",
         "host": "piper",
-        "announcer": "pykokoro",
+        "announcer": "kokoro",
     }
     serialized = {item.role: item.to_dict() for item in role_bindings}
     assert serialized["guest"]["voice_target"]["engine"] == "piper"
     assert serialized["host"]["voice_target"]["engine"] == "piper"
-    assert serialized["announcer"]["voice_target"]["engine"] == "pykokoro"
+    assert serialized["announcer"]["voice_target"]["engine"] == "kokoro"

@@ -23,14 +23,16 @@ projects
 Readio requires Python 3.10 or newer.
 
 ```bash
-python -m pip install -e ".[cpu]"
+python -m pip install "readio[kokoro,cpu]"
 ```
 
 Use the GPU extra when a GPU-enabled ONNX Runtime is available:
 
 ```bash
-python -m pip install -e ".[gpu]"
+python -m pip install "readio[kokoro,gpu]"
 ```
+
+Install Piper, Pocket, or Kitten with `readio[piper,cpu]`, `readio[pocket]`, or `readio[kitten]`. The `readio[all,cpu]` extra installs all engine packages for a CPU environment.
 
 Engine packages may download model, voice, or bundle assets on first use. Spotify publishing additionally requires the separately installed and authenticated `save-to-spotify` executable.
 
@@ -43,6 +45,8 @@ readio speak "Hello from the terminal."
 readio speak --file notes.md
 printf '%s\n' "Read this text." | readio speak
 ```
+
+`speak` incrementally queues segments through Readio-owned `sounddevice` playback; it does not wait for the entire document or apply whole-program mastering. File rendering retains full-document mastering. The two execution paths share segment synthesis and composition semantics.
 
 Render an audio file instead of playing audio:
 
@@ -86,6 +90,8 @@ cat README.md | readio speak --input-format markdown
 
 Headings, lists, links, images, code blocks, block quotes, tables, task lists, HTML text, and front matter become speech-friendly text. Markdown styling does not create SSMD prosody. Use `.ssmd` or `.ssmd.md` for explicit voices, rate, volume, pitch, breaks, or markers; use `--input-format text` to force literal reading of a Markdown-looking file.
 
+The public `InputDocument.provenance` field exposes `DocumentProvenance` for auto-converted sources: original format, media type, source name, converter/version, and converter metadata. This information is retained on normal document instances without adding private converter imports or changing explicit text, Markdown, or SSMD input.
+
 ## Input and rendering
 
 The `speak`, `render`, and `spotify` commands accept the same input forms:
@@ -104,8 +110,8 @@ Synthesis options are available on all three commands:
 ````text
 --voice VOICE             engine voice ID
 --voice-file PATH         PocketSynth reference WAV
---engine ENGINE           pykokoro, piper, or pocket
---model TARGET            model ID, Piper voice bundle, or Pocket bundle
+--engine ENGINE           kokoro, piper, pocket, or kitten
+--model TARGET            model or engine-specific target ID
 --precision int8|fp32     PocketSynth bundle precision
 --temperature FLOAT       PocketSynth generation temperature
 --lsd-steps INT           PocketSynth latent diffusion steps
@@ -127,10 +133,10 @@ Synthesis options are available on all three commands:
 --unit UNIT               sentence or paragraph
 
 Readio's short-sentence default is `phrase`; Readio resolves the policy before engine adapters translate it to engine-native settings.
-Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. Supported optional engine floors are PyKokoro >=0.10.0,<0.11, PiperSynth >=0.2.0,<0.3, and PocketSynth >=0.2.0,<0.3. The `kokoro`, `piper`, and `pocket` extras install these runtimes. `readio doctor` checks their strict request APIs; incompatible packages do not trigger fallback to retired pipeline paths.
+Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. It requires OnnxVoice >=0.2,<0.3 and supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.1,<0.3, and KittenSynth >=0.1.0,<0.2. Canonical engine IDs are `kokoro`, `piper`, `pocket`, and `kitten`. Install engines with the matching optional extra; `readio doctor` checks each installed package's public request API without downloading models.
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
-Speed is an engine synthesis multiplier, not a composition tempo. PyKokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, and PocketSynth rejects explicit values other than `1.0`.
+Speed is an engine synthesis multiplier, not a composition tempo. Kokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, and PocketSynth rejects explicit values other than `1.0`.
 
 Readio, not the engine adapter, owns text-capacity fitting and exact-text subdivision. Adapters synthesize one strict request at a time and do not call native splitters. Readio preserves legal linguistic and pronunciation boundaries and fails when an oversized request has no legal split.
 
@@ -149,7 +155,7 @@ readio lexicons show crane --lang de --offline --json
 
 `models`, `voices`, and `lexicons` enumerate targets from the unified engine registry. They are metadata-only and do not load model weights or instantiate ONNX runtimes. Offline mode uses cached catalogs; refresh updates catalog metadata only.
 `--model-source` applies only to engines that advertise distribution-source selection. Voice rosters are target-scoped where the engine exposes them, and lexicons are listed only for engines that support lexicon discovery. SSMD preflight validates role targets against the selected engine catalog.
-Readio uses `readio.engines` as its sole engine registry. The registered engines are `pykokoro`, `piper`, and `pocket`; aliases are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
+Readio uses `readio.engines` as its sole engine registry. The registered engines are `kokoro`, `piper`, `pocket`, and `kitten`; aliases are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
 
 ## Synthesis planning
 
@@ -184,7 +190,7 @@ readio render --file notes.md --format mp3 --dry-run --json
 readio render --file notes.md --format mp3 --manifest
 ```
 
-The successful render writes `<audio>.readio.json` beside the audio. Its `readio.render-manifest.v1` payload embeds the exact executed `readio.plan.v2`, a canonical plan digest, the final encoded-file hash and byte count, `RenderSummary` audio facts, document metadata, and assembled marker offsets. Planning describes intended execution; the manifest describes the completed artifact.
+The successful render writes `<audio>.readio.json` beside the audio. Its `readio.render-manifest.v2` payload embeds the exact executed `readio.plan.v2`, a canonical plan digest, the final encoded-file hash and byte count, `RenderSummary` audio facts, document metadata, and assembled marker offsets. Planning describes intended execution; the manifest describes the completed artifact.
 
 The option is explicit and applies only to bounded `render`. It is rejected with `--live` and does not create manifests for `speak`, `plan`, dry runs, or publishing. Human output remains the audio path. JSON output remains one object and adds `manifest` with the sidecar path, or `null` without the option.
 
@@ -223,23 +229,17 @@ readio config validate
 readio config set reader.pause_mode auto
 ```
 
-`READIO_CONFIG` overrides the default configuration file path. Configuration is TOML with schema 2; schema-0/1 files remain readable and are upgraded when saved. The main sections are:
+`READIO_CONFIG` overrides the default configuration file path. Configuration is TOML schema 3; Readio does not silently load v0.3 provider-specific voice tables. Migrate existing files explicitly with `readio config migrate`; conflicts stop for review, and the source is backed up.
 
-- `[reader]`: `voice`, `lang`, `speed`, `pause_mode`, `unit`, `queue_size`, `device`, `spacy`, and `short_sentence`.
-- `[ssmd]`: the selected `voice_provider` and SSMD validation behavior.
+The main sections are:
+
+- `[reader]`: ordinary voice, language, speed, pause, unit, playback queue/device, and linguistic planning settings.
+- `[ssmd]`: SSMD validation behavior.
 - `[paths]`: user template, ingest, and audio output directories.
-- `[voices.<provider>]`: concrete voice IDs and logical role mappings.
-- `[languages.<locale>]`: validated model, source, quality, voice, ordered lexicons, `g2p_fallback`, and `lexicon_data_policy` defaults.
-- `[reader]`: optional `language_detection` mode and ordered `detect_languages` routing hints.
-  Set values with dotted keys. Aliases `voice`, `lang`, and `speed` target the corresponding reader settings:
+- `[roles.<role>]`: engine-qualified role targets (`engine`, `voice`, and optional `target_id`).
+- `[languages.<locale>]`: validated model, source, quality, voice, ordered lexicons, and language policies.
 
-```bash
-readio config set reader.voice bf_emma
-readio config set voices.kokoro.roles.analyst am_michael
-readio config set ssmd.voice_provider kokoro
-```
-
-The default provider is `kokoro`. Built-in logical roles include `narrator`, `host`, `analyst`, and `guest`. A configured role must resolve to one of the provider's configured voice IDs.
+Use `readio roles bind` to persist a global target, for example `readio roles bind analyst kokoro:v1.0/am_michael`. For a v0.3 project manifest, run `readio project migrate PROJECT` before opening the project; project migration also keeps a backup and rejects conflicting role bindings rather than guessing.
 
 ## Templates and ingest files
 
@@ -275,7 +275,7 @@ readio ssmd check episode.ssmd --json
 readio ssmd check episode.ssmd --roundtrip
 ```
 
-Document-local `voice_bindings` are authoritative. Readio supplies only missing defaults from the selected provider's configured roles. A voice reference must resolve to a document binding, configured logical role, or configured concrete voice ID. Unresolved references fail before model inference.
+Document-local SSMD `voice_bindings` remain authoritative in their external namespace. Readio resolves missing references against explicit invocation bindings, engine-qualified project and global roles, and the selected engine's configured voice. A document containing the same role in multiple namespaces is ambiguous and fails before model inference.
 
 Plain text remains the default for one-voice narration. Use SSMD when the document needs multiple speakers, logical roles, marks, or chapters.
 
@@ -323,8 +323,9 @@ SSMD document bindings use `voice_bindings.PROVIDER.ROLE: CONCRETE_VOICE_ID` and
 
 ````bash
 readio voices list --lang de --json
+readio voices list --engine kitten --json
 readio voices show kokoro:v1.0/af_heart --json
-readio roles list --provider kokoro
+readio roles list --engine kokoro
 
 For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`. References use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, or `pocket:english_2026-04/alba`; numbered voice selectors are removed. `--engine`, `--model`, `--lang`, and `--gender` filter catalog metadata. Native voice IDs need enough discovery context to resolve uniquely; prefer a semantic reference when the target must be explicit. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles.
 Use `readio roles bind ROLE REF` for an explicit persistent mapping. Native voice IDs can be used when their engine and target resolve uniquely. For automation, pass missing logical roles only for one invocation:

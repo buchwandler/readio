@@ -117,7 +117,7 @@ def _add_audio_output_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--engine", help="synthesis backend; default from configuration")
+    parser.add_argument("--engine", help="synthesis engine; default from configuration")
     parser.add_argument("--offline", action="store_true", help="do not fetch engine assets")
     parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
     parser.add_argument(

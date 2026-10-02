@@ -18,8 +18,6 @@ from ..project_settings import (
     project_role_targets_provenance,
     project_settings_from_manifest,
     project_synthesis_request,
-    project_voice_bindings,
-    project_voice_bindings_provenance,
     synthesis_request_fingerprint,
 )
 from . import audiobook_export as audiobook_export_stage
@@ -49,9 +47,6 @@ _STAGE_REASON_MESSAGES = {
         "Composition settings differ from those used to build the current master."
     ),
     "synthesis.stale.speech_changed": "Canonical speech artifacts are missing or stale.",
-    "synthesis.stale.project_voice_bindings_changed": (
-        "Project voice bindings changed after the active synthesis was created."
-    ),
     "synthesis.stale.project_role_targets_changed": (
         "Project role targets changed after the active synthesis was created."
     ),
@@ -156,75 +151,29 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             "state": "stale",
             "reason": "synthesis.stale.project_settings_changed",
         }
-    binding_record = profile.get("project_voice_bindings")
-    if binding_record is None:
-        legacy_provider = {"pykokoro": "kokoro", "piper": "piper"}.get(
-            str(canonical.get("engine", ""))
-        )
-        legacy_bindings = (
-            project_voice_bindings(project.manifest, legacy_provider)
-            if legacy_provider is not None
-            else {}
-        )
-        if legacy_bindings:
-            current_bindings = project_voice_bindings_provenance(legacy_provider, legacy_bindings)
-            return {
-                "stage": "synthesis",
-                "state": "stale",
-                "reason": "synthesis.stale.project_voice_bindings_changed",
-                "project_voice_bindings": current_bindings,
-            }
-    else:
-        if not isinstance(binding_record, Mapping):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        provider = binding_record.get("provider")
-        stored_bindings = binding_record.get("bindings")
-        stored_hash = binding_record.get("sha256")
-        if (
-            not isinstance(provider, str)
-            or not isinstance(stored_bindings, Mapping)
-            or not isinstance(stored_hash, str)
-        ):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        recorded_bindings = project_voice_bindings_provenance(provider, stored_bindings)
-        if recorded_bindings["sha256"] != stored_hash:
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        current_bindings = project_voice_bindings_provenance(
-            provider, project_voice_bindings(project.manifest, provider)
-        )
-        if current_bindings["sha256"] != stored_hash:
-            return {
-                "stage": "synthesis",
-                "state": "stale",
-                "reason": "synthesis.stale.project_voice_bindings_changed",
-                "project_voice_bindings": current_bindings,
-            }
-
     target_record = profile.get("project_role_targets")
-    if target_record is not None:
-        if not isinstance(target_record, Mapping):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        stored_targets = target_record.get("bindings")
-        stored_ambiguities = target_record.get("ambiguities")
-        stored_target_hash = target_record.get("sha256")
-        if (
-            not isinstance(stored_targets, Mapping)
-            or not isinstance(stored_ambiguities, Mapping)
-            or not isinstance(stored_target_hash, str)
-        ):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        stored_value = {"bindings": stored_targets, "ambiguities": stored_ambiguities}
-        if hashlib.sha256(canonical_json(stored_value)).hexdigest() != stored_target_hash:
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-        current_targets = project_role_targets_provenance(project.manifest)
-        if current_targets["sha256"] != stored_target_hash:
-            return {
-                "stage": "synthesis",
-                "state": "stale",
-                "reason": "synthesis.stale.project_role_targets_changed",
-                "project_role_targets": current_targets,
-            }
-
+    if not isinstance(target_record, Mapping):
+        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+    stored_targets = target_record.get("bindings")
+    stored_ambiguities = target_record.get("ambiguities")
+    stored_target_hash = target_record.get("sha256")
+    if (
+        not isinstance(stored_targets, Mapping)
+        or not isinstance(stored_ambiguities, Mapping)
+        or not isinstance(stored_target_hash, str)
+    ):
+        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+    stored_value = {"bindings": stored_targets, "ambiguities": stored_ambiguities}
+    if hashlib.sha256(canonical_json(stored_value)).hexdigest() != stored_target_hash:
+        return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+    current_targets = project_role_targets_provenance(project.manifest)
+    if current_targets["sha256"] != stored_target_hash:
+        return {
+            "stage": "synthesis",
+            "state": "stale",
+            "reason": "synthesis.stale.project_role_targets_changed",
+            "project_role_targets": current_targets,
+        }
     current_plans = {scope.id: (scope, plan) for scope, plan in scoped_plans}
     trace_plans = trace.get("plans")
     if isinstance(trace_plans, list):

@@ -78,7 +78,7 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
         chapters=(chapter,),
     )
     resolution = SynthesisResolution(
-        engine="pykokoro",
+        engine="kokoro",
         language="en-us",
         voice="af_heart",
         model="kokoro-v1",
@@ -88,7 +88,6 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
         unit="paragraph",
         pause_mode="auto",
         voice_level="off",
-        provider="kokoro",
         lexicons=("lex-a", "lex-b"),
         g2p_fallback="espeak",
         lexicon_data_policy="installed-only",
@@ -99,6 +98,7 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
 
     description_payload = json.loads(json.dumps(description.to_dict()))
     resolution_payload = json.loads(json.dumps(resolution.to_dict()))
+    assert "provider" not in resolution_payload
     assert description_payload["chapters"][0]["scope_id"] == "chapter-0003"
     assert resolution_payload["model_source"] == "github"
     assert resolution_payload["lexicons"] == ["lex-a", "lex-b"]
@@ -111,7 +111,7 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
         resolution.engine = "piper"  # type: ignore[misc]
 
     legacy_resolution = SynthesisResolution(
-        engine="pykokoro",
+        engine="kokoro",
         language="en-us",
         voice="af_heart",
         model="kokoro-v1",
@@ -137,25 +137,6 @@ def test_audiobook_and_synthesis_preflight_types_are_immutable_and_json_serializ
         "allow_experimental",
     }
 
-    legacy_positional = SynthesisResolution(
-        "pykokoro",
-        "en-us",
-        "af_heart",
-        "kokoro-v1",
-        "github",
-        "fp32",
-        1.0,
-        "paragraph",
-        "auto",
-        "off",
-        None,
-        None,
-        None,
-        (),
-    )
-    assert legacy_positional.diagnostics == ()
-    assert legacy_positional.lexicons is None
-
 
 def test_synthesis_engine_options_are_json_compatible_and_frozen() -> None:
     request = SynthesisRequest(
@@ -164,7 +145,7 @@ def test_synthesis_engine_options_are_json_compatible_and_frozen() -> None:
     )
     assert request.engine_options["length_scale"] == 1.1
     with pytest.raises(FrozenInstanceError):
-        request.engine = "pykokoro"  # type: ignore[misc]
+        request.engine = "kokoro"  # type: ignore[misc]
 
 
 def test_project_and_render_results_serialize_paths_and_nested_models(tmp_path: Path) -> None:

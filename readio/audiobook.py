@@ -198,7 +198,7 @@ def init_audiobook_project(
             source_format=source_format,
             source_sha256=source_sha256,
             kind="audiobook",
-            schema_version=2,
+            schema_version=3,
         )
 
         scopes = []

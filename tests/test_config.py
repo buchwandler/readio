@@ -1,140 +1,94 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
 
 from readio.config import (
     PathSettings,
-    ReaderConfig,
+    ReaderSettings,
     ReadioConfig,
-    VoiceProviderSettings,
     dumps_config,
     load_config,
     role_targets,
+    save_config,
     set_config_value,
-    validate_config,
-    voice_role,
 )
+from readio.migrations import MigrationError, migrate_config_data, migrate_config_file
 from readio.role_targets import VoiceTarget
 
 
-def test_config_round_trip(tmp_path: Path):
-    path = tmp_path / "config.toml"
-    cfg = ReaderConfig(
-        voice="bf_emma",
-        lang="en-gb",
-        speed=1.25,
-        unit="paragraph",
-        device="USB",
-        spacy="off",
-    )
-    path.write_text(dumps_config(cfg), encoding="utf-8")
-    assert load_config(path) == cfg
-
-
-def test_set_config_coerces_values():
-    cfg = ReaderConfig()
-    assert set_config_value(cfg, "speed", "1.4").speed == 1.4
-    assert set_config_value(cfg, "queue_size", "4").queue_size == 4
-
-
-def test_invalid_unit_rejected():
-    with pytest.raises(ValueError):
-        set_config_value(ReaderConfig(), "unit", "word")
-
-
-def test_default_config_has_provider_and_analyst_role():
-    cfg = ReadioConfig()
-    assert cfg.ssmd.voice_provider == "kokoro"
-    assert voice_role(cfg, "analyst") in cfg.voices["kokoro"].ids
-
-
-def test_config_round_trip_nested_sections(tmp_path: Path):
+def test_config_round_trip_schema_3_is_engine_neutral(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
+        reader=ReaderSettings(
+            voice="bf_emma",
+            lang="en-gb",
+            speed=1.25,
+            unit="paragraph",
+            device="USB",
+            spacy="off",
+        ),
+        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output"),
+        roles={"guest": VoiceTarget("pipersynth", "en_US-amy-medium", "amy-asset")},
     )
-    path.write_text(dumps_config(cfg), encoding="utf-8")
+    save_config(cfg, path)
     loaded = load_config(path)
     assert loaded == cfg
+    assert loaded.schema == 3
+    serialized = path.read_text(encoding="utf-8")
+    assert "schema = 3" in serialized
+    assert "[voices." not in serialized
+    assert "voice_provider" not in serialized
+    assert 'engine = "piper"' in serialized
 
 
-def test_legacy_reader_only_config_loads(tmp_path: Path):
-    path = tmp_path / "legacy.toml"
-    path.write_text('[reader]\nvoice = "bf_emma"\nlang = "en-gb"\n', encoding="utf-8")
-    cfg = load_config(path)
-    assert cfg.schema == 0
-    assert cfg.reader.voice == "bf_emma"
-    assert cfg.ssmd.voice_provider == "kokoro"
+def test_default_config_uses_engine_defaults_not_a_global_voice() -> None:
+    cfg = ReadioConfig()
+    assert cfg.schema == 3
+    assert cfg.reader.engine == "kokoro"
+    assert cfg.reader.voice is None
+    assert cfg.roles["analyst"] == VoiceTarget("kokoro", "am_michael")
+    assert role_targets(cfg)["guest"] == VoiceTarget("kokoro", "af_bella")
 
 
-def test_dotted_config_set_role_and_invalid_target():
-    cfg = set_config_value(ReadioConfig(), "voices.kokoro.roles.analyst", "am_adam")
-    assert cfg.voices["kokoro"].roles["analyst"] == "am_adam"
-    with pytest.raises(ValueError, match="not present"):
-        validate_config(set_config_value(ReadioConfig(), "voices.kokoro.roles.analyst", "missing"))
+def test_set_config_coerces_values_and_updates_structured_roles() -> None:
+    cfg = set_config_value(ReadioConfig(), "reader.speed", "1.4")
+    assert cfg.reader.speed == 1.4
+    cfg = set_config_value(cfg, "roles.analyst.voice", "am_adam")
+    assert cfg.roles["analyst"].voice == "am_adam"
+    cfg = set_config_value(cfg, "roles.analyst.engine", "pykokoro")
+    assert cfg.roles["analyst"].engine == "kokoro"
+    with pytest.raises(KeyError, match="unknown config key"):
+        set_config_value(cfg, "voices.kokoro.roles.analyst", "am_adam")
 
 
-def test_reader_policy_defaults() -> None:
-    cfg = ReaderConfig()
+def test_reader_policy_defaults_and_validation() -> None:
+    cfg = ReaderSettings()
     assert cfg.pause_mode == "auto"
     assert cfg.spacy == "auto"
     assert cfg.short_sentence == "phrase"
-
-
-def test_reader_voice_level_and_finite_speed_are_validated(tmp_path: Path) -> None:
-    cfg = ReaderConfig(voice_level="calibrated")
-    path = tmp_path / "voice-level.toml"
-    path.write_text(dumps_config(cfg), encoding="utf-8")
-    assert load_config(path).reader.voice_level == "calibrated"
-    assert set_config_value(ReaderConfig(), "voice_level", "calibrated").voice_level == "calibrated"
-    with pytest.raises(ValueError, match="reader.voice_level"):
-        set_config_value(ReaderConfig(), "voice_level", "unknown")
-    with pytest.raises(ValueError, match="finite"):
-        set_config_value(ReaderConfig(), "speed", float("nan"))
-
-
-def test_reader_policies_round_trip(tmp_path: Path) -> None:
-    path = tmp_path / "policies.toml"
-    for spacy in ("auto", "off", "sm", "md", "lg", "trf"):
-        for short_sentence in ("off", "wrap", "phrase", "randomized-phrase"):
-            cfg = ReaderConfig(spacy=spacy, short_sentence=short_sentence)
-            path.write_text(dumps_config(cfg), encoding="utf-8")
-            assert load_config(path).reader == cfg
-
-
-def test_legacy_required_spacy_migrates_to_sm(tmp_path: Path) -> None:
-    path = tmp_path / "legacy.toml"
-    path.write_text('[reader]\nspacy = "required"\n', encoding="utf-8")
-    cfg = load_config(path)
-    assert cfg.reader.spacy == "sm"
-    dumped = dumps_config(cfg)
-    assert 'spacy = "sm"' in dumped
-    assert "required" not in dumped
-
-
-def test_legacy_short_sentence_auto_loads_as_phrase(tmp_path: Path) -> None:
-    path = tmp_path / "legacy.toml"
-    path.write_text('[reader]\nshort_sentence = "auto"\n', encoding="utf-8")
-
-    cfg = load_config(path)
-
-    assert cfg.reader.short_sentence == "phrase"
-    dumped = dumps_config(cfg)
-    assert 'short_sentence = "phrase"' in dumped
-    assert 'short_sentence = "auto"' not in dumped
-
-
-def test_invalid_reader_policies_rejected() -> None:
     with pytest.raises(ValueError):
-        set_config_value(ReaderConfig(), "spacy", "xl")
-    with pytest.raises(ValueError):
-        set_config_value(ReaderConfig(), "short_sentence", "fast")
-
+        set_config_value(cfg, "unit", "word")
     with pytest.raises(ValueError, match="reader.short_sentence"):
-        set_config_value(ReaderConfig(), "short_sentence", "auto")
+        set_config_value(cfg, "short_sentence", "auto")
 
 
-def test_role_target_config_round_trip_drops_legacy_selector(tmp_path: Path) -> None:
+def test_reader_voice_level_and_finite_speed_round_trip(tmp_path: Path) -> None:
+    cfg = ReaderSettings(voice_level="calibrated")
+    path = tmp_path / "voice-level.toml"
+    save_config(cfg, path)
+    assert load_config(path).reader.voice_level == "calibrated"
+    assert (
+        set_config_value(ReaderSettings(), "voice_level", "calibrated").voice_level == "calibrated"
+    )
+    with pytest.raises(ValueError, match="reader.voice_level"):
+        set_config_value(ReaderSettings(), "voice_level", "unknown")
+    with pytest.raises(ValueError, match="finite"):
+        set_config_value(ReaderSettings(), "speed", float("nan"))
+
+
+def test_role_target_config_round_trip_uses_canonical_engine_ids(tmp_path: Path) -> None:
     target = VoiceTarget(
         engine="pipersynth",
         voice="en_US-amy-medium",
@@ -142,42 +96,76 @@ def test_role_target_config_round_trip_drops_legacy_selector(tmp_path: Path) -> 
     )
     cfg = ReadioConfig(roles={"guest": target})
     path = tmp_path / "roles.toml"
-    path.write_text(dumps_config(cfg), encoding="utf-8")
-
+    save_config(cfg, path)
     loaded = load_config(path)
-    assert loaded.roles["guest"] == VoiceTarget(
-        engine="piper",
-        voice="en_US-amy-medium",
-        target_id="amy-asset",
-    )
+    assert loaded.roles["guest"] == VoiceTarget("piper", "en_US-amy-medium", "amy-asset")
     assert role_targets(loaded)["guest"] == loaded.roles["guest"]
-    assert role_targets(loaded, provider="piper")["guest"] == loaded.roles["guest"]
     serialized = path.read_text(encoding="utf-8")
     assert 'engine = "piper"' in serialized
     assert "selector" not in serialized
 
-    legacy_path = tmp_path / "legacy-roles.toml"
-    legacy_path.write_text(
-        '[roles.guest]\nengine = "piper"\nvoice = "en_US-amy-medium"\n'
-        'target_id = "amy-asset"\nselector = "legacy-selector-value"\n',
+
+def test_v03_config_requires_explicit_migration_and_gets_backup(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.toml"
+    path.write_text(
+        "schema = 2\n"
+        '[reader]\nengine = "kitten"\nvoice = "af_sarah"\nspacy = "required"\n'
+        '[ssmd]\nvoice_provider = "pykokoro"\nvalidate_before_render = false\n'
+        '[voices.pykokoro]\nids = ["af_sarah", "af_heart"]\n'
+        '[voices.pykokoro.roles]\nnarrator = "af_heart"\n'
+        '[voices.piper]\nids = ["en_US-amy-medium"]\n'
+        '[voices.piper.roles]\nguest = "en_US-amy-medium"\n'
+        '[languages.en]\nengine = "pykokoro"\n',
         encoding="utf-8",
     )
-    legacy_loaded = load_config(legacy_path)
-    assert legacy_loaded.roles["guest"] == loaded.roles["guest"]
-    assert "selector" not in dumps_config(legacy_loaded)
-    with pytest.raises(KeyError):
-        set_config_value(legacy_loaded, "roles.guest.selector", "old-value")
+    with pytest.raises(ValueError, match="readio config migrate"):
+        load_config(path)
+
+    backup = migrate_config_file(path)
+    assert backup == path.with_name("legacy.toml.v03.bak")
+    assert backup.read_text(encoding="utf-8").startswith("schema = 2")
+    cfg = load_config(path)
+    assert cfg.schema == 3
+    assert cfg.reader.engine == "kitten"
+    assert cfg.reader.voice is None
+    assert cfg.reader.spacy == "sm"
+    assert cfg.ssmd.validate_before_render is False
+    assert cfg.roles["narrator"] == VoiceTarget("kokoro", "af_heart")
+    assert cfg.roles["guest"] == VoiceTarget("piper", "en_US-amy-medium")
+    assert cfg.languages["en"].engine == "kokoro"
+    stored = path.read_text(encoding="utf-8")
+    assert "voices." not in stored
+    assert "voice_provider" not in stored
+    assert "pykokoro" not in stored
+    assert migrate_config_file(path) is None
 
 
-def test_conflicting_legacy_global_roles_are_ambiguous() -> None:
-    cfg = ReadioConfig(
-        voices={
-            "kokoro": VoiceProviderSettings(ids=("af_sarah",), roles={"guest": "af_sarah"}),
-            "piper": VoiceProviderSettings(
-                ids=("en_US-amy-medium",), roles={"guest": "en_US-amy-medium"}
-            ),
-        }
+def test_config_migration_refuses_conflicting_provider_role_defaults() -> None:
+    with pytest.raises(MigrationError, match="conflicting provider bindings"):
+        migrate_config_data(
+            {
+                "schema": 2,
+                "voices": {
+                    "kokoro": {"roles": {"guest": "af_sarah"}},
+                    "piper": {"roles": {"guest": "en_US-amy-medium"}},
+                },
+            }
+        )
+
+
+def test_schema_three_rejects_legacy_provider_fields(tmp_path: Path) -> None:
+    path = tmp_path / "bad.toml"
+    path.write_text(
+        'schema = 3\n[ssmd]\nvoice_provider = "kokoro"\n',
+        encoding="utf-8",
     )
+    with pytest.raises(ValueError, match="ssmd.voice_provider is obsolete"):
+        load_config(path)
 
-    with pytest.raises(ValueError, match="ambiguous across legacy providers"):
-        role_targets(cfg)
+
+def test_schema_three_serialization_never_emits_aliases() -> None:
+    cfg = ReadioConfig(reader=ReaderSettings(engine="pykokoro"))
+    stored = dumps_config(cfg)
+    assert 'engine = "kokoro"' in stored
+    assert "pykokoro" not in stored
+    assert "[voices" not in stored

@@ -52,9 +52,11 @@ def test_plan_help_is_project_scoped(capsys) -> None:
 
 def test_plan_group_exposes_only_project_subcommands() -> None:
     parser = build_parser()
-    args = parser.parse_args(["plan", "roles", "--provider", "kokoro", "--json"])
+    args = parser.parse_args(["plan", "roles", "--engine", "kokoro", "--json"])
     assert args.plan_action == "roles"
-    assert args.provider == "kokoro"
+    assert args.engine == "kokoro"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["plan", "roles", "--provider", "kokoro"])
     with pytest.raises(SystemExit):
         parser.parse_args(["plan", "Hello world"])
     with pytest.raises(SystemExit):
@@ -75,11 +77,11 @@ def test_plan_roles_json_reports_project_roles(tmp_path, monkeypatch, capsys) ->
 
     result = json.loads(capsys.readouterr().out)
     assert result["project"] == str(project.root)
-    assert result["provider"] == "kokoro"
+    assert result["engine"] == "kokoro"
     assert result["roles"][0]["role"] == "narrator"
     assert result["roles"][0]["origin"] == "config.voice_role"
-    assert result["roles"][0]["effective_target"]["engine"] == "pykokoro"
-    assert result["roles"][0]["effective_target"]["provider"] == "kokoro"
+    assert result["roles"][0]["effective_target"]["engine"] == "kokoro"
+    assert "provider" not in result["roles"][0]["effective_target"]
 
 
 def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, capsys) -> None:
@@ -96,7 +98,7 @@ def test_plan_roles_human_output_has_unresolved_guidance(tmp_path, monkeypatch, 
 
     output = capsys.readouterr().out
     assert "unbound" in output
-    assert "ENGINE" in output and "PROVIDER" in output
+    assert "ENGINE" in output and "PROVIDER" not in output
     assert "Unresolved roles: unbound" in output
     assert "readio voices list --lang en-us" in output
     assert "readio plan bind unbound <voice>" in output
@@ -112,11 +114,10 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
     calls = {}
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
-    def bind(self, project_path, role, voice, *, provider=None, engine=None, discovery):
+    def bind(self, project_path, role, voice, *, engine=None, discovery):
         calls["project"] = project_path
         calls["role"] = role
         calls["voice"] = voice
-        calls["provider"] = provider
         calls["engine"] = engine
         calls["discovery"] = discovery
         return SimpleNamespace(
@@ -133,8 +134,6 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
             "narrator",
             "en-us/sarah",
             str(project.root),
-            "--provider",
-            "kokoro",
             "--engine",
             "pykokoro",
             "--offline",
@@ -146,14 +145,13 @@ def test_plan_bind_forwards_selector_and_project_options(tmp_path, monkeypatch, 
     assert calls["project"] == project.root
     assert calls["role"] == "narrator"
     assert calls["voice"] == "en-us/sarah"
-    assert calls["provider"] == "kokoro"
     assert calls["engine"] == "pykokoro"
     assert calls["discovery"].offline is True
     assert calls["discovery"].refresh is False
     payload = json.loads(capsys.readouterr().out)
     assert payload["stored_voice"] == "en-us/sarah"
-    assert payload["stored_target"]["engine"] == "pykokoro"
-    assert payload["stored_target"]["provider"] == "kokoro"
+    assert payload["stored_target"]["engine"] == "kokoro"
+    assert "provider" not in payload["stored_target"]
 
 
 def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -> None:
@@ -181,10 +179,10 @@ def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -
     )
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
 
-    def unbind_result(self, project_path, role, *, provider=None):
+    def unbind_result(self, project_path, role, *, engine=None):
         calls["project"] = project_path
         calls["role"] = role
-        calls["provider"] = provider
+        calls["engine"] = engine
         return mutation
 
     monkeypatch.setattr(
@@ -205,7 +203,7 @@ def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -
             "narrator",
             "--project",
             str(project.root),
-            "--provider",
+            "--engine",
             "kokoro",
             "--json",
         ]
@@ -214,7 +212,7 @@ def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -
 
     assert calls["project"] == project.root
     assert calls["role"] == "narrator"
-    assert calls["provider"] == "kokoro"
+    assert calls["engine"] == "kokoro"
     output = json.loads(capsys.readouterr().out)
     assert output["removed_voice"] == "af_heart"
     assert output["effective_voice"] is None
@@ -246,7 +244,7 @@ def test_plan_commands_discover_projects_from_nested_cwd(tmp_path, monkeypatch, 
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     calls = {}
 
-    def bind(self, project_path, role, voice, *, provider=None, engine=None, discovery):
+    def bind(self, project_path, role, voice, *, engine=None, discovery):
         calls["project"] = project_path
         return SimpleNamespace(
             role=role,

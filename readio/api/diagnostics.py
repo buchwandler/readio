@@ -64,7 +64,7 @@ class DiagnosticsService:
                 dependencies=self._dependencies(),
                 audio_formats=self.audio_formats(),
                 paths=paths,
-                voice_provider=self._app.config.ssmd.voice_provider,
+                engine=self._app.config.reader.engine,
             )
         except ReadioError:
             raise

@@ -43,7 +43,7 @@ class ResolvedModel:
     runtime_available: bool
     distribution_id: str | None = None
     provider: str | None = None
-    backend: str = "pykokoro"
+    engine: str = "kokoro"
     sample_rate: int | None = None
     max_tokens: int | None = None
 
@@ -61,7 +61,7 @@ class ResolvedModel:
             runtime_available=info.runtime_available,
             distribution_id=info.distribution_id,
             provider=info.provider,
-            backend=info.backend,
+            engine=info.engine,
             sample_rate=info.sample_rate,
             max_tokens=info.max_tokens,
         )
@@ -94,7 +94,7 @@ class ResolvedSynthesis:
     discovery_cache_fallback: bool = False
     discovery_offline: bool = False
     discovery_refreshed: bool = False
-    engine: str = "pykokoro"
+    engine: str = "kokoro"
 
 
 def _raw_synthesis_selection(
@@ -271,7 +271,7 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
             "refresh": policy.refresh,
             "preference": policy.preference,
         }
-        if engine != "pykokoro":
+        if engine != "kokoro":
             discovery_kwargs["engine"] = engine
         discovered, result = get_model_info(model, **discovery_kwargs)
         resolved_model = ResolvedModel.from_info(discovered)

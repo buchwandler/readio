@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 from audiocompose import AudioJob, Composer, Gain, PitchShift, RatePitchEnvelope, Tempo
-from utterplan import Marker
+from utterplan import Marker, ResolvedPause
 
 from readio.document import document_from_text
 from readio.engines.base import SpeechWordTiming
@@ -18,6 +18,7 @@ from readio.errors import InputError
 from readio.planning.compiler import compile_semantic_plan
 from readio.planning.policy import PlanningPolicy
 from readio.stages.composition import (
+    LayoutBuilder,
     _build_layout,
     _markers_by_segment,
     _segment_voice_identity,
@@ -253,6 +254,63 @@ def test_transition_voice_gate_and_scope_boundary_use_resolved_voice_identity(tm
     assert not any(
         isinstance(op, RatePitchEnvelope) for op in _speech_items(scoped_job)[1].operations
     )
+
+
+def test_incremental_layout_builder_preserves_state_across_segment_jobs(tmp_path):
+    plan = _plan()
+    first, second = plan.segments
+    first = replace(
+        first,
+        pause_after=ResolvedPause(seconds=0.05, events=("same-pause",)),
+    )
+    second = replace(
+        second,
+        pause_before=ResolvedPause(seconds=0.05, events=("same-pause",)),
+    )
+    marker = Marker(
+        id="marker-1",
+        name="chapter-one",
+        spoken_position=first.spoken_start + 5,
+    )
+    plan = replace(plan, segments=(first, second), markers=(marker,))
+    profile = {
+        "canonical": {
+            "bindings_by_scope": {"document": {"narrator": "voice-a", "guest": "voice-a"}}
+        }
+    }
+    entries = _entries(plan, tmp_path, profile)
+    entries[0][1]["markers"] = _markers_by_segment(plan)[first.id]
+    builder = LayoutBuilder(
+        None,
+        sample_rate=16000,
+        target_lufs=None,
+        true_peak_ceiling_dbtp=None,
+        peak_policy="reduce_gain",
+        clip_policy="warn",
+        mastering="off",
+    )
+
+    first_clips = builder.append(*entries[0])
+    first_job, _ = builder.build_job(first_clips)
+    first_speech = next(item for item in first_job.items if item.metadata.get("kind") == "speech")
+    assert first_job.output.sample_rate == 16000
+    assert first_job.output.clip_policy == "warn"
+    assert first_speech.anchors[0].id == "marker-1"
+    first_result = Composer().compose(first_job)
+    assert first_result.sample_rate == 16000
+    assert first_result.markers[0].id == "marker-1"
+
+    second_clips = builder.append(*entries[1])
+    second_job, identity = builder.build_job(second_clips)
+    second_speech = next(item for item in second_job.items if item.metadata.get("kind") == "speech")
+    assert not any(item.metadata.get("kind") == "silence" for item in second_job.items)
+    assert any(isinstance(operation, RatePitchEnvelope) for operation in second_speech.operations)
+    assert len(builder.warnings) == 1
+    assert len(identity["layout"]) == 3
+    assert Composer().compose(second_job).sample_rate == 16000
+
+    with pytest.raises(ValueError, match="no synthesized segments"):
+        builder.build_job(())
 
 
 def test_zero_duration_transition_is_deterministic_and_affects_identity(tmp_path):

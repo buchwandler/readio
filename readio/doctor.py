@@ -78,9 +78,7 @@ def run_doctor() -> str:
     lines.extend(["", "Recommendations:", "-" * 20])
     for engine_id, status in engines.items():
         if not status["package"]:
-            extra = {"pykokoro": "kokoro", "piper": "piper", "pocket": "pocket"}.get(
-                engine_id, engine_id
-            )
+            extra = engine_id
             lines.append(f"  - Install {engine_id}: pip install readio[{extra}]")
     for name, dependency in dependencies.items():
         if not dependency["available"]:

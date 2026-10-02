@@ -106,7 +106,7 @@ class ModelInfo:
     distribution_id: str | None = None
     provider: str | None = None
     distribution_provider: str | None = None
-    backend: str = "pykokoro"
+    engine: str = "kokoro"
     sample_rate: int | None = None
     max_tokens: int | None = None
     voice_details: tuple[VoiceMetadata, ...] = ()
@@ -133,7 +133,7 @@ class ModelInfo:
                 distribution_provider=getattr(
                     capabilities, "distribution_provider", getattr(capabilities, "provider", None)
                 ),
-                backend=getattr(capabilities, "backend", "pykokoro"),
+                engine=normalize_engine_id(getattr(capabilities, "engine", "kokoro")),
                 sample_rate=getattr(capabilities, "sample_rate", None),
                 max_tokens=getattr(capabilities, "max_tokens", None),
                 voice_details=_voice_metadata(capabilities),
@@ -178,7 +178,7 @@ class ModelInfo:
             distribution_id=metadata.get("distribution_id"),
             provider=metadata.get("provider"),
             distribution_provider=metadata.get("distribution_provider"),
-            backend=target.engine,
+            engine=target.engine,
             sample_rate=target.sample_rate or metadata.get("sample_rate"),
             max_tokens=metadata.get("max_tokens"),
             voice_details=details,
@@ -213,7 +213,7 @@ class ModelInfo:
             "distribution_id": self.distribution_id,
             "provider": self.provider,
             "distribution_provider": self.distribution_provider,
-            "backend": self.backend,
+            "engine": self.engine,
             "sample_rate": self.sample_rate,
             "max_tokens": self.max_tokens,
         }
@@ -456,7 +456,7 @@ def discover_model_info(
     """Discover engine targets through the unified synthesis registry."""
     from .engines.discovery import discover_targets
 
-    selected_engine = normalize_engine_id(engine) if engine is not None else "pykokoro"
+    selected_engine = normalize_engine_id(engine) if engine is not None else "kokoro"
     discovery = discover_targets(
         engine=selected_engine,
         language=language,
@@ -496,7 +496,7 @@ def _validation_error_code(
     generic: str,
     pykokoro: str,
 ) -> str:
-    return pykokoro if model.backend == "pykokoro" else generic
+    return pykokoro if model.engine == "kokoro" else generic
 
 
 def validate_language_settings(

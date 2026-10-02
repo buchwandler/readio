@@ -14,23 +14,31 @@ dependencies = [
   "audiocompose>=0.2.0,<0.3",
   "platformdirs>=4.0",
   "soundfile>=0.12",
+  "sounddevice>=0.4.6,<1.0",
   "tomli>=2.0; python_version < '3.11'",
   "typing_extensions>=4.0",
   "tomli-w>=1.0",
   "PyYAML>=6.0",
   "ssmd>=0.9.2,<0.10",
   "ssmdconvert[pdf,docx]>=0.1.0,<0.2",
-  "onnxvoice>=0.1.13,<0.2",
+  "onnxvoice>=0.2.0,<0.3",
   "markdown-it-py>=3.0,<5.0",
   "mdit-py-plugins>=0.4,<1.0",
   "rich-argparse>=1.7,<2",
 ]
 [project.optional-dependencies]
-kokoro = ['pykokoro[playback]>=0.10.0,<0.11']
-piper = ['pipersynth>=0.2.0,<0.3']
-pocket = ['pocketsynth[cpu]>=0.2.0,<0.3']
+kokoro = ['pykokoro>=0.10.2,<0.11']
+piper = ['pipersynth>=0.2.1,<0.3']
+pocket = ['pocketsynth[cpu]>=0.2.1,<0.3']
+kitten = ['kittensynth[cpu]>=0.1.0,<0.2']
 spacy = ['utterplan[spacy]>=0.3.0,<0.4']
-all = ['pykokoro[playback]>=0.10.0,<0.11', 'pipersynth>=0.2.0,<0.3', 'pocketsynth[cpu]>=0.2.0,<0.3', 'utterplan[spacy]>=0.3.0,<0.4']
+all = [
+  'pykokoro>=0.10.2,<0.11',
+  'pipersynth>=0.2.1,<0.3',
+  'pocketsynth[cpu]>=0.2.1,<0.3',
+  'kittensynth[cpu]>=0.1.0,<0.2',
+  'utterplan[spacy]>=0.3.0,<0.4',
+]
 cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu>=1.17"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]

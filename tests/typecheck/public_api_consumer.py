@@ -18,6 +18,7 @@ from readio.api import (
     DiscoveryOptions,
     DoctorReport,
     Document,
+    DocumentProvenance,
     EventHandler,
     EventKind,
     EventStage,
@@ -81,6 +82,8 @@ def public_api_consumer(
     source: Path,
 ) -> tuple[ResolvedPlan, RenderResult, ProjectBuildResult, ProjectStatus, DoctorReport]:
     document = document_from_file(source)
+    provenance: DocumentProvenance | None = document.provenance
+    assert provenance is None or provenance.converter_version is not None
     request = PlanRequest(
         operation="render",
         input=InputRequest(document=document, requested_format="auto"),

@@ -1,7 +1,7 @@
 """Audio output and rendering for Readio.
 
 This module provides the audio sink protocol, render progress/summary
-types, the PlaybackSink, and the streaming render_prepared() entry point.
+types, and the Readio-owned PlaybackSink.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class AudioSink(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class RenderSummary:
-    """Aggregated result of a streaming render."""
+    """Aggregate audio summary for one execution."""
 
     sample_rate: int = 0
     sample_count: int = 0
@@ -75,11 +75,7 @@ def _channel_count(audio: np.ndarray) -> int:
 
 
 class PlaybackSink:
-    """Audio sink for live playback via PyKokoro.
-
-    The player is created lazily on the first write so that sample rate
-    and channel count are discovered from the audio data itself.
-    """
+    """Audio sink for interactive playback through Readio's backend."""
 
     def __init__(self, cfg: Any) -> None:
         self._cfg = cfg
@@ -91,32 +87,27 @@ class PlaybackSink:
     def write(self, audio: np.ndarray, sample_rate: int) -> None:
         if self._closed:
             raise RuntimeError("audio sink is closed")
-
         channels = _channel_count(audio)
-
         if self._player is None:
-            from pykokoro.playback import SoundDevicePlayer
+            from .playback import SoundDevicePlayback
 
             self._sample_rate = sample_rate
             self._channels = channels
-            self._player = SoundDevicePlayer(
-                sample_rate,
+            self._player = SoundDevicePlayback(
                 device=self._cfg.device,
                 queue_size=self._cfg.queue_size,
-                channels=channels,
-            ).start()
+            ).start(sample_rate, channels)
         elif sample_rate != self._sample_rate or channels != self._channels:
             raise ValueError("all rendered chunks must use the same sample rate and channel count")
-
-        self._player.submit(audio)
+        self._player.submit(np.asarray(audio, dtype=np.float32))
 
     def finish(self) -> None:
-        """Drain the playback player."""
+        """Drain all queued audio before returning."""
         if self._player is not None:
             self._player.drain()
 
     def close(self) -> None:
-        """Close the playback player.  Idempotent."""
+        """Close the playback backend. Idempotent."""
         if self._closed:
             return
         self._closed = True
@@ -135,88 +126,10 @@ class PlaybackSink:
         self.close()
 
 
-# ---------------------------------------------------------------------------
-# render_prepared()
-# ---------------------------------------------------------------------------
-
-
-def render_prepared(
-    prepared: Any,
-    sink: AudioSink,
-    *,
-    indices: tuple[int, ...] | None = None,
-    on_progress: RenderProgressCallback | None = None,
-) -> RenderSummary:
-    """Render prepared units one at a time, streaming to *sink*.
-
-    Each result is released in a ``finally`` block so that audio memory
-    is freed even when the sink raises.
-    """
-    total_units = len(indices) if indices is not None else len(prepared.units)
-
-    sample_rate = 0
-    sample_count = 0
-    channels = 0
-    completed_units = 0
-    markers: list[dict[str, Any]] = []
-
-    if on_progress is not None:
-        on_progress(RenderProgress(0, total_units, 0, 0))
-
-    for result in prepared.render(indices=indices):
-        try:
-            audio = result.audio
-            chunk_rate = int(result.sample_rate)
-            chunk_channels = _channel_count(audio)
-
-            if sample_count and (chunk_rate != sample_rate or chunk_channels != channels):
-                raise ValueError(
-                    "all rendered chunks must use the same sample rate and channel count"
-                )
-
-            # Write before declaring the unit complete.
-            sink.write(audio, chunk_rate)
-
-            for marker in result.markers:
-                markers.append(
-                    {
-                        **marker,
-                        "sample_offset": int(marker["sample_offset"]) + sample_count,
-                    }
-                )
-
-            sample_rate = chunk_rate
-            channels = chunk_channels
-            sample_count += int(audio.shape[0])
-            completed_units += 1
-
-            if on_progress is not None:
-                on_progress(
-                    RenderProgress(
-                        completed_units,
-                        total_units,
-                        sample_count,
-                        sample_rate,
-                    )
-                )
-        finally:
-            result.release_audio()
-
-    return RenderSummary(
-        sample_rate=sample_rate,
-        sample_count=sample_count,
-        channels=channels,
-        document_metadata=dict(getattr(prepared, "document_metadata", {})),
-        markers=tuple(markers),
-    )
-
-
-# ---------------------------------------------------------------------------
 __all__ = [
     "AudioSink",
     "PlaybackSink",
     "RenderProgress",
     "RenderProgressCallback",
     "RenderSummary",
-    "render_prepared",
 ]

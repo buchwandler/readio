@@ -47,7 +47,12 @@ if TYPE_CHECKING:
     from .app import Readio
 
 
-_ENGINE_PACKAGES = {"pykokoro": "pykokoro", "piper": "pipersynth", "pocket": "pocketsynth"}
+_ENGINE_PACKAGES = {
+    "kokoro": "pykokoro",
+    "piper": "pipersynth",
+    "pocket": "pocketsynth",
+    "kitten": "kittensynth",
+}
 _DEFAULT_DISCOVERY = DiscoveryOptions()
 _DEFAULT_TARGET_QUERY = TargetQuery()
 _DEFAULT_MODEL_QUERY = ModelQuery()
@@ -172,7 +177,7 @@ class CatalogService:
     ) -> CatalogListing[ModelInfo]:
         try:
             engine = self.normalize_engine(query.engine) if query.engine else None
-            if engine not in {None, "pykokoro"}:
+            if engine not in {None, "kokoro"}:
                 targets = self.targets(
                     TargetQuery(engine=engine, language=query.language, status=query.status),
                     discovery=discovery,
@@ -199,9 +204,7 @@ class CatalogService:
                 discovery=discovery,
             )
             extras = tuple(
-                self._target_model(target)
-                for target in other_targets
-                if target.engine != "pykokoro"
+                self._target_model(target) for target in other_targets if target.engine != "kokoro"
             )
             return CatalogListing(
                 (*models, *extras), self._discovery_metadata(raw_discovery, discovery)
@@ -502,7 +505,7 @@ class CatalogService:
             distribution_id=model.distribution_id,
             provider=model.provider,
             distribution_provider=model.distribution_provider,
-            backend=model.backend,
+            engine=model.engine,
             sample_rate=model.sample_rate,
             max_tokens=model.max_tokens,
             voice_details=tuple(
@@ -541,7 +544,7 @@ class CatalogService:
             redistribution_allowed=bool(target.metadata.get("redistribution_allowed", False)),
             distribution_id=str(target.metadata.get("distribution_id") or target.id),
             provider=str(target.metadata["provider"]) if target.metadata.get("provider") else None,
-            backend=target.engine,
+            engine=target.engine,
             sample_rate=target.sample_rate,
             voice_details=tuple(
                 ModelVoiceInfo(

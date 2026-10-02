@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 from .. import config as config_internal
 from .. import project as project_internal
-from ..engines.registry import engine_for_ssmd_provider, normalize_engine_id
+from ..engines.registry import normalize_engine_id
 from ..jsonutil import JsonValue, json_value
 from ..project_roles import ProjectRoleError as InternalProjectRoleError
 from ..project_roles import (
@@ -41,23 +41,17 @@ class RoleService:
     def __init__(self, app: Readio) -> None:
         self._app = app
 
-    def list_global(self, *, provider: str | None = None) -> tuple[RoleBinding, ...]:
+    def list_global(self, *, engine: str | None = None) -> tuple[RoleBinding, ...]:
         cfg = self._app.config
-        if (
-            provider is not None
-            and provider not in cfg.voices
-            and not any(target.provider == provider for target in cfg.roles.values())
-        ):
-            raise api_errors.InvalidRequestError(
-                f"voice provider {provider!r} is not configured",
-                code="roles.provider_not_configured",
-            )
         try:
-            targets = config_internal.role_targets(cfg, provider=provider)
+            targets = config_internal.role_targets(cfg, engine)
         except ValueError as error:
-            raise api_errors.ResolutionError(
-                str(error), code="roles.ambiguous_legacy_binding"
-            ) from error
+            raise api_errors.InvalidRequestError(str(error), code="roles.engine_invalid") from error
+        if engine is not None and not targets:
+            raise api_errors.InvalidRequestError(
+                f"engine {engine!r} has no configured roles",
+                code="roles.engine_not_configured",
+            )
         return tuple(RoleBinding(role=role, target=target) for role, target in targets.items())
 
     def bind_global(
@@ -65,21 +59,12 @@ class RoleService:
         role: str,
         voice: str,
         *,
-        provider: str | None = None,
         engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> RoleBinding:
         cfg = self._app.config
         try:
-            provider_engine = engine_for_ssmd_provider(provider) if provider is not None else None
-            requested_engine = (
-                normalize_engine_id(engine) if engine is not None else provider_engine
-            )
-            if provider_engine is not None and requested_engine != provider_engine:
-                raise ValueError(
-                    f"provider {provider!r} maps to engine {provider_engine!r}, "
-                    f"not requested engine {requested_engine!r}"
-                )
+            requested_engine = normalize_engine_id(engine) if engine is not None else None
             resolved = resolve_voice_reference(
                 voice,
                 language=None,
@@ -98,11 +83,6 @@ class RoleService:
                 resolved.voice,
                 target_id=resolved.target_id,
             )
-            if provider is not None and target.provider != provider:
-                raise ValueError(
-                    f"voice target engine {target.engine!r} uses provider {target.provider!r}, "
-                    f"not requested provider {provider!r}"
-                )
             updated = config_internal.bind_voice_target(cfg, role, target)
             config_internal.save_config(updated)
         except api_errors.ReadioError:
@@ -115,26 +95,15 @@ class RoleService:
             ) from error
         return RoleBinding(role=role, target=target)
 
-    def unbind_global(self, role: str, *, provider: str | None = None) -> None:
+    def unbind_global(self, role: str, *, engine: str | None = None) -> None:
         cfg = self._app.config
         try:
-            if role in cfg.roles:
-                target = cfg.roles[role]
-                if provider is not None and target.provider != provider:
-                    raise ValueError(
-                        f"voice role {role!r} is bound to provider {target.provider!r}, "
-                        f"not {provider!r}"
-                    )
-                updated = config_internal.unbind_voice_target(cfg, role)
-            else:
-                targets = config_internal.role_targets(cfg, provider=provider)
-                target = targets.get(role)
-                if target is None:
-                    raise ValueError(f"voice role {role!r} is not configured")
-                legacy_provider = provider or target.provider
-                if legacy_provider is None:
-                    raise ValueError(f"voice role {role!r} has no provider mapping")
-                updated = config_internal.unbind_voice_role(cfg, role, legacy_provider)
+            target = cfg.roles.get(role)
+            if target is None or (
+                engine is not None and target.engine != normalize_engine_id(engine)
+            ):
+                raise ValueError(f"voice role {role!r} is not configured for the requested engine")
+            updated = config_internal.unbind_voice_target(cfg, role)
             config_internal.save_config(updated)
         except api_errors.ReadioError:
             raise
@@ -149,13 +118,13 @@ class RoleService:
         self,
         project: ProjectLike,
         *,
-        provider: str | None = None,
+        engine: str | None = None,
     ) -> ProjectRoleInspection:
         internal = self._load_project(project)
         try:
-            inspection = inspect_project_roles(internal, self._app.config, provider=provider)
+            inspection = inspect_project_roles(internal, self._app.config, engine=engine)
             return ProjectRoleInspection(
-                provider=inspection.provider,
+                engine=inspection.engine,
                 roles=tuple(self._project_role(role) for role in inspection.roles),
             )
         except api_errors.ReadioError:
@@ -173,7 +142,6 @@ class RoleService:
         role: str,
         voice: str,
         *,
-        provider: str | None = None,
         engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> ProjectRole:
@@ -184,7 +152,6 @@ class RoleService:
                 self._app.config,
                 role,
                 voice,
-                provider=provider,
                 engine=engine,
                 offline=discovery.offline,
                 refresh=discovery.refresh,
@@ -192,7 +159,7 @@ class RoleService:
             inspection = inspect_project_roles(
                 project_internal.load_project(result["project"]),
                 self._app.config,
-                provider=str(result["provider"]),
+                engine=str(result["engine"]),
             )
             selected = next(item for item in inspection.roles if item.role == role)
             return self._project_role(selected)
@@ -216,20 +183,20 @@ class RoleService:
         project: ProjectLike,
         role: str,
         *,
-        provider: str | None = None,
+        engine: str | None = None,
     ) -> None:
-        self.unbind_project_result(project, role, provider=provider)
+        self.unbind_project_result(project, role, engine=engine)
 
     def unbind_project_result(
         self,
         project: ProjectLike,
         role: str,
         *,
-        provider: str | None = None,
+        engine: str | None = None,
     ) -> ProjectRoleMutationResult:
         internal = self._load_project(project)
         try:
-            result = unbind_project_role(internal, self._app.config, role, provider=provider)
+            result = unbind_project_role(internal, self._app.config, role, engine=engine)
             effective_voice = result["effective_voice"]
             origin = result["origin"]
             status = (

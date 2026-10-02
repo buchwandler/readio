@@ -93,9 +93,13 @@ app = Readio(default_config())
 targets = app.catalog.targets(TargetQuery(engine=ENGINE_ID))
 assert len(targets) == 1 and targets[0].id == "fixture"
 models = app.catalog.models(ModelQuery(engine=ENGINE_ID))
-assert len(models) == 1 and models[0].backend == ENGINE_ID
+assert len(models) == 1 and models[0].engine == ENGINE_ID
+assert "backend" not in models[0].to_dict()
+assert "engine" in models[0].to_dict()
 voices = app.catalog.voices(VoiceQuery(engine=ENGINE_ID))
 assert len(voices) == 1 and voices[0].id == "fixture-voice"
+assert "backend" not in voices[0].to_dict()
+assert "engine" in voices[0].to_dict()
 assert ENGINE_ID in registered_engines()
 info = next(item for item in app.catalog.engines() if item.id == ENGINE_ID)
 assert info.registered and info.runnable and info.capabilities.id == ENGINE_ID
@@ -142,12 +146,11 @@ def test_global_roles_persist_and_return_typed_bindings(tmp_path: Path, monkeypa
 
     assert isinstance(binding, RoleBinding)
     assert isinstance(binding.target, VoiceTarget)
-    assert binding.provider == "kokoro"
-    assert binding.engine == "pykokoro"
+    assert "provider" not in binding.to_dict()
+    assert binding.engine == "kokoro"
     assert binding.voice == "af_heart"
     assert binding.target.target_id == "v1.0"
     assert "api_test" not in app.config.roles
-    assert "api_test" not in app.config.voices["kokoro"].roles
     assert "[roles.api_test]" in config_path.read_text(encoding="utf-8")
     serialized = config_path.read_text(encoding="utf-8")
     assert 'target_id = "v1.0"' in serialized
@@ -184,7 +187,6 @@ def test_global_role_binding_persists_structured_target(tmp_path, monkeypatch) -
         "engine": "piper",
         "voice": "en_US-amy-medium",
         "target_id": "amy-asset",
-        "provider": "piper",
     }
     serialized = (tmp_path / "readio.toml").read_text(encoding="utf-8")
     assert 'target_id = "amy-asset"' in serialized
@@ -208,9 +210,7 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
     assert isinstance(bound, ProjectRole)
     assert bound.effective_voice == "af_heart"
     assert bound.origin == "project"
-    assert bound.project_target == VoiceTarget(
-        engine="pykokoro", voice="af_heart", target_id="v1.0"
-    )
+    assert bound.project_target == VoiceTarget(engine="kokoro", voice="af_heart", target_id="v1.0")
     assert bound.effective_target == bound.project_target
     assert app.roles.inspect_project(project).unresolved == ()
 
@@ -220,13 +220,12 @@ def test_project_role_operations_preserve_effective_binding(tmp_path: Path) -> N
     assert mutation.previous_project_binding == "af_heart"
     assert mutation.project_binding is None
     assert mutation.previous_project_target == VoiceTarget(
-        engine="pykokoro", voice="af_heart", target_id="v1.0"
+        engine="kokoro", voice="af_heart", target_id="v1.0"
     )
     assert mutation.to_dict()["previous_project_target"] == {
-        "engine": "pykokoro",
+        "engine": "kokoro",
         "voice": "af_heart",
         "target_id": "v1.0",
-        "provider": "kokoro",
     }
     assert mutation.effective_voice is None
     assert mutation.origin == "unresolved"
@@ -262,12 +261,12 @@ def test_public_project_role_binding_uses_engine_qualified_piper_target(
     bound = app.roles.bind_project(project, "guest", "piper:en_US-amy-medium", engine="piper")
     assert isinstance(bound, ProjectRole)
     assert bound.project_target == VoiceTarget("piper", "en_US-amy-medium", target_id="amy-asset")
-    assert bound.effective_provider == "piper"
+    assert bound.effective_engine == "piper"
     inspection = app.roles.inspect_project(project)
-    assert inspection.provider == "piper"
+    assert inspection.engine == "piper"
     effective_payload = inspection.to_dict()["roles"][0]["effective_target"]
     assert effective_payload["engine"] == "piper"
-    assert effective_payload["provider"] == "piper"
+    assert "provider" not in effective_payload
 
     manifest = json.loads((project.root / "project.json").read_text(encoding="utf-8"))
     ssmd = manifest["settings"]["ssmd"]
@@ -283,7 +282,7 @@ def test_public_project_role_binding_uses_engine_qualified_piper_target(
     removed = app.roles.unbind_project_result(project, "guest")
     assert isinstance(removed, ProjectRoleMutationResult)
     assert removed.previous_project_target == bound.project_target
-    assert removed.to_dict()["previous_project_target"]["provider"] == "piper"
+    assert "provider" not in removed.to_dict()["previous_project_target"]
 
 
 def test_project_role_unbind_result_exposes_config_fallback(tmp_path: Path) -> None:
@@ -293,10 +292,8 @@ def test_project_role_unbind_result_exposes_config_fallback(tmp_path: Path) -> N
         encoding="utf-8",
     )
     config = default_config()
-    voices = dict(config.voices)
-    kokoro = voices["kokoro"]
-    voices["kokoro"] = replace(kokoro, roles={**kokoro.roles, "api_speaker": "af_sarah"})
-    app = Readio(replace(config, voices=voices))
+    roles = {**config.roles, "api_speaker": VoiceTarget("kokoro", "af_sarah")}
+    app = Readio(replace(config, roles=roles))
     project = app.projects.create(source, output=tmp_path / "roles-with-fallback.readio")
     app.roles.bind_project(project, "api_speaker", "af_heart")
 

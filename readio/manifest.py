@@ -18,9 +18,7 @@ if TYPE_CHECKING:
     from .plan import ReadioPlanV2
 
 
-RENDER_MANIFEST_SCHEMA_V1 = "readio.render-manifest.v1"
 RENDER_MANIFEST_SCHEMA_V2 = "readio.render-manifest.v2"
-MANIFEST_SCHEMA = RENDER_MANIFEST_SCHEMA_V1
 
 
 def manifest_path_for(output: Path) -> Path:
@@ -60,48 +58,6 @@ def _created_at(value: datetime | None) -> str:
     return (
         timestamp.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     )
-
-
-def build_render_manifest(
-    *,
-    plan: ReadioPlanV2,
-    summary: RenderSummary,
-    output: Path,
-    created_at: datetime | None = None,
-) -> dict[str, Any]:
-    """Build evidence from the executed plan, render summary, and final artifact."""
-    output_format = plan.output.format
-    if output_format is None:
-        raise ValueError("render manifest requires a resolved output format")
-    if plan.output.encoder_backend is None:
-        raise ValueError("render manifest requires a resolved encoder backend")
-
-    return {
-        "schema": MANIFEST_SCHEMA,
-        "ok": True,
-        "created_at": _created_at(created_at),
-        "plan": {
-            "sha256": plan_sha256(plan),
-            "resolved": plan.to_dict(),
-        },
-        "result": {
-            "output": {
-                "path": str(output),
-                "format": output_format,
-                "encoder_backend": plan.output.encoder_backend,
-                "byte_count": output.stat().st_size,
-                "sha256": file_sha256(output),
-            },
-            "audio": {
-                "sample_rate": summary.sample_rate,
-                "sample_count": summary.sample_count,
-                "channels": summary.channels,
-                "duration_ms": round(summary.sample_count * 1000 / summary.sample_rate),
-            },
-            "document_metadata": json_value(summary.document_metadata),
-            "markers": json_value(summary.markers),
-        },
-    }
 
 
 def build_render_manifest_v2(

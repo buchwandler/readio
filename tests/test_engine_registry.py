@@ -36,14 +36,17 @@ class TestNormalizeEngineId:
     def test_canonical_piper_unchanged(self) -> None:
         assert normalize_engine_id("piper") == "piper"
 
-    def test_canonical_pykokoro_unchanged(self) -> None:
-        assert normalize_engine_id("pykokoro") == "pykokoro"
+    def test_canonical_kokoro_unchanged(self) -> None:
+        assert normalize_engine_id("kokoro") == "kokoro"
+
+    def test_pykokoro_alias_normalizes_to_kokoro(self) -> None:
+        assert normalize_engine_id("pykokoro") == "kokoro"
 
     def test_alias_pipersynth_normalizes_to_piper(self) -> None:
         assert normalize_engine_id("pipersynth") == "piper"
 
-    def test_alias_kokoro_normalizes_to_pykokoro(self) -> None:
-        assert normalize_engine_id("kokoro") == "pykokoro"
+    def test_alias_kittensynth_normalizes_to_kitten(self) -> None:
+        assert normalize_engine_id("kittensynth") == "kitten"
 
     def test_unknown_engine_passes_through(self) -> None:
         assert normalize_engine_id("unknown") == "unknown"
@@ -55,15 +58,15 @@ class TestNormalizeEngineId:
 class TestEngineAliases:
     """Tests for ENGINE_ALIASES dict."""
 
-    def test_aliases_contains_pipersynth(self) -> None:
-        assert ENGINE_ALIASES["pipersynth"] == "piper"
-
-    def test_aliases_contains_kokoro(self) -> None:
-        assert ENGINE_ALIASES["kokoro"] == "pykokoro"
+    def test_aliases_are_input_only(self) -> None:
+        assert ENGINE_ALIASES == {
+            "pykokoro": "kokoro",
+            "pipersynth": "piper",
+            "kittensynth": "kitten",
+        }
 
     def test_canonical_ids(self) -> None:
-        assert "pykokoro" in CANONICAL_ENGINE_IDS
-        assert "piper" in CANONICAL_ENGINE_IDS
+        assert CANONICAL_ENGINE_IDS == frozenset({"kokoro", "piper", "pocket", "kitten"})
 
 
 # ---------------------------------------------------------------------------
@@ -122,14 +125,14 @@ class TestRegistryFacade:
             result = engine_ids()
             assert "piper" in result
 
-    def test_default_engine_returns_pykokoro(self) -> None:
-        """default_engine should return the pykokoro adapter."""
+    def test_default_engine_returns_kokoro(self) -> None:
+        """default_engine should return the canonical kokoro adapter."""
         mock_adapter = type(
             "MockAdapter",
             (),
             {
-                "id": "pykokoro",
-                "version": lambda self: "0.9.0",
+                "id": "kokoro",
+                "version": lambda self: "0.10.0",
             },
         )()
 
@@ -138,23 +141,21 @@ class TestRegistryFacade:
 
         with patch("readio.engines.registry._registry", registry):
             result = default_engine()
-            assert result.id == "pykokoro"
+            assert result.id == "kokoro"
 
     def test_iter_engines_yields_registered(self) -> None:
         """iter_engines should yield all registered adapters."""
         mock_piper = type("MockPiper", (), {"id": "piper", "version": lambda self: "0.1.0"})()
-        mock_pykokoro = type(
-            "MockPykokoro", (), {"id": "pykokoro", "version": lambda self: "0.9.0"}
-        )()
+        mock_kokoro = type("MockKokoro", (), {"id": "kokoro", "version": lambda self: "0.10.0"})()
 
         registry = EngineRegistry()
         registry.register(mock_piper)
-        registry.register(mock_pykokoro)
+        registry.register(mock_kokoro)
 
         with patch("readio.engines.registry._registry", registry):
             adapters = list(iter_engines())
             ids = {a.id for a in adapters}
-            assert ids == {"piper", "pykokoro"}
+            assert ids == {"piper", "kokoro"}
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +188,7 @@ class TestEngineRegistryClass:
         registry = EngineRegistry()
         status = registry.status()
         # Known optional engines remain visible when their packages are absent.
-        assert {"pykokoro", "piper", "pocket"}.issubset(status)
+        assert {"kokoro", "piper", "pocket", "kitten"}.issubset(status)
 
     def test_iter_adapters_yields_all(self) -> None:
         registry = EngineRegistry()
@@ -201,7 +202,7 @@ class TestEngineRegistryClass:
 
 class TestEngineProviderHelpers:
     def test_engine_for_ssmd_provider(self) -> None:
-        assert engine_for_ssmd_provider("kokoro") == "pykokoro"
+        assert engine_for_ssmd_provider("kokoro") == "kokoro"
         assert engine_for_ssmd_provider("piper") == "piper"
 
     def test_engine_for_unknown_provider_raises(self) -> None:

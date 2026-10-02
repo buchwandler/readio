@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from json import dumps
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from audiocompose import AudioJob, Composer, CompositionResult
@@ -45,12 +45,19 @@ class ResolvedExecutionV2:
 
 
 @dataclass(frozen=True, slots=True)
-class BoundedRenderResult:
-    """Result retaining all artifacts produced by a bounded render."""
+class MasterRenderResult:
+    """Full-master result retaining composition artifacts for file rendering."""
 
     summary: RenderSummary
     audio_job: AudioJob
     composition: CompositionResult
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackExecutionResult:
+    """Execution-neutral result for incremental interactive playback."""
+
+    summary: RenderSummary
 
 
 def _artifact_dict(value: Any) -> dict[str, Any]:
@@ -99,14 +106,12 @@ def _selection_key(selection: EngineSelection) -> str:
     )
 
 
-def execute_bounded_v2(
+def iter_synthesized_segments(
     resolved: ResolvedExecutionV2,
-    sink: AudioSink,
     *,
-    on_progress: RenderProgressCallback | None = None,
-    on_phase: Callable[[str], None] | None = None,
-) -> BoundedRenderResult:
-    """Execute a resolved v2 plan without discovery or re-resolution."""
+    release_after_yield: bool = False,
+) -> Iterator[tuple[Any, dict[str, Any]]]:
+    """Yield lowered segment audio from the shared engine execution path."""
     plan = resolved.plan
     if not plan.ok or plan.render is None or resolved.selection is None:
         raise RenderError("cannot execute an unresolved v2 plan")
@@ -120,9 +125,8 @@ def execute_bounded_v2(
         raise RenderError("resolved v2 plan has no default render target")
     role_targets = {binding.role: binding.target for binding in plan.render.role_bindings}
     from .rendering import LoweringError, lower_segment, render_atomic_request
-    from .stages.composition import _build_layout, _markers_by_segment
+    from .stages.composition import _markers_by_segment
 
-    rendered_segments: list[tuple[Any, dict[str, Any]]] = []
     markers_by_segment = _markers_by_segment(resolved.semantic.plan)
     sessions: dict[str, Any] = {}
     with ExitStack() as stack:
@@ -155,41 +159,62 @@ def execute_bounded_v2(
             speech_hash = hashlib.sha256(
                 f"{resolved.semantic.sha256}:{segment.id}:{segment.text}".encode()
             ).hexdigest()
-            rendered_segments.append(
-                (
-                    segment,
-                    {
-                        "scope_id": "document",
-                        "cache_path": None,
-                        "audio": audio,
-                        "audio_sha256": hashlib.sha256(audio.tobytes()).hexdigest(),
-                        "sample_rate": int(rendered.sample_rate),
-                        "channels": 1,
-                        "frames": len(audio),
-                        "speech_hash": speech_hash,
-                        "synthesis_key": plan.render.render_id or "",
-                        "word_timings": tuple(rendered.word_timings),
-                        "markers": markers_by_segment.get(str(segment.id), ()),
-                        "composition": {
-                            "rate": plan.render.rate,
-                            **{
-                                key: value
-                                for key, value in plan.render.options.items()
-                                if key in {"speed", "rate", "pitch", "volume", "emphasis"}
-                            },
-                        },
-                        "voice_identity": f"{selection.target_id}:{selection.voice or ''}",
-                        "prosody_transitions": (
-                            resolved.semantic.plan.document_metadata.get("prosody_transitions")
-                        ),
-                        "engine_metadata": dict(rendered.metadata),
-                        "warnings": tuple(rendered.warnings),
-                        "lowering_diagnostics": tuple(lowered.diagnostics),
-                        "plan_unit_id": lowered.unit_id,
+            entry = {
+                "scope_id": "document",
+                "cache_path": None,
+                "audio": audio,
+                "audio_sha256": hashlib.sha256(audio.tobytes()).hexdigest(),
+                "sample_rate": int(rendered.sample_rate),
+                "channels": 1,
+                "frames": len(audio),
+                "speech_hash": speech_hash,
+                "synthesis_key": plan.render.render_id or "",
+                "word_timings": tuple(rendered.word_timings),
+                "markers": markers_by_segment.get(str(segment.id), ()),
+                "composition": {
+                    "rate": plan.render.rate,
+                    **{
+                        key: value
+                        for key, value in plan.render.options.items()
+                        if key in {"speed", "rate", "pitch", "volume", "emphasis"}
                     },
-                )
-            )
+                },
+                "voice_identity": f"{selection.target_id}:{selection.voice or ''}",
+                "prosody_transitions": resolved.semantic.plan.document_metadata.get(
+                    "prosody_transitions"
+                ),
+                "engine_metadata": dict(rendered.metadata),
+                "warnings": tuple(rendered.warnings),
+                "lowering_diagnostics": tuple(lowered.diagnostics),
+                "plan_unit_id": lowered.unit_id,
+            }
+            try:
+                yield segment, entry
+            finally:
+                if release_after_yield:
+                    release = getattr(rendered, "release_audio", None)
+                    if callable(release):
+                        release()
+                rendered = None
+                atomic = None
 
+
+def execute_render_v2(
+    resolved: ResolvedExecutionV2,
+    sink: AudioSink,
+    *,
+    on_progress: RenderProgressCallback | None = None,
+    on_phase: Callable[[str], None] | None = None,
+) -> MasterRenderResult:
+    """Synthesize all segments, then perform full-program composition/mastering."""
+    plan = resolved.plan
+    if resolved.semantic is None:
+        raise RenderError("cannot execute v2 plan without a semantic artifact")
+    from .stages.composition import _build_layout
+
+    rendered_segments = cast(
+        list[tuple[Any, Mapping[str, Any]]], list(iter_synthesized_segments(resolved))
+    )
     audio_job, _composition_identity = _build_layout(
         None,
         rendered_segments,
@@ -229,15 +254,97 @@ def execute_bounded_v2(
         document_metadata={},
         markers=markers,
     )
-    return BoundedRenderResult(
+    return MasterRenderResult(
         summary=summary,
         audio_job=audio_job,
         composition=composition,
     )
 
 
+def execute_playback_v2(
+    resolved: ResolvedExecutionV2,
+    sink: AudioSink,
+    *,
+    on_progress: RenderProgressCallback | None = None,
+) -> PlaybackExecutionResult:
+    """Compose and submit one segment at a time without whole-program mastering."""
+    plan = resolved.plan
+    from .stages.composition import LayoutBuilder
+
+    if resolved.semantic is None:
+        raise RenderError("cannot execute v2 plan without a semantic artifact")
+    total_units = len(resolved.semantic.plan.segments)
+    sample_rate = plan.composition.sample_rate or 0
+    layout_builder: LayoutBuilder | None = None
+    sample_count = 0
+    channels = 0
+    completed_units = 0
+    markers: list[dict[str, Any]] = []
+    if on_progress is not None:
+        on_progress(RenderProgress(0, total_units, 0, sample_rate))
+
+    for segment, entry in iter_synthesized_segments(resolved, release_after_yield=True):
+        job: AudioJob | None = None
+        clips: tuple[Any, ...] | None = None
+        composition: CompositionResult | None = None
+        audio: np.ndarray | None = None
+        try:
+            if sample_rate == 0:
+                sample_rate = int(entry["sample_rate"])
+            if layout_builder is None:
+                layout_builder = LayoutBuilder(
+                    None,
+                    sample_rate=sample_rate,
+                    target_lufs=None,
+                    true_peak_ceiling_dbtp=None,
+                    peak_policy="reduce_gain",
+                    clip_policy=plan.composition.clip_policy,
+                    mastering="off",
+                )
+            clips = layout_builder.append(segment, entry)
+            job, _identity = layout_builder.build_job(clips)
+            composition = Composer().compose(job)
+            audio = np.asarray(composition.audio, dtype=np.float32)
+            if audio.size == 0:
+                raise RenderError("playback produced an empty segment")
+            if int(composition.sample_rate) != sample_rate:
+                raise RenderError("playback composition changed the output sample rate")
+            sink.write(audio, sample_rate)
+            for marker in composition.markers:
+                payload = _artifact_dict(marker)
+                if "sample_offset" in payload:
+                    payload["sample_offset"] = int(payload["sample_offset"]) + sample_count
+                markers.append(payload)
+            channels = 1 if audio.ndim == 1 else int(audio.shape[1])
+            sample_count += int(audio.shape[0])
+            completed_units += 1
+            if on_progress is not None:
+                on_progress(RenderProgress(completed_units, total_units, sample_count, sample_rate))
+        finally:
+            entry["audio"] = None
+            audio = None
+            composition = None
+            job = None
+            clips = None
+
+    if completed_units == 0:
+        raise RenderError("playback produced no audio")
+    return PlaybackExecutionResult(
+        summary=RenderSummary(
+            sample_rate=sample_rate,
+            sample_count=sample_count,
+            channels=channels,
+            document_metadata={},
+            markers=tuple(markers),
+        )
+    )
+
+
 __all__ = [
-    "BoundedRenderResult",
+    "MasterRenderResult",
+    "PlaybackExecutionResult",
     "ResolvedExecutionV2",
-    "execute_bounded_v2",
+    "execute_playback_v2",
+    "execute_render_v2",
+    "iter_synthesized_segments",
 ]

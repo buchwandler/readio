@@ -80,7 +80,7 @@ def _translate_pykokoro_error(
             error_type = InvalidSpeechRequestError
 
     context: dict[str, Any] = {
-        "engine": "pykokoro",
+        "engine": "kokoro",
         "engine_version": _pykokoro_version(),
         "target_id": selection.target_id,
         "language": request.language if request is not None else selection.language,
@@ -138,7 +138,7 @@ class PyKokoroEngineSession:
     def __init__(self, synthesizer: Any, selection: EngineSelection | None = None) -> None:
         self._synthesizer = synthesizer
         self._selection = selection or EngineSelection(
-            engine="pykokoro", target_id="unknown", language="und"
+            engine="kokoro", target_id="unknown", language="und"
         )
 
     def measure(self, request: SpeechRequest) -> RequestMeasure:
@@ -207,7 +207,7 @@ class PyKokoroEngineSession:
         return validate_rendered_speech(
             request,
             rendered,
-            engine="pykokoro",
+            engine="kokoro",
             engine_version=_pykokoro_version(),
             target_id=self._selection.target_id,
         )
@@ -238,7 +238,7 @@ def _pykokoro_token(item: SpeechToken, module: Any) -> Any:
 class PyKokoroEngineAdapter:
     """PyKokoro implementation of Readio's request-oriented engine contract."""
 
-    id = "pykokoro"
+    id = "kokoro"
     package_name = "pykokoro"
 
     def version(self) -> str | None:

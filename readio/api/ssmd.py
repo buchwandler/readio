@@ -6,11 +6,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
+from .. import config as config_internal
 from .. import ssmd as ssmd_internal
 from .. import ssmd_authoring
 from ..document import InputDocument, document_from_file
 from ..errors import ReadioError, VoiceResolutionError
 from ..jsonutil import JsonValue, json_value
+from ..role_targets import engine_for_ssmd_namespace, ssmd_namespace_for_engine
 from ..synthesis import resolve_synthesis_request
 from . import errors as api_errors
 from .types import (
@@ -83,9 +85,14 @@ class SSMDService:
             item for item in analysis.voice_references if item.reference in unresolved
         )
         available = tuple(
-            self._app.config.voices[analysis.provider].ids
-            if analysis.provider in self._app.config.voices
-            else ()
+            sorted(
+                {
+                    target.voice
+                    for target in config_internal.role_targets(
+                        self._app.config, engine_for_ssmd_namespace(analysis.provider)
+                    ).values()
+                }
+            )
         )
         header_template = {
             "voice_bindings": {analysis.provider: {item.reference: None for item in references}}
@@ -122,7 +129,7 @@ class SSMDService:
         in_place: bool = False,
     ) -> SSMDMaterializeResult:
         source = source.expanduser()
-        provider_id = provider or self._app.config.ssmd.voice_provider
+        provider_id = provider or ssmd_namespace_for_engine(self._app.config.reader.engine)
         try:
             output_path = ssmd_authoring.materialize_voice_bindings(
                 source,

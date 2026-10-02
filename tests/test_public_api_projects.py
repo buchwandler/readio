@@ -30,7 +30,7 @@ from readio.api import (
     Readio,
     SynthesisResolution,
 )
-from readio.config import LanguageSettings, ReaderSettings, ReadioConfig, VoiceProviderSettings
+from readio.config import LanguageSettings, ReaderSettings, ReadioConfig
 from readio.engines.registry import _registry
 from readio.plan import SynthesisRequest
 
@@ -271,6 +271,7 @@ def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
 
     assert isinstance(resolution, SynthesisResolution)
     assert resolution.engine == "fake"
+    assert "provider" not in resolution.to_dict()
     assert resolution.language == "en-us"
     assert resolution.voice == "reader-voice"
     assert resolution.model == "profile-model"
@@ -280,7 +281,6 @@ def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
     assert resolution.unit == "sentence"
     assert resolution.pause_mode == "manual"
     assert resolution.voice_level == "calibrated"
-    assert resolution.provider == "fake"
     assert resolution.lexicons is None
     assert adapter.open_calls == 0
     assert _project_snapshot(project.root) == before
@@ -333,11 +333,17 @@ def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
     tmp_path: Path, monkeypatch
 ) -> None:
     adapter = Adapter()
+    monkeypatch.setattr(
+        adapter,
+        "target_metadata",
+        lambda _selection: {"voices": ("bound-voice", "project-voice")},
+        raising=False,
+    )
     monkeypatch.setitem(_registry._adapters, "fake", adapter)
     app = Readio(
         ReadioConfig(
             reader=ReaderSettings(engine="fake", voice="reader-voice"),
-            voices={"fake": VoiceProviderSettings(ids=("bound-voice", "project-voice"), roles={})},
+            roles={},
         )
     )
     source = tmp_path / "voices.ssmd"
@@ -379,7 +385,7 @@ def test_resolve_synthesis_respects_request_overrides_and_voice_bindings(
     assert resolution.spacy == "off"
     assert resolution.short_sentence == "phrase"
     assert adapter.open_calls == 0
-    app.roles.bind_project(project, "narrator", "project-voice", provider="fake")
+    app.roles.bind_project(project, "narrator", "project-voice", engine="fake")
     persisted = app.projects.resolve_synthesis(project, SynthesisRequest(engine="fake"))
     assert persisted.voice == "project-voice"
     assert adapter.open_calls == 0

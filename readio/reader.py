@@ -77,7 +77,7 @@ def render_from_plan_v2(
     on_phase: Callable[[str], None] | None = None,
 ) -> RenderSummary:
     """Execute a resolved plan-v2 bundle without re-resolving its selection."""
-    from .execution import ResolvedExecutionV2, execute_bounded_v2
+    from .execution import ResolvedExecutionV2, execute_render_v2
 
     if not isinstance(plan, ResolvedExecutionV2):
         raise RenderError(
@@ -90,7 +90,7 @@ def render_from_plan_v2(
         selector,
         plan.plan.render.engine if plan.plan.render else "unknown",
     )
-    return execute_bounded_v2(
+    return execute_render_v2(
         plan,
         sink,
         on_progress=on_progress,

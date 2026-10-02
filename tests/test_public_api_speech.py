@@ -25,7 +25,7 @@ from readio.api import (
 )
 from readio.audio import RenderProgress
 from readio.config import ReadioConfig
-from readio.execution import BoundedRenderResult
+from readio.execution import MasterRenderResult, PlaybackExecutionResult
 
 
 def _request(*, output: OutputRequest | None = None) -> PlanRequest:
@@ -62,7 +62,17 @@ def _fake_execution(_resolved, sink, *, on_progress=None, on_phase=None):
         spans=(),
         items=(),
     )
-    return BoundedRenderResult(summary, SimpleNamespace(), composition)
+    return MasterRenderResult(summary, SimpleNamespace(), composition)
+
+
+def _fake_playback_execution(_resolved, sink, *, on_progress=None):
+    audio = np.zeros(32, dtype=np.float32)
+    sink.write(audio, 22050)
+    if on_progress is not None:
+        on_progress(RenderProgress(1, 1, len(audio), 22050))
+    return PlaybackExecutionResult(
+        RenderSummary(sample_rate=22050, sample_count=len(audio), channels=1)
+    )
 
 
 class _Sink:
@@ -126,7 +136,7 @@ def test_public_plan_is_serializable_and_does_not_create_output(tmp_path: Path) 
 def test_render_to_sink_preserves_caller_ownership_and_composes_events(monkeypatch) -> None:
     from readio.api import speech
 
-    monkeypatch.setattr(speech, "execute_bounded_v2", _fake_execution)
+    monkeypatch.setattr(speech, "execute_playback_v2", _fake_playback_execution)
     operation_events: list[ReadioEvent] = []
     application_events: list[ReadioEvent] = []
     sink = _Sink()
@@ -144,24 +154,22 @@ def test_render_to_sink_preserves_caller_ownership_and_composes_events(monkeypat
     assert result.plan is not None
     assert [event.kind for event in operation_events] == [
         "operation.started",
-        "stage.started",
         "progress",
         "operation.completed",
     ]
     assert [event.kind for event in application_events] == [
         "operation.started",
-        "stage.started",
         "progress",
         "operation.completed",
     ]
-    assert operation_events[1].stage == "composition"
-    assert operation_events[2].audio_seconds == 32 / 22050
+    assert operation_events[1].audio_seconds == 32 / 22050
+    assert result.plan.composition.mastering == "off"
 
 
 def test_render_writes_owned_file_and_manifest(monkeypatch, tmp_path: Path) -> None:
     from readio.api import speech
 
-    monkeypatch.setattr(speech, "execute_bounded_v2", _fake_execution)
+    monkeypatch.setattr(speech, "execute_render_v2", _fake_execution)
     output = tmp_path / "render.wav"
     result = Readio(ReadioConfig()).speech.render(
         _request(
@@ -189,7 +197,7 @@ def test_speak_owns_and_finishes_its_playback_sink(monkeypatch) -> None:
     from readio import audio
     from readio.api import speech
 
-    monkeypatch.setattr(speech, "execute_bounded_v2", _fake_execution)
+    monkeypatch.setattr(speech, "execute_playback_v2", _fake_playback_execution)
     owned_sink = _OwnedPlaybackSink(None)
     monkeypatch.setattr(audio, "PlaybackSink", lambda config: owned_sink)
 
@@ -197,7 +205,28 @@ def test_speak_owns_and_finishes_its_playback_sink(monkeypatch) -> None:
 
     assert result.plan is not None
     assert owned_sink.writes
+    assert result.plan.composition.mastering == "off"
+    assert result.loudness is None
     assert owned_sink.finished
+    assert owned_sink.closed
+
+
+def test_speak_reports_playback_backend_failures_with_a_playback_error_code(monkeypatch) -> None:
+    from readio import audio
+    from readio.api import speech
+
+    def fail_playback(_resolved, _sink, *, on_progress=None):
+        raise RuntimeError("output device unavailable")
+
+    monkeypatch.setattr(speech, "execute_playback_v2", fail_playback)
+    owned_sink = _OwnedPlaybackSink(None)
+    monkeypatch.setattr(audio, "PlaybackSink", lambda config: owned_sink)
+
+    with pytest.raises(ExecutionError) as error:
+        Readio(ReadioConfig()).speech.speak(_request())
+
+    assert error.value.code == "speech.playback_failed"
+    assert "output device unavailable" in str(error.value)
     assert owned_sink.closed
 
 

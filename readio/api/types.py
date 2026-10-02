@@ -11,8 +11,8 @@ from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast
 
 from ..audio import AudioSink, RenderSummary
 from ..config import LanguageSettings, ReaderSettings, ReadioConfig
+from ..document import DocumentProvenance, document_from_file, document_from_text
 from ..document import InputDocument as Document
-from ..document import document_from_file, document_from_text
 from ..engines.base import EngineCapabilities
 from ..formats import AudioFormat
 from ..jsonutil import JsonScalar, JsonValue, json_value
@@ -431,7 +431,7 @@ class ProjectSynthesisResult:
         return cast(dict[str, JsonValue], json_value(self))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SynthesisResolution:
     """Effective project synthesis settings resolved without rendering audio."""
 
@@ -447,7 +447,6 @@ class SynthesisResolution:
     voice_level: str | None
     spacy: str | None = None
     short_sentence: str | None = None
-    provider: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     lexicons: tuple[str, ...] | None = None
     g2p_fallback: str | None = None
@@ -707,7 +706,7 @@ class ModelInfo:
     distribution_id: str | None = None
     provider: str | None = None
     distribution_provider: str | None = None
-    backend: str = "pykokoro"
+    engine: str = "kokoro"
     sample_rate: int | None = None
     max_tokens: int | None = None
     voice_details: tuple[ModelVoiceInfo, ...] = ()
@@ -740,7 +739,7 @@ class VoiceInfo:
     runtime_available: bool
     distribution_id: str | None = None
     provider: str | None = None
-    engine: str = "pykokoro"
+    engine: str = "kokoro"
 
     @property
     def target_id(self) -> str:
@@ -821,10 +820,6 @@ class RoleBinding:
     target: VoiceTarget
 
     @property
-    def provider(self) -> str | None:
-        return self.target.provider
-
-    @property
     def engine(self) -> str:
         return self.target.engine
 
@@ -839,7 +834,7 @@ class RoleBinding:
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(
             dict[str, JsonValue],
-            json_value({"role": self.role, **self.target.to_dict(), "provider": self.provider}),
+            json_value({"role": self.role, **self.target.to_dict()}),
         )
 
 
@@ -881,10 +876,6 @@ class ProjectRole:
     def effective_engine(self) -> str | None:
         return self.effective_target.engine if self.effective_target else None
 
-    @property
-    def effective_provider(self) -> str | None:
-        return self.effective_target.provider if self.effective_target else None
-
     def to_dict(self) -> dict[str, JsonValue]:
         result = cast(dict[str, JsonValue], json_value(self))
         for name in ("project_target", "config_target", "effective_target"):
@@ -892,14 +883,14 @@ class ProjectRole:
             if target is not None:
                 result[name] = cast(
                     JsonValue,
-                    json_value({**target.to_dict(), "provider": target.provider}),
+                    json_value(target.to_dict()),
                 )
         return result
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectRoleInspection:
-    provider: str | None
+    engine: str | None
     roles: tuple[ProjectRole, ...]
 
     @property
@@ -911,7 +902,7 @@ class ProjectRoleInspection:
             dict[str, JsonValue],
             json_value(
                 {
-                    "provider": self.provider,
+                    "engine": self.engine,
                     "roles": [role.to_dict() for role in self.roles],
                 }
             ),
@@ -938,7 +929,7 @@ class ProjectRoleMutationResult:
             if target is not None:
                 result[name] = cast(
                     JsonValue,
-                    json_value({**target.to_dict(), "provider": target.provider}),
+                    json_value(target.to_dict()),
                 )
         return result
 
@@ -1080,7 +1071,7 @@ class DoctorReport:
     dependencies: tuple[DependencyDiagnostic, ...]
     audio_formats: tuple[AudioFormatDiagnostic, ...]
     paths: tuple[PathDiagnostic, ...]
-    voice_provider: str
+    engine: str
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -1110,6 +1101,7 @@ __all__ = [
     "DiscoveryOptions",
     "DoctorReport",
     "Document",
+    "DocumentProvenance",
     "EngineDiagnostic",
     "EngineInfo",
     "ExportOptions",

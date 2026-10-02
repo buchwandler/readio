@@ -4,12 +4,15 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from readio import cli
 from readio.api import Readio, default_config
 from readio.api.catalog import CatalogService
 from readio.api.types import VoiceInfo
-from readio.config import PathSettings, ReadioConfig, VoiceProviderSettings
+from readio.config import PathSettings, ReadioConfig
 from readio.models import ModelInfo, VoiceMetadata
+from readio.role_targets import VoiceTarget
 from readio.voice_refs import public_system_for_engine
 from readio.voices import VoiceCatalogEntry, build_voice_catalog
 
@@ -74,12 +77,7 @@ def real_en_us_catalog() -> tuple[VoiceCatalogEntry, ...]:
 def config(tmp_path: Path) -> ReadioConfig:
     return ReadioConfig(
         paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "out"),
-        voices={
-            "kokoro": VoiceProviderSettings(
-                ids=("af_sarah", "am_michael"),
-                roles={"host": "af_sarah"},
-            )
-        },
+        roles={"host": VoiceTarget("kokoro", "af_sarah")},
     )
 
 
@@ -242,7 +240,7 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
         == 0
     )
     assert saved[-1].roles["moderator"].voice == "new_voice"
-    assert saved[-1].roles["moderator"].engine == "pykokoro"
+    assert saved[-1].roles["moderator"].engine == "kokoro"
 
     bound = saved[-1]
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: bound)
@@ -250,7 +248,7 @@ def test_roles_bind_and_unbind_use_config_save(monkeypatch, tmp_path):
     assert "moderator" not in saved[-1].roles
 
 
-def test_role_cli_json_reports_engine_and_provider_per_binding(monkeypatch, tmp_path, capsys):
+def test_role_cli_json_reports_canonical_engine_per_binding(monkeypatch, tmp_path, capsys):
     cfg = config(tmp_path)
     saved = []
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
@@ -273,7 +271,7 @@ def test_role_cli_json_reports_engine_and_provider_per_binding(monkeypatch, tmp_
     assert cli._cmd_roles(bind_args) == 0
     bound = json.loads(capsys.readouterr().out)
     assert bound["engine"] == "piper"
-    assert bound["provider"] == "piper"
+    assert "provider" not in bound
     assert bound["voice"] == "en_US-amy-medium"
 
     cfg = saved[-1]
@@ -283,24 +281,25 @@ def test_role_cli_json_reports_engine_and_provider_per_binding(monkeypatch, tmp_
     listing = json.loads(capsys.readouterr().out)
     guest = next(item for item in listing["roles"] if item["role"] == "guest")
     assert guest["engine"] == "piper"
-    assert guest["provider"] == "piper"
+    assert "provider" not in guest
 
     unbind_args = cli.build_parser().parse_args(["roles", "unbind", "guest", "--json"])
     assert cli._cmd_roles(unbind_args) == 0
     removed = json.loads(capsys.readouterr().out)
     assert removed["removed_target"]["engine"] == "piper"
-    assert removed["provider"] == "piper"
+    assert removed["engine"] == "piper"
 
 
-def test_legacy_roles_alias_emits_warning(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
-    assert cli._cmd_voices(cli.build_parser().parse_args(["voices", "roles", "--json"])) == 0
-    assert "deprecated" in capsys.readouterr().err
+@pytest.mark.parametrize("legacy_command", ("roles", "bind", "unbind"))
+def test_deprecated_voice_role_aliases_are_removed(legacy_command):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["voices", legacy_command])
+    assert exit_info.value.code == 2
 
 
 def test_voice_list_model_engine_aliases_normalize_without_changing_concrete_filters():
     normalize_engine = Readio(default_config()).catalog.normalize_engine
-    available = {"piper", "pykokoro"}
+    available = {"piper", "kokoro"}
     assert [
         cli._normalize_voice_list_filters(
             engine=None,
@@ -312,8 +311,8 @@ def test_voice_list_model_engine_aliases_normalize_without_changing_concrete_fil
     ] == [
         ("piper", None),
         ("piper", None),
-        ("pykokoro", None),
-        ("pykokoro", None),
+        ("kokoro", None),
+        ("kokoro", None),
     ]
     assert cli._normalize_voice_list_filters(
         engine=None,

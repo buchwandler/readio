@@ -29,7 +29,7 @@ def test_prompt_missing_voices_skips_existing_bindings(monkeypatch, capsys) -> N
         bindings={"host": "af_heart"},
     )
 
-    assert bindings == {"guest": default_config().voices["kokoro"].ids[0]}
+    assert bindings == {"guest": default_config().roles["guest"].voice}
     assert prompts == ["Voice for guest [enter number or voice ID]: "]
     assert "SSMD uses 1 unconfigured voice references" in capsys.readouterr().out
 

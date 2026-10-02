@@ -96,7 +96,7 @@ def _add_mastering_options(parser: argparse.ArgumentParser) -> None:
 def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--engine",
-        help="synthesis backend; default from configuration",
+        help="synthesis engine; default from configuration",
     )
     parser.add_argument("--offline", action="store_true", help="do not fetch engine assets")
     parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
@@ -642,6 +642,24 @@ def _cmd_project_render(args: argparse.Namespace) -> int:
 
 
 def _cmd_project(args: argparse.Namespace) -> int:
+    if args.project_command == "migrate":
+        from .migrations import migrate_project
+
+        backup = migrate_project(args.project)
+        result = {
+            "ok": True,
+            "project": str(args.project or Path.cwd()),
+            "migrated": backup is not None,
+        }
+        if backup is not None:
+            result["backup"] = str(backup)
+        if getattr(args, "json", False):
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(
+                f"migrated project; backup: {backup}" if backup else "project already uses schema 3"
+            )
+        return 0
     if args.project_command != "init":
         raise ValueError(f"unknown project command: {args.project_command}")
     project = _api_for(args).projects.create(args.source, output=args.output)
@@ -915,24 +933,23 @@ def _cmd_plan_build(args: argparse.Namespace) -> int:
 def _cmd_plan_roles(args: argparse.Namespace) -> int:
     app = _api_for(args)
     project = app.projects.open(_plan_project_path(args))
-    inspection = app.roles.inspect_project(project, provider=getattr(args, "provider", None))
+    inspection = app.roles.inspect_project(project, engine=getattr(args, "engine", None))
     result = {"ok": True, "project": str(project.root), **inspection.to_dict()}
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False))
         return 0
     print(f"Project:  {project.name}")
-    print(f"Provider filter: {getattr(args, 'provider', None) or 'all'}")
+    print(f"Engine filter: {getattr(args, 'engine', None) or 'all'}")
     print(f"SSMD roles: {len(inspection.roles)}")
     print()
-    print(f"{'ROLE':<12} {'USES':>4}  {'ENGINE':<12} {'PROVIDER':<9} {'VOICE':<24} SOURCE")
-    print(f"{'-' * 12} {'-' * 4}  {'-' * 12} {'-' * 9} {'-' * 24} {'-' * 10}")
+    print(f"{'ROLE':<12} {'USES':>4}  {'ENGINE':<12} {'VOICE':<24} SOURCE")
+    print(f"{'-' * 12} {'-' * 4}  {'-' * 12} {'-' * 24} {'-' * 10}")
     for role in inspection.roles:
         target = role.effective_target
         engine = target.engine if target is not None else "-"
-        provider = target.provider if target is not None and target.provider else "-"
         voice = target.voice if target is not None else "-"
         source = _project_role_source(role)
-        print(f"{role.role:<12} {role.uses:>4}  {engine:<12} {provider:<9} {voice:<24} {source}")
+        print(f"{role.role:<12} {role.uses:>4}  {engine:<12} {voice:<24} {source}")
     if inspection.unresolved:
         print()
         print(f"Unresolved roles: {', '.join(inspection.unresolved)}")
@@ -955,7 +972,7 @@ def _project_role_source(role: Any) -> str:
 def _role_target_payload(target: Any) -> dict[str, Any] | None:
     if target is None:
         return None
-    return {**target.to_dict(), "provider": target.provider}
+    return target.to_dict()
 
 
 def _cmd_plan_bind(args: argparse.Namespace) -> int:
@@ -965,7 +982,6 @@ def _cmd_plan_bind(args: argparse.Namespace) -> int:
         project_path,
         args.role,
         args.voice,
-        provider=args.provider,
         engine=getattr(args, "engine", None),
         discovery=public_api.DiscoveryOptions(
             offline=bool(args.offline), refresh=bool(args.refresh)
@@ -981,15 +997,13 @@ def _cmd_plan_bind(args: argparse.Namespace) -> int:
         "stored_voice": result.project_binding,
         "stored_target": target_payload,
         "engine": target.engine if target is not None else None,
-        "provider": target.provider if target is not None else args.provider,
     }
     if getattr(args, "json", False):
         print(json.dumps(result_data, ensure_ascii=False))
     else:
         print(f"Project: {project_ref.root.name}")
         if target is not None:
-            provider_label = target.provider or "no provider namespace"
-            print(f"{result.role} -> {target.engine}:{target.voice} ({provider_label})")
+            print(f"{result.role} -> {target.engine}:{target.voice}")
         else:
             print(f"{result.role} -> {result.project_binding}")
         print("Source: project")
@@ -1002,7 +1016,9 @@ def _cmd_plan_bind(args: argparse.Namespace) -> int:
 def _cmd_plan_unbind(args: argparse.Namespace) -> int:
     app = _api_for(args)
     project_path = _plan_project_path(args)
-    mutation = app.roles.unbind_project_result(project_path, args.role, provider=args.provider)
+    mutation = app.roles.unbind_project_result(
+        project_path, args.role, engine=getattr(args, "engine", None)
+    )
     previous_target = getattr(mutation, "previous_project_target", None)
     effective_target = getattr(mutation, "effective_target", None)
     result = {
@@ -1020,11 +1036,7 @@ def _cmd_plan_unbind(args: argparse.Namespace) -> int:
     else:
         print("Removed project binding:")
         if previous_target is not None:
-            provider_label = previous_target.provider or "no provider namespace"
-            print(
-                f"  {result['role']} -> {previous_target.engine}:{previous_target.voice} "
-                f"({provider_label})"
-            )
+            print(f"  {result['role']} -> {previous_target.engine}:{previous_target.voice}")
         else:
             print(f"  {result['role']} -> {result['removed_voice']}")
         print()
@@ -1033,11 +1045,7 @@ def _cmd_plan_unbind(args: argparse.Namespace) -> int:
         elif mutation.status == "mixed":
             print(f"Role {mutation.role!r} has mixed effective targets across scopes.")
         elif effective_target is not None:
-            provider_label = effective_target.provider or "no provider namespace"
-            print(
-                "Effective binding is now: "
-                f"{effective_target.engine}:{effective_target.voice} ({provider_label})"
-            )
+            print(f"Effective binding is now: {effective_target.engine}:{effective_target.voice}")
         else:
             print(f"Effective binding is now: {mutation.effective_voice} ({mutation.origin})")
     return 0
@@ -1573,7 +1581,7 @@ def _normalize_voice_list_filters(
     available_engines: set[str] | None,
     normalize_engine: Callable[[str], str],
 ) -> tuple[str | None, str | None]:
-    available = available_engines or {"piper", "pykokoro"}
+    available = available_engines or {"kokoro", "piper", "pocket", "kitten"}
     if engine is not None:
         canonical = normalize_engine(engine)
         if canonical == engine:
@@ -1670,33 +1678,26 @@ def _cmd_voices(args: argparse.Namespace) -> int:
 
 def _cmd_roles(args: argparse.Namespace) -> int:
     app = _api_for(args)
-    provider = getattr(args, "provider", None)
-    if getattr(args, "legacy_roles", False):
-        print(
-            "Warning: `readio voices roles|bind|unbind` is deprecated; use `readio roles`.",
-            file=sys.stderr,
-        )
+    engine = getattr(args, "engine", None)
     if args.roles_command == "list":
-        bindings = app.roles.list_global(provider=provider)
+        bindings = app.roles.list_global(engine=engine)
         roles = [binding.to_dict() for binding in bindings]
-        result = {"ok": True, "provider": provider, "roles": roles}
+        result = {"ok": True, "engine": engine, "roles": roles}
         if args.json:
             print(json.dumps(result, ensure_ascii=False))
         else:
-            print(f"Provider filter: {provider or 'all'}")
+            print(f"Engine filter: {engine or 'all'}")
             print()
-            print("ROLE        ENGINE       PROVIDER   VOICE")
-            print("----------  ------------ ---------  ------------------------")
+            print("ROLE        ENGINE       VOICE")
+            print("----------  ------------ ------------------------")
             for binding in bindings:
-                provider_name = binding.provider or "-"
-                print(f"{binding.role:<11} {binding.engine:<12} {provider_name:<9} {binding.voice}")
+                print(f"{binding.role:<11} {binding.engine:<12} {binding.voice}")
         return 0
     if args.roles_command == "bind":
         binding = app.roles.bind_global(
             args.role,
             args.voice_id,
-            provider=provider,
-            engine=getattr(args, "engine", None),
+            engine=engine,
         )
         result = {
             "ok": True,
@@ -1706,22 +1707,19 @@ def _cmd_roles(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(_json_value(result), ensure_ascii=False))
         else:
-            provider_label = binding.provider or "no provider namespace"
-            print(f"{binding.role} -> {binding.engine}:{binding.voice} ({provider_label})")
+            print(f"{binding.role} -> {binding.engine}:{binding.voice}")
         return 0
     if args.roles_command == "unbind":
         binding = next(
-            (item for item in app.roles.list_global(provider=provider) if item.role == args.role),
+            (item for item in app.roles.list_global(engine=engine) if item.role == args.role),
             None,
         )
-        app.roles.unbind_global(args.role, provider=provider)
-        target_payload = binding.to_dict() if binding is not None else None
+        app.roles.unbind_global(args.role, engine=engine)
         result = {
             "ok": True,
             "role": args.role,
-            "removed_target": target_payload,
-            "engine": binding.engine if binding is not None else None,
-            "provider": binding.provider if binding is not None else provider,
+            "removed_target": binding.to_dict() if binding is not None else None,
+            "engine": binding.engine if binding is not None else engine,
             "voice": binding.voice if binding is not None else None,
             "path": app.configuration.path(),
         }
@@ -1731,13 +1729,21 @@ def _cmd_roles(args: argparse.Namespace) -> int:
             if binding is None:
                 print(f"removed {args.role}")
             else:
-                provider_label = binding.provider or "no provider namespace"
-                print(f"removed {args.role} ({binding.engine}:{binding.voice}, {provider_label})")
+                print(f"removed {args.role} ({binding.engine}:{binding.voice})")
         return 0
     raise AssertionError("unreachable")
 
 
 def _cmd_config(args: argparse.Namespace) -> int:
+    if args.config_command == "migrate":
+        from .migrations import migrate_config_file
+
+        backup = migrate_config_file(args.config_file)
+        if backup is None:
+            print("configuration already uses schema 3")
+        else:
+            print(f"migrated configuration; backup: {backup}")
+        return 0
     app = _api_for(args)
     config = app.configuration
     path = config.path()
@@ -2003,7 +2009,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_roles = plan_sub.add_parser("roles", help="inspect SSMD roles and effective voices")
     plan_roles.add_argument("project_pos", nargs="?", type=Path)
     plan_roles.add_argument("--project", dest="project_option", type=Path)
-    plan_roles.add_argument("--provider", help="voice provider, default from configuration")
+    plan_roles.add_argument("--engine", help="filter by canonical engine ID")
     plan_roles.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     plan_roles.set_defaults(func=_cmd_plan_roles)
 
@@ -2013,7 +2019,6 @@ def build_parser() -> argparse.ArgumentParser:
     plan_bind.add_argument("role")
     plan_bind.add_argument("voice")
     plan_bind.add_argument("project_pos", nargs="?", type=Path)
-    plan_bind.add_argument("--provider", help="voice provider, default from configuration")
     plan_bind.add_argument("--engine", help="canonical engine ID for raw voice IDs")
     plan_bind.add_argument("--project", dest="project_option", type=Path)
     plan_bind.add_argument(
@@ -2028,7 +2033,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_unbind = plan_sub.add_parser("unbind", help="remove a project role voice binding")
     plan_unbind.add_argument("role")
     plan_unbind.add_argument("project_pos", nargs="?", type=Path)
-    plan_unbind.add_argument("--provider", help="voice provider, default from configuration")
+    plan_unbind.add_argument("--engine", help="filter by canonical engine ID")
     plan_unbind.add_argument("--project", dest="project_option", type=Path)
     plan_unbind.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     plan_unbind.set_defaults(func=_cmd_plan_unbind)
@@ -2044,6 +2049,12 @@ def build_parser() -> argparse.ArgumentParser:
     project_init.add_argument("-o", "--output", type=Path)
     project_init.add_argument("--json", action="store_true")
     project_init.set_defaults(func=_cmd_project)
+    project_migrate = project_sub.add_parser(
+        "migrate", help="migrate a v0.3 project to schema 3 with a backup"
+    )
+    project_migrate.add_argument("project", nargs="?", type=Path)
+    project_migrate.add_argument("--json", action="store_true")
+    project_migrate.set_defaults(func=_cmd_project)
     project_settings = project_sub.add_parser(
         "settings", help="inspect or configure saved project pipeline settings"
     )
@@ -2319,7 +2330,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     voices_list.add_argument(
         "--engine",
-        help="filter by synthesis backend or system; takes precedence over engine-name model shortcuts",
+        help="filter by synthesis engine or system; takes precedence over engine-name model shortcuts",
     )
     voices_list.add_argument("--offline", action="store_true")
     voices_list.add_argument("--refresh", action="store_true")
@@ -2332,7 +2343,7 @@ def build_parser() -> argparse.ArgumentParser:
         "show", help="show one semantic voice reference or native ID"
     )
     voices_show.add_argument("reference")
-    voices_show.add_argument("--engine", help="filter by synthesis backend")
+    voices_show.add_argument("--engine", help="filter by synthesis engine")
     voices_show.add_argument("--offline", action="store_true")
     voices_show.add_argument("--refresh", action="store_true")
     voices_show.add_argument(
@@ -2347,7 +2358,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="roles_command", required=False, title="Commands", metavar="COMMAND"
     )
     roles_list = roles_sub.add_parser("list", help="list configured logical roles")
-    roles_list.add_argument("--provider")
+    roles_list.add_argument("--engine", help="filter by canonical engine ID")
     roles_list.add_argument("--json", action="store_true")
     roles_list.set_defaults(func=_cmd_roles)
     roles_bind = roles_sub.add_parser(
@@ -2355,32 +2366,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     roles_bind.add_argument("role")
     roles_bind.add_argument("voice_id")
-    roles_bind.add_argument("--provider")
     roles_bind.add_argument("--engine", help="canonical engine ID for raw voice IDs")
     roles_bind.add_argument("--json", action="store_true")
     roles_bind.set_defaults(func=_cmd_roles)
     roles_unbind = roles_sub.add_parser("unbind", help="remove a logical role binding")
     roles_unbind.add_argument("role")
-    roles_unbind.add_argument("--provider")
+    roles_unbind.add_argument("--engine", help="filter by canonical engine ID")
     roles_unbind.add_argument("--json", action="store_true")
     roles_unbind.set_defaults(func=_cmd_roles)
-
-    legacy_roles = voices_sub.add_parser("roles", help="deprecated alias for readio roles list")
-    legacy_roles.add_argument("--provider")
-    legacy_roles.add_argument("--json", action="store_true")
-    legacy_roles.set_defaults(func=_cmd_roles, roles_command="list", legacy_roles=True)
-    legacy_bind = voices_sub.add_parser("bind", help="deprecated alias for readio roles bind")
-    legacy_bind.add_argument("role")
-    legacy_bind.add_argument("voice_id")
-    legacy_bind.add_argument("--provider")
-    legacy_bind.add_argument("--engine")
-    legacy_bind.add_argument("--json", action="store_true")
-    legacy_bind.set_defaults(func=_cmd_roles, roles_command="bind", legacy_roles=True)
-    legacy_unbind = voices_sub.add_parser("unbind", help="deprecated alias for readio roles unbind")
-    legacy_unbind.add_argument("role")
-    legacy_unbind.add_argument("--provider")
-    legacy_unbind.add_argument("--json", action="store_true")
-    legacy_unbind.set_defaults(func=_cmd_roles, roles_command="unbind", legacy_roles=True)
 
     ssmd = sub.add_parser("ssmd", help="Validate and author SSMD documents.")
     ssmd.set_defaults(func=show_help, _help_parser=ssmd)
@@ -2415,6 +2408,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.set_defaults(func=_cmd_config)
     cfg_validate = cfg_sub.add_parser("validate", help="Validate the effective configuration.")
     cfg_validate.set_defaults(func=_cmd_config)
+    cfg_migrate = cfg_sub.add_parser(
+        "migrate", help="migrate a v0.3 config to schema 3 with a backup"
+    )
+    cfg_migrate.add_argument("config_file", nargs="?", type=Path)
+    cfg_migrate.set_defaults(func=_cmd_config)
     set_cmd = cfg_sub.add_parser("set", help="Set one dotted configuration key.")
     set_cmd.add_argument("key")
     set_cmd.add_argument("value")

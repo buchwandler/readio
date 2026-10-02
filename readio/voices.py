@@ -24,7 +24,7 @@ RUNNABLE_STATUSES = frozenset({"ready", "experimental"})
 
 # These priorities are presentation ordering only and never participate in voice identity.
 MODEL_PRIORITY = {"v1.0": 0, "v1.1-zh": 1}
-BACKEND_PRIORITY = {"pykokoro": 0, "piper": 1, "pocket": 2}
+ENGINE_PRIORITY = {"kokoro": 0, "piper": 1, "pocket": 2, "kitten": 3}
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,20 +43,15 @@ class VoiceCatalogEntry:
     runtime_available: bool
     distribution_id: str | None = None
     provider: str | None = None
-    engine: str = "pykokoro"
+    engine: str = "kokoro"
 
     @property
     def target_id(self) -> str:
         return self.model
 
     @property
-    def backend(self) -> str:
-        """Compatibility alias for the synthesis backend identity."""
-        return self.engine
-
-    @property
     def qualified_id(self) -> str:
-        """Structured backend, target, and voice identity."""
+        """Structured engine, target, and voice identity."""
         return f"{self.engine}:{self.target_id}:{self.id}"
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,7 +72,6 @@ class VoiceCatalogEntry:
             "distribution_id": self.distribution_id,
             "provider": self.provider,
             "engine": self.engine,
-            "backend": self.engine,
             "qualified_id": self.qualified_id,
         }
 
@@ -106,10 +100,6 @@ class VoiceResolution:
     def model(self) -> str:
         return self.target_id
 
-    @property
-    def backend(self) -> str:
-        return self.engine
-
 
 def normalize_locale(value: str) -> str:
     return normalize_language_key(value)
@@ -133,7 +123,7 @@ def _ordered_models(models: tuple[ModelInfo, ...]) -> tuple[ModelInfo, ...]:
         sorted(
             models,
             key=lambda item: (
-                BACKEND_PRIORITY.get(item.backend, 100),
+                ENGINE_PRIORITY.get(item.engine, 100),
                 MODEL_PRIORITY.get(item.id, 100),
                 item.id,
                 item.source,
@@ -167,7 +157,7 @@ def build_voice_catalog(
             gender, language, locale, language_label = _model_voice_metadata(model, voice)
             entries.append(
                 VoiceCatalogEntry(
-                    ref=_voice_ref_for(model.backend, model.id, voice),
+                    ref=_voice_ref_for(model.engine, model.id, voice),
                     id=voice,
                     gender=gender,
                     language=language,
@@ -181,7 +171,7 @@ def build_voice_catalog(
                     runtime_available=model.runtime_available,
                     distribution_id=model.distribution_id,
                     provider=model.provider,
-                    engine=model.backend,
+                    engine=model.engine,
                 )
             )
     return VoiceCatalog(
@@ -456,7 +446,7 @@ def find_voice_entries(
 
 
 __all__ = [
-    "BACKEND_PRIORITY",
+    "ENGINE_PRIORITY",
     "MODEL_PRIORITY",
     "RUNNABLE_STATUSES",
     "VoiceCatalog",

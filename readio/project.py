@@ -125,24 +125,6 @@ class Project:
         return PlanIndex.from_dict(read_json(self.paths["plan_index"]))
 
     def load_document_index(self) -> DocumentIndex:
-        if self.manifest.schema_version == 1:
-            metadata = read_json(self.paths["document_metadata"])
-            input_format = metadata.get("document_format")
-            if input_format is None:
-                source_format = metadata.get("input_format", self.manifest.source_format)
-                input_format = "ssmd" if source_format == "ssmd" else "text"
-            return DocumentIndex(
-                scopes=(
-                    DocumentScope(
-                        id="document",
-                        kind="document",
-                        path=self.manifest.document_text_path,
-                        input_format=input_format,
-                        title=self.manifest.name,
-                        extracted_sha256=metadata.get("document_sha256"),
-                    ),
-                )
-            )
         return DocumentIndex.from_dict(read_json(self.paths["document_index"]))
 
     def document_scopes(self) -> tuple[DocumentScope, ...]:
@@ -156,7 +138,7 @@ class Project:
         if indexed is None:
             raise KeyError(f"document scope is not indexed: {scope.id}")
         path = self.path(indexed.path)
-        source_path = self.paths["source"] if self.manifest.schema_version == 1 else path
+        source_path = path
         return InputDocument(
             text=path.read_text(encoding="utf-8"),
             source_path=source_path,

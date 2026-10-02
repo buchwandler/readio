@@ -19,23 +19,26 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 ENGINE_ALIASES: dict[str, str] = {
+    "pykokoro": "kokoro",
     "pipersynth": "piper",
-    "kokoro": "pykokoro",
+    "kittensynth": "kitten",
 }
 
 
 READIO_ENGINE_TO_ONNXVOICE_SYSTEM: dict[str, str] = {
-    "pykokoro": "kokoro",
+    "kokoro": "kokoro",
     "piper": "piper",
     "pocket": "pocket",
+    "kitten": "kitten",
 }
 
 ONNXVOICE_SYSTEM_TO_READIO_ENGINE: dict[str, str] = {
-    "kokoro": "pykokoro",
+    "kokoro": "kokoro",
     "piper": "piper",
     "pocket": "pocket",
+    "kitten": "kitten",
 }
-CANONICAL_ENGINE_IDS: frozenset[str] = frozenset({"pykokoro", "piper", "pocket"})
+CANONICAL_ENGINE_IDS: frozenset[str] = frozenset({"kokoro", "piper", "pocket", "kitten"})
 
 
 def normalize_engine_id(value: str) -> str:
@@ -106,21 +109,23 @@ class EngineRegistry:
 
     def _try_discover(self, engine_id: str) -> None:
         """Attempt to discover and register an engine by ID."""
-        if engine_id == "pykokoro":
+        if engine_id == "kokoro":
             self._try_register_pykokoro()
         elif engine_id == "piper":
             self._try_register_piper()
         elif engine_id == "pocket":
             self._try_register_pocket()
+        elif engine_id == "kitten":
+            self._try_register_kitten()
 
     def _try_register_pykokoro(self) -> None:
-        """Try to register PyKokoro if available."""
+        """Try to register the Kokoro engine adapter."""
         try:
             from .pykokoro import PyKokoroEngineAdapter
 
             self.register(PyKokoroEngineAdapter())
         except ImportError:
-            logger.debug("PyKokoro not available")
+            logger.debug("Kokoro adapter not available")
 
     def _try_register_piper(self) -> None:
         """Try to register PiperSynth if available."""
@@ -140,6 +145,15 @@ class EngineRegistry:
         except ImportError:
             logger.debug("PocketSynth not available")
 
+    def _try_register_kitten(self) -> None:
+        """Try to register KittenSynth if available."""
+        try:
+            from .kittensynth import KittenSynthEngineAdapter
+
+            self.register(KittenSynthEngineAdapter())
+        except ImportError:
+            logger.debug("KittenSynth not available")
+
     def available_engines(self) -> tuple[str, ...]:
         """Return IDs of all registered engines."""
         return tuple(sorted(self._adapters.keys()))
@@ -152,9 +166,10 @@ class EngineRegistry:
         """Return installed package and adapter status for known engines."""
 
         distributions = {
-            "pykokoro": "pykokoro",
+            "kokoro": "pykokoro",
             "piper": "pipersynth",
             "pocket": "pocketsynth",
+            "kitten": "kittensynth",
         }
         result: dict[str, dict[str, Any]] = {}
         engine_ids = sorted(CANONICAL_ENGINE_IDS | self._adapters.keys())
@@ -248,11 +263,11 @@ def engine_status() -> dict[str, dict[str, Any]]:
 
 
 def default_engine() -> EngineAdapter:
-    """Return the default engine adapter (pykokoro).
+    """Return the default engine adapter (kokoro).
 
-    Raises ``ValueError`` if pykokoro is not available.
+    Raises ``ValueError`` if Kokoro is not available.
     """
-    return get_engine("pykokoro")
+    return get_engine("kokoro")
 
 
 __all__ = [

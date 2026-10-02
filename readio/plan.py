@@ -37,7 +37,7 @@ from .formats import (
 )
 from .jsonutil import JsonValue
 from .markdown import markdown_to_speech
-from .role_targets import VoiceTarget
+from .role_targets import VoiceTarget, ssmd_namespace_for_engine
 from .voices import resolve_voice_reference
 
 SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
@@ -315,10 +315,7 @@ class PlanRequest:
     synthesis: SynthesisRequest = field(default_factory=SynthesisRequest)
     output: OutputRequest = field(default_factory=OutputRequest)
     voice_bindings: Mapping[str, str | VoiceTarget] = field(default_factory=dict)
-    project_voice_bindings: Mapping[str, str] = field(default_factory=dict)
-    scope_voice_bindings: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     project_voice_targets: Mapping[str, VoiceTarget] = field(default_factory=dict)
-    project_voice_ambiguities: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     scope_voice_targets: Mapping[str, Mapping[str, VoiceTarget]] = field(default_factory=dict)
     composition: CompositionOptions = field(default_factory=CompositionOptions)
 
@@ -371,7 +368,7 @@ class ModelPlan:
     experimental: bool
     distribution_id: str | None = None
     provider: str | None = None
-    backend: str = "pykokoro"
+    engine: str = "kokoro"
     frontend: str | None = None
     g2p_backend: str | None = None
     sample_rate: int | None = None
@@ -393,7 +390,7 @@ class ModelPlan:
             "distribution_id": self.distribution_id,
             "provider": self.provider,
             "distribution_provider": self.provider,
-            "backend": self.backend,
+            "engine": self.engine,
             "frontend": self.frontend,
             "g2p_backend": self.g2p_backend,
             "sample_rate": self.sample_rate,
@@ -575,7 +572,7 @@ class ReadioPlan:
 
 @dataclass(frozen=True, slots=True)
 class SynthesisCandidate:
-    """Intermediate synthesis state before backend concretization and validation."""
+    """Intermediate synthesis state before engine resolution and validation."""
 
     language: str
     profile_key: str | None
@@ -1390,20 +1387,9 @@ def _resolve_v2_ssmd_roles(
                     document_candidates.setdefault(role, []).append((namespace, voice))
 
     invocation_bindings = dict(request.voice_bindings)
-    project_bindings = dict(request.project_voice_bindings)
     project_targets = dict(request.project_voice_targets)
-    project_ambiguities = dict(request.project_voice_ambiguities)
-    legacy_candidates: dict[str, list[tuple[str, str]]] = {}
-    for legacy_provider, settings in cfg.voices.items():
-        for role, voice in settings.roles.items():
-            if role not in cfg.roles:
-                legacy_candidates.setdefault(role, []).append((legacy_provider, voice))
-
     target_metadata = getattr(adapter, "target_metadata", lambda _selection: {})(selection)
     available = set(target_metadata.get("voices", ()))
-    voice_settings = cfg.voices.get(provider)
-    if voice_settings is not None:
-        available.update(voice_settings.ids)
     if adapter.capabilities().voice_binding_scope == "target":
         available.add(selection.target_id)
 
@@ -1462,68 +1448,12 @@ def _resolve_v2_ssmd_roles(
             selected_target = project_targets[reference]
             origin = "project"
             selected_locator = f"project.settings.ssmd.role_bindings.{reference}"
-        elif reference in project_ambiguities:
-            error(
-                reference,
-                "ssmd.voice_binding_ambiguous_engine",
-                f"Project role {reference!r} is ambiguous across provider namespaces: "
-                + ", ".join(project_ambiguities[reference]),
-            )
-            continue
-        elif reference in project_bindings:
-            try:
-                selected_target = VoiceTarget(
-                    engine_for_ssmd_provider(provider), project_bindings[reference]
-                )
-            except ValueError as exc:
-                error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
-                continue
-            origin = "project"
-            selected_locator = f"project.settings.ssmd.voice_bindings.{provider}.{reference}"
         elif reference in cfg.roles:
             selected_target = cfg.roles[reference]
             origin = ORIGIN_CONFIG_VOICE_ROLE
             selected_locator = f"roles.{reference}"
-        elif reference in legacy_candidates:
-            candidates = legacy_candidates[reference]
-            if len(candidates) > 1:
-                error(
-                    reference,
-                    "ssmd.voice_binding_ambiguous_engine",
-                    f"Configured role {reference!r} is ambiguous across providers: "
-                    + ", ".join(namespace for namespace, _voice in candidates),
-                )
-                continue
-            namespace, voice = candidates[0]
-            try:
-                selected_target = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
-            except ValueError as exc:
-                error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
-                continue
-            origin = ORIGIN_CONFIG_VOICE_ROLE
-            selected_locator = f"voices.{namespace}.roles.{reference}"
         else:
-            direct = [
-                (namespace, reference)
-                for namespace, settings in cfg.voices.items()
-                if reference in settings.ids
-            ]
-            if len(direct) > 1:
-                error(
-                    reference,
-                    "ssmd.voice_binding_ambiguous_engine",
-                    f"Direct voice {reference!r} is present in multiple provider inventories: "
-                    + ", ".join(namespace for namespace, _voice in direct),
-                )
-                continue
-            if direct:
-                namespace, voice = direct[0]
-                try:
-                    selected_target = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
-                except ValueError as exc:
-                    error(reference, "ssmd.voice_binding_unsupported_provider", str(exc))
-                    continue
-            elif reference in available:
+            if reference in available:
                 selected_target = VoiceTarget(selection.engine, reference)
             else:
                 error(
@@ -1534,7 +1464,6 @@ def _resolve_v2_ssmd_roles(
                 continue
             origin = "direct"
             selected_locator = None
-
         if selected_target is None:
             error(
                 reference,
@@ -1703,9 +1632,9 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
             )
 
     ssmd_provider = (
-        adapter.capabilities().voice_binding_namespace or cfg.ssmd.voice_provider
+        adapter.capabilities().voice_binding_namespace or ssmd_namespace_for_engine(engine_id)
         if adapter is not None
-        else cfg.ssmd.voice_provider
+        else ssmd_namespace_for_engine(engine_id)
     )
     # Preserve structural request errors without invoking an incompatible runtime adapter.
     if adapter is not None and not adapter_api_compatible:

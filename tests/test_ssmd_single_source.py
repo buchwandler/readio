@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from readio.config import ReaderSettings, ReadioConfig, VoiceProviderSettings
+from readio.config import ReaderSettings, ReadioConfig
 from readio.document import InputDocument
 from readio.engines import EngineCapabilities, EngineSelection
 from readio.engines.registry import _registry
@@ -50,12 +50,6 @@ def test_ssmd_role_binding_comes_from_compiled_semantic_metadata(monkeypatch):
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
     config = ReadioConfig(
         reader=ReaderSettings(engine=adapter.id, voice="af_sarah", spacy="off"),
-        voices={
-            "kokoro": VoiceProviderSettings(
-                ids=("af_sarah", "af_bella"),
-                roles={"host": "af_sarah"},
-            )
-        },
     )
     document = InputDocument(
         text=(
@@ -83,8 +77,8 @@ def test_ssmd_role_binding_comes_from_compiled_semantic_metadata(monkeypatch):
     binding = resolved.plan.render.role_bindings[0]
     assert binding.role == "host"
     assert binding.target.voice.value == "af_bella"
-    assert binding.voice_target.to_dict() == {"engine": "pykokoro", "voice": "af_bella"}
-    assert binding.to_dict()["voice_target"]["engine"] == "pykokoro"
+    assert binding.voice_target.to_dict() == {"engine": "kokoro", "voice": "af_bella"}
+    assert binding.to_dict()["voice_target"]["engine"] == "kokoro"
     assert binding.origin == "document"
     assert (
         next(

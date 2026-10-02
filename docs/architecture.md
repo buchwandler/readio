@@ -73,9 +73,9 @@ Readio lowers each UtterPlan segment to a Readio-owned `SpeechRequest`; adapters
 
 A native adapter makes one strict synthesis call for a Readio-shaped request and never invokes the engine's convenience splitter. Readio owns capacity fitting: it measures when supported, handles typed too-long responses, and recursively subdivides exact text at legal sentence, clause, token, or word boundaries. Protected linguistic and pronunciation ranges are not cut. Child audio is merged and child-local timings are rebased to the original request.
 
-PyKokoro and Pocket support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
+Kokoro and Pocket support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
 
-Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. PyKokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Composition rate remains separate, so synthesis speed is never applied twice.
+Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. Kokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Composition rate remains separate, so synthesis speed is never applied twice.
 
 ## Composition and status dependencies
 
@@ -109,19 +109,27 @@ sidecars. Composition currentness is derived from the current layout and policy.
 `compose` and preview can use the cache without a current-plan trace and do not
 load a TTS engine.
 
+## Streaming playback
+
+`speak` and live playback use a persistent stateful `LayoutBuilder` and a Readio-owned bounded `sounddevice` queue. Each rendered segment is lowered and composed at the playback output rate, submitted before later segments are synthesized, then released promptly. Playback keeps pause, prosody, marker, and resampling state across chunks and disables whole-program mastering; file rendering remains the full-document mastered path.
+
+## Input conversion and provenance
+
+Automatic source conversion has one boundary: the public `ssmdconvert` API. Normal auto-converted `InputDocument` values retain `DocumentProvenance` (source format, media type, source name, converter/version, and metadata). Explicit text, Markdown, and SSMD input is not labeled as a converter result.
+
 ## Project role targets and resolution
 
-Project-local role assignments are stored role-centrically in `project.json` at `settings.ssmd.role_bindings`. Each role maps to a structured target with canonical engine and voice, plus optional target ID. Selector provenance is not part of the target identity or serialized role binding. Provider is derived from the engine for presentation and compatibility; it is not the identity of a project-wide cast. Global role targets use the same structured model, while the legacy `[voices.<provider>.roles]` inputs remain readable when unambiguous.
+New configuration and project records use schema 3. Global roles and project roles store the same structured `VoiceTarget`: canonical engine, voice ID, and optional target ID. Readio does not keep provider-specific runtime role rosters or project-wide provider selectors; SSMD's own `voice_bindings` namespace remains part of the external document format.
 
-Existing projects with `settings.ssmd.voice_bindings.<provider>.<role>` remain readable. The optional legacy `settings.ssmd.voice_provider` scopes those provider-keyed values; it does not select or override new role targets. Without an active legacy provider, conflicting legacy definitions for the same role are surfaced as ambiguity. New bindings do not rewrite unrelated legacy data, and no automatic migration command is provided. SSMD document `voice_bindings` remains provider-qualified and unchanged; multiple provider bindings for the same role are ambiguous.
+v0.3 config and project files require explicit `readio config migrate` or `readio project migrate PROJECT`; normal runtime code rejects obsolete structures instead of applying scattered fallbacks. Migration preserves a backup and fails on conflicting role targets. Document-level SSMD `voice_bindings` stays provider-namespaced as defined by SSMD; when one role appears in several namespaces, Readio reports ambiguity.
 
-`readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective targets without requiring a generated plan index. The `--provider` inspection filter selects which effective targets to display; it does not override role resolution. Bindings are carried in the synthesis request and are never written into UtterPlan or SSMD source.
+`readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective targets without requiring a generated plan index. The `--engine` inspection filter selects which effective targets to display; it does not override role resolution. Bindings are carried in the synthesis request and are never written into UtterPlan or SSMD source.
 
 Binding precedence is `document > invocation CLI > project > global configured role > direct concrete voice`. A document binding remains authoritative per scope. Project role changes affect synthesis only, so they do not alter semantic `plan_id` or invalidate plan artifacts.
 
 ## Mixed-engine synthesis routing
 
-For each selected segment, Readio resolves the symbolic role in that document scope to a `VoiceTarget`, then resolves the target engine adapter and engine selection. Unbound segments use the normal project synthesis selection. A project can therefore route one role through PyKokoro and another through Piper or Pocket without selecting one project-wide provider or engine.
+For each selected segment, Readio resolves the symbolic role in that document scope to a `VoiceTarget`, then resolves the target engine adapter and engine selection. Unbound segments use the normal project synthesis selection. A project can therefore route one role through Kokoro and another through Piper, Pocket, or Kitten without selecting one project-wide provider or engine.
 
 Every distinct engine-target route is validated before synthesis sessions open. Readio groups routed segments, opens one reusable session per target, and writes ordinary canonical speech artifacts consumed by composition. The semantic plan retains symbolic role references and remains independent of casting. Changing role bindings leaves the plan current and makes only synthesis and downstream stages stale; cached audio is retained.
 

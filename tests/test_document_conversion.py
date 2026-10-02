@@ -12,6 +12,7 @@ from ssmdconvert import (
 )
 
 from readio import conversion
+from readio.api import Document, DocumentProvenance
 from readio.document import document_from_file
 from readio.errors import InputError
 
@@ -116,8 +117,19 @@ def test_document_from_file_auto_uses_conversion_and_explicit_text_does_not(
 
     assert converted.format == "ssmd"
     assert "ssmd_version:" in converted.text
+    assert isinstance(converted, Document)
+    assert isinstance(converted.provenance, DocumentProvenance)
+    expected = conversion.convert_document_source(source)
+    assert converted.provenance is not None
+    assert converted.provenance.source_format == expected.source_format
+    assert converted.provenance.media_type == expected.media_type
+    assert converted.provenance.source_name == expected.source_name
+    assert converted.provenance.converter == "ssmdconvert"
+    assert converted.provenance.converter_version == expected.converter_version
+    assert dict(converted.provenance.metadata) == dict(expected.metadata)
     assert converted.source_path == source.resolve()
     assert literal.format == "text"
+    assert literal.provenance is None
     assert literal.text == "# Markdown heading"
 
 

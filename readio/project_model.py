@@ -21,6 +21,7 @@ from .config import (
     SPACY_POLICIES,
     VOICE_LEVEL_MODES,
 )
+from .engines.registry import normalize_engine_id
 from .formats import SUPPORTED_AUDIO_FORMATS
 
 
@@ -90,6 +91,11 @@ def _validate_synthesis_settings(value: Any) -> None:
         "engine",
     ):
         _require_optional_string(synthesis, key, f"{name}.{key}")
+    engine = synthesis.get("engine")
+    if engine is not None and (
+        not isinstance(engine, str) or not engine or engine != normalize_engine_id(engine)
+    ):
+        raise ProjectFormatError(f"{name}.engine must use a canonical engine ID")
     if "speaker" in synthesis:
         speaker = synthesis["speaker"]
         if speaker is not None and (
@@ -216,22 +222,10 @@ def _validate_project_settings(value: Any) -> None:
     settings = _require_mapping(value, "project.settings")
     if "ssmd" in settings:
         ssmd = _require_mapping(settings["ssmd"], "project.settings.ssmd")
-        if "voice_provider" in ssmd:
-            _require_string(ssmd["voice_provider"], "project.settings.ssmd.voice_provider")
-        if "voice_bindings" in ssmd:
-            bindings = _require_mapping(
-                ssmd["voice_bindings"], "project.settings.ssmd.voice_bindings"
+        if "voice_provider" in ssmd or "voice_bindings" in ssmd:
+            raise ProjectFormatError(
+                "legacy project voice settings require `readio project migrate` before use"
             )
-            for provider, raw_roles in bindings.items():
-                _require_string(provider, "project.settings.ssmd.voice_bindings provider")
-                roles = _require_mapping(
-                    raw_roles, f"project.settings.ssmd.voice_bindings.{provider}"
-                )
-                for role, voice in roles.items():
-                    _require_string(role, f"project.settings.ssmd.voice_bindings.{provider} role")
-                    _require_string(
-                        voice, f"project.settings.ssmd.voice_bindings.{provider}.{role}"
-                    )
         if "role_bindings" in ssmd:
             role_bindings = _require_mapping(
                 ssmd["role_bindings"], "project.settings.ssmd.role_bindings"
@@ -245,6 +239,15 @@ def _validate_project_settings(value: Any) -> None:
                     target_values.get("engine"),
                     f"project.settings.ssmd.role_bindings.{role_name}.engine",
                 )
+                engine = target_values.get("engine")
+                if (
+                    not isinstance(engine, str)
+                    or not engine
+                    or engine != normalize_engine_id(engine)
+                ):
+                    raise ProjectFormatError(
+                        f"project.settings.ssmd.role_bindings.{role_name}.engine must use a canonical engine ID"
+                    )
                 _require_string(
                     target_values.get("voice"),
                     f"project.settings.ssmd.role_bindings.{role_name}.voice",
@@ -491,11 +494,13 @@ class ProjectManifest:
     outputs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     settings: Mapping[str, Any] = field(default_factory=dict)
     kind: str = "document"
-    schema_version: int = 2
+    schema_version: int = 3
     format: str = "readio.project"
 
     def __post_init__(self) -> None:
         _validate_project_settings(self.settings)
+        if self.schema_version != 3:
+            raise ProjectFormatError("new Readio projects must use schema_version 3")
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -522,14 +527,8 @@ class ProjectManifest:
             "outputs": {key: dict(value) for key, value in self.outputs.items()},
             "settings": dict(self.settings),
         }
-        if self.schema_version == 1:
-            result["document"] = {
-                "metadata_path": self.document_metadata_path,
-                "text_path": self.document_text_path,
-            }
-        else:
-            result["kind"] = self.kind
-            result["document"] = {"index_path": self.document_index_path}
+        result["kind"] = self.kind
+        result["document"] = {"index_path": self.document_index_path}
         return result
 
     @classmethod
@@ -538,8 +537,10 @@ class ProjectManifest:
         if data.get("format") != "readio.project":
             raise ProjectFormatError("project.json has an unexpected format")
         schema_version = data.get("schema_version")
-        if schema_version not in {1, 2}:
-            raise ProjectFormatError("unsupported project schema_version")
+        if schema_version != 3:
+            raise ProjectFormatError(
+                "unsupported project schema_version; run `readio project migrate` for v0.3 data"
+            )
         source = _require_mapping(data.get("source"), "project.source")
         document = _require_mapping(data.get("document"), "project.document")
         plan = _require_mapping(data.get("plan"), "project.plan")
@@ -551,18 +552,10 @@ class ProjectManifest:
         settings = data.get("settings", {})
         if not isinstance(settings, Mapping):
             raise ProjectFormatError("project.settings must be an object")
-        if schema_version == 1:
-            document_metadata_path = _require_string(
-                document.get("metadata_path"), "document.metadata_path"
-            )
-            document_text_path = _require_string(document.get("text_path"), "document.text_path")
-            document_index_path = "document/index.json"
-            kind = "document"
-        else:
-            document_index_path = _require_string(document.get("index_path"), "document.index_path")
-            document_metadata_path = "document/metadata.json"
-            document_text_path = "document/document.ssmd.md"
-            kind = _require_string(data.get("kind"), "kind")
+        document_index_path = _require_string(document.get("index_path"), "document.index_path")
+        document_metadata_path = "document/metadata.json"
+        document_text_path = "document/document.ssmd.md"
+        kind = _require_string(data.get("kind"), "kind")
         return cls(
             project_id=_require_string(data.get("project_id"), "project_id"),
             name=_require_string(data.get("name"), "name"),

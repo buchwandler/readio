@@ -386,7 +386,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
         source_reason = "current"
     source_state = "current" if source_reason == "current" else "stale"
 
-    if project.manifest.schema_version == 2:
+    if project.manifest.schema_version == 3:
         document_state = "current"
         document_reason = "current"
         document_details: dict[str, Any] = {}

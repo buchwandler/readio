@@ -7,9 +7,9 @@ import logging
 import math
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import soundfile as sf
@@ -271,17 +271,14 @@ def _segment_voice_identity(
             bindings = scoped_bindings.get(scope_id, {})
             if isinstance(bindings, Mapping) and isinstance(bindings.get(reference), str):
                 return f"target:{bindings[reference]}"
-        project_bindings = profile_payload.get("project_voice_bindings", {})
-        provider = (
-            project_bindings.get("provider") if isinstance(project_bindings, Mapping) else None
-        )
+        namespace = profile_payload.get("voice_binding_namespace")
         metadata = getattr(plan, "document_metadata", {})
         document_bindings = (
             metadata.get("voice_bindings", {}) if isinstance(metadata, Mapping) else {}
         )
         if isinstance(document_bindings, Mapping):
-            if provider is not None and isinstance(document_bindings.get(provider), Mapping):
-                target = document_bindings[provider].get(reference)
+            if namespace is not None and isinstance(document_bindings.get(namespace), Mapping):
+                target = document_bindings[namespace].get(reference)
             else:
                 target = document_bindings.get(reference)
                 if target is None and len(document_bindings) == 1:
@@ -291,15 +288,14 @@ def _segment_voice_identity(
                     )
             if isinstance(target, str):
                 return f"target:{target}"
-        project_role_bindings = (
-            project_bindings.get("bindings", {}) if isinstance(project_bindings, Mapping) else {}
-        )
-        if isinstance(project_role_bindings, Mapping):
-            target = project_role_bindings.get(reference)
-            if isinstance(target, str):
-                return f"target:{target}"
+        role_targets = profile_payload.get("project_role_targets", {})
+        bindings = role_targets.get("bindings", {}) if isinstance(role_targets, Mapping) else {}
+        target = bindings.get(reference) if isinstance(bindings, Mapping) else None
+        if isinstance(target, Mapping):
+            voice = target.get("target_id") or target.get("voice")
+            if isinstance(voice, str):
+                return f"target:{voice}"
         return f"role:{reference}"
-
     target = canonical.get("target_id") or canonical.get("voice")
     targets = canonical.get("targets")
     if target is None and isinstance(targets, Mapping) and len(targets) == 1:
@@ -463,60 +459,70 @@ def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tu
     return AudioBufferSource(audio, sample_rate), hashlib.sha256(audio.tobytes()).hexdigest()
 
 
-def _build_layout(
-    project: Project | None,
-    segments: list[tuple[Any, Mapping[str, Any]]],
-    *,
-    target_lufs: float | None,
-    true_peak_ceiling_dbtp: float | None,
-    peak_policy: str,
-    clip_policy: str,
-    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
-    composition: Mapping[str, Any] | None = None,
-    scope_metadata: tuple[Mapping[str, Any], ...] = (),
-    output_sample_rate: int | None = None,
-) -> tuple[AudioJob, dict[str, Any]]:
-    mastering_policy = resolve_mastering_policy(
-        mastering,
-        target_lufs=target_lufs,
-        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
-        peak_policy=peak_policy,
-    )
-    target_lufs = mastering_policy.target_lufs
-    true_peak_ceiling_dbtp = mastering_policy.true_peak_ceiling_dbtp
-    peak_policy = mastering_policy.peak_policy
-    if not segments:
-        raise ValueError("composition selected no synthesized segments")
-    sample_rate = int(output_sample_rate or segments[0][1]["sample_rate"])
-    items: list[Any] = []
-    layout: list[dict[str, Any]] = []
-    seen_events: set[str] = set()
-    transition_policies: dict[str, dict[str, Any]] = {}
-    warnings: list[str] = []
-    warned_volume_scopes: set[str] = set()
-    previous_scope_id: str | None = None
-    previous_prosody: tuple[float, float, str] | None = None
+class LayoutBuilder:
+    """Stateful incremental audio layout preserving full-render semantics."""
 
-    def append_silence(segment: Any, entry: Mapping[str, Any], side: str, pause: Any) -> None:
+    def __init__(
+        self,
+        project: Project | None,
+        *,
+        sample_rate: int,
+        target_lufs: float | None,
+        true_peak_ceiling_dbtp: float | None,
+        peak_policy: Literal["reduce_gain", "error"],
+        clip_policy: str,
+        mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+        composition: Mapping[str, Any] | None = None,
+        scope_metadata: tuple[Mapping[str, Any], ...] = (),
+    ) -> None:
+        self.project = project
+        self.sample_rate = int(sample_rate)
+        self.clip_policy = clip_policy
+        self.composition = composition
+        self.scope_metadata = scope_metadata
+        self.mastering_policy = resolve_mastering_policy(
+            mastering,
+            target_lufs=target_lufs,
+            true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+            peak_policy=peak_policy,
+        )
+        self.layout: list[dict[str, Any]] = []
+        self.seen_events: set[str] = set()
+        self.transition_policies: dict[str, dict[str, Any]] = {}
+        self.warnings: list[str] = []
+        self.warned_volume_scopes: set[str] = set()
+        self.previous_scope_id: str | None = None
+        self.previous_prosody: tuple[float, float, str] | None = None
+
+    def _append_silence(
+        self,
+        segment: Any,
+        entry: Mapping[str, Any],
+        side: str,
+        pause: Any,
+        clips: list[AudioClip],
+    ) -> None:
         seconds, event_ids = _pause_seconds(pause)
         scope_id = str(entry.get("scope_id", "document"))
         scoped_events = tuple(
             f"{scope_id}:{event_id}" if scope_id != "document" else event_id
             for event_id in event_ids
         )
-        unique_events = tuple(event_id for event_id in scoped_events if event_id not in seen_events)
+        unique_events = tuple(
+            event_id for event_id in scoped_events if event_id not in self.seen_events
+        )
         if unique_events:
-            seen_events.update(unique_events)
+            self.seen_events.update(unique_events)
         if seconds <= 0 or (event_ids and not unique_events):
             return
-        frames = seconds_to_frames(seconds, sample_rate)
+        frames = seconds_to_frames(seconds, self.sample_rate)
         if frames <= 0:
             return
-        source, silence_hash = _write_silence(project, sample_rate, frames)
+        source, silence_hash = _write_silence(self.project, self.sample_rate, frames)
         segment_id = str(segment.id)
         qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
         item_id = f"silence-{qualified_id}-{side}"
-        metadata = {
+        metadata: dict[str, Any] = {
             "kind": "silence",
             "segment_id": segment_id,
             "side": side,
@@ -525,8 +531,8 @@ def _build_layout(
         }
         if scope_id != "document":
             metadata["scope_id"] = scope_id
-        items.append(AudioClip(id=item_id, source=source, metadata=metadata))
-        layout_item = {
+        clips.append(AudioClip(id=item_id, source=source, metadata=metadata))
+        layout_item: dict[str, Any] = {
             "id": item_id,
             "kind": "silence",
             "segment_id": segment_id,
@@ -537,13 +543,15 @@ def _build_layout(
         }
         if scope_id != "document":
             layout_item["scope_id"] = scope_id
-        layout.append(layout_item)
+        self.layout.append(layout_item)
 
-    for segment, entry in segments:
+    def append(self, segment: Any, entry: Mapping[str, Any]) -> tuple[AudioClip, ...]:
+        """Append one segment and return only its newly emitted clips."""
+        clips: list[AudioClip] = []
         scope_id = str(entry.get("scope_id", "document"))
-        if scope_id != previous_scope_id:
-            previous_scope_id = scope_id
-            previous_prosody = None
+        if scope_id != self.previous_scope_id:
+            self.previous_scope_id = scope_id
+            self.previous_prosody = None
         transition_value = entry.get("prosody_transitions")
         transition_policy: dict[str, Any] | None = None
         transition_enabled = False
@@ -557,7 +565,7 @@ def _build_layout(
                     code="composition.prosody_transitions_invalid",
                 )
             transition_policy = dict(transition_value)
-            transition_policies[scope_id] = transition_policy
+            self.transition_policies[scope_id] = transition_policy
             enabled_value = transition_policy.get("enabled", True)
             same_voice_value = transition_policy.get("same_voice_only", True)
             if not isinstance(enabled_value, bool) or not isinstance(same_voice_value, bool):
@@ -573,27 +581,30 @@ def _build_layout(
             if (
                 transition_enabled
                 and volume_duration > 0.0
-                and scope_id not in warned_volume_scopes
+                and scope_id not in self.warned_volume_scopes
             ):
                 warning = (
                     "AudioJob v2 does not support continuous volume transitions; "
                     f"using static volume for scope {scope_id!r}."
                 )
-                warnings.append(warning)
-                warned_volume_scopes.add(scope_id)
+                self.warnings.append(warning)
+                self.warned_volume_scopes.add(scope_id)
                 _LOGGER.warning("%s", warning)
+
         segment_id = str(segment.id)
         qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
-        append_silence(segment, entry, "before", getattr(segment, "pause_before", None))
-        segment_composition = composition or entry.get("composition", {})
+        self._append_silence(
+            segment, entry, "before", getattr(segment, "pause_before", None), clips
+        )
+        segment_composition = self.composition or entry.get("composition", {})
         rate = _effective_rate_factor(segment, segment_composition)
         pitch = _effective_pitch_semitones(segment, segment_composition)
         voice_identity = entry.get("voice_identity") or _segment_voice_identity(
             None, None, scope_id, segment
         )
         envelope = None
-        if transition_enabled and previous_prosody is not None:
-            previous_rate, previous_pitch, previous_voice = previous_prosody
+        if transition_enabled and self.previous_prosody is not None:
+            previous_rate, previous_pitch, previous_voice = self.previous_prosody
             same_voice = not same_voice_only or previous_voice == voice_identity
             if same_voice and (previous_rate != rate or previous_pitch != pitch):
                 clip_seconds = int(entry["frames"]) / int(entry["sample_rate"])
@@ -606,13 +617,13 @@ def _build_layout(
                     pitch_seconds=min(pitch_duration, clip_seconds),
                 )
         operations = _speech_operations(segment, segment_composition, envelope=envelope)
-        previous_prosody = (rate, pitch, voice_identity)
-        if project is None:
+        self.previous_prosody = (rate, pitch, voice_identity)
+        if self.project is None:
             part = None
         elif scope_id == "document":
-            part = project.root / "composition" / "parts" / f"{segment_id}.wav"
+            part = self.project.root / "composition" / "parts" / f"{segment_id}.wav"
         else:
-            part = project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
+            part = self.project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
         source_path = entry["cache_path"]
         if part is not None:
             part.parent.mkdir(parents=True, exist_ok=True)
@@ -640,7 +651,7 @@ def _build_layout(
             )
             for marker in markers
         )
-        metadata = {
+        metadata: dict[str, Any] = {
             "kind": "speech",
             "segment_id": segment_id,
             "speech_hash": entry["speech_hash"],
@@ -663,7 +674,7 @@ def _build_layout(
         metadata["directives"] = segment.directives.to_dict()
         if scope_id != "document":
             metadata["scope_id"] = scope_id
-        items.append(
+        clips.append(
             AudioClip(
                 id=qualified_id,
                 source=source,
@@ -672,7 +683,7 @@ def _build_layout(
                 metadata=metadata,
             )
         )
-        layout_item = {
+        layout_item: dict[str, Any] = {
             "id": qualified_id,
             "kind": "speech",
             "segment_id": segment_id,
@@ -684,61 +695,105 @@ def _build_layout(
         }
         if scope_id != "document":
             layout_item["scope_id"] = scope_id
-        layout.append(layout_item)
-        append_silence(segment, entry, "after", getattr(segment, "pause_after", None))
-    policy_payload = {
-        "sample_rate": sample_rate,
-        "channels": 1,
-        "loudness": {
-            "profile": mastering_policy.profile,
-            "target_lufs": target_lufs,
-            "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
-            "peak_policy": peak_policy,
-            "collect_metrics": mastering_policy.collect_metrics,
-        },
-        "clip_policy": clip_policy,
-    }
-    if transition_policies:
-        policy_payload["prosody_transitions"] = {
-            scope_id: transition_policies[scope_id] for scope_id in sorted(transition_policies)
+        self.layout.append(layout_item)
+        self._append_silence(segment, entry, "after", getattr(segment, "pause_after", None), clips)
+        return tuple(clips)
+
+    def build_job(self, clips: Sequence[AudioClip]) -> tuple[AudioJob, dict[str, Any]]:
+        """Build a job from the provided clips and current layout metadata."""
+        if not clips:
+            raise ValueError("composition selected no synthesized segments")
+        target_lufs = self.mastering_policy.target_lufs
+        true_peak_ceiling_dbtp = self.mastering_policy.true_peak_ceiling_dbtp
+        peak_policy = self.mastering_policy.peak_policy
+        policy_payload: dict[str, Any] = {
+            "sample_rate": self.sample_rate,
+            "channels": 1,
+            "loudness": {
+                "profile": self.mastering_policy.profile,
+                "target_lufs": target_lufs,
+                "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
+                "peak_policy": peak_policy,
+                "collect_metrics": self.mastering_policy.collect_metrics,
+            },
+            "clip_policy": self.clip_policy,
         }
-    identity_payload = {
-        "schema": "readio.composition.v2",
-        "items": layout,
-        **policy_payload,
-    }
-    if len(scope_metadata) > 1 or any(item.get("kind") == "chapter" for item in scope_metadata):
-        identity_payload["schema"] = "readio.composition.v3"
-        identity_payload["scopes"] = [dict(item) for item in scope_metadata]
-        identity_payload["chapters"] = [
-            dict(item) for item in scope_metadata if item.get("kind") == "chapter"
-        ]
-    job = AudioJob(
-        items=tuple(items),
-        schema_version=2,
-        output=OutputPolicy(
-            sample_rate=sample_rate,
-            channels=1,
-            loudness=LoudnessPolicy(
-                target_lufs,
-                true_peak_ceiling_dbtp,
-                peak_policy,
-                collect_metrics=mastering_policy.collect_metrics,
+        if self.transition_policies:
+            policy_payload["prosody_transitions"] = {
+                scope_id: self.transition_policies[scope_id]
+                for scope_id in sorted(self.transition_policies)
+            }
+        identity_payload: dict[str, Any] = {
+            "schema": "readio.composition.v2",
+            "items": list(self.layout),
+            **policy_payload,
+        }
+        if len(self.scope_metadata) > 1 or any(
+            item.get("kind") == "chapter" for item in self.scope_metadata
+        ):
+            identity_payload["schema"] = "readio.composition.v3"
+            identity_payload["scopes"] = [dict(item) for item in self.scope_metadata]
+            identity_payload["chapters"] = [
+                dict(item) for item in self.scope_metadata if item.get("kind") == "chapter"
+            ]
+        identity = composition_id(identity_payload)
+        job = AudioJob(
+            items=tuple(clips),
+            schema_version=2,
+            output=OutputPolicy(
+                sample_rate=self.sample_rate,
+                channels=1,
+                loudness=LoudnessPolicy(
+                    target_lufs,
+                    true_peak_ceiling_dbtp,
+                    peak_policy,
+                    collect_metrics=self.mastering_policy.collect_metrics,
+                ),
+                clip_policy=self.clip_policy,
             ),
-            clip_policy=clip_policy,
-        ),
-        producer={"readio": "project" if project is not None else "readio"},
-        source={
-            "project_id": project.manifest.project_id if project else None,
-            "composition_id": composition_id(identity_payload),
-        },
+            producer={"readio": "project" if self.project is not None else "readio"},
+            source={
+                "project_id": self.project.manifest.project_id if self.project else None,
+                "composition_id": identity,
+            },
+        )
+        return job, {
+            "identity_payload": identity_payload,
+            "composition_id": identity,
+            "layout": list(self.layout),
+            "warnings": list(self.warnings),
+        }
+
+
+def _build_layout(
+    project: Project | None,
+    segments: Sequence[tuple[Any, Mapping[str, Any]]],
+    *,
+    target_lufs: float | None,
+    true_peak_ceiling_dbtp: float | None,
+    peak_policy: Literal["reduce_gain", "error"],
+    clip_policy: str,
+    mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
+    composition: Mapping[str, Any] | None = None,
+    scope_metadata: tuple[Mapping[str, Any], ...] = (),
+    output_sample_rate: int | None = None,
+) -> tuple[AudioJob, dict[str, Any]]:
+    if not segments:
+        raise ValueError("composition selected no synthesized segments")
+    sample_rate = int(output_sample_rate or segments[0][1]["sample_rate"])
+    builder = LayoutBuilder(
+        project,
+        sample_rate=sample_rate,
+        target_lufs=target_lufs,
+        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+        peak_policy=peak_policy,
+        clip_policy=clip_policy,
+        mastering=mastering,
+        composition=composition,
+        scope_metadata=scope_metadata,
     )
-    return job, {
-        "identity_payload": identity_payload,
-        "composition_id": composition_id(identity_payload),
-        "layout": layout,
-        "warnings": warnings,
-    }
+    clips = tuple(clip for segment, entry in segments for clip in builder.append(segment, entry))
+    return builder.build_job(clips)
 
 
 def build_audio_job(
@@ -747,7 +802,7 @@ def build_audio_job(
     mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
     true_peak_ceiling_dbtp: float | None = None,
-    peak_policy: str = "reduce_gain",
+    peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
 ) -> tuple[AudioJob, dict[str, Any]]:
@@ -955,7 +1010,7 @@ def compose_project(
     mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
     true_peak_ceiling_dbtp: float | None = None,
-    peak_policy: str = "reduce_gain",
+    peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
     on_progress: CompositionProgressCallback | None = None,
@@ -993,7 +1048,7 @@ def compose_artifacts(
     mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
     true_peak_ceiling_dbtp: float | None = None,
-    peak_policy: str = "reduce_gain",
+    peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
     output: Path | None = None,

@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING, cast
 from ..audio import RenderProgress
 from ..engines.registry import get_engine
 from ..errors import ManifestError, ReadioError
-from ..execution import BoundedRenderResult, ResolvedExecutionV2, execute_bounded_v2
+from ..execution import (
+    MasterRenderResult,
+    PlaybackExecutionResult,
+    ResolvedExecutionV2,
+    execute_playback_v2,
+    execute_render_v2,
+)
 from ..formats import (
     AudioFormat,
     ensure_audio_format_available,
@@ -153,12 +159,14 @@ class SpeechService:
         *,
         on_event: EventHandler | None = None,
     ) -> RenderResult:
-        """Render to a caller-owned sink without closing it."""
+        """Stream rendered segments to a caller-owned sink without closing it."""
         request = self._sink_request(request)
         resolved = self._resolve_execution(request)
         handler = self._handler(on_event)
         self._notify(handler, ReadioEvent(kind="operation.started", operation="render"))
-        execution_result = self._execute(resolved, sink, operation="render", handler=handler)
+        execution_result = self._execute_playback(
+            resolved, sink, operation="render", handler=handler
+        )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation="render"))
         return self._result(resolved.plan, execution_result)
 
@@ -395,6 +403,7 @@ class SpeechService:
         *,
         on_event: EventHandler | None,
     ) -> RenderResult:
+        request = self._sink_request(request)
         from ..audio import PlaybackSink
 
         resolved = self._resolve_execution(request)
@@ -402,7 +411,7 @@ class SpeechService:
         self._notify(handler, ReadioEvent(kind="operation.started", operation=request.operation))
         try:
             with PlaybackSink(self._app.config.reader) as sink:
-                execution_result = self._execute(
+                execution_result = self._execute_playback(
                     resolved,
                     sink,
                     operation=request.operation,
@@ -427,7 +436,7 @@ class SpeechService:
         *,
         operation: str,
         handler: EventHandler | None,
-    ) -> BoundedRenderResult:
+    ) -> MasterRenderResult:
         def progress(event: RenderProgress) -> None:
             self._notify(
                 handler,
@@ -459,7 +468,7 @@ class SpeechService:
             )
 
         try:
-            return execute_bounded_v2(
+            return execute_render_v2(
                 resolved,
                 sink,
                 on_progress=progress if handler is not None else None,
@@ -472,6 +481,46 @@ class SpeechService:
                 error,
                 error_type=ExecutionError,
                 code="speech.render_failed",
+            ) from error
+
+    def _execute_playback(
+        self,
+        resolved: ResolvedExecutionV2,
+        sink: AudioSink,
+        *,
+        operation: str,
+        handler: EventHandler | None,
+    ) -> PlaybackExecutionResult:
+        def progress(event: RenderProgress) -> None:
+            self._notify(
+                handler,
+                ReadioEvent(
+                    kind="progress",
+                    operation=operation,
+                    stage="synthesis",
+                    progress_kind="unit.completed",
+                    total=event.total_units,
+                    sample_count=event.sample_count,
+                    sample_rate=event.sample_rate,
+                    audio_seconds=(
+                        event.sample_count / event.sample_rate if event.sample_rate else None
+                    ),
+                ),
+            )
+
+        try:
+            return execute_playback_v2(
+                resolved,
+                sink,
+                on_progress=progress if handler is not None else None,
+            )
+        except ReadioError:
+            raise
+        except Exception as error:
+            raise translate_exception(
+                error,
+                error_type=ExecutionError,
+                code="speech.playback_failed",
             ) from error
 
     def _resolve_execution(self, request: PlanRequest) -> ResolvedExecutionV2:
@@ -519,6 +568,13 @@ class SpeechService:
                 force=False,
                 bitrate=None,
             ),
+            composition=replace(
+                request.composition,
+                mastering="off",
+                target_lufs=None,
+                true_peak_ceiling_dbtp=None,
+                peak_policy="reduce_gain",
+            ),
         )
 
     def _handler(self, on_event: EventHandler | None) -> EventHandler | None:
@@ -541,7 +597,7 @@ class SpeechService:
     def _result(
         self,
         plan: ResolvedPlan | None,
-        execution_result: BoundedRenderResult,
+        execution_result: MasterRenderResult | PlaybackExecutionResult,
         *,
         output_path: Path | None = None,
         manifest_path: Path | None = None,
@@ -549,7 +605,7 @@ class SpeechService:
         diagnostics = tuple(
             Diagnostic.from_plan(item) for item in (plan.diagnostics if plan is not None else ())
         )
-        audio_loudness = getattr(execution_result.composition, "loudness", None)
+        audio_loudness = getattr(getattr(execution_result, "composition", None), "loudness", None)
         loudness = (
             LoudnessSummary.from_loudness_result(
                 plan.composition.mastering if plan is not None else "spoken-word",

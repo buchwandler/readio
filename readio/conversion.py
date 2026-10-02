@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from ssmdconvert import (
     MissingDependencyError,
@@ -14,6 +14,7 @@ from ssmdconvert import (
 from ssmdconvert import __version__ as ssmdconvert_version
 
 from .errors import InputError
+from .jsonutil import JsonValue, json_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +24,7 @@ class ConvertedDocument:
     media_type: str | None
     source_name: str
     ssmd: str
-    metadata: Mapping[str, Any]
+    metadata: Mapping[str, JsonValue]
     converter_version: str
 
 
@@ -79,6 +80,6 @@ def convert_document_source(source: Path) -> ConvertedDocument:
         media_type=source_info.media_type,
         source_name=source_info.name or path.name,
         ssmd=result.ssmd,
-        metadata=dict(result.document.metadata),
+        metadata=cast(dict[str, JsonValue], json_value(result.document.metadata)),
         converter_version=ssmdconvert_version,
     )

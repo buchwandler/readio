@@ -11,8 +11,10 @@ from typing import Any
 import ssmd as ssmd_api
 import yaml
 
+from . import config as config_internal
 from .config import ReadioConfig
 from .errors import SSMDInputError
+from .role_targets import ssmd_namespace_for_engine
 from .ssmd import parse_ssmd_09
 
 
@@ -28,19 +30,21 @@ def executable() -> str:
 
 
 def build_ssmd_config(cfg: ReadioConfig) -> dict[str, Any]:
-    provider = cfg.ssmd.voice_provider
-    settings = cfg.voices[provider]
+    namespace = ssmd_namespace_for_engine(cfg.reader.engine)
+    roles = config_internal.role_targets(cfg, cfg.reader.engine)
     return {
         "schema": "ssmd.config.v1",
         "authoring": {
-            "default_voice_provider": provider,
+            "default_voice_provider": namespace,
             "materialize": {
                 "voice_bindings": "when-needed",
                 "pause_defaults": "when-enabled",
             },
         },
-        "voice_inventory": {provider: {voice: {"enabled": True} for voice in settings.ids}},
-        "voice_bindings": {provider: dict(settings.roles)},
+        "voice_inventory": {
+            namespace: {target.voice: {"enabled": True} for target in roles.values()}
+        },
+        "voice_bindings": {namespace: {role: target.voice for role, target in roles.items()}},
         "pause_defaults": {"enabled": False},
     }
 
@@ -93,7 +97,7 @@ def run_ssmd_json(args: Sequence[str], *, config_path: Path) -> dict[str, Any]:
 def roundtrip_check(path: Path, cfg: ReadioConfig) -> Mapping[str, Any]:
     source = path.expanduser()
     config_path: Path | None = None
-    provider = cfg.ssmd.voice_provider
+    provider = ssmd_namespace_for_engine(cfg.reader.engine)
     try:
         parse_ssmd_09(source.read_text(encoding="utf-8"), source_path=source)
         with tempfile.NamedTemporaryFile(

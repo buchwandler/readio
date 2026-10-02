@@ -6,14 +6,16 @@ import re
 
 import pytest
 
+from readio.engines.kittensynth import KittenSynthEngineAdapter
 from readio.engines.pipersynth import PiperSynthEngineAdapter
 from readio.engines.pocketsynth import PocketSynthEngineAdapter
 from readio.engines.pykokoro import PyKokoroEngineAdapter
 
 _ENGINE_APIS = {
-    "pykokoro": ("pykokoro", PyKokoroEngineAdapter, (0, 10)),
+    "kokoro": ("pykokoro", PyKokoroEngineAdapter, (0, 10)),
     "piper": ("pipersynth", PiperSynthEngineAdapter, (0, 2)),
     "pocket": ("pocketsynth", PocketSynthEngineAdapter, (0, 2)),
+    "kitten": ("kittensynth", KittenSynthEngineAdapter, (0, 1)),
 }
 
 

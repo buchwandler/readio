@@ -1,4 +1,4 @@
-"""Backend-neutral discovery and filtering of named synthesis lexicons."""
+"""Engine-neutral discovery and filtering of named synthesis lexicons."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from .engines.registry import (
     normalize_engine_id,
 )
 
-_ENGINE_PRIORITY = {"pykokoro": 0, "piper": 1, "pocket": 2}
+_ENGINE_PRIORITY = {"kokoro": 0, "piper": 1, "pocket": 2, "kitten": 3}
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,15 +35,10 @@ class LexiconCatalogEntry:
     phoneme_encoding: str | None = None
     data_version: str | None = None
 
-    @property
-    def backend(self) -> str:
-        return self.engine
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "selector": self.selector,
             "engine": self.engine,
-            "backend": self.engine,
             "language": self.language,
             "locale": self.locale,
             "asset_id": self.asset_id,
@@ -140,7 +135,7 @@ def filter_lexicon_catalog(
     engine: str | None = None,
     selector: str | None = None,
 ) -> tuple[LexiconCatalogEntry, ...]:
-    """Filter catalog entries without collapsing locale or backend duplicates."""
+    """Filter catalog entries without collapsing locale or engine duplicates."""
 
     return tuple(
         entry

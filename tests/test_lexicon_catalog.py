@@ -6,7 +6,7 @@ from readio.lexicons import LexiconCatalogEntry, filter_lexicon_catalog, find_le
 def entry(
     selector: str,
     *,
-    engine: str = "pykokoro",
+    engine: str = "kokoro",
     locale: str = "en-US",
     models: tuple[str, ...] = (),
     model_support: str = "unknown",
@@ -39,9 +39,12 @@ def test_selector_is_not_replaced_by_asset_id() -> None:
     assert item.selector == "gold"
     assert item.to_dict()["selector"] == "gold"
     assert item.to_dict()["asset_id"] == "en-us:gold"
+    assert "engine" in item.to_dict()
+    assert "backend" not in item.to_dict()
+    assert not hasattr(item, "backend")
 
 
-def test_duplicate_selector_across_backends_and_unknown_model_support() -> None:
+def test_duplicate_selector_across_engines_and_unknown_model_support() -> None:
     entries = (entry("gold"), entry("gold", engine="pipersynth"))
     assert len(filter_lexicon_catalog(entries, selector="gold")) == 2
     assert len(filter_lexicon_catalog(entries, model="future-model")) == 2

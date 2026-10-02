@@ -21,6 +21,7 @@ from readio.voice_refs import (
             "pocket:english_2026-04/alba",
             VoiceRef("pocket", "english_2026-04", "alba"),
         ),
+        ("kitten:nano-0.8-int8/Jasper", VoiceRef("kitten", "nano-0.8-int8", "Jasper")),
     ],
 )
 def test_parse_and_format_voice_ref(value: str, expected: VoiceRef) -> None:
@@ -55,13 +56,15 @@ def test_only_voice_ref_system_is_normalized() -> None:
 
 
 def test_public_system_and_engine_mappings() -> None:
-    assert engine_for_public_system("KoKoRo") == "pykokoro"
+    assert engine_for_public_system("KoKoRo") == "kokoro"
     assert engine_for_public_system("piper") == "piper"
     assert engine_for_public_system("pocket") == "pocket"
+    assert engine_for_public_system("kitten") == "kitten"
     assert public_system_for_engine("kokoro") == "kokoro"
     assert public_system_for_engine("pykokoro") == "kokoro"
     assert public_system_for_engine("pipersynth") == "piper"
     assert public_system_for_engine("pocket") == "pocket"
+    assert public_system_for_engine("kittensynth") == "kitten"
 
 
 @pytest.mark.parametrize("system", ["", "unknown"])

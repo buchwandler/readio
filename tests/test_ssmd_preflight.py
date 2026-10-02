@@ -2,31 +2,26 @@ from pathlib import Path
 
 import pytest
 
-from readio.config import ReadioConfig, VoiceProviderSettings
+from readio.config import ReadioConfig
 from readio.errors import SSMDInputError, VoiceResolutionError
+from readio.role_targets import VoiceTarget
 from readio.ssmd import default_role_bindings, document_voice_bindings, preflight_ssmd
 
 
 def config() -> ReadioConfig:
     return ReadioConfig(
-        voices={
-            "kokoro": VoiceProviderSettings(
-                ids=("af_sarah", "af_bella", "am_michael"),
-                roles={"host": "af_sarah", "analyst": "am_michael", "guest": "af_bella"},
-            )
+        roles={
+            "host": VoiceTarget("kokoro", "af_sarah"),
+            "analyst": VoiceTarget("kokoro", "am_michael"),
+            "guest": VoiceTarget("kokoro", "af_bella"),
         }
     )
 
 
 def test_role_resolution_preserves_engine_qualified_document_and_global_targets():
-    from readio.role_targets import VoiceTarget
     from readio.ssmd import resolve_voice_references
 
     cfg = config()
-    cfg = ReadioConfig(
-        voices=cfg.voices,
-        roles={"host": VoiceTarget("pykokoro", "af_sarah")},
-    )
     text = (
         "---\nssmd_version: '0.9'\nvoice_bindings:\n  piper:\n"
         "    guest: en_US-amy-medium\n---\n"
@@ -41,7 +36,7 @@ def test_role_resolution_preserves_engine_qualified_document_and_global_targets(
 
     assert [(item.reference, item.target.engine, item.target.voice) for item in resolved] == [
         ("guest", "piper", "en_US-amy-medium"),
-        ("host", "pykokoro", "af_sarah"),
+        ("host", "kokoro", "af_sarah"),
     ]
 
 
@@ -108,9 +103,7 @@ def test_direct_voice_id_resolves():
 
 def test_unknown_role_has_actionable_error_and_source():
     source = Path("episode.ssmd")
-    with pytest.raises(
-        VoiceResolutionError, match="Configure voices.kokoro.roles.unknown_role"
-    ) as error:
+    with pytest.raises(VoiceResolutionError, match="Configure roles.unknown_role") as error:
         preflight_ssmd(_voice_block("unknown_role", "Hello."), config(), source_path=source)
     assert error.value.code == "ssmd.unresolved_voice_role"
     assert error.value.provider == "kokoro"

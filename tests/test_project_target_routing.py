@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import numpy as np
 import pytest
 
-from readio.config import ReaderSettings, ReadioConfig, VoiceProviderSettings
+from readio.config import ReaderSettings, ReadioConfig
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
 from readio.plan import (
@@ -18,14 +18,16 @@ from readio.plan import (
 from readio.project import init_project, update_project_manifest
 from readio.project_settings import (
     with_project_role_binding,
-    with_project_voice_binding,
-    with_project_voice_provider,
 )
 from readio.role_targets import VoiceTarget
 from readio.stages.composition import _cache_entries
 from readio.stages.pipeline import _synthesis_status
 from readio.stages.planning import load_scope_plan, plan_project
 from readio.stages.synthesis import synthesize_project
+
+
+def _with_engine_role(manifest, *, engine: str, role: str, voice: str):
+    return with_project_role_binding(manifest, role=role, target=VoiceTarget(engine, voice))
 
 
 class _TargetSession:
@@ -108,7 +110,7 @@ class _PiperTargetAdapter:
 
 
 class _KokoroTargetAdapter(_PiperTargetAdapter):
-    id = "pykokoro"
+    id = "kokoro"
     target_ids = ("kokoro-alice", "kokoro-bob")
 
     def version(self):
@@ -130,7 +132,7 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
     cfg = ReadioConfig(
         reader=ReaderSettings(engine=adapter.id, voice=adapter.target_ids[0], spacy="off"),
-        voices={},
+        roles={},
     )
     source = tmp_path / "cast.ssmd.md"
     source.write_text(
@@ -143,12 +145,11 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
     project = init_project(source, tmp_path / "cast.readio")
 
     def bind_roles(manifest):
-        manifest = with_project_voice_provider(manifest, adapter.id)
-        manifest = with_project_voice_binding(
-            manifest, provider=adapter.id, role="host", voice=adapter.target_ids[0]
+        manifest = _with_engine_role(
+            manifest, engine=adapter.id, role="host", voice=adapter.target_ids[0]
         )
-        return with_project_voice_binding(
-            manifest, provider=adapter.id, role="guest", voice=adapter.target_ids[1]
+        return _with_engine_role(
+            manifest, engine=adapter.id, role="guest", voice=adapter.target_ids[1]
         )
 
     project = update_project_manifest(project, bind_roles)
@@ -180,9 +181,9 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
 
     invalid_project = update_project_manifest(
         project,
-        lambda manifest: with_project_voice_binding(
+        lambda manifest: _with_engine_role(
             manifest,
-            provider=adapter.id,
+            engine=adapter.id,
             role="guest",
             voice="missing-target",
         ),
@@ -192,9 +193,9 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
 
     project = update_project_manifest(
         project,
-        lambda manifest: with_project_voice_binding(
+        lambda manifest: _with_engine_role(
             manifest,
-            provider=adapter.id,
+            engine=adapter.id,
             role="guest",
             voice=adapter.target_ids[0],
         ),
@@ -211,10 +212,7 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
     monkeypatch.setitem(_registry._adapters, piper.id, piper)
     cfg = ReadioConfig(
         reader=ReaderSettings(engine=kokoro.id, voice=kokoro.target_ids[0], spacy="off"),
-        voices={
-            "kokoro": VoiceProviderSettings(ids=kokoro.target_ids),
-            "piper": VoiceProviderSettings(ids=piper.target_ids),
-        },
+        roles={},
     )
     source = tmp_path / "mixed.ssmd.md"
     source.write_text(
@@ -227,7 +225,6 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
     project = init_project(source, tmp_path / "mixed.readio")
 
     def bind_roles(manifest):
-        manifest = with_project_voice_provider(manifest, "kokoro")
         manifest = with_project_role_binding(
             manifest,
             role="host",

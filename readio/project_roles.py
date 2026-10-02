@@ -6,22 +6,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import ReadioConfig
-from .engines.registry import engine_for_ssmd_provider, normalize_engine_id
+from .engines.registry import normalize_engine_id
 from .errors import ReadioError
 from .models import ModelDiscoveryError
 from .project import Project, update_project_manifest
 from .project_settings import (
     effective_project_role_targets,
     project_role_bindings,
-    project_ssmd_settings,
-    project_voice_bindings,
-    project_voice_provider,
-    resolve_project_voice_provider,
+    project_voice_namespace,
     with_project_role_binding,
     without_project_role_binding,
-    without_project_voice_binding,
 )
-from .role_targets import VoiceTarget
+from .role_targets import VoiceTarget, ssmd_namespace_for_engine
 from .ssmd import document_voice_bindings, parse_ssmd_09, resolve_voice_references
 from .voice_refs import public_system_for_engine
 from .voices import resolve_voice_reference
@@ -94,7 +90,7 @@ class ProjectRole:
 
 @dataclass(frozen=True, slots=True)
 class ProjectRoleInspection:
-    provider: str | None
+    engine: str | None
     roles: tuple[ProjectRole, ...]
 
     @property
@@ -103,7 +99,7 @@ class ProjectRoleInspection:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "provider": self.provider,
+            "engine": self.engine,
             "roles": [role.to_dict() for role in self.roles],
             "unresolved": list(self.unresolved),
         }
@@ -113,33 +109,15 @@ def inspect_project_roles(
     project: Project,
     cfg: ReadioConfig,
     *,
-    provider: str | None = None,
+    engine: str | None = None,
 ) -> ProjectRoleInspection:
     """Discover project SSMD roles and resolve their effective binding layers."""
-    project_targets, project_ambiguities = effective_project_role_targets(project.manifest)
-    active_provider = project_voice_provider(project.manifest)
-    legacy_raw = project_ssmd_settings(project.manifest).get("voice_bindings", {})
-    if active_provider is not None:
-        provider_hint = active_provider
-    elif len(legacy_raw) == 1:
-        provider_hint = next(iter(legacy_raw))
-    else:
-        provider_hint = cfg.ssmd.voice_provider
+    engine_id = normalize_engine_id(engine) if engine is not None else None
+    project_targets, _ = effective_project_role_targets(project.manifest)
+    active_namespace = project_voice_namespace(project.manifest)
+    namespace_hint = active_namespace or ssmd_namespace_for_engine(cfg.reader.engine)
 
     configured_targets = dict(cfg.roles)
-    configured_candidates: dict[str, list[tuple[str, str]]] = {}
-    for namespace, settings in cfg.voices.items():
-        for role, voice in settings.roles.items():
-            if role not in configured_targets:
-                configured_candidates.setdefault(role, []).append((namespace, voice))
-    for role, candidates in configured_candidates.items():
-        if len(candidates) != 1:
-            continue
-        namespace, voice = candidates[0]
-        try:
-            configured_targets[role] = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
-        except ValueError:
-            pass
     configured_roles = {role: target.voice for role, target in configured_targets.items()}
     aggregate: dict[str, dict[str, Any]] = {}
 
@@ -153,15 +131,14 @@ def inspect_project_roles(
         all_document_bindings = document_voice_bindings(
             text, source_path=source_path, parsed=parsed
         )
-        resolutions = {
+        resolved_references = {
             item.reference: item
             for item in resolve_voice_references(
                 text,
                 cfg,
                 project_targets=project_targets,
-                project_ambiguities=project_ambiguities,
                 configured_targets=configured_targets,
-                provider=provider_hint,
+                provider=namespace_hint,
                 source_path=source_path,
                 parsed=parsed,
             )
@@ -188,12 +165,11 @@ def inspect_project_roles(
                 role["document_bindings"][scope.id] = scope_document_bindings[0][1]
             elif scope_document_bindings:
                 role["document_bindings"][scope.id] = "ambiguous"
-            resolved = resolutions[use.reference]
+            resolved = resolved_references[use.reference]
             role["resolutions"].append((resolved.target, resolved.origin))
             target = resolved.target
             role["effective_by_scope"][scope.id] = {
                 "engine": target.engine if target else None,
-                "provider": target.provider if target else None,
                 "voice": target.voice if target else None,
                 "target_id": target.target_id if target else None,
                 "origin": resolved.origin,
@@ -201,13 +177,13 @@ def inspect_project_roles(
             }
     roles = []
     for reference, value in sorted(aggregate.items()):
-        resolutions = set(value["resolutions"])
-        if len(resolutions) > 1:
+        effective_resolutions = set(value["resolutions"])
+        if len(effective_resolutions) > 1:
             effective_target = None
             origin = "mixed"
             status = "mixed"
         else:
-            effective_target, origin = next(iter(resolutions))
+            effective_target, origin = next(iter(effective_resolutions))
             if effective_target is None:
                 origin = "unresolved"
                 status = "unresolved"
@@ -216,9 +192,8 @@ def inspect_project_roles(
         effective_voice = effective_target.voice if effective_target is not None else None
         project_target = project_targets.get(reference)
         config_target = configured_targets.get(reference)
-        if provider is not None and (
-            effective_target is None
-            or (effective_target.provider or effective_target.engine) != provider
+        if engine_id is not None and (
+            effective_target is None or effective_target.engine != engine_id
         ):
             continue
         roles.append(
@@ -238,17 +213,11 @@ def inspect_project_roles(
                 effective_target=effective_target,
             )
         )
-    providers = {
-        role.effective_target.provider
-        for role in roles
-        if role.effective_target is not None and role.effective_target.provider is not None
-    }
-    inspection_provider = (
-        provider
-        if provider is not None
-        else (next(iter(providers)) if len(providers) == 1 else None)
+    engines = {role.effective_target.engine for role in roles if role.effective_target is not None}
+    inspection_engine = (
+        engine_id if engine_id is not None else (next(iter(engines)) if len(engines) == 1 else None)
     )
-    return ProjectRoleInspection(inspection_provider, tuple(roles))
+    return ProjectRoleInspection(inspection_engine, tuple(roles))
 
 
 def bind_project_role(
@@ -257,7 +226,6 @@ def bind_project_role(
     role: str,
     voice: str,
     *,
-    provider: str | None = None,
     engine: str | None = None,
     offline: bool = False,
     refresh: bool = False,
@@ -277,12 +245,6 @@ def bind_project_role(
             code="readio.project_role.voice_selector_invalid",
             details={"requested_voice": voice},
         )
-    if provider is not None and not provider.strip():
-        raise ProjectRoleError(
-            "Provider must be a non-empty string.",
-            code="readio.project_role.provider_mismatch",
-            details={"provider": provider},
-        )
     if engine is not None and not engine.strip():
         raise ProjectRoleError(
             "Engine must be a non-empty string.",
@@ -291,20 +253,7 @@ def bind_project_role(
         )
 
     try:
-        provider_engine = engine_for_ssmd_provider(provider) if provider is not None else None
-        requested_engine = (
-            normalize_engine_id(engine)
-            if engine is not None
-            else provider_engine
-            or (normalize_engine_id(provider) if provider in cfg.voices else None)
-        )
-        if provider_engine is not None and requested_engine != provider_engine:
-            raise ProjectRoleError(
-                f"Provider {provider!r} maps to engine {provider_engine!r}, "
-                f"not requested engine {requested_engine!r}.",
-                code="readio.project_role.provider_mismatch",
-                details={"provider": provider, "engine": requested_engine},
-            )
+        requested_engine = normalize_engine_id(engine) if engine is not None else None
         selection = resolve_voice_reference(
             requested_voice,
             language=None,
@@ -345,11 +294,7 @@ def bind_project_role(
             raise ProjectRoleError(
                 f"Voice reference {selection.ref!r} resolves to engine {target_engine!r}, "
                 f"not requested engine {requested_engine!r}.",
-                code=(
-                    "readio.project_role.provider_mismatch"
-                    if provider is not None
-                    else "readio.project_role.engine_mismatch"
-                ),
+                code="readio.project_role.engine_mismatch",
                 details={"engine": requested_engine, "reference_engine": target_engine},
             )
         target = VoiceTarget(
@@ -357,15 +302,7 @@ def bind_project_role(
             selection.voice,
             target_id=selection.target_id,
         )
-    target_provider = target.provider or target.engine
-    if provider is not None and target_provider != provider:
-        raise ProjectRoleError(
-            f"Voice target engine {target.engine!r} uses provider {target_provider!r}, "
-            f"not requested provider {provider!r}.",
-            code="readio.project_role.provider_mismatch",
-            details={"provider": provider, "engine": target.engine},
-        )
-    selected_provider = target_provider
+    selected_engine = target.engine
 
     inspection = inspect_project_roles(project, cfg)
     if role not in {item.role for item in inspection.roles}:
@@ -391,7 +328,7 @@ def bind_project_role(
             code="readio.project_role.document_bound",
             details={
                 "role": role,
-                "provider": selected_provider,
+                "engine": selected_engine,
                 "document_voice": document_voice,
                 "scopes": scopes,
                 "document_bindings": dict(bindings),
@@ -409,7 +346,6 @@ def bind_project_role(
     return {
         "ok": True,
         "project": str(updated.root),
-        "provider": selected_provider,
         "engine": target.engine,
         "target": target.to_dict(),
         "role": role,
@@ -426,7 +362,7 @@ def unbind_project_role(
     cfg: ReadioConfig,
     role: str,
     *,
-    provider: str | None = None,
+    engine: str | None = None,
 ) -> dict[str, Any]:
     """Remove one project-local role target and report the newly exposed value."""
     role = role.strip()
@@ -434,18 +370,18 @@ def unbind_project_role(
         raise ProjectRoleError(
             "Role must be a non-empty string.",
             code="readio.project_role.binding_missing",
-            details={"role": role, "provider": provider},
+            details={"role": role, "engine": engine},
         )
 
     targets = project_role_bindings(project.manifest)
     target = targets.get(role)
     if target is not None:
-        selected_provider = target.provider
-        if provider is not None and provider != selected_provider:
+        selected_engine = target.engine
+        if engine is not None and normalize_engine_id(engine) != selected_engine:
             raise ProjectRoleError(
-                f"Role {role!r} is bound to provider {selected_provider!r}, not {provider!r}.",
-                code="readio.project_role.binding_missing",
-                details={"role": role, "provider": provider},
+                f"Role {role!r} is bound to engine {selected_engine!r}, not {engine!r}.",
+                code="readio.project_role.engine_mismatch",
+                details={"role": role, "engine": engine},
             )
         updated = update_project_manifest(
             project,
@@ -455,33 +391,16 @@ def unbind_project_role(
         removed_voice = target.voice
         removed_target = target
     else:
-        selected_provider = resolve_project_voice_provider(
-            project.manifest, cfg, explicit_provider=provider
+        raise ProjectRoleError(
+            f"No project-local binding exists for role {role!r}.",
+            code="readio.project_role.binding_missing",
+            details={"role": role, "engine": engine},
         )
-        bindings = project_voice_bindings(project.manifest, selected_provider)
-        if role not in bindings:
-            raise ProjectRoleError(
-                f"No project-local binding exists for role {role!r} and provider "
-                f"{selected_provider!r}.",
-                code="readio.project_role.binding_missing",
-                details={"role": role, "provider": selected_provider},
-            )
-        removed_voice = bindings[role]
-        removed_target = None
-        updated = update_project_manifest(
-            project,
-            lambda manifest: without_project_voice_binding(
-                manifest, provider=selected_provider, role=role
-            ),
-            operation=f"plan-unbind-{role}",
-        )
-
-    inspection = inspect_project_roles(updated, cfg, provider=selected_provider)
+    inspection = inspect_project_roles(updated, cfg)
     effective = next((item for item in inspection.roles if item.role == role), None)
     return {
         "ok": True,
         "project": str(updated.root),
-        "provider": selected_provider,
         "engine": removed_target.engine if removed_target is not None else None,
         "target": removed_target.to_dict() if removed_target is not None else None,
         "removed_target": removed_target,

@@ -11,6 +11,24 @@ from .engines.registry import (
     ssmd_provider_for_engine,
 )
 
+
+def engine_for_ssmd_namespace(namespace: str) -> str:
+    from .engines.registry import engine_for_ssmd_provider
+
+    try:
+        return engine_for_ssmd_provider(namespace)
+    except ValueError:
+        return normalize_engine_id(namespace)
+
+
+def ssmd_namespace_for_engine(engine: str) -> str:
+    canonical = normalize_engine_id(engine)
+    try:
+        return ssmd_provider_for_engine(canonical) or canonical
+    except ValueError:
+        return canonical
+
+
 _PROVIDER_BY_ENGINE = {
     engine: provider for provider, engine in ONNXVOICE_SYSTEM_TO_READIO_ENGINE.items()
 }

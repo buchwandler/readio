@@ -338,7 +338,7 @@ class ProjectService:
             voice_bindings=voice_bindings,
             use_saved_settings=merge_saved_settings,
         )
-        _effective_request, resolved, adapter, _profile = self._call(
+        _effective_request, resolved, _adapter, _profile = self._call(
             lambda: resolve_project_synthesis(
                 internal,
                 self._app.config,
@@ -368,7 +368,6 @@ class ProjectService:
             voice_level=cast(str | None, options.get("voice_level")),
             spacy=resolved.plan.planning.spacy,
             short_sentence=cast(str | None, options.get("short_sentence")),
-            provider=adapter.capabilities().voice_binding_namespace,
             lexicons=_optional_string_tuple(options.get("lexicons")),
             g2p_fallback=cast(str | None, options.get("g2p_fallback")),
             lexicon_data_policy=cast(str | None, options.get("lexicon_data_policy")),

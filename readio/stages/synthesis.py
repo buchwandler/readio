@@ -17,7 +17,7 @@ from typing import Any
 import soundfile as sf
 
 from ..engines.base import EngineSelection
-from ..engines.registry import engine_for_ssmd_provider, get_engine
+from ..engines.registry import get_engine
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..project_settings import (
@@ -25,14 +25,15 @@ from ..project_settings import (
     merge_project_synthesis_request,
     project_role_targets_provenance,
     project_settings_from_manifest,
-    project_ssmd_settings,
     project_synthesis_request,
-    project_voice_bindings,
-    project_voice_bindings_provenance,
-    project_voice_provider,
+    project_voice_namespace,
     synthesis_request_fingerprint,
 )
-from ..role_targets import VoiceTarget
+from ..role_targets import (
+    VoiceTarget,
+    engine_for_ssmd_namespace,
+    ssmd_namespace_for_engine,
+)
 from ..selection import resolve_project_selection, resolve_unit_selection
 from ..ssmd import resolve_voice_references
 from .planning import load_scope_plan
@@ -268,8 +269,8 @@ def _profile_from_route(
             for scope_id in sorted({scope for scope, _segment in route.segment_routes})
         },
     }
-    if "project_voice_bindings" in profile.payload:
-        payload["project_voice_bindings"] = profile.payload["project_voice_bindings"]
+    if "voice_binding_namespace" in profile.payload:
+        payload["voice_binding_namespace"] = profile.payload["voice_binding_namespace"]
     if "project_role_targets" in profile.payload:
         payload["project_role_targets"] = profile.payload["project_role_targets"]
     return SynthesisProfile(
@@ -354,59 +355,33 @@ def _project_request_with_voice_bindings(
     project: Project, cfg: Any, request: PlanRequest
 ) -> PlanRequest:
     document = project.load_document_scope(project.document_scopes()[0])
-
-    ssmd_settings = project_ssmd_settings(project.manifest)
-    legacy_bindings = ssmd_settings.get("voice_bindings", {})
-    legacy_providers = tuple(
-        namespace for namespace, bindings in legacy_bindings.items() if bindings
-    )
-    active_provider = project_voice_provider(project.manifest)
-    project_targets, project_ambiguities = effective_project_role_targets(project.manifest)
-    project_has_provider = active_provider is not None or bool(legacy_providers)
+    project_targets, _ = effective_project_role_targets(project.manifest)
+    active_namespace = project_voice_namespace(project.manifest)
     requested_engine = request.synthesis.engine
-    if requested_engine is None:
-        if active_provider is not None:
-            engine = engine_for_ssmd_provider(active_provider)
-        elif len(legacy_providers) == 1:
-            engine = engine_for_ssmd_provider(legacy_providers[0])
-        else:
-            engine = cfg.reader.engine
-    else:
-        engine = requested_engine
-    if engine is not None:
-        from ..engines.registry import ssmd_provider_for_engine
+    engine = requested_engine or (
+        engine_for_ssmd_namespace(active_namespace)
+        if active_namespace is not None
+        else cfg.reader.engine
+    )
 
-        provider = ssmd_provider_for_engine(engine) or active_provider or cfg.ssmd.voice_provider
-    else:
-        provider = active_provider or (
-            legacy_providers[0] if len(legacy_providers) == 1 else cfg.ssmd.voice_provider
-        )
+    namespace = ssmd_namespace_for_engine(engine)
     voice = request.synthesis.voice
-    if voice is None and not project_has_provider and requested_engine is None:
+    if voice is None and not project_targets and requested_engine is None:
         voice = cfg.reader.voice
     synthesis = replace(request.synthesis, engine=engine, voice=voice)
-
     scope_targets = _project_scope_voice_targets(
         project,
         cfg,
-        provider,
+        namespace,
         request.voice_bindings,
         project_targets,
-        project_ambiguities,
         engine=engine,
     )
-    scope_bindings = {
-        scope: {role: target.voice for role, target in bindings.items()}
-        for scope, bindings in scope_targets.items()
-    }
     return replace(
         request,
         input=replace(request.input, document=document),
         synthesis=synthesis,
-        project_voice_bindings=project_voice_bindings(project.manifest, provider),
         project_voice_targets=project_targets,
-        project_voice_ambiguities=project_ambiguities,
-        scope_voice_bindings=scope_bindings,
         scope_voice_targets=scope_targets,
     )
 
@@ -414,15 +389,13 @@ def _project_request_with_voice_bindings(
 def _project_scope_voice_targets(
     project: Project,
     cfg: Any,
-    provider: str,
+    namespace: str,
     invocation_bindings: Mapping[str, str | VoiceTarget],
     project_targets: Mapping[str, VoiceTarget],
-    project_ambiguities: Mapping[str, tuple[str, ...]],
     *,
     engine: str | None = None,
 ) -> dict[str, dict[str, VoiceTarget]]:
     targets_by_scope: dict[str, dict[str, VoiceTarget]] = {}
-    project_bindings = project_voice_bindings(project.manifest, provider)
     for scope in project.document_scopes():
         document = project.load_document_scope(scope)
         if document.format != "ssmd":
@@ -432,11 +405,9 @@ def _project_scope_voice_targets(
             document.text,
             cfg,
             additional_bindings=invocation_bindings,
-            project_bindings=project_bindings,
             project_targets=project_targets,
-            project_ambiguities=project_ambiguities,
             configured_targets=cfg.roles,
-            provider=provider,
+            provider=namespace,
             engine=engine,
             source_path=project.path(scope.path),
         )
@@ -491,14 +462,16 @@ def _resolve_profile(
         raise ValueError(f"cannot resolve synthesis profile: {diagnostics}")
     adapter = get_engine(resolved.selection.engine)
     profile = _profile_from_selection(adapter, resolved.selection)
-    provider = adapter.capabilities().voice_binding_namespace or cfg.ssmd.voice_provider
-    project_bindings = project_voice_bindings_provenance(provider, request.project_voice_bindings)
+
+    namespace = adapter.capabilities().voice_binding_namespace or ssmd_namespace_for_engine(
+        resolved.selection.engine
+    )
     role_targets = project_role_targets_provenance(project.manifest)
     profile = replace(
         profile,
         payload={
             **profile.payload,
-            "project_voice_bindings": project_bindings,
+            "voice_binding_namespace": namespace,
             "project_role_targets": role_targets,
         },
     )

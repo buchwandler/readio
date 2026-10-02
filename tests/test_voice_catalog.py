@@ -9,7 +9,7 @@ def model(
     voices: tuple[str, ...],
     details: tuple[VoiceMetadata, ...],
     *,
-    engine: str = "pykokoro",
+    engine: str = "kokoro",
     source: str = "github",
 ) -> ModelInfo:
     return ModelInfo(
@@ -27,7 +27,7 @@ def model(
         runtime_available=True,
         redistribution_allowed=True,
         voice_details=details,
-        backend=engine,
+        engine=engine,
     )
 
 
@@ -59,6 +59,10 @@ def test_catalog_builds_semantic_refs_for_all_voice_shapes() -> None:
         "en_US-amy-medium",
         "english_2026-04",
     ]
+    assert "backend" not in catalog.voices[0].to_dict()
+    assert not hasattr(catalog.voices[0], "backend")
+    assert "engine" in model("model", ("voice",), ()).to_dict()
+    assert "backend" not in model("model", ("voice",), ()).to_dict()
     assert all(entry.to_dict()["ref"] for entry in catalog.voices)
     assert all("selector" not in entry.to_dict() for entry in catalog.voices)
 

@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Literal
 
 from . import api
+from . import config as config_internal
 from .progress import TerminalProgress
+from .role_targets import engine_for_ssmd_namespace
 
 _KNOWN_DOCUMENT_SUFFIXES = frozenset(
     {
@@ -152,7 +154,16 @@ def prompt_missing_voices(
     available = (
         tuple(resolved_model.voices)
         if resolved_model is not None
-        else tuple(config.voices[analysis.provider].ids)
+        else tuple(
+            sorted(
+                {
+                    target.voice
+                    for target in config_internal.role_targets(
+                        config, engine_for_ssmd_namespace(analysis.provider)
+                    ).values()
+                }
+            )
+        )
     )
     print(
         f"SSMD uses {len(references)} unconfigured voice references "

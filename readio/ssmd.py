@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,10 +8,15 @@ from typing import Any
 
 import ssmd as ssmd_api
 
+from . import config as config_internal
 from .config import ReadioConfig
-from .engines.registry import engine_for_ssmd_provider, normalize_engine_id
+from .engines.registry import normalize_engine_id
 from .errors import SSMDInputError, VoiceResolutionError
-from .role_targets import VoiceTarget
+from .role_targets import (
+    VoiceTarget,
+    engine_for_ssmd_namespace,
+    ssmd_namespace_for_engine,
+)
 from .synthesis import ResolvedSynthesis
 from .voice_refs import public_system_for_engine
 from .voices import resolve_voice_reference
@@ -102,13 +108,26 @@ def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09
             pair[0],
         ),
     )
+    source_lines: dict[str, list[int]] = {}
+    for match in re.finditer(r"\bvoice\s*=\s*([\"'])(.*?)\1", text):
+        reference = match.group(2)
+        line = text.count("\n", 0, match.start()) + 1
+        source_lines.setdefault(reference, []).append(line)
+    source_line_index: dict[str, int] = {}
     for index, annotation in annotations:
         reference = annotation.attrs.get("voice")
         if not isinstance(reference, str) or not reference:
             continue
         source_start = annotation.source_start
         order = source_start if source_start is not None else len(text) + index
-        line = text.count("\n", 0, source_start) + 1 if source_start is not None else None
+        line_index = source_line_index.get(reference, 0)
+        lines = source_lines.get(reference, ())
+        line = (
+            lines[line_index]
+            if line_index < len(lines)
+            else (text.count("\n", 0, source_start) + 1 if source_start is not None else None)
+        )
+        source_line_index[reference] = line_index + 1
         grouped.setdefault(reference, []).append((order, line))
 
     references = tuple(
@@ -185,9 +204,7 @@ def resolve_voice_references(
     *,
     available_voices: tuple[str, ...] | None = None,
     additional_bindings: Mapping[str, str | VoiceTarget] | None = None,
-    project_bindings: Mapping[str, str] | None = None,
     project_targets: Mapping[str, VoiceTarget] | None = None,
-    project_ambiguities: Mapping[str, tuple[str, ...]] | None = None,
     configured_targets: Mapping[str, VoiceTarget] | None = None,
     provider: str | None = None,
     engine: str | None = None,
@@ -199,31 +216,28 @@ def resolve_voice_references(
     """Resolve role references to engine-qualified targets by binding precedence."""
     parsed = parsed or parse_ssmd_09(text, source_path=source_path)
     references = parsed.voice_references
-    provider_hint = provider or cfg.ssmd.voice_provider
+    provider_hint = provider or ssmd_namespace_for_engine(cfg.reader.engine)
     try:
         engine_hint = (
             normalize_engine_id(engine)
             if engine is not None
-            else engine_for_ssmd_provider(provider_hint)
+            else engine_for_ssmd_namespace(provider_hint)
         )
     except ValueError:
         engine_hint = normalize_engine_id(engine or cfg.reader.engine)
     documents = document_voice_bindings(text, source_path=source_path, parsed=parsed)
     invocation = dict(additional_bindings or {})
-    projects = dict(project_bindings or {})
     project_targets = dict(project_targets or {})
-    project_ambiguities = dict(project_ambiguities or {})
     configured_targets = dict(configured_targets or cfg.roles)
-
-    legacy_roles: dict[str, list[tuple[str, str]]] = {}
-    for legacy_provider, settings in cfg.voices.items():
-        for role, voice in settings.roles.items():
-            if role not in configured_targets:
-                legacy_roles.setdefault(role, []).append((legacy_provider, voice))
-
-    inventory_voices = set(available_voices or ())
-    if available_voices is None:
-        inventory_voices.update(voice for settings in cfg.voices.values() for voice in settings.ids)
+    inventory_voices = set(
+        available_voices
+        if available_voices is not None
+        else tuple(
+            sorted(
+                {target.voice for target in config_internal.role_targets(cfg, engine_hint).values()}
+            )
+        )
+    )
     results: list[ResolvedVoiceReference] = []
     for use in references:
         reference = use.reference
@@ -256,7 +270,7 @@ def resolve_voice_references(
             origin = "document"
             locator = "utterplan.document_metadata.voice_bindings"
             try:
-                target = VoiceTarget(engine_for_ssmd_provider(namespace), bound_voice)
+                target = VoiceTarget(engine_for_ssmd_namespace(namespace), bound_voice)
             except ValueError as error:
                 diagnostic = Diagnostic(
                     code="ssmd.voice_binding_unsupported_provider",
@@ -285,84 +299,13 @@ def resolve_voice_references(
             target = project_targets[reference]
             origin = "project"
             locator = f"project.settings.ssmd.role_bindings.{reference}"
-        elif reference in project_ambiguities:
-            origin = "project"
-            names = project_ambiguities[reference]
-            locator = "project.settings.ssmd.voice_bindings"
-            diagnostic = Diagnostic(
-                code="ssmd.voice_binding_ambiguous_engine",
-                severity="error",
-                message=(
-                    f"Project role {reference!r} is bound in multiple provider namespaces: "
-                    f"{', '.join(names)}."
-                ),
-                line=line,
-            )
-        elif reference in projects:
-            origin = "project"
-            locator = f"project.settings.ssmd.voice_bindings.{provider_hint}.{reference}"
-            target = _resolve_voice_target(
-                projects[reference],
-                engine_hint=engine_hint,
-                offline=offline,
-                refresh=refresh,
-            )
         elif reference in configured_targets:
             target = configured_targets[reference]
             origin = "config.voice_role"
             locator = f"roles.{reference}"
-        elif reference in legacy_roles:
-            candidates = legacy_roles[reference]
-            if len(candidates) > 1:
-                names = [namespace for namespace, _voice in candidates]
-                diagnostic = Diagnostic(
-                    code="ssmd.voice_binding_ambiguous_engine",
-                    severity="error",
-                    message=(
-                        f"Configured role {reference!r} is ambiguous across providers: "
-                        f"{', '.join(names)}."
-                    ),
-                    line=line,
-                )
-                origin = "config.voice_role"
-            else:
-                namespace, voice = candidates[0]
-                origin = "config.voice_role"
-                locator = f"voices.{namespace}.roles.{reference}"
-                try:
-                    target = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
-                except ValueError as error:
-                    diagnostic = Diagnostic(
-                        code="ssmd.voice_binding_unsupported_provider",
-                        severity="error",
-                        message=str(error),
-                        line=line,
-                    )
         elif reference in inventory_voices:
-            matches = [
-                namespace for namespace, settings in cfg.voices.items() if reference in settings.ids
-            ]
-            if len(matches) > 1:
-                diagnostic = Diagnostic(
-                    code="ssmd.voice_binding_ambiguous_engine",
-                    severity="error",
-                    message=(
-                        f"Direct voice {reference!r} is present in multiple provider inventories: "
-                        f"{', '.join(matches)}."
-                    ),
-                    line=line,
-                )
-                origin = "direct"
-            else:
-                if matches:
-                    try:
-                        direct_engine = engine_for_ssmd_provider(matches[0])
-                    except ValueError:
-                        direct_engine = engine_hint
-                else:
-                    direct_engine = engine_hint
-                target = VoiceTarget(direct_engine, reference)
-                origin = "direct"
+            target = VoiceTarget(engine_hint, reference)
+            origin = "direct"
         else:
             diagnostic = Diagnostic(
                 code="ssmd.unresolved_voice",
@@ -533,13 +476,19 @@ def _available_voice_context(
     cfg: ReadioConfig,
     synthesis: ResolvedSynthesis | None,
 ) -> tuple[str | None, tuple[str, ...]]:
-    provider = cfg.ssmd.voice_provider
     if synthesis is not None and synthesis.resolved_model is not None:
         model = synthesis.resolved_model
         return model.id, model.voices
     if synthesis is not None and synthesis.model is not None and synthesis.model_voices is not None:
         return synthesis.model, synthesis.model_voices
-    return None, tuple(cfg.voices[provider].ids)
+    return None, tuple(
+        sorted(
+            {
+                target.voice
+                for target in config_internal.role_targets(cfg, cfg.reader.engine).values()
+            }
+        )
+    )
 
 
 def _validated_runtime_bindings(
@@ -573,7 +522,7 @@ def default_role_bindings(
     parsed: ParsedSSMD09 | None = None,
 ) -> dict[str, dict[str, str]]:
     """Effective non-document bindings derived from voice-reference resolution."""
-    provider = cfg.ssmd.voice_provider
+    provider = ssmd_namespace_for_engine(cfg.reader.engine)
     parsed = parsed or parse_ssmd_09(text, source_path=source_path)
     document = document_voice_bindings(text, source_path=source_path, parsed=parsed).get(
         provider, {}
@@ -594,9 +543,9 @@ def default_role_bindings(
         if item.voice is not None and item.origin in ("config.voice_role", "cli")
     }
     referenced = {item.reference for item in resolved}
-    for role, target in cfg.voices[provider].roles.items():
-        if role not in referenced and role not in document and target in available:
-            defaults[role] = target
+    for role, target in config_internal.role_targets(cfg, cfg.reader.engine).items():
+        if role not in referenced and role not in document and target.voice in available:
+            defaults[role] = target.voice
     for role, target in runtime.items():
         if role not in referenced and role not in document:
             defaults[role] = target
@@ -614,7 +563,7 @@ def analyze_ssmd(
 ) -> SSMDPreflightResult:
     """Analyze an SSMD document without raising for unresolved voice references."""
 
-    provider = cfg.ssmd.voice_provider
+    provider = ssmd_namespace_for_engine(cfg.reader.engine)
     parsed = parsed or parse_ssmd_09(text, source_path=source_path)
     runtime = _validated_runtime_bindings(cfg, additional_bindings, synthesis)
     references = parsed.voice_references
@@ -733,7 +682,7 @@ def _voice_resolution_error(
             )
             + ", ".join(available)
             + "\n\n"
-            + f"\n\nConfigure voices.{result.provider}.roles.{references[0].reference} or add document-local bindings:\n"
+            + f"\n\nConfigure roles.{references[0].reference} as an engine-qualified target or add document-local bindings:\n"
             + "  voice_bindings:\n"
             + f"    {result.provider}:\n"
             + "".join(f"      {use.reference}: <voice-id>\n" for use in references)

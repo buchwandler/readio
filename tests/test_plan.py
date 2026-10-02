@@ -50,7 +50,7 @@ def test_plan_represents_semantics_render_target_environment_and_output():
     assert plan.input.format == "text"
     assert plan.semantic_plan.schema_version == 3
     assert plan.planning.language == "en-us"
-    assert plan.render.engine == "pykokoro"
+    assert plan.render.engine == "kokoro"
     assert plan.render.default_target.id
     assert plan.environment.packages["readio"]
     assert plan.environment.packages["utterplan"]

@@ -8,10 +8,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from .engines.registry import normalize_engine_id
 from .errors import ReadioError
 from .project import canonical_json
 from .project_model import ProjectFormatError, ProjectManifest
-from .role_targets import VoiceTarget, voice_target_from_mapping
+from .role_targets import VoiceTarget, ssmd_namespace_for_engine, voice_target_from_mapping
 
 
 def project_ssmd_settings(manifest: ProjectManifest) -> dict[str, Any]:
@@ -19,87 +20,48 @@ def project_ssmd_settings(manifest: ProjectManifest) -> dict[str, Any]:
     return dict(manifest.settings.get("ssmd", {}))
 
 
-class ProjectVoiceProviderError(ReadioError):
-    code = "readio.project_voice_provider_ambiguous"
+class ProjectVoiceNamespaceError(ReadioError):
+    code = "readio.project_voice_namespace_ambiguous"
 
-    def __init__(self, providers: tuple[str, ...]) -> None:
+    def __init__(self, namespaces: tuple[str, ...]) -> None:
         super().__init__(
-            "Project has bindings for multiple voice providers but no active provider is set: "
-            + ", ".join(providers)
+            "Project has role bindings in multiple SSMD namespaces but no engine was selected: "
+            + ", ".join(namespaces)
         )
-        self.details = {"providers": list(providers)}
+        self.details = {"namespaces": list(namespaces)}
 
 
-def project_voice_provider(manifest: ProjectManifest) -> str | None:
-    """Return the project-local active SSMD provider, if one is set."""
-    return project_ssmd_settings(manifest).get("voice_provider")
+def project_voice_namespace(manifest: ProjectManifest) -> str | None:
+    """Return one unambiguous SSMD namespace implied by structured project roles."""
+    namespaces = project_voice_binding_namespaces(manifest)
+    return namespaces[0] if len(namespaces) == 1 else None
 
 
-def project_voice_binding_providers(
-    manifest: ProjectManifest, *, non_empty_only: bool = True
-) -> tuple[str, ...]:
-    """Return providers represented by legacy or role-centric project bindings."""
-    settings = project_ssmd_settings(manifest)
-    bindings = settings.get("voice_bindings", {})
-    providers = {provider for provider, roles in bindings.items() if not non_empty_only or roles}
-    for target in project_role_bindings(manifest).values():
-        if target.provider is not None:
-            providers.add(target.provider)
-    return tuple(sorted(providers))
+def project_voice_binding_namespaces(manifest: ProjectManifest) -> tuple[str, ...]:
+    namespaces = {
+        ssmd_namespace_for_engine(target.engine)
+        for target in project_role_bindings(manifest).values()
+    }
+    return tuple(sorted(namespaces))
 
 
-def with_project_voice_provider(manifest: ProjectManifest, provider: str) -> ProjectManifest:
-    """Return a manifest with an active project-local SSMD provider."""
-    _require_non_empty_string(provider, "provider")
-    settings = dict(manifest.settings)
-    ssmd = dict(settings.get("ssmd", {}))
-    ssmd["voice_provider"] = provider
-    settings["ssmd"] = ssmd
-    return replace(manifest, settings=settings)
-
-
-def resolve_project_voice_provider(
+def resolve_project_voice_namespace(
     manifest: ProjectManifest,
     cfg: Any,
     *,
-    explicit_provider: str | None = None,
     explicit_engine: str | None = None,
 ) -> str:
-    """Resolve the effective SSMD provider for project work."""
-    if explicit_provider is not None:
-        _require_non_empty_string(explicit_provider, "provider")
-        return explicit_provider
-
+    """Resolve the SSMD namespace from an explicit engine or structured project roles."""
     if explicit_engine is not None:
-        from .engines.registry import ssmd_provider_for_engine
+        _require_non_empty_string(explicit_engine, "engine")
+        return ssmd_namespace_for_engine(explicit_engine)
 
-        provider = ssmd_provider_for_engine(explicit_engine)
-        if provider is not None:
-            return provider
-
-    active_provider = project_voice_provider(manifest)
-    if active_provider is not None:
-        return active_provider
-
-    candidates = project_voice_binding_providers(manifest)
-    if len(candidates) == 1:
-        return candidates[0]
-    if len(candidates) > 1:
-        raise ProjectVoiceProviderError(candidates)
-    return cfg.ssmd.voice_provider
-
-
-def project_voice_bindings(manifest: ProjectManifest, provider: str) -> dict[str, str]:
-    """Return effective role voices for one provider, with new settings winning."""
-    settings = project_ssmd_settings(manifest)
-    legacy = dict(settings.get("voice_bindings", {}).get(provider, {}))
-    targets = project_role_bindings(manifest)
-    for role in targets:
-        legacy.pop(role, None)
-    legacy.update(
-        {role: target.voice for role, target in targets.items() if target.provider == provider}
-    )
-    return legacy
+    namespaces = project_voice_binding_namespaces(manifest)
+    if len(namespaces) == 1:
+        return namespaces[0]
+    if len(namespaces) > 1:
+        raise ProjectVoiceNamespaceError(namespaces)
+    return ssmd_namespace_for_engine(cfg.reader.engine)
 
 
 def project_role_bindings(manifest: ProjectManifest) -> dict[str, VoiceTarget]:
@@ -116,34 +78,8 @@ def project_role_bindings(manifest: ProjectManifest) -> dict[str, VoiceTarget]:
 def effective_project_role_targets(
     manifest: ProjectManifest,
 ) -> tuple[dict[str, VoiceTarget], dict[str, tuple[str, ...]]]:
-    """Return role-centric targets plus unambiguous legacy provider bindings."""
-    from .engines.registry import engine_for_ssmd_provider
-
-    targets = project_role_bindings(manifest)
-    active_provider = project_voice_provider(manifest)
-    legacy = project_ssmd_settings(manifest).get("voice_bindings", {})
-    candidates: dict[str, list[tuple[str, str]]] = {}
-    for namespace, values in legacy.items():
-        if active_provider is not None and namespace != active_provider:
-            continue
-        if not isinstance(values, Mapping):
-            continue
-        for role, voice in values.items():
-            candidates.setdefault(role, []).append((namespace, voice))
-
-    ambiguities: dict[str, tuple[str, ...]] = {}
-    for role, values in candidates.items():
-        if role in targets:
-            continue
-        if len(values) != 1:
-            ambiguities[role] = tuple(namespace for namespace, _voice in values)
-            continue
-        namespace, voice = values[0]
-        try:
-            targets[role] = VoiceTarget(engine_for_ssmd_provider(namespace), voice)
-        except ValueError:
-            ambiguities[role] = (namespace,)
-    return targets, ambiguities
+    """Return only schema-3 structured role targets; legacy ambiguity belongs to migration."""
+    return project_role_bindings(manifest), {}
 
 
 def project_role_targets_provenance(manifest: ProjectManifest) -> dict[str, Any]:
@@ -158,7 +94,7 @@ def project_role_targets_provenance(manifest: ProjectManifest) -> dict[str, Any]
 def with_project_role_binding(
     manifest: ProjectManifest, *, role: str, target: VoiceTarget
 ) -> ProjectManifest:
-    """Persist a role-centric target without changing legacy settings."""
+    """Persist one engine-qualified role target."""
     _require_non_empty_string(role, "role")
     if not isinstance(target, VoiceTarget):
         raise TypeError("target must be a VoiceTarget")
@@ -182,72 +118,6 @@ def without_project_role_binding(manifest: ProjectManifest, *, role: str) -> Pro
         ssmd["role_bindings"] = role_bindings
     else:
         ssmd.pop("role_bindings", None)
-    settings["ssmd"] = ssmd
-    return replace(manifest, settings=settings)
-
-
-def project_voice_bindings_provenance(provider: str, bindings: Mapping[str, str]) -> dict[str, Any]:
-    """Return stable, non-identity provenance for project voice settings."""
-    normalized = dict(sorted(bindings.items()))
-    identity = {
-        "schema": "readio.project-voice-bindings.v1",
-        "provider": provider,
-        "bindings": normalized,
-    }
-    digest = hashlib.sha256(canonical_json(identity)).hexdigest()
-    return {
-        "provider": provider,
-        "bindings": normalized,
-        "sha256": f"sha256:{digest}",
-    }
-
-
-def with_project_voice_binding(
-    manifest: ProjectManifest,
-    *,
-    provider: str,
-    role: str,
-    voice: str,
-) -> ProjectManifest:
-    """Return a manifest with one project-local voice binding changed."""
-    _require_non_empty_string(provider, "provider")
-    _require_non_empty_string(role, "role")
-    _require_non_empty_string(voice, "voice")
-
-    settings = dict(manifest.settings)
-    ssmd = dict(settings.get("ssmd", {}))
-    all_bindings = dict(ssmd.get("voice_bindings", {}))
-    provider_bindings = dict(all_bindings.get(provider, {}))
-    provider_bindings[role] = voice
-    all_bindings[provider] = provider_bindings
-    ssmd["voice_bindings"] = all_bindings
-    settings["ssmd"] = ssmd
-    return replace(manifest, settings=settings)
-
-
-def without_project_voice_binding(
-    manifest: ProjectManifest,
-    *,
-    provider: str,
-    role: str,
-) -> ProjectManifest:
-    """Return a manifest with only the selected project-local binding removed."""
-    _require_non_empty_string(provider, "provider")
-    _require_non_empty_string(role, "role")
-
-    settings = dict(manifest.settings)
-    ssmd = dict(settings.get("ssmd", {}))
-    all_bindings = dict(ssmd.get("voice_bindings", {}))
-    provider_bindings = dict(all_bindings.get(provider, {}))
-    provider_bindings.pop(role, None)
-    if provider_bindings:
-        all_bindings[provider] = provider_bindings
-    else:
-        all_bindings.pop(provider, None)
-    if all_bindings:
-        ssmd["voice_bindings"] = all_bindings
-    else:
-        ssmd.pop("voice_bindings", None)
     settings["ssmd"] = ssmd
     return replace(manifest, settings=settings)
 
@@ -372,6 +242,8 @@ def project_settings_to_dict(settings: Any, project_root: Path) -> dict[str, Any
                 continue
             if name == "voice_file":
                 value = _stored_path(value, project_root)
+            elif name == "engine":
+                value = normalize_engine_id(value)
             elif name == "engine_options":
                 value = _plain_json(value)
             elif isinstance(value, tuple):
@@ -591,7 +463,7 @@ def merge_project_synthesis_request(project_settings: Any, invocation_request: A
 
 
 __all__ = [
-    "ProjectVoiceProviderError",
+    "ProjectVoiceNamespaceError",
     "apply_project_settings_patch",
     "effective_project_role_targets",
     "merge_project_synthesis_request",
@@ -605,16 +477,11 @@ __all__ = [
     "project_settings_to_dict",
     "project_ssmd_settings",
     "project_synthesis_request",
-    "project_voice_binding_providers",
-    "project_voice_bindings",
-    "project_voice_bindings_provenance",
-    "project_voice_provider",
-    "resolve_project_voice_provider",
+    "project_voice_binding_namespaces",
+    "project_voice_namespace",
+    "resolve_project_voice_namespace",
     "synthesis_request_fingerprint",
     "with_project_role_binding",
     "with_project_settings",
-    "with_project_voice_binding",
-    "with_project_voice_provider",
     "without_project_role_binding",
-    "without_project_voice_binding",
 ]
