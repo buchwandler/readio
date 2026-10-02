@@ -7,20 +7,15 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
-from ssmdconvert import (
-    BookBundleError,
-    BookBundleValidationError,
-    BookError,
-    ChapterSelectionError,
-    MissingDependencyError,
-    SSMDConvertError,
-    UnsupportedBookSourceError,
-)
-
 from .. import audiobook as audiobook_internal
 from .. import errors as core_errors
 from .. import jsonutil
 from .. import project as project_internal
+from ..integrations.ssmdconvert import (
+    BookInputError,
+    BookSelectionError,
+    MissingInputDependencyError,
+)
 from ..project_model import ProjectFormatError as InternalProjectFormatError
 from ..project_settings import project_settings_from_manifest
 from ..stages import audiobook_export as audiobook_export_internal
@@ -305,6 +300,26 @@ class AudiobookService:
     def _call(self, callback: Callable[[], T], *, source_path: Path | None = None) -> T:
         try:
             return callback()
+        except BookSelectionError as error:
+            raise api_errors.InvalidRequestError(
+                str(error),
+                source_path=error.source_path or source_path,
+                code="request.chapter_selection_invalid",
+            ) from error
+        except MissingInputDependencyError as error:
+            raise api_errors.IntegrationError(
+                str(error),
+                source_path=error.source_path or source_path,
+                details=error.details,
+                code=error.code,
+            ) from error
+        except BookInputError as error:
+            raise api_errors.InputError(
+                str(error),
+                source_path=error.source_path or source_path,
+                details=error.details,
+                code=error.code,
+            ) from error
         except core_errors.ReadioError:
             raise
         except audiobook_export_internal.AudiobookExportError as error:
@@ -314,34 +329,6 @@ class AudiobookService:
                 ) from error
             raise api_errors.ExecutionError(
                 str(error), details=error.details, code=error.code
-            ) from error
-        except ChapterSelectionError as error:
-            raise api_errors.InvalidRequestError(
-                str(error), source_path=source_path, code="request.chapter_selection_invalid"
-            ) from error
-        except UnsupportedBookSourceError as error:
-            raise api_errors.InputError(
-                str(error), source_path=source_path, code="input.book_format_unsupported"
-            ) from error
-        except BookBundleValidationError as error:
-            raise api_errors.InputError(
-                str(error), source_path=source_path, code="input.book_bundle_invalid"
-            ) from error
-        except BookBundleError as error:
-            raise api_errors.InputError(
-                str(error), source_path=source_path, code="input.book_bundle_failed"
-            ) from error
-        except MissingDependencyError as error:
-            raise api_errors.IntegrationError(
-                str(error), source_path=source_path, code="input.book_dependency_missing"
-            ) from error
-        except BookError as error:
-            raise api_errors.InputError(
-                str(error), source_path=source_path, code="input.book_conversion_failed"
-            ) from error
-        except SSMDConvertError as error:
-            raise api_errors.InputError(
-                str(error), source_path=source_path, code="input.book_conversion_failed"
             ) from error
         except FileNotFoundError as error:
             raise api_errors.InputError(

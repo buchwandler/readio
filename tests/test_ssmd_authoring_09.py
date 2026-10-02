@@ -100,4 +100,5 @@ Hello.
 """
 
     parsed = parse_ssmd_09(source)
-    assert parsed.annotations
+    assert parsed.voice_references[0].reference == "host"
+    assert not hasattr(parsed, "structure")

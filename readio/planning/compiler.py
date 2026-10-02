@@ -11,9 +11,12 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from utterplan import UtterancePlan
+
+from .semantic import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from ..document import InputDocument
@@ -35,6 +38,39 @@ class CompiledSemanticPlan:
 def _compute_sha256(data: bytes) -> str:
     """Compute SHA-256 hash of data."""
     return hashlib.sha256(data).hexdigest()
+
+class PlanSchemaMismatchError(ValueError):
+    """A persisted Readio semantic plan is not the supported UtterPlan schema."""
+
+    def __init__(self, stored: object) -> None:
+        self.stored = stored
+        super().__init__(
+            f"Utterplan schema {stored!r} is not supported; "
+            f"expected {SUPPORTED_UTTERPLAN_SCHEMA_VERSION}"
+        )
+
+
+def serialize_utterplan(plan: UtterancePlan) -> bytes:
+    """Serialize the canonical UtterPlan artifact with stable JSON fallback."""
+    try:
+        return plan.to_json().encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        semantic = plan.semantic_dict()
+        return json.dumps(
+            semantic, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+
+
+def load_utterplan_v3(path: Path) -> UtterancePlan:
+    """Load an Utterplan v3 artifact without invoking schema migration."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("format") != "utterplan":
+        raise ValueError("semantic plan artifact is not an Utterplan document")
+    stored = data.get("schema_version")
+    if type(stored) is not int or stored != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
+        raise PlanSchemaMismatchError(stored)
+    return UtterancePlan.from_dict(data)
+
 
 
 def compile_semantic_plan(
@@ -67,13 +103,7 @@ def compile_semantic_plan(
         raise ValueError("semantic compiler returned an empty plan identity")
 
     # Compute SHA-256 of the exact canonical serialized artifact.
-    try:
-        serialized = plan.to_json().encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError):
-        semantic = plan.semantic_dict()
-        serialized = json.dumps(
-            semantic, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
+    serialized = serialize_utterplan(plan)
     sha256 = _compute_sha256(serialized)
     logger.debug(
         "Compiled semantic plan: plan_id=%s, sha256=%s, segments=%d, units=%d",
@@ -91,4 +121,11 @@ def compile_semantic_plan(
     )
 
 
-__all__ = ["CompiledSemanticPlan", "compile_semantic_plan"]
+__all__ = [
+    "CompiledSemanticPlan",
+    "PlanSchemaMismatchError",
+    "UtterancePlan",
+    "compile_semantic_plan",
+    "load_utterplan_v3",
+    "serialize_utterplan",
+]

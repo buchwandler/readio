@@ -5,25 +5,22 @@ from __future__ import annotations
 import os
 import secrets
 import shutil
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Literal
-
-from ssmdconvert import (
-    Book,
-    BookChapter,
-    BookInspectionChapter,
-    ChapterSelectionError,
-    UnsupportedBookSourceError,
-    convert_book,
-    inspect_book,
-    load_book_bundle,
-    write_book_bundle,
-)
-from ssmdconvert import __version__ as ssmdconvert_version
+from typing import Literal
 
 from .chapter_selection import parse_chapter_selection
+from .integrations.ssmdconvert import (
+    BookInspection,
+    BookInspectionChapter,
+    BookSelectionError,
+    CanonicalBook,
+    book_source_kind,
+    convert_book_source,
+    inspect_book_source,
+    load_book_bundle_source,
+    write_book_bundle,
+)
 from .project import (
     Project,
     atomic_write_json,
@@ -34,77 +31,15 @@ from .project import (
 )
 from .project_model import DocumentIndex, DocumentScope, ProjectManifest
 
-
-@dataclass(frozen=True, slots=True)
-class AudiobookChapter:
-    number: int
-    source_id: str | None
-    title: str
-    href: str | None
-    source_parent_id: str | None
-    parent_id: str | None
-    level: int
-    char_count: int | None
-    diagnostics: tuple[Mapping[str, Any], ...]
+AudiobookChapter = BookInspectionChapter
+AudiobookInspection = BookInspection
 
 
-@dataclass(frozen=True, slots=True)
-class AudiobookInspection:
-    source: Path
-    metadata: Mapping[str, Any]
-    chapters: tuple[AudiobookChapter, ...]
-
-
-def _book_source_kind(source: Path) -> Literal["epub", "bundle"]:
-    name = source.name.casefold()
-    if source.is_dir() and name.endswith(".ssmdbook"):
-        return "bundle"
-    if source.is_file():
-        if name.endswith(".ssmdbook.zip"):
-            return "bundle"
-        if source.suffix.casefold() == ".epub":
-            return "epub"
-    if not source.exists():
-        raise FileNotFoundError(source)
-    raise UnsupportedBookSourceError(
-        f"unsupported book source {source.name!r}; expected an EPUB or .ssmdbook bundle"
-    )
-
-
-def _inspection_chapter(chapter: BookInspectionChapter | BookChapter) -> AudiobookChapter:
-    return AudiobookChapter(
-        number=chapter.source_number,
-        source_id=chapter.source_id,
-        title=chapter.title,
-        href=chapter.href,
-        source_parent_id=chapter.source_parent_id,
-        parent_id=chapter.parent_id,
-        level=chapter.level,
-        char_count=chapter.char_count,
-        diagnostics=tuple(dict(item) for item in chapter.diagnostics),
-    )
-
-
-def inspect_book_source(source: Path) -> AudiobookInspection:
-    """Inspect an EPUB or a validated ssmdconvert book bundle."""
-    source_path = source.expanduser().resolve()
-    source_kind = _book_source_kind(source_path)
-    if source_kind == "epub":
-        inspection = inspect_book(source_path)
-        metadata = inspection.metadata
-        raw_chapters = inspection.chapters
-    else:
-        book = load_book_bundle(source_path)
-        metadata = book.metadata
-        raw_chapters = book.chapters
-    return AudiobookInspection(
-        source=source_path,
-        metadata=dict(metadata),
-        chapters=tuple(_inspection_chapter(chapter) for chapter in raw_chapters),
-    )
-
-
-def _select_bundle_chapters(book: Book, chapters: str | None) -> Book:
+def _select_bundle_chapters(
+    book: CanonicalBook,
+    chapters: str | None,
+    source_path: Path,
+) -> CanonicalBook:
     try:
         selected_numbers = set(
             parse_chapter_selection(
@@ -113,7 +48,7 @@ def _select_bundle_chapters(book: Book, chapters: str | None) -> Book:
             )
         )
     except ValueError as error:
-        raise ChapterSelectionError(str(error)) from error
+        raise BookSelectionError(str(error), source_path=source_path) from error
     return replace(
         book,
         chapters=tuple(
@@ -144,7 +79,7 @@ def init_audiobook_project(
 ) -> Project:
     """Create an atomic audiobook project from an EPUB or ssmdconvert bundle."""
     source_path = source.expanduser().resolve()
-    source_kind = _book_source_kind(source_path)
+    source_kind = book_source_kind(source_path)
     root = Path(output or f"{_project_basename(source_path, source_kind)}.readio").expanduser()
     if not root.is_absolute():
         root = Path.cwd() / root
@@ -152,12 +87,12 @@ def init_audiobook_project(
     if root.exists():
         raise ValueError(f"project destination already exists: {root}")
     if source_kind == "epub":
-        book = convert_book(source_path, chapters=chapters)
+        book = convert_book_source(source_path, chapters=chapters)
         source_book = None
-        source_format = book.source.format
+        source_format = book.source_format
     else:
-        source_book = load_book_bundle(source_path)
-        book = _select_bundle_chapters(source_book, chapters)
+        source_book = load_book_bundle_source(source_path)
+        book = _select_bundle_chapters(source_book, chapters, source_path)
         source_format = "ssmdbook"
 
     source_relative = (Path("source") / _source_snapshot_name(source_path, source_kind)).as_posix()
@@ -227,10 +162,10 @@ def init_audiobook_project(
         metadata = dict(book.metadata)
         metadata["conversion"] = {
             "tool": "ssmdconvert",
-            "version": ssmdconvert_version,
+            "version": book.converter_version,
             "source_format": source_format,
-            "source_name": book.source.name or source_path.name,
-            "media_type": book.source.media_type,
+            "source_name": book.source_name or source_path.name,
+            "media_type": book.media_type,
         }
         document_index = DocumentIndex(
             scopes=tuple(scopes),

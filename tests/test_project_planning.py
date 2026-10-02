@@ -143,7 +143,7 @@ def test_pdf_project_uses_editable_ssmd_without_reopening_source(tmp_path, monke
     assert statuses["plan"]["reason"] == "plan.stale.document_changed"
 
     monkeypatch.setattr(
-        "readio.conversion.convert",
+        "readio.integrations.ssmdconvert.ssmdconvert_convert",
         lambda *_args, **_kwargs: pytest.fail("planning must not reconvert the source"),
     )
     plan_project(project, ReadioConfig(reader=ReaderSettings(spacy="off")))

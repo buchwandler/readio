@@ -16,8 +16,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from utterplan import CURRENT_SCHEMA_VERSION
-
 from .config import (
     DEFAULT_SHORT_SENTENCE_POLICY,
     ReadioConfig,
@@ -27,8 +25,13 @@ from .config import (
     normalize_spacy_policy,
     normalize_voice_level,
 )
-from .document import InputDocument, InputFormat, InputFormatRequest
-from .errors import RenderError
+from .document import (
+    InputDocument,
+    InputFormat,
+    InputFormatRequest,
+    canonicalize_document,
+)
+from .errors import InputError, RenderError
 from .formats import (
     AudioFormat,
     audio_format_available,
@@ -36,16 +39,9 @@ from .formats import (
     resolve_audio_format,
 )
 from .jsonutil import JsonValue
-from .markdown import markdown_to_speech
+from .planning import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
 from .role_targets import VoiceTarget, ssmd_namespace_for_engine
 from .voices import resolve_voice_reference
-
-SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
-if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
-    raise RuntimeError(
-        "Readio supports Utterplan schema v3; "
-        f"installed Utterplan reports schema {CURRENT_SCHEMA_VERSION}"
-    )
 
 logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
@@ -643,24 +639,20 @@ def _plan_input(
     projected_paragraphs: int | None = None
     effective_doc = doc
 
-    if effective_format == "markdown":
+    if effective_format == "markdown" and doc.format != "ssmd":
         try:
-            projected_text = markdown_to_speech(doc.text)
-            projected_sha256 = _sha256_text(projected_text)
-            projected_paragraphs = projected_text.count("\n\n") + 1 if projected_text.strip() else 0
-            effective_doc = InputDocument(
-                text=projected_text, source_path=doc.source_path, format="text"
-            )
-        except (ValueError, KeyError, TypeError) as exc:
+            markdown_document = doc if doc.format == "markdown" else replace(doc, format="markdown")
+            effective_doc = canonicalize_document(markdown_document)
+            projected_sha256 = _sha256_text(effective_doc.text)
+        except (InputError, ValueError, KeyError, TypeError) as exc:
             diagnostics.append(
                 PlanDiagnostic(
                     code="input_markdown_parse_error",
                     severity="error",
-                    message=f"Failed to parse Markdown: {exc}",
+                    message=f"Failed to convert Markdown: {exc}",
                     source_path=doc.source_path,
                 )
             )
-
     input_plan = InputPlan(
         source_path=doc.source_path,
         source_kind=source_kind,
@@ -1561,6 +1553,7 @@ def _resolve_v2_ssmd_roles(
 
 def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     """Resolve a serializable v2 plan and its in-memory execution artifacts."""
+
     from .engines.base import EngineSelection
     from .engines.registry import get_engine, normalize_engine_id
     from .engines.selection import EngineRequest
@@ -1795,6 +1788,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     diagnostics.extend(output_diags)
     decisions.extend(output_decisions)
 
+
     policy = PlanningPolicy(
         language=candidate.language,
         unit=candidate.unit,
@@ -2022,7 +2016,7 @@ class SemanticPlanRef:
     """Reference to a persisted UtterancePlan."""
 
     format: str = "utterplan"
-    schema_version: int = CURRENT_SCHEMA_VERSION
+    schema_version: int = SUPPORTED_UTTERPLAN_SCHEMA_VERSION
     plan_id: str = ""
     sha256: str = ""
     path: str | None = None

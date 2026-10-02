@@ -3,26 +3,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-import pytest
-
 from readio.audio import AudioSink, RenderSummary
 from readio.config import ReadioConfig
-from readio.document import InputDocument
+from readio.document import InputDocument, document_from_text
 from readio.reader import prepare_input_document, render_text
 from readio.synthesis import ResolvedSynthesis
 
 
-def test_prepare_input_document_projects_markdown_to_plain_text(tmp_path: Path):
+def test_prepare_input_document_canonicalizes_markdown_with_ssmdconvert(tmp_path: Path):
     source = InputDocument("# Title\n\nParagraph.", tmp_path / "notes.md", "markdown")
 
     prepared = prepare_input_document(source)
 
-    assert prepared.format == "text"
+    assert prepared.format == "ssmd"
     assert prepared.source_path == source.source_path
-    assert prepared.text == "Title.\n\nParagraph."
+    assert prepared.provenance is not None
+    assert prepared.provenance.source_format == "markdown"
+    assert "Title." in prepared.text
+    assert "# Title" not in prepared.text
+    assert "Paragraph." in prepared.text
 
-
-def test_render_text_uses_spoken_markdown_projection(monkeypatch):
+def test_render_text_uses_canonical_ssmd_for_markdown(monkeypatch):
     captured = {}
     summary = RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
     synthesis = ResolvedSynthesis(
@@ -61,17 +62,17 @@ def test_render_text_uses_spoken_markdown_projection(monkeypatch):
     )
 
     assert result is summary
-    assert captured["document"].text == "Title.\n\nItem: first.\n\nItem: second."
+    assert captured["document"].format == "ssmd"
+    assert captured["document"].text == document_from_text(
+        "# Title\n\n- first\n- second", input_format="markdown"
+    ).text
     assert captured["request"].input.document == captured["document"]
     assert captured["request"].input.selector == "last-paragraph"
     assert captured["kwargs"]["selector"] == "last-paragraph"
 
 
-def test_empty_markdown_projection_fails_before_plan_resolution(monkeypatch):
-    monkeypatch.setattr(
-        "readio.plan.resolve_execution_v2",
-        lambda *_args, **_kwargs: pytest.fail("empty Markdown must fail before plan resolution"),
-    )
+def test_empty_markdown_is_converted_without_readio_projection():
+    prepared = prepare_input_document(InputDocument("", None, "markdown"))
 
-    with pytest.raises(ValueError, match="no text to read"):
-        render_text(InputDocument("#", None, "markdown"), ReadioConfig(), cast(AudioSink, object()))
+    assert prepared.format == "ssmd"
+    assert prepared.text.endswith("---\n")

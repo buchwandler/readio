@@ -5,9 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from utterplan import UtterancePlan, UtterancePlanner
+from utterplan import CURRENT_SCHEMA_VERSION, UtterancePlan, UtterancePlanner
 
 from .policy import PlanningPolicy
+
+SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
+if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
+    raise RuntimeError(
+        "Readio supports Utterplan schema v3; "
+        f"installed Utterplan reports schema {CURRENT_SCHEMA_VERSION}"
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -56,4 +63,4 @@ class SemanticPlanningService:
         return plan.plan_id
 
 
-__all__ = ["SemanticPlanningService"]
+__all__ = ["SUPPORTED_UTTERPLAN_SCHEMA_VERSION", "SemanticPlanningService", "UtterancePlan"]

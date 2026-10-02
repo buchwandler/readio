@@ -26,12 +26,12 @@ jobs:
       - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,documents]"
       - name: Run test suite
         run: python -m pytest -q
 
   ssmdconvert-minimum:
-    name: ssmdconvert 0.1.0 public API contract
+    name: ssmdconvert 0.1.1 public API contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,8 +45,8 @@ jobs:
       - name: Install minimum released converter and project
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "ssmdconvert[pdf,docx]==0.1.0"
-          python -m pip install -e ".[dev]"
+          python -m pip install "ssmdconvert[pdf,docx]==0.1.1"
+          python -m pip install -e ".[dev,documents]"
       - name: Verify dependency resolution
         run: python -m pip check
       - name: Test public conversion boundary at minimum release

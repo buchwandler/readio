@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import ssmd as ssmd_api
@@ -49,21 +50,8 @@ class VoiceReferenceUse:
 
 @dataclass(frozen=True, slots=True)
 class ParsedSSMD09:
-    structure: Any
+    header: Mapping[str, Any]
     voice_references: tuple[VoiceReferenceUse, ...]
-
-    @property
-    def header(self) -> Mapping[str, Any]:
-        return self.structure.header
-
-    @property
-    def annotations(self) -> tuple[Any, ...]:
-        return tuple(self.structure.annotations)
-
-    @property
-    def events(self) -> tuple[Any, ...]:
-        return tuple(self.structure.events)
-
 
 def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09:
     try:
@@ -139,10 +127,22 @@ def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09
         for reference, uses in grouped.items()
     )
     return ParsedSSMD09(
-        structure=structure,
+        header=MappingProxyType(dict(structure.header)),
         voice_references=references,
     )
 
+def serialize_generated_front_matter(
+    text: str,
+    generated: Mapping[str, Any],
+    *,
+    parsed: ParsedSSMD09 | None = None,
+    source_path: Path | None = None,
+) -> str:
+    """Merge generated header values and serialize the SSMD front matter."""
+    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
+    front_matter = ssmd_api.parse_front_matter(text)
+    merged = ssmd_api.merge_generated_header(dict(parsed.header), dict(generated))
+    return ssmd_api.serialize_front_matter(merged, front_matter.body)
 
 @dataclass(frozen=True, slots=True)
 class ResolvedVoiceReference:

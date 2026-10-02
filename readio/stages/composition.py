@@ -30,7 +30,6 @@ from audiocompose import (
     RatePitchEnvelope,
     Tempo,
 )
-from utterplan import parse_duration
 
 from ..errors import InputError
 from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
@@ -310,9 +309,32 @@ def _segment_voice_identity(
     return f"profile:{hashlib.sha256(canonical_json(dict(canonical))).hexdigest()}"
 
 
+def _duration_seconds(value: Any, field: str) -> float:
+    if isinstance(value, bool):
+        raise InputError(f"{field} must be a duration, not a boolean")
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+    elif isinstance(value, str):
+        match = re.fullmatch(
+            r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(ms|s)?\s*",
+            value,
+            re.IGNORECASE,
+        )
+        if match is None:
+            raise InputError(f"{field} must be a number of seconds or use ms/s syntax")
+        seconds = float(match.group(1))
+        if match.group(2) and match.group(2).lower() == "ms":
+            seconds /= 1000.0
+    else:
+        raise InputError(f"{field} must be a number or duration string")
+    if not math.isfinite(seconds) or seconds < 0:
+        raise InputError(f"{field} must be finite and non-negative")
+    return seconds
+
+
 def _transition_seconds(policy: Mapping[str, Any], field: str) -> float:
     value = policy.get(field)
-    return float(parse_duration(value)) if value is not None else 0.0
+    return _duration_seconds(value, field) if value is not None else 0.0
 
 
 def _operation_payload(operations: tuple[Any, ...]) -> list[dict[str, Any]]:

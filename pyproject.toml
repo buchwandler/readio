@@ -20,10 +20,8 @@ dependencies = [
   "tomli-w>=1.0",
   "PyYAML>=6.0",
   "ssmd>=0.9.2,<0.10",
-  "ssmdconvert[pdf,docx]>=0.1.0,<0.2",
+  "ssmdconvert>=0.1.1,<0.2",
   "onnxvoice>=0.2.0,<0.3",
-  "markdown-it-py>=3.0,<5.0",
-  "mdit-py-plugins>=0.4,<1.0",
   "rich-argparse>=1.7,<2",
 ]
 [project.optional-dependencies]
@@ -32,6 +30,7 @@ piper = ['pipersynth>=0.2.1,<0.3']
 pocket = ['pocketsynth[cpu]>=0.2.1,<0.3']
 kitten = ['kittensynth[cpu]>=0.1.0,<0.2']
 spacy = ['utterplan[spacy]>=0.3.0,<0.4']
+documents = ["ssmdconvert[pdf,docx]>=0.1.1,<0.2"]
 all = [
   'pykokoro>=0.10.2,<0.11',
   'pipersynth>=0.2.1,<0.3',

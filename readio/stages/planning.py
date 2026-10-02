@@ -7,14 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from utterplan import UtterancePlan
-
-from ..document import InputDocument
+from ..document import InputDocument, document_from_text
 from ..errors import SSMDInputError
-from ..markdown import markdown_to_speech
-from ..plan import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
-from ..planning.compiler import CompiledSemanticPlan, compile_semantic_plan
-from ..planning.policy import PlanningPolicy
+from ..planning import (
+    SUPPORTED_UTTERPLAN_SCHEMA_VERSION,
+    CompiledSemanticPlan,
+    PlanningPolicy,
+    PlanSchemaMismatchError,
+    UtterancePlan,
+    compile_semantic_plan,
+    load_utterplan_v3,
+    serialize_utterplan,
+)
 from ..project import (
     Project,
     atomic_write_bytes,
@@ -51,15 +55,6 @@ class ProjectPlanningResult:
     scopes: tuple[PlannedScope, ...]
 
 
-class PlanSchemaMismatchError(ValueError):
-    """A persisted Readio semantic plan is not the supported Utterplan schema."""
-
-    def __init__(self, stored: object) -> None:
-        self.stored = stored
-        super().__init__(
-            f"Utterplan schema {stored!r} is not supported; "
-            f"expected {SUPPORTED_UTTERPLAN_SCHEMA_VERSION}"
-        )
 
 
 def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSemanticPlanning:
@@ -69,9 +64,8 @@ def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSema
     compiled = compile_semantic_plan(prepared, planning=policy)
     return ResolvedSemanticPlanning(prepared, policy, compiled)
 
-
 def _write_plan_artifact(path: Path, compiled: CompiledSemanticPlan) -> str:
-    serialized = compiled.serialized or compiled.plan.to_json().encode("utf-8")
+    serialized = compiled.serialized or serialize_utterplan(compiled.plan)
     atomic_write_bytes(path, serialized)
     return sha256_bytes(serialized)
 
@@ -84,8 +78,11 @@ def prepare_project_document(project: Project) -> InputDocument:
     metadata = __import__("json").loads(paths["document_metadata"].read_text(encoding="utf-8"))
     input_format = metadata.get("input_format", project.manifest.source_format)
     if input_format == "markdown":
-        normalized = markdown_to_speech(raw)
-        document_format = "text"
+        normalized_document = document_from_text(
+            raw, source_path=source, input_format="markdown"
+        )
+        normalized = normalized_document.text
+        document_format = normalized_document.format
     elif input_format == "ssmd":
         normalized = raw
         document_format = "ssmd"
@@ -237,15 +234,6 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
     return resolved.compiled
 
 
-def load_utterplan_v3(path: Path) -> UtterancePlan:
-    """Load a Readio Utterplan v3 artifact without invoking schema migration."""
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("format") != "utterplan":
-        raise ValueError("semantic plan artifact is not an Utterplan document")
-    stored = data.get("schema_version")
-    if type(stored) is not int or stored != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
-        raise PlanSchemaMismatchError(stored)
-    return UtterancePlan.from_dict(data)
 
 
 def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
@@ -357,7 +345,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                 }
         expected_scope_format = (
             "ssmd"
-            if document_scope is not None and document_scope.input_format == "ssmd"
+            if document_scope is not None and document_scope.input_format.casefold() in {"ssmd", "markdown"}
             else expected_format
         )
         actual_format = plan.config.get("document_format")

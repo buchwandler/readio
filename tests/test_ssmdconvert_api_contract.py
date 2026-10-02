@@ -17,6 +17,7 @@ from ssmdconvert import (
     UnsupportedInputError,
     convert,
     convert_book,
+    convert_content,
     inspect_book,
     load_book_bundle,
     write_book_bundle,
@@ -28,7 +29,14 @@ def test_readio_public_ssmdconvert_contract_is_available_in_supported_release_fa
     assert ssmdconvert.__version__ == version("ssmdconvert")
     assert all(
         callable(operation)
-        for operation in (convert, convert_book, inspect_book, load_book_bundle, write_book_bundle)
+        for operation in (
+            convert,
+            convert_book,
+            convert_content,
+            inspect_book,
+            load_book_bundle,
+            write_book_bundle,
+        )
     )
     assert all(
         isinstance(value, type)
@@ -67,4 +75,4 @@ def test_readio_keeps_parser_and_private_conversion_imports_outside_its_boundary
 def test_minimum_ssmdconvert_release_contract_when_requested() -> None:
     if os.environ.get("READIO_TEST_SSMD_CONVERT_MINIMUM") != "1":
         pytest.skip("run this assertion in the minimum-release contract job")
-    assert version("ssmdconvert") == "0.1.0"
+    assert version("ssmdconvert") == "0.1.1"

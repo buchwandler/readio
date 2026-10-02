@@ -312,7 +312,7 @@ def test_input_help_describes_positional_files_and_literal_escape(capsys):
     help_text = capsys.readouterr().out
     assert "one existing file path" in help_text
     assert "unambiguous scripting form" in help_text
-    assert "forces textual interpretation" in help_text
+    assert "selects the input format" in help_text
     assert "positional file detection" in help_text
 
 

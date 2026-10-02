@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from zipfile import ZIP_STORED, ZipFile
 
@@ -11,10 +12,11 @@ from ssmdconvert import (
     UnsupportedInputError,
 )
 
-from readio import conversion
 from readio.api import Document, DocumentProvenance
 from readio.document import document_from_file
 from readio.errors import InputError
+from readio.integrations import ssmdconvert as conversion
+from readio.integrations.ssmdconvert import CanonicalDocument, MissingInputDependencyError
 
 _SSMD = "---\nssmd_version: '0.9'\n---\nHello.\n"
 
@@ -65,6 +67,7 @@ def test_convert_document_source_returns_canonical_ssmd(
 
     converted = conversion.convert_document_source(source)
 
+    assert isinstance(converted, CanonicalDocument)
     assert converted.source == source.resolve()
     assert converted.source_format
     assert converted.source_name == source.name
@@ -133,6 +136,47 @@ def test_document_from_file_auto_uses_conversion_and_explicit_text_does_not(
     assert literal.text == "# Markdown heading"
 
 
+
+def test_canonical_ssmd_file_bypasses_conversion_and_keeps_source_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    source = tmp_path / "episode.ssmd.md"
+    raw = b"\xef\xbb\xbf" + _SSMD.encode("utf-8")
+    source.write_bytes(raw)
+    monkeypatch.setattr(
+        "readio.document.convert_document_source",
+        lambda _path: pytest.fail("canonical SSMD must not be converted again"),
+    )
+
+    document = document_from_file(source)
+
+    assert document.text == _SSMD
+    assert document.canonical_sha256 == hashlib.sha256(raw).hexdigest()
+    assert document.provenance is not None
+    assert document.provenance.converter is None
+
+
+def test_raw_auto_file_calls_ssmdconvert_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "notes.txt"
+    source.write_text("Raw source", encoding="utf-8")
+    original_convert = conversion.convert_document_source
+    calls = 0
+
+    def count_conversion(path: Path):
+        nonlocal calls
+        calls += 1
+        return original_convert(path)
+
+    monkeypatch.setattr("readio.document.convert_document_source", count_conversion)
+
+    document = document_from_file(source)
+
+    assert calls == 1
+    assert document.canonical_sha256 == hashlib.sha256(
+        document.text.encode("utf-8")
+    ).hexdigest()
+
 @pytest.mark.parametrize(
     ("error", "code"),
     [
@@ -154,12 +198,14 @@ def test_convert_document_source_translates_converter_errors(
     def fail(_path: Path):
         raise error
 
-    monkeypatch.setattr(conversion, "convert", fail)
+    monkeypatch.setattr(conversion, "ssmdconvert_convert", fail)
 
     with pytest.raises(InputError) as caught:
         conversion.convert_document_source(source)
 
     assert caught.value.code == code
+    if code == "input.converter_dependency_missing":
+        assert isinstance(caught.value, MissingInputDependencyError)
     assert caught.value.source_path == source.resolve()
 
 

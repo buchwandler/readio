@@ -17,9 +17,8 @@ from .audio import (
     RenderSummary,
 )
 from .config import ReaderSettings, ReadioConfig, default_config
-from .document import InputDocument, document_from_text
-from .errors import InputError, RenderError
-from .markdown import markdown_to_speech
+from .document import InputDocument, canonicalize_document, document_from_text
+from .errors import RenderError
 from .plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from .synthesis import ResolvedSynthesis, resolve_synthesis
 from .text import iter_live_paragraphs
@@ -32,17 +31,7 @@ def _config(config: ReadioConfig | ReaderSettings) -> ReadioConfig:
 
 
 def prepare_input_document(document: InputDocument) -> InputDocument:
-    if document.format != "markdown":
-        return document
-    try:
-        text = markdown_to_speech(document.text)
-    except Exception as exc:
-        source = f" {document.source_path}" if document.source_path else ""
-        raise InputError(
-            f"failed to parse Markdown{source}: {exc}", source_path=document.source_path
-        ) from exc
-    return InputDocument(text=text, source_path=document.source_path, format="text")
-
+    return canonicalize_document(document)
 
 def _synthesis_request(synthesis: ResolvedSynthesis) -> SynthesisRequest:
     return SynthesisRequest(

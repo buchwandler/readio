@@ -11,7 +11,6 @@ from typing import Any, cast
 
 import numpy as np
 from audiocompose import AudioJob, Composer, CompositionResult
-from utterplan import UtterancePlan
 
 from .audio import AudioSink, RenderProgress, RenderProgressCallback, RenderSummary
 from .document import InputDocument
@@ -19,7 +18,7 @@ from .engines.base import EngineSelection
 from .engines.registry import get_engine
 from .errors import RenderError
 from .plan import ReadioPlanV2
-from .planning.compiler import CompiledSemanticPlan
+from .planning.compiler import CompiledSemanticPlan, UtterancePlan
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,8 +12,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
-from .conversion import convert_document_source
 from .document import InputDocument
+from .integrations.ssmdconvert import convert_document_source
 from .jsonutil import json_value
 from .project_model import (
     DocumentIndex,
@@ -143,6 +143,7 @@ class Project:
             text=path.read_text(encoding="utf-8"),
             source_path=source_path,
             format=indexed.input_format,
+            canonical_sha256=hash_file(path) if indexed.input_format.casefold() == "ssmd" else None,
         )
 
     def document(self) -> InputDocument:

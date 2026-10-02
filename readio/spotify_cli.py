@@ -92,7 +92,7 @@ def _add_input_options(parser: argparse.ArgumentParser) -> None:
         default="auto",
         help=(
             "auto uses ssmdconvert for file inputs; explicit text/markdown/ssmd "
-            "forces textual interpretation; text disables positional file detection"
+            "selects the input format; text disables positional file detection"
         ),
     )
     parser.add_argument(

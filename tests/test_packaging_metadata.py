@@ -24,7 +24,12 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
 
     assert "ssmd>=0.9.2,<0.10" in dependencies
-    assert "ssmdconvert[pdf,docx]>=0.1.0,<0.2" in dependencies
+    assert "ssmdconvert>=0.1.1,<0.2" in dependencies
+    assert "markdown-it-py>=3.0,<5.0" not in dependencies
+    assert "mdit-py-plugins>=0.4,<1.0" not in dependencies
+    assert _project_optional_dependencies()["documents"] == [
+        "ssmdconvert[pdf,docx]>=0.1.1,<0.2"
+    ]
     assert not any(
         item.split("[", 1)[0].split(">", 1)[0].lower()
         in {"epub2text", "ebooklib", "pypdf", "python-docx"}

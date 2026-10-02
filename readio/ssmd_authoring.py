@@ -8,14 +8,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import ssmd as ssmd_api
 import yaml
 
 from . import config as config_internal
 from .config import ReadioConfig
 from .errors import SSMDInputError
 from .role_targets import ssmd_namespace_for_engine
-from .ssmd import parse_ssmd_09
+from .ssmd import parse_ssmd_09, serialize_generated_front_matter
 
 
 class SSMDAuthoringError(SSMDInputError):
@@ -146,14 +145,10 @@ def materialize_voice_bindings(
         raise SSMDAuthoringError("refusing to overwrite the SSMD source; use --in-place explicitly")
     if target.exists() and target != source:
         raise SSMDAuthoringError(f"output already exists: {target}; choose another path")
-    front_matter = ssmd_api.parse_front_matter(source_text)
     generated = {"voice_bindings": {provider: dict(bindings)}}
     if "ssmd_version" not in parsed.header:
         generated["ssmd_version"] = "0.9"
-    merged = ssmd_api.merge_generated_header(dict(parsed.header), generated)
+    serialized = serialize_generated_front_matter(source_text, generated, parsed=parsed)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        ssmd_api.serialize_front_matter(merged, front_matter.body),
-        encoding="utf-8",
-    )
+    target.write_text(serialized, encoding="utf-8")
     return target

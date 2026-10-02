@@ -38,7 +38,9 @@ from readio.api import (
 def test_public_request_defaults_and_document_helpers(tmp_path: Path) -> None:
     document = document_from_text("hello", input_format="markdown")
     assert isinstance(document, Document)
-    assert document.format == "markdown"
+    assert document.format == "ssmd"
+    assert document.provenance is not None
+    assert document.provenance.source_format == "markdown"
 
     source = tmp_path / "input.ssmd"
     source.write_text("Hello", encoding="utf-8")
