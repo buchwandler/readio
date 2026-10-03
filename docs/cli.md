@@ -81,7 +81,7 @@ Inspect, patch, or clear supported settings with the project command family:
 ```text
 readio project settings [--project PROJECT] [--json]
 readio project settings show [PROJECT] [--json]
-readio project settings set [PROJECT] [--engine ENGINE] [--model MODEL] [--language LANG] [--voice VOICE] [--speed FLOAT]
+readio project settings set [PROJECT] [--engine ENGINE] [--model MODEL] [--language LANG] [--voice VOICE] [--voice-file PATH] [--voice-prompt REF] [--speed FLOAT]
   [--mastering PROFILE] [--target-lufs FLOAT] [--sample-rate HZ]
   [--export-format FORMAT] [--export-output PATH] [--export-bitrate RATE]
   [--audiobook-output PATH] [--audiobook-title TITLE] [--audiobook-author AUTHOR]
@@ -95,27 +95,47 @@ Synthesis, composition, generic export, and audiobook export defaults are used b
 
 ### Shared speech controls
 
-The `--speed` option and `reader.speed` configuration value are engine synthesis multipliers. Kokoro receives speed directly, PiperSynth maps it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`; unsupported explicit values fail before inference. Composition rate is separate and is not also changed by `--speed`.
+The `--speed` option and `reader.speed` configuration value are engine synthesis multipliers. Kokoro receives speed directly, PiperSynth maps it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`; unsupported explicit values fail before inference. Supertonic converts the locale to a supported base language and forwards speed as an engine synthesis multiplier. Composition rate is separate and is not also changed by `--speed`.
 
 Use `--voice-level off|calibrated` or `reader.voice_level` to select voice-level handling. The resolved voice-level mode and synthesis speed are included in speech-cache identity.
 
-PocketSynth project runs select a bundle and either a predefined voice or a reference WAV. The reference asset is represented by its SHA-256 content identity in the resolved render plan:
+PocketSynth project runs select a bundle and exactly one voice source: `--voice` for a predefined bundle voice, `--voice-file` for a local WAV, or `--voice-prompt` for a managed Kyutai prompt. Local and managed reference sources are pinned by SHA-256 in the resolved render plan; managed prompts also retain the catalog revision and available provenance. Managed prompts apply to the default synthesis voice, not per-role bindings:
 
 ```bash
 readio synth PROJECT --engine pocket --model BUNDLE_ID --voice VOICE --precision int8
 readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-file reference.wav --temperature 0.6
+readio voices prompts --engine pocket --dataset alba
+readio voices prompts --engine pocket --variant casual --license cc-by-4.0
+readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-prompt kyutai-tts-voices:alba-mackenna/casual
 ```
 
 ## Voice catalog filters
 
-For `readio voices list`, canonical engine IDs passed as `--model` are shortcuts only when `--engine` is omitted: `kokoro`, `piper`, `pocket`, and `kitten`. Input aliases such as `pykokoro` and `pipersynth` normalize to the canonical ID. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and model targets remain model filters.
+For `readio voices list`, canonical engine IDs passed as `--model` are shortcuts only when `--engine` is omitted: `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`. Input aliases such as `pykokoro`, `pipersynth`, and `supertonicsynth` normalize to the canonical ID. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and model targets remain model filters.
 
-Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, or `pocket:english_2026-04/alba`. Voice listing filters (`--engine`, `--model`, `--lang`, and `--gender`) select descriptive metadata, not voice identity. Native IDs are accepted when discovery context resolves them uniquely; use a semantic reference when the target must be explicit.
+Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, or `supertonic:supertonic-3/F1`. Voice listing filters (`--engine`, `--model`, `--lang`, and `--gender`) select descriptive metadata, not voice identity. Native IDs are accepted when discovery context resolves them uniquely; use a semantic reference when the target must be explicit.
 Pocket language filtering treats a generic bundle language as compatible with a specific query: `--lang en-us` includes a bundle advertising `en`, but excludes one explicitly advertising `en-GB`. The generic voice remains labeled `en`; Readio does not infer a regional locale.
 
 ```bash
 readio voices list --model piper --lang en-us
 readio voices list --engine piper --model en_US-amy-medium
+```
+
+Managed Pocket prompts are reference assets rather than target-bound catalog voices. Inspect them with metadata-only filters; listing does not open a Pocket model or download prompt WAV files:
+
+```bash
+readio voices prompts --engine pocket --dataset alba
+readio voices prompts --engine pocket --variant casual --license cc-by-4.0 --offline
+readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-prompt kyutai-tts-voices:alba-mackenna/casual
+```
+
+`--voice`, `--voice-file`, and `--voice-prompt` are mutually exclusive. Offline prompt listing needs cached catalog metadata; offline synthesis also needs the managed WAV cached.
+
+Supertonic selects catalog voices such as `F1` on model `supertonic-3`. Readio maps `en-us` to the engine language `en` and rejects unsupported base languages:
+
+```bash
+readio voices list --engine supertonic --lang en-us
+readio render --engine supertonic --model supertonic-3 --voice F1 --lang en-us "Hello"
 ```
 
 Project initialization converts supported filesystem document inputs through ssmdconvert. Ordinary document inputs include text/Markdown, HTML, PDF, DOCX, EPUB, and SSMD. The original file is retained under `source/` as provenance; the editable semantic input is canonical SSMD under `document/document.ssmd.md`. Planning reads the persisted SSMD, not the original source. Editing it replans changed semantics. If the source snapshot changes, status reports the provenance change but does not silently reconvert; initialize a new project from the updated source to ingest it. `readio project init novel.epub` creates one combined document project. `.ssmdbook` bundles are multi-chapter audiobook inputs and are rejected by generic project initialization.

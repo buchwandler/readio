@@ -51,14 +51,15 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     core_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[0]
     assert all(
         engine not in core_job
-        for engine in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth")
+        for engine in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth", "supertonicsynth")
     )
 
     for requirement in (
         "pykokoro==0.10.2",
         "pipersynth==0.2.1",
-        "pocketsynth[cpu]==0.2.1",
+        "pocketsynth[cpu]==0.2.3",
         "kittensynth[cpu]==0.1.0",
+        "supertonicsynth[cpu]==0.1.2",
     ):
         assert requirement in workflow
 
@@ -124,11 +125,13 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
     assert "pykokoro>=0.10.2,<0.11" in optional["all"]
     assert not any("pykokoro[playback]" in item for item in optional["all"])
     assert optional["piper"] == ["pipersynth>=0.2.1,<0.3"]
-    assert optional["pocket"] == ["pocketsynth[cpu]>=0.2.1,<0.3"]
+    assert optional["pocket"] == ["pocketsynth[cpu]>=0.2.3,<0.3"]
     assert optional["spacy"] == ["utterplan[spacy]>=0.3.0,<0.4"]
     assert "pipersynth>=0.2.1,<0.3" in optional["all"]
-    assert "pocketsynth[cpu]>=0.2.1,<0.3" in optional["all"]
+    assert "pocketsynth[cpu]>=0.2.3,<0.3" in optional["all"]
     assert optional["kitten"] == ["kittensynth[cpu]>=0.1.0,<0.2"]
+    assert optional["supertonic"] == ["supertonicsynth[cpu]>=0.1.2,<0.2"]
+    assert "supertonicsynth[cpu]>=0.1.2,<0.2" in optional["all"]
     assert "kittensynth[cpu]>=0.1.0,<0.2" in optional["all"]
     assert "utterplan[spacy]>=0.3.0,<0.4" in optional["all"]
     assert all(

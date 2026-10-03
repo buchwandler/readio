@@ -81,6 +81,7 @@ def _validate_synthesis_settings(value: Any) -> None:
         "quality",
         "voice",
         "spacy",
+        "voice_prompt",
         "short_sentence",
         "g2p_fallback",
         "lexicon_data_policy",
@@ -165,6 +166,13 @@ def _validate_synthesis_settings(value: Any) -> None:
         engine_options = _require_mapping(synthesis["engine_options"], f"{name}.engine_options")
         _validate_json_value(engine_options, f"{name}.engine_options")
     _require_optional_path(synthesis, "voice_file", f"{name}.voice_file")
+    selectors = tuple(
+        key for key in ("voice", "voice_file", "voice_prompt") if synthesis.get(key) is not None
+    )
+    if len(selectors) > 1:
+        raise ProjectFormatError(
+            f"{name} voice, voice_file, and voice_prompt are mutually exclusive"
+        )
 
 
 def _validate_composition_settings(value: Any) -> None:

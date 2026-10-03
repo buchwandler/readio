@@ -192,6 +192,12 @@ class SynthesisRequest:
     engine: str | None = None
     engine_options: Mapping[str, JsonValue] = field(default_factory=dict)
     voice_file: Path | None = None
+    voice_prompt: str | None = None
+
+    def __post_init__(self) -> None:
+        selectors = (self.voice, self.voice_file, self.voice_prompt)
+        if sum(value is not None for value in selectors) > 1:
+            raise ValueError("voice, voice_file, and voice_prompt are mutually exclusive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1570,6 +1576,15 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     candidate = _resolve_synthesis_candidate(cfg, request.synthesis, document_language_detection)
     decisions.extend(candidate.decisions)
     engine_id = normalize_engine_id(candidate.engine or cfg.reader.engine)
+    if request.synthesis.voice_prompt is not None and engine_id != "pocket":
+        diagnostics.append(
+            PlanDiagnostic(
+                code="voice_source_unsupported",
+                severity="error",
+                message="--voice-prompt is supported only by the pocket engine.",
+                field="synthesis.voice_prompt",
+            )
+        )
     if engine_id == "pocket" and candidate.speed != 1.0:
         diagnostics.append(
             PlanDiagnostic(
@@ -1726,6 +1741,12 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                     )
                 else:
                     engine_options["voice_source"] = voice_source
+        voice_prompt = request.synthesis.voice_prompt
+        if voice_prompt is not None and engine_id == "pocket":
+            engine_options["voice_source"] = {
+                "kind": "managed_reference",
+                "value": voice_prompt,
+            }
         unsupported_options = sorted(set(engine_options) - adapter.capabilities().option_names)
         for name in unsupported_options:
             diagnostics.append(
@@ -1831,17 +1852,19 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         )
     if adapter is not None and selection is not None and semantic is not None:
         selected_voice_source = selection.metadata.get("voice_source")
-        if (
-            isinstance(selected_voice_source, Mapping)
-            and selected_voice_source.get("kind") == "reference"
-            and isinstance(selected_voice_source.get("value"), str)
-            and isinstance(selected_voice_source.get("sha256"), str)
-        ):
-            voice_target = VoiceSourceV2(
-                kind="reference",
-                value=selected_voice_source["value"],
-                sha256=selected_voice_source["sha256"],
-            )
+        if "voice_source" in selection.metadata:
+            try:
+                voice_target = VoiceSourceV2.from_dict(selected_voice_source)
+            except (TypeError, ValueError) as exc:
+                diagnostics.append(
+                    PlanDiagnostic(
+                        code="voice_source_invalid",
+                        severity="error",
+                        message=str(exc),
+                        field="render.target.voice",
+                    )
+                )
+                voice_target = None
         elif selection.voice is not None:
             voice_target = VoiceSourceV2(kind="named", value=selection.voice)
         else:
@@ -1982,6 +2005,14 @@ def render_identity(semantic_sha256: str, render: RenderPlanV2) -> str:
             voice = target.voice.to_dict()
             if target.voice.kind == "reference":
                 voice = {"kind": "reference", "sha256": target.voice.sha256}
+            elif target.voice.kind == "managed_reference":
+                voice = {
+                    "kind": "managed_reference",
+                    "value": target.voice.value,
+                    "sha256": target.voice.sha256,
+                }
+                if target.voice.source_revision is not None:
+                    voice["source_revision"] = target.voice.source_revision
             result["voice"] = voice
         if target.speaker is not None:
             result["speaker"] = target.speaker
@@ -2031,21 +2062,78 @@ class SemanticPlanRef:
 
 @dataclass(frozen=True, slots=True)
 class VoiceSourceV2:
-    """Explicit named or reference-audio voice identity."""
+    """Explicit named, local-reference, or managed-reference voice identity."""
 
-    kind: Literal["named", "reference"]
+    kind: Literal["named", "reference", "managed_reference"]
     value: str
     sha256: str | None = None
+    source_revision: str | None = None
+    source_repository: str | None = None
+    source_path: str | None = None
+    license: str | None = None
+    dataset: str | None = None
+    variant: str | None = None
 
     def __post_init__(self) -> None:
-        if self.kind == "reference" and not self.sha256:
-            raise ValueError("reference voice sources require a stable SHA-256")
+        if self.kind not in {"named", "reference", "managed_reference"}:
+            raise ValueError(f"unknown voice source kind {self.kind!r}")
+        if not isinstance(self.value, str) or not self.value.strip():
+            raise ValueError("voice source value must be a non-empty string")
+        if self.kind in {"reference", "managed_reference"} and not self.sha256:
+            raise ValueError(f"{self.kind} voice sources require a stable SHA-256")
+        for name in (
+            "sha256",
+            "source_revision",
+            "source_repository",
+            "source_path",
+            "license",
+            "dataset",
+            "variant",
+        ):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValueError(f"voice source {name} must be a non-empty string or None")
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"kind": self.kind, "value": self.value}
-        if self.sha256 is not None:
-            result["sha256"] = self.sha256
+        for name in (
+            "sha256",
+            "source_revision",
+            "source_repository",
+            "source_path",
+            "license",
+            "dataset",
+            "variant",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                result[name] = value
         return result
+
+    @classmethod
+    def from_dict(cls, value: object) -> VoiceSourceV2:
+        if not isinstance(value, Mapping):
+            raise TypeError("voice source must be a mapping")
+        kind = value.get("kind")
+        if kind not in {"named", "reference", "managed_reference"}:
+            raise ValueError(f"unknown voice source kind {kind!r}")
+        source_value = value.get("value")
+        if not isinstance(source_value, str):
+            raise TypeError("voice source value must be a string")
+        fields = (
+            "sha256",
+            "source_revision",
+            "source_repository",
+            "source_path",
+            "license",
+            "dataset",
+            "variant",
+        )
+        return cls(
+            kind=kind,
+            value=source_value,
+            **{name: value.get(name) for name in fields},
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2070,6 +2158,34 @@ class RenderTargetV2:
         if self.metadata:
             result["metadata"] = dict(self.metadata)
         return result
+
+    @classmethod
+    def from_dict(cls, value: object) -> RenderTargetV2:
+        if not isinstance(value, Mapping):
+            raise TypeError("render target must be a mapping")
+        target_id = value.get("id")
+        language = value.get("language")
+        if not isinstance(target_id, str) or not isinstance(language, str):
+            raise TypeError("render target id and language must be strings")
+        voice_value = value.get("voice")
+        voice = VoiceSourceV2.from_dict(voice_value) if voice_value is not None else None
+        options = value.get("options", {})
+        metadata = value.get("metadata", {})
+        if not isinstance(options, Mapping) or not isinstance(metadata, Mapping):
+            raise TypeError("render target options and metadata must be mappings")
+        speaker = value.get("speaker")
+        if speaker is not None and (
+            not isinstance(speaker, (str, int)) or isinstance(speaker, bool)
+        ):
+            raise ValueError("render target speaker must be a string, integer, or None")
+        return cls(
+            id=target_id,
+            language=language,
+            voice=voice,
+            speaker=speaker,
+            options=dict(options),
+            metadata=dict(metadata),
+        )
 
 
 @dataclass(frozen=True, slots=True)

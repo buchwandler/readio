@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from ..catalog_metadata import language_base, normalize_gender, normalize_locale_tag
@@ -208,12 +209,33 @@ def _piper_pronunciation(item: PronunciationSpan, module: Any) -> Any:
 
 
 def _piper_request_language(language: str, voice: Any) -> str:
-    """Resolve a base language to the model locale Piper requires."""
-    active_language = getattr(getattr(voice, "config", None), "espeak_voice", None)
+    """Resolve a compatible public locale to Piper's active frontend language."""
+    config = getattr(voice, "config", None)
+    active_language = getattr(config, "espeak_voice", None)
+    phoneme_type = getattr(config, "phoneme_type", None)
+    phoneme_type = getattr(phoneme_type, "value", phoneme_type)
+    if phoneme_type != "espeak" or not active_language:
+        return language
+
     requested = normalize_language_key(language)
-    active = normalize_language_key(active_language) if active_language else None
-    if active and "-" not in requested and active.split("-", 1)[0] == requested:
-        return active
+    active = normalize_language_key(active_language)
+    if requested == active:
+        return active_language
+
+    requested_parts = requested.split("-")
+    active_parts = active.split("-")
+    if requested_parts[0] != active_parts[0]:
+        return language
+
+    if len(requested_parts) == 1:
+        return active_language
+
+    if (
+        len(active_parts) > len(requested_parts)
+        and active_parts[: len(requested_parts)] == requested_parts
+    ):
+        return active_language
+
     return language
 
 
@@ -258,6 +280,9 @@ class PiperSynthEngineSession:
             raise _translate_piper_error(exc, self._selection, request) from exc
 
         metadata = dict(result.metadata)
+        frontend_diagnostics = metadata.get("frontend_diagnostics")
+        if is_dataclass(frontend_diagnostics):
+            metadata["frontend_diagnostics"] = asdict(frontend_diagnostics)
         metadata["voice_level"] = voice_level_metadata(
             metadata.get("voice_level"),
             str(self._selection.options.get("voice_level", "off")),

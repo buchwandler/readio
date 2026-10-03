@@ -192,6 +192,50 @@ def test_project_pipeline_settings_round_trip_and_preserve_structured_bindings(
     }
 
 
+@pytest.mark.parametrize(
+    "selectors",
+    [
+        {"voice": "named", "voice_file": Path("voice.wav")},
+        {"voice": "named", "voice_prompt": "kyutai-tts-voices:alba/casual"},
+        {"voice_file": Path("voice.wav"), "voice_prompt": "kyutai-tts-voices:alba/casual"},
+        {
+            "voice": "named",
+            "voice_file": Path("voice.wav"),
+            "voice_prompt": "kyutai-tts-voices:alba/casual",
+        },
+    ],
+)
+def test_project_synthesis_settings_reject_multiple_voice_sources(selectors) -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ProjectSynthesisSettings(**selectors)
+
+
+def test_managed_voice_prompt_project_settings_round_trip_and_override(tmp_path: Path) -> None:
+    from readio.plan import SynthesisRequest
+    from readio.project_settings import merge_project_synthesis_request
+
+    source = tmp_path / "book.txt"
+    source.write_text("Hello.", encoding="utf-8")
+    project = init_project(source, tmp_path / "book.readio")
+    prompt = "kyutai-tts-voices:alba-mackenna/casual"
+    settings = ProjectSettings(
+        synthesis=ProjectSynthesisSettings(engine="pocket", voice_prompt=prompt)
+    )
+
+    changed = with_project_settings(project.manifest, settings, project.root)
+    restored = project_settings_from_manifest(changed, project.root)
+    assert changed.settings["synthesis"]["voice_prompt"] == prompt
+    assert restored.synthesis == settings.synthesis
+
+    merged = merge_project_synthesis_request(
+        ProjectSynthesisSettings(engine="pocket", voice="named-voice"),
+        SynthesisRequest(engine="pocket", voice_prompt=prompt),
+    )
+    assert merged.voice is None
+    assert merged.voice_file is None
+    assert merged.voice_prompt == prompt
+
+
 def test_project_settings_normalize_input_engine_alias_before_persistence(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("Hello.", encoding="utf-8")
@@ -212,6 +256,15 @@ def test_project_settings_normalize_input_engine_alias_before_persistence(tmp_pa
         {"synthesis": {"lexicons": "crane"}},
         {"synthesis": {"clear_lexicons": True, "auto_lexicons": True}},
         {"synthesis": {"refresh": False}},
+        {"synthesis": {"voice": "named", "voice_prompt": "kyutai-tts-voices:alba/casual"}},
+        {"synthesis": {"voice_file": "voice.wav", "voice_prompt": "kyutai-tts-voices:alba/casual"}},
+        {
+            "synthesis": {
+                "voice": "named",
+                "voice_file": "voice.wav",
+                "voice_prompt": "kyutai-tts-voices:alba/casual",
+            }
+        },
         {"synthesis": {"engine_options": {"temperature": float("inf")}}},
         {"composition": {"sample_rate": True}},
         {"composition": {"peak_policy": []}},

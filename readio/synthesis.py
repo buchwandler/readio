@@ -132,6 +132,8 @@ def _legacy_synthesis_request(args: object | None) -> SynthesisRequest:
         model_source=getattr(args, "model_source", None),
         quality=getattr(args, "quality", None),
         voice=getattr(args, "voice", None),
+        voice_file=getattr(args, "voice_file", None),
+        voice_prompt=getattr(args, "voice_prompt", None),
         lexicons=tuple(lexicons) if lexicons is not None else None,
         speaker=getattr(args, "speaker", None),
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),

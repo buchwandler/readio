@@ -100,15 +100,20 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--offline", action="store_true", help="do not fetch engine assets")
     parser.add_argument("--refresh", action="store_true", help="refresh engine discovery metadata")
-    parser.add_argument(
+    voice_group = parser.add_mutually_exclusive_group()
+    voice_group.add_argument(
         "--voice",
         help="semantic voice reference or native voice ID, e.g. kokoro:v1.0/af_heart, piper:en_US-amy-medium, or pocket:english_2026-04/alba",
     )
     parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
-    parser.add_argument(
+    voice_group.add_argument(
         "--voice-file",
         type=Path,
-        help="PocketSynth reference voice WAV (use instead of --voice)",
+        help="PocketSynth reference voice WAV (use instead of --voice or --voice-prompt)",
+    )
+    voice_group.add_argument(
+        "--voice-prompt",
+        help="PocketSynth managed reference prompt, for example kyutai-tts-voices:alba-mackenna/casual; use instead of --voice or --voice-file",
     )
     parser.add_argument("--lang", help="language code, e.g. en-us, de, fr")
     parser.add_argument("--model", help="runtime model ID")
@@ -700,6 +705,7 @@ def _cmd_project_settings(args: argparse.Namespace) -> int:
                     "pause_mode",
                     "unit",
                     "voice_file",
+                    "voice_prompt",
                     "lexicons",
                     "clear_lexicons",
                 ),
@@ -740,6 +746,16 @@ def _cmd_project_settings(args: argparse.Namespace) -> int:
                 value = getattr(args, name)
                 if value is not None:
                     values[name.removeprefix("export_").removeprefix("audiobook_")] = value
+            if section == "synthesis" and any(
+                name in values for name in ("voice", "voice_file", "voice_prompt")
+            ):
+                values.update(
+                    {
+                        name: None
+                        for name in ("voice", "voice_file", "voice_prompt")
+                        if name not in values
+                    }
+                )
             if values:
                 existing = getattr(current, section) or settings_type()
                 updates[section] = replace(existing, **values)
@@ -1605,8 +1621,42 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     discovery = public_api.DiscoveryOptions(
         offline=bool(args.offline),
         refresh=bool(args.refresh),
-        preference=args.preference,
+        preference=getattr(args, "preference", "auto"),
     )
+    if args.voices_command == "prompts":
+        engine = app.catalog.normalize_engine(args.engine)
+        listing = app.catalog.voice_prompts_listing(
+            public_api.VoicePromptQuery(
+                engine=engine,
+                dataset=args.dataset,
+                variant=args.variant,
+                license=args.license,
+            ),
+            discovery=discovery,
+        )
+        prompts = listing.items
+        payload = {
+            "ok": True,
+            "registry": listing.discovery.to_dict(),
+            "filters": {
+                "engine": engine,
+                "dataset": args.dataset,
+                "variant": args.variant,
+                "license": args.license,
+            },
+            "prompts": [item.to_dict() for item in prompts],
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return 0
+        print(f"Voice prompts: {len(prompts)}")
+        for prompt in prompts:
+            print(
+                f"{prompt.ref} [{prompt.dataset}/{prompt.variant}] "
+                f"license={prompt.license} sha256={prompt.sha256} "
+                f"revision={prompt.source_revision}"
+            )
+        return 0
     if args.voices_command == "list":
         available_engines = {item.id.casefold() for item in app.catalog.engines()}
         engine, model = _normalize_voice_list_filters(
@@ -2074,12 +2124,14 @@ def build_parser() -> argparse.ArgumentParser:
     settings_set.add_argument("--engine")
     settings_set.add_argument("--model")
     settings_set.add_argument("--language")
-    settings_set.add_argument("--voice")
+    settings_voice_group = settings_set.add_mutually_exclusive_group()
+    settings_voice_group.add_argument("--voice")
     settings_set.add_argument("--speed", type=float)
     settings_set.add_argument("--voice-level", choices=("off", "calibrated"))
     settings_set.add_argument("--pause-mode", choices=("tts", "manual", "auto"))
     settings_set.add_argument("--unit", choices=("sentence", "paragraph"))
-    settings_set.add_argument("--voice-file", type=Path)
+    settings_voice_group.add_argument("--voice-file", type=Path)
+    settings_voice_group.add_argument("--voice-prompt")
     settings_set.add_argument("--lexicon", action="append", dest="lexicons")
     settings_set.add_argument("--clear-lexicons", action="store_true", default=None)
     settings_set.add_argument("--mastering", choices=MASTERING_PROFILE_CHOICES)
@@ -2339,6 +2391,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
+    voices_prompts = voices_sub.add_parser(
+        "prompts", help="list metadata-only PocketSynth managed voice prompts"
+    )
+    voices_prompts.add_argument("--engine", choices=("pocket",), default="pocket")
+    voices_prompts.add_argument("--dataset", help="filter by prompt dataset")
+    voices_prompts.add_argument("--variant", help="filter by prompt variant")
+    voices_prompts.add_argument("--license", help="filter by prompt license")
+    voices_prompts.add_argument("--offline", action="store_true")
+    voices_prompts.add_argument("--refresh", action="store_true")
+    voices_prompts.add_argument("--json", action="store_true")
+    voices_prompts.set_defaults(func=_cmd_voices)
     voices_show = voices_sub.add_parser(
         "show", help="show one semantic voice reference or native ID"
     )

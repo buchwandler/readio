@@ -171,7 +171,26 @@ def test_piper_resolution_maps_generic_speed_to_length_scale():
     }
 
 
-def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
+@pytest.mark.parametrize(
+    ("requested_language", "active_language", "phoneme_type", "expected_language"),
+    [
+        ("en-gb", "en-gb-x-rp", "espeak", "en-gb-x-rp"),
+        ("en_GB", "en-gb-x-rp", "espeak", "en-gb-x-rp"),
+        ("EN-GB", "en-gb-x-rp", "espeak", "en-gb-x-rp"),
+        ("en", "en-gb-x-rp", "espeak", "en-gb-x-rp"),
+        ("en-us", "en-gb-x-rp", "espeak", "en-us"),
+        ("de-de", "en-gb-x-rp", "espeak", "de-de"),
+        ("pt-br", "pt-pt", "espeak", "pt-br"),
+        ("en-gb", "en-gb-x-rp", "text", "en-gb"),
+    ],
+)
+def test_piper_published_request_session_uses_the_neutral_contract(
+    monkeypatch,
+    requested_language: str,
+    active_language: str,
+    phoneme_type: str,
+    expected_language: str,
+):
     module = ModuleType("pipersynth")
     calls = {}
 
@@ -189,6 +208,11 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
         mode: str = "off"
 
     @dataclass(frozen=True)
+    class FrontendDiagnostics:
+        backend: str
+        warnings: tuple[str, ...] = ()
+
+    @dataclass(frozen=True)
     class SynthesisRequest:
         id: str
         text: str
@@ -198,7 +222,7 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
         pronunciation_overrides: tuple[object, ...] = ()
 
     class Voice:
-        config = SimpleNamespace(espeak_voice="en-us")
+        config = SimpleNamespace(espeak_voice=active_language, phoneme_type=phoneme_type)
 
         @classmethod
         def from_pretrained(cls, voice_id, **kwargs):
@@ -214,7 +238,10 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
                 audio=np.array([0.2, -0.2], dtype=np.float32),
                 sample_rate=22050,
                 warnings=(),
-                metadata={"phonemes": ("h", "i")},
+                metadata={
+                    "phonemes": ("h", "i"),
+                    "frontend_diagnostics": FrontendDiagnostics("native", ("ready",)),
+                },
             )
 
         def close(self):
@@ -237,7 +264,7 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
     request = SpeechRequest(
         id="piper-request",
         text="Hi",
-        language="en",
+        language=requested_language,
         voice="lessac",
         speaker="narrator",
     )
@@ -248,10 +275,14 @@ def test_piper_published_request_session_uses_the_neutral_contract(monkeypatch):
     assert calls["voice_id"] == selection.target_id
     assert "frontend_options" not in calls["load_options"]
     assert calls["request"].text == "Hi"
-    assert calls["request"].language == "en-us"
+    assert calls["request"].language == expected_language
     assert calls["request"].speaker == "narrator"
     assert calls["config"].length_scale == 0.5
     assert calls["config"].noise_scale == 0.4
     assert calls["config"].voice_level.mode == "off"
     assert rendered.metadata["phonemes"] == ("h", "i")
+    assert rendered.metadata["frontend_diagnostics"] == {
+        "backend": "native",
+        "warnings": ("ready",),
+    }
     assert calls["closed"]

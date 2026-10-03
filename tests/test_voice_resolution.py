@@ -155,3 +155,34 @@ def test_language_conflict_uses_catalog_metadata(monkeypatch) -> None:
             model=None,
             source=None,
         )
+
+
+def test_piper_semantic_reference_keeps_the_public_british_locale(monkeypatch) -> None:
+    discover(
+        monkeypatch,
+        (
+            target(
+                "piper",
+                "en_GB-alba-medium",
+                ("en_GB-alba-medium",),
+                language="en",
+                locale="en-gb",
+            ),
+        ),
+    )
+
+    resolved = resolve_voice_reference(
+        "piper:en_GB-alba-medium",
+        language=None,
+        model=None,
+        source=None,
+    )
+
+    assert resolved is not None
+    assert resolved.ref == "piper:en_GB-alba-medium"
+    assert resolved.language == "en-gb"
+    assert resolved.target_id == "en_GB-alba-medium"
+    assert resolved.engine == "piper"
+    assert resolved.voice == "en_GB-alba-medium"
+    assert resolved.catalog_entry.locale == "en-gb"
+    assert "en-gb-x-rp" not in str(resolved.catalog_entry.to_dict())

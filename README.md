@@ -103,13 +103,13 @@ Project manifests also use schema 3. Before opening a v0.3 project, run `readio 
 
 ### Model discovery and language defaults
 
-Readio uses one registry for `kokoro`, `piper`, `pocket`, and `kitten`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to check whether an engine package and its required public API are available.
+Readio uses one registry for `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to check whether an engine package and its required public API are available.
 
-Supported engine package floors are PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.1,<0.3, and KittenSynth >=0.1.0,<0.2. Each engine package owns its own runtime dependencies; Readio does not require OnnxVoice. Install Kokoro or Piper with a runtime extra such as `readio[kokoro,cpu]` or `readio[piper,cpu]`, and install Pocket and Kitten with `readio[pocket]` or `readio[kitten]`. PDF and DOCX ingestion requires the `readio[documents]` extra. `readio[all,cpu]` also installs optional spaCy support.
+Supported engine package floors are PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.3,<0.3, SupertonicSynth >=0.1.2,<0.2, and KittenSynth >=0.1.0,<0.2. Each engine package owns its own runtime dependencies; Readio does not require OnnxVoice. Install Kokoro or Piper with a runtime extra such as `readio[kokoro,cpu]` or `readio[piper,cpu]`, and install Pocket, Supertonic, and Kitten with `readio[pocket]`, `readio[supertonic]`, or `readio[kitten]`. PDF and DOCX ingestion requires the `readio[documents]` extra. `readio[all,cpu]` also installs optional spaCy support.
 
-`readio voices list` shows runnable voices with semantic references. Canonical engine IDs are `kokoro`, `piper`, `pocket`, and `kitten`; upstream package names such as `pykokoro` and `pipersynth` are accepted only as input aliases where applicable. Filters use `--engine`, `--model`, `--lang`, and `--gender`.
+`readio voices list` shows runnable voices with semantic references. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; upstream package names such as `pykokoro`, `pipersynth`, and `supertonicsynth` are accepted only as input aliases where applicable. Filters use `--engine`, `--model`, `--lang`, and `--gender`.
 
-Voice references use `SYSTEM:TARGET[/VOICE]`: `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, or `pocket:english_2026-04/alba`. The system and target identify the engine and model/bundle; the voice suffix is omitted when the target itself is the voice. `readio voices show REF` inspects one reference. Native voice IDs can be used when discovery context resolves them uniquely; supply engine or target context where the command supports it. References identify voices, while `--lang` and `--gender` filter their descriptive metadata.
+Voice references use `SYSTEM:TARGET[/VOICE]`: `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, or `supertonic:supertonic-3/F1`. The system and target identify the engine and model/bundle; the voice suffix is omitted when the target itself is the voice. `readio voices show REF` inspects one reference. Native voice IDs can be used when discovery context resolves them uniquely; supply engine or target context where the command supports it. References identify voices, while `--lang` and `--gender` filter their descriptive metadata.
 
 Kitten can be inspected and selected without changing the other engine workflows:
 
@@ -118,8 +118,15 @@ readio voices list --engine kitten
 readio speak --engine kitten --model nano-0.8-int8 --voice Jasper "Hello"
 ```
 
+Supertonic targets are discovered from its model catalog. Readio maps locale tags to the engine's base-language key, so `en-us` is synthesized as `en`; unsupported language bases are rejected.
+
+```bash
+readio voices list --engine supertonic --lang en-us
+readio render --engine supertonic --model supertonic-3 --voice F1 --lang en-us "Hello"
+```
+
 A Pocket bundle advertising generic `en` can satisfy `--lang en-us`; a bundle explicitly advertising `en-GB` does not. Generic language metadata stays generic and is not assigned unsupported locale specificity.
-Common `--speed` is a positive synthesis multiplier, not a composition tempo: Kokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
+Common `--speed` is a positive synthesis multiplier, not a composition tempo: Kokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. Supertonic forwards the multiplier to its atomic synthesis API. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
 
 Adapters make one strict native synthesis request for each Readio-shaped child and do not invoke native text splitters. Readio owns capacity measurement and exact-text subdivision, preserves linguistic and pronunciation boundaries, and merges child audio and local timings. Unsupported explicit semantics and unsplittable requests fail with stable Readio errors instead of being discarded or truncated.
 
@@ -145,15 +152,18 @@ readio render --engine piper --voice de_DE-thorsten-medium --lang de --manifest 
 readio render --engine pipersynth --voice de_DE-thorsten-medium --lang de --dry-run --json "Hallo Welt"
 ```
 
-Pocket targets are bundle IDs. Select a predefined voice or provide a reference WAV, then tune only the Pocket-specific generation controls you need:
+Pocket targets are bundle IDs. `--voice` selects a bundle's predefined voice, `--voice-file` uses a local reference WAV, and `--voice-prompt` selects a managed Kyutai prompt. These selectors are mutually exclusive. Tune only the Pocket-specific generation controls you need:
 
 ```bash
 readio voices list --engine pocket --lang en-us
 readio render --engine pocket --model BUNDLE_ID --voice VOICE --precision int8 "Hello"
 readio render --engine pocket --model BUNDLE_ID --voice-file reference.wav --temperature 0.6 --lsd-steps 3 "Hello"
+readio voices prompts --engine pocket --dataset alba
+readio voices prompts --engine pocket --variant casual --license cc-by-4.0
+readio render --engine pocket --model BUNDLE_ID --voice-prompt kyutai-tts-voices:alba-mackenna/casual --temperature 0.6
 ```
 
-Reference voice files are user or project assets. Readio records their content hash in `readio.plan.v2`; local paths are not included in the acoustic render identity. Piper's published text API does not accept Readio token or pronunciation annotations, so explicit pronunciation directives are diagnosed instead of silently discarded.
+Local reference voice files are user or project assets. Readio records their content hash in `readio.plan.v2`; local paths are not included in acoustic render identity. Managed Pocket prompts are catalog assets: plans pin the prompt reference, SHA-256, source revision, and available provenance. Pocket verifies prepared provenance and records its normalized-audio fingerprint separately from the source hash. This selector applies to the default synthesis voice, not per-role bindings. Piper's published text API does not accept Readio token or pronunciation annotations, so explicit pronunciation directives are diagnosed instead of silently discarded.
 
 Use `--speaker NAME_OR_ID` for a multi-speaker Piper bundle. Live rendering depends on the selected engine's declared capability.
 

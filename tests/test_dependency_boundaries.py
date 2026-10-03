@@ -17,6 +17,7 @@ DOMAIN_MODULES = frozenset(
         "pipersynth",
         "pocketsynth",
         "kittensynth",
+        "supertonicsynth",
     }
 )
 
@@ -29,6 +30,7 @@ BASELINE_IMPORTERS = {
     "kittensynth": {"readio/engines/kittensynth.py"},
     "pipersynth": {"readio/engines/pipersynth.py"},
     "pocketsynth": {"readio/engines/pocketsynth.py"},
+    "supertonicsynth": {"readio/engines/supertonicsynth.py"},
     "pykokoro": {"readio/engines/pykokoro.py"},
     "ssmd": {
         "readio/ssmd.py",
@@ -87,6 +89,12 @@ def test_public_api_domain_imports_match_current_baseline() -> None:
     assert _api_importers(importers) == API_IMPORT_BASELINE
 
 
+def test_private_pocketsynth_modules_are_not_imported() -> None:
+    for path in (REPO_ROOT / "readio").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "pocketsynth._onnxvoice" not in source, path.relative_to(REPO_ROOT)
+
+
 def test_contact_surface_metrics_match_source_inventory() -> None:
     importers, imported_names = _collect_domain_imports()
     importing_files = set().union(*importers.values())
@@ -98,8 +106,8 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
     }
     print(f"Readio external domain import baseline: {metrics}")
     assert metrics == {
-        "domain_packages": 8,
-        "importing_files": 11,
-        "package_file_contacts": 11,
-        "imported_names": 70,
+        "domain_packages": 9,
+        "importing_files": 12,
+        "package_file_contacts": 12,
+        "imported_names": 73,
     }

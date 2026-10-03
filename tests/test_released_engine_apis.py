@@ -10,12 +10,14 @@ from readio.engines.kittensynth import KittenSynthEngineAdapter
 from readio.engines.pipersynth import PiperSynthEngineAdapter
 from readio.engines.pocketsynth import PocketSynthEngineAdapter
 from readio.engines.pykokoro import PyKokoroEngineAdapter
+from readio.engines.supertonicsynth import SupertonicSynthEngineAdapter
 
 _ENGINE_APIS = {
     "kokoro": ("pykokoro", PyKokoroEngineAdapter, (0, 10)),
     "piper": ("pipersynth", PiperSynthEngineAdapter, (0, 2)),
     "pocket": ("pocketsynth", PocketSynthEngineAdapter, (0, 2)),
     "kitten": ("kittensynth", KittenSynthEngineAdapter, (0, 1)),
+    "supertonic": ("supertonicsynth", SupertonicSynthEngineAdapter, (0, 1)),
 }
 
 

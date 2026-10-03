@@ -59,6 +59,13 @@ POCKET_OPTION_NAMES = frozenset(
 _GENERATION_OPTION_NAMES = frozenset({"temperature", "lsd_steps", "max_frames", "frames_after_eos"})
 
 
+class PocketSelectionError(ValueError):
+    def __init__(self, code: str, message: str, field: str) -> None:
+        super().__init__(message)
+        self.diagnostic_code = code
+        self.diagnostic_field = field
+
+
 def _bundle_fields(
     bundle: Any,
 ) -> tuple[
@@ -146,11 +153,32 @@ def _voice_source(selection: EngineSelection) -> Mapping[str, Any] | None:
         return None
     kind = source.get("kind")
     value = source.get("value", source.get("path"))
-    if kind not in {"named", "reference"} or not isinstance(value, str) or not value:
-        raise ValueError("pocket.voice_source_invalid: expected a named or reference voice source")
-    if kind == "reference" and not isinstance(source.get("sha256"), str):
-        raise ValueError("pocket.voice_source_invalid: reference voice source requires sha256")
-    return {"kind": kind, "value": value, "sha256": source.get("sha256")}
+    if (
+        kind not in {"named", "reference", "managed_reference"}
+        or not isinstance(value, str)
+        or not value
+    ):
+        raise ValueError(
+            "pocket.voice_source_invalid: expected a named, reference, or managed reference source"
+        )
+    if kind in {"reference", "managed_reference"} and not isinstance(source.get("sha256"), str):
+        raise ValueError(f"pocket.voice_source_invalid: {kind} voice source requires sha256")
+    normalized: dict[str, Any] = {"kind": kind, "value": value}
+    for name in (
+        "sha256",
+        "source_revision",
+        "source_repository",
+        "source_path",
+        "license",
+        "dataset",
+        "variant",
+    ):
+        item = source.get(name)
+        if item is not None:
+            if not isinstance(item, str) or not item:
+                raise ValueError(f"pocket.voice_source_invalid: {name} must be a non-empty string")
+            normalized[name] = item
+    return normalized
 
 
 def _voice_identity(selection: EngineSelection) -> dict[str, str] | None:
@@ -158,6 +186,15 @@ def _voice_identity(selection: EngineSelection) -> dict[str, str] | None:
     if source is not None:
         if source["kind"] == "reference":
             return {"kind": "reference", "sha256": str(source["sha256"])}
+        if source["kind"] == "managed_reference":
+            identity = {
+                "kind": "managed_reference",
+                "ref": str(source["value"]),
+                "sha256": str(source["sha256"]),
+            }
+            if source.get("source_revision") is not None:
+                identity["source_revision"] = str(source["source_revision"])
+            return identity
         return {"kind": "named", "value": str(source["value"])}
     if selection.voice:
         return {"kind": "named", "value": selection.voice}
@@ -280,7 +317,7 @@ class PocketSynthEngineSession:
         self._selection = selection
         self._generation = generation
         self._voice_level = voice_level
-        self._voices: dict[tuple[str, str], Any] = {}
+        self._voices: dict[tuple[str, ...], Any] = {}
 
     def _voice(self, request: SpeechRequest) -> Any:
         request_source = request.options.get("voice_source")
@@ -302,15 +339,54 @@ class PocketSynthEngineSession:
             if not voice_name:
                 raise ValueError("PocketSynth requires a predefined or reference voice")
             source = {"kind": "named", "value": voice_name}
-        if source["kind"] == "reference":
+
+        kind = str(source["kind"])
+        if kind == "reference":
             _reference_sha256(source)
             key = ("reference", str(source["sha256"]))
             voice_input: str | Path = _reference_path(source)
+        elif kind == "managed_reference":
+            key = (
+                "managed_reference",
+                str(source["value"]),
+                str(source["sha256"]),
+                str(source.get("source_revision") or ""),
+            )
+            voice_input = str(source["value"])
         else:
             key = ("named", str(source["value"]))
             voice_input = str(source["value"])
         if key not in self._voices:
-            self._voices[key] = self._runtime.prepare_voice(voice_input)
+            if kind == "managed_reference":
+                try:
+                    prepared = self._runtime.prepare_voice(voice_input)
+                except Exception as exc:
+                    if self._selection.offline:
+                        raise EngineBackendError(
+                            f"Managed Pocket prompt {source['value']!r} is unavailable offline: {exc}",
+                            engine="pocket",
+                            target_id=self._selection.target_id,
+                            native_error_type=type(exc).__name__,
+                            details={
+                                "voice_prompt": source["value"],
+                                "expected_sha256": source["sha256"],
+                                "expected_revision": source.get("source_revision"),
+                                "offline": True,
+                            },
+                            code="pocket.voice_prompt_offline_unavailable",
+                        ) from exc
+                    raise EngineBackendError(
+                        f"Failed to prepare managed Pocket prompt {source['value']!r}: {exc}",
+                        engine="pocket",
+                        target_id=self._selection.target_id,
+                        native_error_type=type(exc).__name__,
+                        details={"voice_prompt": source["value"]},
+                        code="pocket.managed_reference_prepare_failed",
+                    ) from exc
+                _verify_managed_voice(prepared, source, self._selection)
+            else:
+                prepared = self._runtime.prepare_voice(voice_input)
+            self._voices[key] = prepared
         return self._voices[key]
 
     def measure(self, request: SpeechRequest) -> RequestMeasure:
@@ -376,18 +452,6 @@ class PocketSynthEngineSession:
                 native_error_type=type(exc).__name__,
             ) from exc
         try:
-            voice = self._voice(request)
-        except (OSError, ValueError) as exc:
-            raise InvalidEngineVoiceError(
-                str(exc),
-                engine="pocket",
-                target_id=self._selection.target_id,
-                language=request.language,
-                voice=request.voice,
-                request_id=request.id,
-                native_error_type=type(exc).__name__,
-            ) from exc
-        try:
             result = self._runtime.synthesize(
                 native,
                 voice=voice,
@@ -400,10 +464,11 @@ class PocketSynthEngineSession:
             raise _translate_pocket_error(exc, self._selection, request) from exc
 
         metadata = dict(result.metadata)
+        voice_identity = _voice_identity_for_request(self._selection, request)
         metadata.update(
             bundle_id=self._selection.target_id,
             precision=self._selection.options.get("precision", "int8"),
-            voice=_voice_identity_for_request(self._selection, request),
+            voice=voice_identity,
             voice_level=voice_level_metadata(
                 metadata.get("voice_level_application"),
                 self._voice_level.mode,
@@ -411,6 +476,10 @@ class PocketSynthEngineSession:
                 revision_keys=("catalog_revision", "bundle_revision"),
             ),
         )
+        if voice_identity is not None and voice_identity.get("kind") == "managed_reference":
+            prepared_fingerprint = getattr(voice, "fingerprint", None)
+            if prepared_fingerprint is not None:
+                metadata["prepared_voice_fingerprint"] = prepared_fingerprint
         measured = self.measure(request)
         metadata.setdefault("token_count", measured.amount)
         rendered = RenderedSpeech(
@@ -427,6 +496,39 @@ class PocketSynthEngineSession:
             engine="pocket",
             engine_version=distribution_version("pocketsynth"),
             target_id=self._selection.target_id,
+        )
+
+
+def _verify_managed_voice(
+    prepared: Any, source: Mapping[str, Any], selection: EngineSelection
+) -> None:
+    metadata = getattr(prepared, "metadata", {})
+    if not isinstance(metadata, Mapping):
+        metadata = {}
+    prompt = getattr(prepared, "voice_prompt", None)
+    actual_ref = getattr(prompt, "ref", None) or metadata.get("managed_ref")
+    actual_sha256 = getattr(prompt, "sha256", None) or metadata.get("source_sha256")
+    actual_revision = getattr(prompt, "source_revision", None) or metadata.get("source_revision")
+    expected_revision = source.get("source_revision")
+    if (
+        actual_ref != source["value"]
+        or actual_sha256 != source["sha256"]
+        or (expected_revision is not None and actual_revision != expected_revision)
+    ):
+        raise EngineBackendError(
+            "Prepared Pocket voice prompt provenance does not match the resolved render plan.",
+            engine="pocket",
+            target_id=selection.target_id,
+            voice=str(source["value"]),
+            details={
+                "expected_ref": source["value"],
+                "actual_ref": actual_ref,
+                "expected_sha256": source["sha256"],
+                "actual_sha256": actual_sha256,
+                "expected_revision": expected_revision,
+                "actual_revision": actual_revision,
+            },
+            code="pocket.managed_reference_changed",
         )
 
 
@@ -469,12 +571,18 @@ class PocketSynthEngineAdapter:
                 "VoiceLevelConfig",
                 "SynthesisInputTooLongError",
                 "BundleAssetManager",
+                "VoicePromptInfo",
+                "PreparedVoice",
             )
             if runtime is None or not all(hasattr(pocketsynth, name) for name in required):
                 return False
-            return all(
-                callable(getattr(runtime, name, None))
-                for name in ("from_resolved", "prepare_voice", "synthesize")
+            return (
+                all(
+                    callable(getattr(runtime, name, None))
+                    for name in ("from_resolved", "prepare_voice", "synthesize")
+                )
+                and callable(getattr(pocketsynth, "inspect_voice_prompt", None))
+                and callable(getattr(pocketsynth, "list_voice_prompts", None))
             )
         except (
             ImportError,
@@ -497,6 +605,27 @@ class PocketSynthEngineAdapter:
             option_names=POCKET_OPTION_NAMES,
             supports_voice_level_calibration=True,
             supports_request_measurement=True,
+        )
+
+    def list_voice_prompts(
+        self,
+        *,
+        dataset: str | None = None,
+        variant: str | None = None,
+        license: str | None = None,
+        offline: bool = False,
+        refresh: bool = False,
+    ) -> tuple[Any, ...]:
+        import pocketsynth
+
+        return tuple(
+            pocketsynth.list_voice_prompts(
+                dataset=dataset,
+                variant=variant,
+                license=license,
+                offline=offline,
+                refresh=refresh,
+            )
         )
 
     def discover(self, request: CatalogRequest) -> tuple[SynthesisTarget, ...]:
@@ -567,6 +696,41 @@ class PocketSynthEngineAdapter:
         if not isinstance(precision, str) or not precision:
             raise ValueError("pocket.precision_invalid: precision must be int8 or fp32")
         voice_source = options.get("voice_source")
+        if isinstance(voice_source, Mapping) and voice_source.get("kind") == "managed_reference":
+            prompt_ref = voice_source.get("value")
+            if not isinstance(prompt_ref, str) or not prompt_ref:
+                raise PocketSelectionError(
+                    "pocket.voice_prompt_invalid",
+                    "PocketSynth managed voice prompts require a non-empty reference.",
+                    "synthesis.voice_prompt",
+                )
+            import pocketsynth
+
+            try:
+                prompt_info = pocketsynth.inspect_voice_prompt(
+                    prompt_ref,
+                    cache_dir=options.get("cache_dir"),
+                    catalog_path=options.get("catalog_path"),
+                    offline=bool(getattr(request, "offline", False)),
+                    refresh=bool(getattr(request, "refresh", False)),
+                )
+            except (OSError, pocketsynth.PocketSynthError) as exc:
+                raise PocketSelectionError(
+                    "pocket.voice_prompt_unavailable",
+                    f"PocketSynth managed voice prompt metadata is unavailable: {exc}",
+                    "synthesis.voice_prompt",
+                ) from exc
+            voice_source = {
+                "kind": "managed_reference",
+                "value": prompt_info.ref,
+                "sha256": prompt_info.sha256,
+                "source_revision": prompt_info.source_revision,
+                "source_repository": prompt_info.source_repository,
+                "source_path": prompt_info.source_path,
+                "license": prompt_info.license,
+                "dataset": prompt_info.dataset,
+                "variant": prompt_info.variant,
+            }
         metadata = {"voice_source": dict(voice_source)} if isinstance(voice_source, Mapping) else {}
         runtime_options = {
             key: value

@@ -469,15 +469,47 @@ def test_pocketsynth_cli_options_lower_to_public_synthesis_request(tmp_path: Pat
     }
 
 
-def test_voice_and_reference_file_options_are_mutually_exclusive(tmp_path: Path):
-    reference = tmp_path / "voice.wav"
-    reference.write_bytes(b"reference")
-    args = build_parser().parse_args(
-        ["render", "hello", "--voice", "af_sarah", "--voice-file", str(reference)]
-    )
+@pytest.mark.parametrize(
+    "selectors",
+    [
+        ("--voice", "af_sarah", "--voice-file", "voice.wav"),
+        ("--voice", "af_sarah", "--voice-prompt", "kyutai-tts-voices:alba/casual"),
+        ("--voice-file", "voice.wav", "--voice-prompt", "kyutai-tts-voices:alba/casual"),
+        (
+            "--voice",
+            "af_sarah",
+            "--voice-file",
+            "voice.wav",
+            "--voice-prompt",
+            "kyutai-tts-voices:alba/casual",
+        ),
+    ],
+)
+def test_voice_selectors_are_mutually_exclusive_in_cli(selectors):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["render", "hello", *selectors])
 
-    with pytest.raises(ValueError, match="cannot be combined"):
-        cli._synthesis_request_from_args(args)
+
+def test_managed_prompt_cli_option_lowers_to_public_synthesis_request():
+    args = build_parser().parse_args(
+        ["render", "hello", "--engine", "pocket", "--voice-prompt", "kyutai-tts-voices:alba/casual"]
+    )
+    synthesis = cli._synthesis_request_from_args(args)
+    assert synthesis.engine == "pocket"
+    assert synthesis.voice_prompt == "kyutai-tts-voices:alba/casual"
+
+
+def test_project_settings_cli_accepts_managed_prompt_and_excludes_other_voice_sources():
+    prompt = "kyutai-tts-voices:alba-mackenna/casual"
+    args = build_parser().parse_args(
+        ["project", "settings", "set", "--engine", "pocket", "--voice-prompt", prompt]
+    )
+    assert args.voice_prompt == prompt
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["project", "settings", "set", "--voice", "named", "--voice-prompt", prompt]
+        )
 
 
 def test_speak_uses_the_public_speech_service_without_creating_a_project(monkeypatch, tmp_path):

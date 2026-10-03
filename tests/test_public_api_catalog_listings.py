@@ -11,6 +11,8 @@ from readio.api import (
     LexiconQuery,
     ModelQuery,
     Readio,
+    VoicePromptInfo,
+    VoicePromptQuery,
     VoiceQuery,
     default_config,
 )
@@ -273,3 +275,69 @@ def test_pocket_voice_details_are_normalized_and_filtered_by_locale(monkeypatch)
         "en-gb",
     )
     assert generic[1].gender == "unknown"
+
+
+def test_managed_voice_prompt_catalog_passes_filters_and_offline_options(monkeypatch) -> None:
+    prompt = SimpleNamespace(
+        ref="kyutai-tts-voices:alba/casual",
+        source_repository="kyutai/voices",
+        source_revision="catalog-rev-3",
+        source_path="alba/casual.wav",
+        size=1234,
+        sha256="a" * 64,
+        license="cc-by-4.0",
+        dataset="alba",
+        variant="casual",
+    )
+    calls = []
+
+    class Adapter:
+        def list_voice_prompts(self, **kwargs):
+            calls.append(kwargs)
+            return (prompt,)
+
+    monkeypatch.setattr("readio.api.catalog.get_engine", lambda engine: Adapter())
+    app = Readio(default_config())
+    listing = app.catalog.voice_prompts_listing(
+        VoicePromptQuery(
+            engine="pocket",
+            dataset="alba",
+            variant="casual",
+            license="cc-by-4.0",
+        ),
+        discovery=DiscoveryOptions(offline=True, refresh=True),
+    )
+
+    assert calls == [
+        {
+            "dataset": "alba",
+            "variant": "casual",
+            "license": "cc-by-4.0",
+            "offline": True,
+            "refresh": True,
+        }
+    ]
+    assert listing.items == (
+        VoicePromptInfo(
+            engine="pocket",
+            ref=prompt.ref,
+            source_repository=prompt.source_repository,
+            source_revision=prompt.source_revision,
+            source_path=prompt.source_path,
+            size=prompt.size,
+            sha256=prompt.sha256,
+            license=prompt.license,
+            dataset=prompt.dataset,
+            variant=prompt.variant,
+        ),
+    )
+    assert listing.discovery.to_dict() == {
+        "source": "pocketsynth-public-metadata",
+        "registry_source": "pocketsynth-public-metadata",
+        "cache_fallback": False,
+        "offline": True,
+        "refreshed": True,
+    }
+    with pytest.raises(DiscoveryError) as error:
+        app.catalog.voice_prompts(VoicePromptQuery(engine="supertonic"))
+    assert error.value.code == "catalog.voice_prompts_engine_unsupported"

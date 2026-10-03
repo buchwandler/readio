@@ -47,7 +47,7 @@ def engine_selection_from_render_plan(render: RenderPlanV2) -> EngineSelection:
         target.voice.value if target.voice is not None and target.voice.kind == "named" else None
     )
     metadata = dict(target.metadata)
-    if target.voice is not None and target.voice.kind == "reference":
+    if target.voice is not None and target.voice.kind in {"reference", "managed_reference"}:
         metadata["voice_source"] = target.voice.to_dict()
     return EngineSelection(
         engine=render.engine,

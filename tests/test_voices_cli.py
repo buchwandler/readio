@@ -9,7 +9,7 @@ import pytest
 from readio import cli
 from readio.api import Readio, default_config
 from readio.api.catalog import CatalogService
-from readio.api.types import VoiceInfo
+from readio.api.types import CatalogDiscovery, CatalogListing, VoiceInfo, VoicePromptInfo
 from readio.config import PathSettings, ReadioConfig
 from readio.models import ModelInfo, VoiceMetadata
 from readio.role_targets import VoiceTarget
@@ -164,6 +164,70 @@ def test_voices_list_and_show_json(monkeypatch, tmp_path, capsys):
     assert shown["voice"]["ref"] == "kokoro:de-model/martin"
     assert shown["voice"]["model"] == "de-model"
     assert shown["registry"]["source"] == "cache"
+
+
+def test_voice_prompts_cli_json_filters_and_reports_metadata(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config(tmp_path))
+    prompt = VoicePromptInfo(
+        engine="pocket",
+        ref="kyutai-tts-voices:alba/casual",
+        source_repository="kyutai/voices",
+        source_revision="catalog-rev-3",
+        source_path="alba/casual.wav",
+        size=1234,
+        sha256="a" * 64,
+        license="cc-by-4.0",
+        dataset="alba",
+        variant="casual",
+    )
+    calls = []
+
+    def listing(self, query, *, discovery):
+        calls.append((query, discovery))
+        return CatalogListing(
+            (prompt,),
+            CatalogDiscovery(
+                registry_source="pocketsynth-public-metadata",
+                offline=discovery.offline,
+                refreshed=discovery.refresh,
+            ),
+        )
+
+    monkeypatch.setattr(CatalogService, "voice_prompts_listing", listing)
+    args = cli.build_parser().parse_args(
+        [
+            "voices",
+            "prompts",
+            "--engine",
+            "pocket",
+            "--dataset",
+            "alba",
+            "--variant",
+            "casual",
+            "--license",
+            "cc-by-4.0",
+            "--offline",
+            "--refresh",
+            "--json",
+        ]
+    )
+
+    assert cli._cmd_voices(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["filters"] == {
+        "engine": "pocket",
+        "dataset": "alba",
+        "variant": "casual",
+        "license": "cc-by-4.0",
+    }
+    assert payload["prompts"][0]["ref"] == prompt.ref
+    assert payload["prompts"][0]["sha256"] == prompt.sha256
+    assert calls[0][0].engine == "pocket"
+    assert calls[0][0].dataset == "alba"
+    assert calls[0][0].variant == "casual"
+    assert calls[0][0].license == "cc-by-4.0"
+    assert calls[0][1].offline is True
+    assert calls[0][1].refresh is True
 
 
 def test_voices_list_en_us_uses_real_registry_and_shows_semantic_reference(monkeypatch, capsys):

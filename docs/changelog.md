@@ -8,11 +8,12 @@
 
 - Added Kitten engine discovery, voice selection, diagnostics, and synthesis through KittenSynth
 - Added ssmdconvert source and converter provenance to auto-converted documents
+- Added SupertonicSynth support and managed PocketSynth voice prompts
 
 ### Changed
 
 - **BREAKING:** Changed configuration and project roles to engine-qualified schema-3 targets with explicit v0.3 migration
-- **BREAKING:** Changed engine IDs to kokoro, piper, pocket, kitten and removed provider selectors, voice aliases, and the v1 writer
+- **BREAKING:** Changed engine IDs to kokoro, piper, pocket, supertonic, and kitten; removed provider selectors, voice aliases, and the v1 writer
 - Changed interactive playback to stream through Readio's bounded queue while keeping mastering for file renders
 - Changed engine extra floors to released packages compatible with OnnxVoice 0.2
 

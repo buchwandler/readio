@@ -432,6 +432,7 @@ def merge_project_synthesis_request(project_settings: Any, invocation_request: A
         "unit",
         "engine",
         "voice_file",
+        "voice_prompt",
     )
     values = {
         name: getattr(invocation_request, name)
@@ -439,6 +440,9 @@ def merge_project_synthesis_request(project_settings: Any, invocation_request: A
         else getattr(base, name)
         for name in scalar_fields
     }
+    voice_selectors = ("voice", "voice_file", "voice_prompt")
+    if any(getattr(invocation_request, name) is not None for name in voice_selectors):
+        values.update({name: getattr(invocation_request, name) for name in voice_selectors})
     invocation_has_lexicon_mode = (
         invocation_request.lexicons is not None
         or invocation_request.clear_lexicons

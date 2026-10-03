@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .. import formats as formats_internal
 from .. import lexicons as lexicons_internal
@@ -36,6 +36,8 @@ from .types import (
     SynthesisTargetInfo,
     TargetQuery,
     VoiceInfo,
+    VoicePromptInfo,
+    VoicePromptQuery,
     VoiceQuery,
     VoiceResolution,
 )
@@ -54,6 +56,7 @@ _DEFAULT_DISCOVERY = DiscoveryOptions()
 _DEFAULT_TARGET_QUERY = TargetQuery()
 _DEFAULT_MODEL_QUERY = ModelQuery()
 _DEFAULT_VOICE_QUERY = VoiceQuery()
+_DEFAULT_VOICE_PROMPT_QUERY = VoicePromptQuery()
 _DEFAULT_LEXICON_QUERY = LexiconQuery()
 
 
@@ -253,6 +256,53 @@ class CatalogService:
             and (normalized_query is None or self._language_matches(normalized_query, item))
         )
         return CatalogListing(filtered, self._discovery_metadata(raw_discovery, discovery))
+
+    def voice_prompts(
+        self,
+        query: VoicePromptQuery = _DEFAULT_VOICE_PROMPT_QUERY,
+        *,
+        discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
+    ) -> tuple[VoicePromptInfo, ...]:
+        return self.voice_prompts_listing(query, discovery=discovery).items
+
+    def voice_prompts_listing(
+        self,
+        query: VoicePromptQuery = _DEFAULT_VOICE_PROMPT_QUERY,
+        *,
+        discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
+    ) -> CatalogListing[VoicePromptInfo]:
+        engine = self.normalize_engine(query.engine)
+        if engine != "pocket":
+            raise api_errors.DiscoveryError(
+                "Managed voice prompt discovery is only supported by the PocketSynth engine.",
+                code="catalog.voice_prompts_engine_unsupported",
+            )
+        try:
+            adapter = get_engine("pocket")
+            list_prompts = getattr(adapter, "list_voice_prompts", None)
+            if not callable(list_prompts):
+                raise api_errors.DiscoveryError(
+                    "The installed PocketSynth adapter does not support managed prompt discovery.",
+                    code="catalog.voice_prompts_unavailable",
+                )
+            prompts = list_prompts(
+                dataset=query.dataset,
+                variant=query.variant,
+                license=query.license,
+                offline=discovery.offline,
+                refresh=discovery.refresh,
+            )
+            items = tuple(self._voice_prompt_info(prompt) for prompt in prompts)
+            metadata = CatalogDiscovery(
+                registry_source="pocketsynth-public-metadata",
+                offline=discovery.offline,
+                refreshed=discovery.refresh,
+            )
+            return CatalogListing(items, metadata)
+        except ReadioError:
+            raise
+        except Exception as error:
+            raise self._discovery_error(error, "catalog.voice_prompts_failed") from error
 
     def voice_listing(
         self,
@@ -505,6 +555,20 @@ class CatalogService:
             ),
             default_voice=target.default_voice,
             metadata=cast(dict[str, JsonValue], json_value(target.metadata)),
+        )
+
+    def _voice_prompt_info(self, prompt: Any) -> VoicePromptInfo:
+        return VoicePromptInfo(
+            engine="pocket",
+            ref=prompt.ref,
+            source_repository=prompt.source_repository,
+            source_revision=prompt.source_revision,
+            source_path=prompt.source_path,
+            size=prompt.size,
+            sha256=prompt.sha256,
+            license=prompt.license,
+            dataset=prompt.dataset,
+            variant=prompt.variant,
         )
 
     def _voice_info(self, entry: voices_internal.VoiceCatalogEntry) -> VoiceInfo:

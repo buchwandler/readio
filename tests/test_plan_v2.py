@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from utterplan import CURRENT_SCHEMA_VERSION
 
@@ -36,6 +38,102 @@ def test_voice_source_has_explicit_kind_and_reference_hash() -> None:
     }
     with pytest.raises(ValueError, match="stable SHA-256"):
         VoiceSourceV2(kind="reference", value="voices/guest.wav")
+
+
+def test_managed_voice_source_round_trips_provenance_and_identity():
+    from readio.plan import VoiceSourceV2
+
+    source = VoiceSourceV2(
+        kind="managed_reference",
+        value="kyutai-tts-voices:alba/casual",
+        sha256="a" * 64,
+        source_revision="catalog-rev-3",
+        source_repository="kyutai/voices",
+        source_path="alba/casual.wav",
+        license="cc-by-4.0",
+        dataset="alba",
+        variant="casual",
+    )
+    target = RenderTargetV2(id="pocket-model", language="en", voice=source)
+    restored = RenderTargetV2.from_dict(target.to_dict())
+    assert restored == target
+    assert restored.voice.to_dict() == source.to_dict()
+
+    from readio.engines.base import EngineSelection
+    from readio.engines.selection import engine_selection_from_render_plan
+    from readio.execution import _selection_for_target
+
+    render_plan = RenderPlanV2(engine="pocket", default_target=target)
+    selected = engine_selection_from_render_plan(render_plan)
+    assert selected.voice is None
+    assert selected.metadata["voice_source"] == source.to_dict()
+    handoff = _selection_for_target(
+        EngineSelection(engine="pocket", target_id="pocket-model", language="en"),
+        target,
+    )
+    assert handoff.voice is None
+    assert handoff.metadata["voice_source"] == source.to_dict()
+
+    render = RenderPlanV2(engine="pocket", default_target=target)
+    identity = render_identity("sha256:semantic", render)
+    assert identity != render_identity(
+        "sha256:semantic",
+        RenderPlanV2(
+            engine="pocket",
+            default_target=RenderTargetV2(
+                id="pocket-model",
+                language="en",
+                voice=replace(source, sha256="b" * 64),
+            ),
+        ),
+    )
+    assert identity != render_identity(
+        "sha256:semantic",
+        RenderPlanV2(
+            engine="pocket",
+            default_target=RenderTargetV2(
+                id="pocket-model",
+                language="en",
+                voice=replace(source, source_revision="catalog-rev-4"),
+            ),
+        ),
+    )
+    assert identity == render_identity(
+        "sha256:semantic",
+        RenderPlanV2(
+            engine="pocket",
+            default_target=RenderTargetV2(
+                id="pocket-model",
+                language="en",
+                voice=replace(source, dataset="new-display-dataset"),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="unknown voice source kind"):
+        VoiceSourceV2.from_dict({"kind": "future_source", "value": "x"})
+    with pytest.raises(ValueError, match="stable SHA-256"):
+        VoiceSourceV2.from_dict({"kind": "managed_reference", "value": "x"})
+
+
+@pytest.mark.parametrize(
+    "selectors",
+    [
+        {"voice": "named", "voice_file": "voice.wav"},
+        {"voice": "named", "voice_prompt": "kyutai-tts-voices:alba/casual"},
+        {"voice_file": "voice.wav", "voice_prompt": "kyutai-tts-voices:alba/casual"},
+        {
+            "voice": "named",
+            "voice_file": "voice.wav",
+            "voice_prompt": "kyutai-tts-voices:alba/casual",
+        },
+    ],
+)
+def test_synthesis_request_rejects_multiple_voice_sources(selectors) -> None:
+    from readio.plan import SynthesisRequest
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        SynthesisRequest(**selectors)
 
 
 def test_render_target_serializes_typed_voice_source() -> None:
@@ -246,7 +344,9 @@ def test_semantic_plan_compiles_when_engine_runtime_is_unavailable(monkeypatch) 
     request = PlanRequest(
         operation="render",
         input=InputRequest(document=document_from_text("Plan this without a runtime.")),
-        synthesis=SynthesisRequest(engine="missing-engine"),
+        synthesis=SynthesisRequest(
+            engine="missing-engine", voice_prompt="kyutai-tts-voices:alba/casual"
+        ),
         output=OutputRequest(),
     )
 
@@ -259,6 +359,8 @@ def test_semantic_plan_compiles_when_engine_runtime_is_unavailable(monkeypatch) 
     assert resolved.plan.semantic_plan.plan_id == resolved.semantic.plan_id
     assert resolved.plan.render is None
     assert any(item.code == "engine_unavailable" for item in resolved.plan.diagnostics)
+
+    assert any(item.code == "voice_source_unsupported" for item in resolved.plan.diagnostics)
 
 
 def test_semantic_plan_compiles_but_skips_incompatible_engine_api(monkeypatch) -> None:
@@ -343,12 +445,25 @@ def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch
             )
 
         def resolve(self, request):
+            source = dict(request.engine_options["voice_source"])
+            if source.get("kind") == "managed_reference":
+                source.update(
+                    {
+                        "sha256": "a" * 64,
+                        "source_revision": "catalog-rev-3",
+                        "source_repository": "kyutai/voices",
+                        "source_path": "alba/casual.wav",
+                        "license": "cc-by-4.0",
+                        "dataset": "alba",
+                        "variant": "casual",
+                    }
+                )
             return (
                 EngineSelection(
                     engine=self.id,
                     target_id=request.target_id or "bundle",
                     language=request.language or "en-us",
-                    metadata={"voice_source": request.engine_options["voice_source"]},
+                    metadata={"voice_source": source},
                 ),
                 (),
             )
@@ -380,3 +495,25 @@ def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch
     assert target_voice.kind == "reference"
     assert target_voice.value == str(reference.resolve())
     assert target_voice.sha256 == expected_digest
+    prompt_ref = "kyutai-tts-voices:alba/casual"
+    managed_request = replace(
+        request,
+        synthesis=SynthesisRequest(engine="pocket", voice_prompt=prompt_ref),
+    )
+    managed = resolve_execution_v2(
+        ReadioConfig(reader=ReaderSettings(engine="pocket")),
+        managed_request,
+    )
+    managed_voice = managed.plan.render.default_target.voice
+    assert managed.plan.ok
+    assert managed_voice.kind == "managed_reference"
+    assert managed_voice.value == prompt_ref
+    assert managed_voice.sha256 == "a" * 64
+    assert managed_voice.source_revision == "catalog-rev-3"
+    assert managed_voice.source_repository == "kyutai/voices"
+    assert managed_voice.source_path == "alba/casual.wav"
+    assert managed_voice.license == "cc-by-4.0"
+    assert managed_voice.dataset == "alba"
+    assert managed_voice.variant == "casual"
+    reloaded = RenderTargetV2.from_dict(managed.plan.render.default_target.to_dict())
+    assert reloaded.voice == managed_voice

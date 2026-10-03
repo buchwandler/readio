@@ -75,7 +75,7 @@ if plan.ok:
 
 For auto-converted sources, `InputDocument.provenance` is an immutable public `DocumentProvenance` value containing `source_format`, `media_type`, `source_name`, `converter`, `converter_version`, and converter `metadata`. Explicit text/Markdown/SSMD input does not claim conversion provenance.
 
-`SynthesisRequest.speed` is a finite positive engine synthesis multiplier and is not also applied as composition rate. `voice_level` accepts `"off"` or `"calibrated"`; both settings are passed through typed planning and are part of the effective speech identity. PocketSynth currently supports only speed `1.0` and reports unsupported explicit values as a resolution error.
+`SynthesisRequest.speed` is a finite positive engine synthesis multiplier and is not also applied as composition rate. `voice_level` accepts `"off"` or `"calibrated"`; both settings are passed through typed planning and are part of the effective speech identity. PocketSynth currently supports only speed `1.0` and reports unsupported explicit values as a resolution error. Supertonic converts locale tags to the model's base language, so `en-us` resolves to `en`, and rejects unsupported bases.
 
 `render_live_to_file(lines, output, ...)` consumes the caller-owned iterable without closing it, resolves the output format/path, creates and closes its own file sink, and atomically commits the file. Its `RenderResult` includes `output_path` and `audio_format`. Live support is declared by each adapter's `capabilities().supports_live`; requesting live synthesis from an unsupported engine raises `InvalidRequestError` with code `speech.live_unsupported`.
 
@@ -83,7 +83,7 @@ For playback, call `app.speech.speak(request)`. It creates and closes the playba
 
 `speak()` and `speak_live()` stream incrementally through Readio-owned playback and disable whole-program mastering. They preserve stateful composition semantics across segments; bounded `render()` remains the full-document mastered path.
 
-For PocketSynth, pass the registered bundle as `model`, choose a predefined `voice`, or supply a reference WAV with `voice_file`. Engine-specific generation options use `engine_options`:
+For PocketSynth, pass the registered bundle as `model` and select exactly one of `voice` (a predefined bundle voice), `voice_file` (a local WAV), or `voice_prompt` (a managed Kyutai prompt). Engine-specific generation options use `engine_options`:
 
 ```python
 request = PlanRequest(
@@ -99,7 +99,17 @@ request = PlanRequest(
 )
 ```
 
-The resolver records the reference WAV's SHA-256 in the render target. It does not include a local filesystem path in the acoustic render identity.
+The resolver records the reference WAV's SHA-256 in the render target and excludes its local path from acoustic identity. For `voice_prompt`, planning records the managed reference, source SHA-256, revision, and available provenance; rendering verifies prepared provenance and stores the prepared-audio fingerprint separately. Managed prompts are default synthesis voices, not role bindings.
+
+```python
+prompt_request = SynthesisRequest(
+    engine="pocket",
+    model="BUNDLE_ID",
+    voice_prompt="kyutai-tts-voices:alba-mackenna/casual",
+)
+```
+
+`voice`, `voice_file`, and `voice_prompt` are mutually exclusive. `voice_prompt` is Pocket-only; a non-Pocket request receives a planning diagnostic.
 
 An `AudioSink` implements `write(audio, sample_rate)` and `close()`. For example, an application can implement this protocol to stream chunks into its own audio pipeline. Do not pass a sink to `json.dumps`; sinks are runtime resources, not result data.
 
@@ -214,9 +224,9 @@ Title and author default from the project's persisted book metadata and can be o
 
 ## Discovery and roles
 
-`app.catalog.engines()`, `targets()`, `models()`, `voices()`, `lexicons()`, and `audio_formats()` expose typed discovery data. Listing methods such as `models_listing()` and `voices_listing()` wrap entries with `CatalogDiscovery` metadata, including source, cache fallback, offline, and refresh state. Pass `DiscoveryOptions(offline=True)` to prevent a network refresh.
-Canonical engine IDs are `kokoro`, `piper`, `pocket`, and `kitten`; upstream names such as `pykokoro` and `pipersynth` are accepted only as input aliases where supported. `app.catalog.normalize_engine()` returns canonical IDs. Lexicon queries are filtered through engine capabilities. The `voices list` CLI treats a registered engine name supplied to `--model` as an engine filter when `--engine` is omitted.
-Voice references use `SYSTEM:TARGET[/VOICE]`, for example `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, and `pocket:english_2026-04/alba`. Public voice records expose `ref`, `target_id`, and public engine names. Metadata filtering uses descriptive language, locale, and gender fields and does not affect identity. Pocket generic language `en` matches a specific `en-US` query, while an explicit `en-GB` locale does not; generic metadata is not assigned unsupported regional specificity.
+`app.catalog.engines()`, `targets()`, `models()`, `voices()`, `voice_prompts()`, `lexicons()`, and `audio_formats()` expose typed discovery data. Listing methods such as `models_listing()`, `voices_listing()`, and `voice_prompts_listing()` wrap entries with `CatalogDiscovery` metadata, including source, cache fallback, offline, and refresh state. Pass `DiscoveryOptions(offline=True)` to use cached metadata without a network refresh.
+Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; upstream names such as `pykokoro`, `pipersynth`, and `supertonicsynth` are accepted only as input aliases where supported. `app.catalog.normalize_engine()` returns canonical IDs. Lexicon queries are filtered through engine capabilities. The `voices list` CLI treats a registered engine name supplied to `--model` as an engine filter when `--engine` is omitted.
+Voice references use `SYSTEM:TARGET[/VOICE]`, for example `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, and `supertonic:supertonic-3/F1`. Public voice records expose `ref`, `target_id`, and public engine names. Metadata filtering uses descriptive language, locale, and gender fields and does not affect identity. Pocket generic language `en` matches a specific `en-US` query, while an explicit `en-GB` locale does not; generic metadata is not assigned unsupported regional specificity.
 
 ```python
 from readio.api import DiscoveryOptions, Readio, VoiceQuery
@@ -228,6 +238,19 @@ listing = app.catalog.voices_listing(
 )
 for voice in listing.items:
     print(voice.ref, voice.target_id, voice.id)
+```
+
+Pocket prompt discovery is a separate catalog operation because prompts are managed reference-audio assets, not target-bound `VoiceInfo` entries. It returns catalog metadata without opening a Pocket model or fetching prompt WAV files.
+
+```python
+from readio.api import DiscoveryOptions, VoicePromptQuery
+
+prompts = app.catalog.voice_prompts(
+    VoicePromptQuery(engine="pocket", dataset="alba", variant="casual"),
+    discovery=DiscoveryOptions(offline=True),
+)
+for prompt in prompts:
+    print(prompt.ref, prompt.sha256, prompt.source_revision, prompt.license)
 ```
 
 Catalogs also provide singular lookups and semantic voice-reference resolution. `app.roles` lists and mutates global role bindings and inspects, binds, or unbinds project-local roles. New bindings resolve to public `VoiceTarget` values containing canonical `engine`, `voice`, and optional `target_id`. Selector provenance is not part of role identity or serialization. `RoleBinding.target`, `ProjectRole.effective_target`, and `ProjectRole.project_target` expose these values. Role JSON uses engine-qualified targets and does not include provider output fields; project inspection reports its selected `engine` or `None` when no single engine applies.

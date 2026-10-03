@@ -68,7 +68,7 @@ def _selection_for_target(base: EngineSelection, target: Any) -> EngineSelection
     voice = base.voice if target.id == base.target_id else None
     if target.voice is not None:
         voice = target.voice.value if target.voice.kind == "named" else None
-        if target.voice.kind == "reference":
+        if target.voice.kind in {"reference", "managed_reference"}:
             metadata["voice_source"] = target.voice.to_dict()
     return replace(
         base,

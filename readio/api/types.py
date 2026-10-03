@@ -150,8 +150,12 @@ class ProjectSynthesisSettings:
     engine: str | None = None
     engine_options: Mapping[str, JsonValue] | None = None
     voice_file: Path | None = None
+    voice_prompt: str | None = None
 
     def __post_init__(self) -> None:
+        selectors = (self.voice, self.voice_file, self.voice_prompt)
+        if sum(value is not None for value in selectors) > 1:
+            raise ValueError("voice, voice_file, and voice_prompt are mutually exclusive")
         for name in ("lexicons", "detect_languages"):
             value = getattr(self, name)
             if value is not None:
@@ -728,6 +732,31 @@ class VoiceQuery:
 
 
 @dataclass(frozen=True, slots=True)
+class VoicePromptQuery:
+    engine: str = "pocket"
+    dataset: str | None = None
+    variant: str | None = None
+    license: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VoicePromptInfo:
+    engine: str
+    ref: str
+    source_repository: str
+    source_revision: str
+    source_path: str
+    size: int
+    sha256: str
+    license: str
+    dataset: str
+    variant: str
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
 class VoiceInfo:
     ref: str | None
     id: str
@@ -1168,6 +1197,8 @@ __all__ = [
     "TemplateValidationResult",
     "Unset",
     "VoiceInfo",
+    "VoicePromptInfo",
+    "VoicePromptQuery",
     "VoiceQuery",
     "VoiceResolution",
     "document_from_file",

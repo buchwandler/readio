@@ -48,6 +48,9 @@ class TestNormalizeEngineId:
     def test_alias_kittensynth_normalizes_to_kitten(self) -> None:
         assert normalize_engine_id("kittensynth") == "kitten"
 
+    def test_alias_supertonicsynth_normalizes_to_supertonic(self) -> None:
+        assert normalize_engine_id("supertonicsynth") == "supertonic"
+
     def test_unknown_engine_passes_through(self) -> None:
         assert normalize_engine_id("unknown") == "unknown"
 
@@ -63,10 +66,13 @@ class TestEngineAliases:
             "pykokoro": "kokoro",
             "pipersynth": "piper",
             "kittensynth": "kitten",
+            "supertonicsynth": "supertonic",
         }
 
     def test_canonical_ids(self) -> None:
-        assert CANONICAL_ENGINE_IDS == frozenset({"kokoro", "piper", "pocket", "kitten"})
+        assert CANONICAL_ENGINE_IDS == frozenset(
+            {"kokoro", "piper", "pocket", "supertonic", "kitten"}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +194,7 @@ class TestEngineRegistryClass:
         registry = EngineRegistry()
         status = registry.status()
         # Known optional engines remain visible when their packages are absent.
-        assert {"kokoro", "piper", "pocket", "kitten"}.issubset(status)
+        assert {"kokoro", "piper", "pocket", "supertonic", "kitten"}.issubset(status)
 
     def test_iter_adapters_yields_all(self) -> None:
         registry = EngineRegistry()

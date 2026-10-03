@@ -101,8 +101,9 @@ def synthesis_request_from_args(
 ) -> api.SynthesisRequest:
     voice = getattr(args, "voice", None)
     voice_file = getattr(args, "voice_file", None)
-    if voice is not None and voice_file is not None:
-        raise ValueError("--voice and --voice-file cannot be combined")
+    voice_prompt = getattr(args, "voice_prompt", None)
+    if sum(value is not None for value in (voice, voice_file, voice_prompt)) > 1:
+        raise ValueError("--voice, --voice-file, and --voice-prompt are mutually exclusive")
     engine_options = {
         name: value
         for name in ("precision", "temperature", "lsd_steps", "max_frames", "frames_after_eos")
@@ -116,6 +117,7 @@ def synthesis_request_from_args(
         quality=getattr(args, "quality", None),
         voice=voice,
         voice_file=voice_file,
+        voice_prompt=voice_prompt,
         lexicons=tuple(args.lexicons) if getattr(args, "lexicons", None) is not None else None,
         speaker=getattr(args, "speaker", None),
         clear_lexicons=bool(getattr(args, "no_lexicons", False)),

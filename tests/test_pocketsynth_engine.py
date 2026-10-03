@@ -16,11 +16,12 @@ except ImportError:
 from project_support import assert_neutral_session_contract
 from utterplan import PlannerConfig, UtterancePlanner
 
-from readio.engines.base import SpeechRequest
+from readio.engines.base import EngineSelection, SpeechRequest
 from readio.engines.catalog import CatalogRequest, TargetVoice
 from readio.engines.pocketsynth import PocketSynthEngineAdapter
 from readio.engines.registry import engine_for_ssmd_provider, ssmd_provider_for_engine
 from readio.engines.selection import EngineRequest
+from readio.errors import EngineBackendError
 from readio.rendering.lowering import LoweringError, lower_segment
 
 
@@ -229,6 +230,109 @@ def test_pocket_resolves_precision_and_rejects_incompatible_language(monkeypatch
     assert [item.code for item in precision_diagnostics] == ["pocket.precision_unavailable"]
 
 
+def test_managed_prompt_resolution_uses_public_metadata_without_opening_runtime(monkeypatch):
+    pocketsynth, runtime = _install_fakes(monkeypatch)
+    prompt_ref = "kyutai-tts-voices:alba/casual"
+    prompt_info = SimpleNamespace(
+        ref=prompt_ref,
+        sha256="a" * 64,
+        source_revision="catalog-rev-3",
+        source_repository="kyutai/voices",
+        source_path="alba/casual.wav",
+        license="cc-by-4.0",
+        dataset="alba",
+        variant="casual",
+    )
+    calls = []
+
+    def inspect_voice_prompt(ref, **options):
+        calls.append((ref, options))
+        return prompt_info
+
+    monkeypatch.setattr(pocketsynth, "inspect_voice_prompt", inspect_voice_prompt)
+    request = replace(
+        _request(
+            voice=None,
+            options={
+                "voice_source": {"kind": "managed_reference", "value": prompt_ref},
+                "cache_dir": "prompt-cache",
+                "catalog_path": "prompt-catalog.json",
+            },
+        ),
+        offline=True,
+        refresh=True,
+    )
+    selection, _ = PocketSynthEngineAdapter().resolve(request)
+
+    assert calls == [
+        (
+            prompt_ref,
+            {
+                "cache_dir": "prompt-cache",
+                "catalog_path": "prompt-catalog.json",
+                "offline": True,
+                "refresh": True,
+            },
+        )
+    ]
+    assert selection.metadata["voice_source"] == {
+        "kind": "managed_reference",
+        "value": prompt_ref,
+        "sha256": "a" * 64,
+        "source_revision": "catalog-rev-3",
+        "source_repository": "kyutai/voices",
+        "source_path": "alba/casual.wav",
+        "license": "cc-by-4.0",
+        "dataset": "alba",
+        "variant": "casual",
+    }
+    assert _AssetManager.instances == []
+    assert runtime.close_calls == 0
+
+
+def test_pocket_prompt_listing_uses_metadata_api_without_runtime_or_audio_fetch(monkeypatch):
+    pocketsynth, runtime = _install_fakes(monkeypatch)
+    prompt = SimpleNamespace(
+        ref="kyutai-tts-voices:alba/casual",
+        source_repository="kyutai/voices",
+        source_revision="catalog-rev-3",
+        source_path="alba/casual.wav",
+        size=1234,
+        sha256="a" * 64,
+        license="cc-by-4.0",
+        dataset="alba",
+        variant="casual",
+    )
+    calls = []
+
+    def list_voice_prompts(**kwargs):
+        calls.append(kwargs)
+        return (prompt,)
+
+    monkeypatch.setattr(pocketsynth, "list_voice_prompts", list_voice_prompts)
+    prompts = PocketSynthEngineAdapter().list_voice_prompts(
+        dataset="alba",
+        variant="casual",
+        license="cc-by-4.0",
+        offline=True,
+        refresh=True,
+    )
+
+    assert prompts == (prompt,)
+    assert calls == [
+        {
+            "dataset": "alba",
+            "variant": "casual",
+            "license": "cc-by-4.0",
+            "offline": True,
+            "refresh": True,
+        }
+    ]
+    assert _AssetManager.instances == []
+    assert runtime.prepared_sources == []
+    assert runtime.close_calls == 0
+
+
 def test_pocket_generation_options_validate_before_catalog_or_runtime(monkeypatch):
     _, runtime = _install_fakes(monkeypatch)
     adapter = PocketSynthEngineAdapter()
@@ -352,6 +456,145 @@ def test_pocket_reference_voice_is_content_identified_and_cached(monkeypatch, tm
     assert runtime.close_calls == 1
 
 
+def test_pocket_managed_prompt_uses_pinned_identity_cache_and_preserves_fingerprint(monkeypatch):
+    _pocketsynth, runtime = _install_fakes(monkeypatch)
+    source_a = {
+        "kind": "managed_reference",
+        "value": "kyutai-tts-voices:alba/casual",
+        "sha256": "a" * 64,
+        "source_revision": "catalog-rev-3",
+    }
+    source_b = {
+        "kind": "managed_reference",
+        "value": "kyutai-tts-voices:bella/bright",
+        "sha256": "b" * 64,
+        "source_revision": "catalog-rev-4",
+    }
+    selection = EngineSelection(
+        engine="pocket",
+        target_id="english-2026",
+        language="en-us",
+        metadata={"voice_source": source_a},
+        offline=True,
+    )
+    sources = {source["value"]: source for source in (source_a, source_b)}
+
+    def prepare_voice(ref):
+        runtime.prepared_sources.append(ref)
+        source = sources[ref]
+        return SimpleNamespace(
+            metadata={
+                "kind": "managed_reference",
+                "managed_ref": ref,
+                "source_sha256": source["sha256"],
+                "source_revision": source["source_revision"],
+            },
+            voice_prompt=SimpleNamespace(
+                ref=ref,
+                sha256=source["sha256"],
+                source_revision=source["source_revision"],
+            ),
+            fingerprint=f"prepared:{source['sha256']}",
+        )
+
+    monkeypatch.setattr(runtime, "prepare_voice", prepare_voice)
+    adapter = PocketSynthEngineAdapter()
+    with adapter.open(selection) as session:
+        rendered = [
+            session.synthesize(
+                SpeechRequest(
+                    id=f"managed-{index}",
+                    text="Managed prompt",
+                    language="en-us",
+                    options={"voice_source": source},
+                )
+            )
+            for index, source in enumerate((source_a, source_a, source_b))
+        ]
+
+    identity = adapter.canonical_synthesis_identity(selection)["voice"]
+    assert identity == {
+        "kind": "managed_reference",
+        "ref": source_a["value"],
+        "sha256": source_a["sha256"],
+        "source_revision": source_a["source_revision"],
+    }
+    assert runtime.prepared_sources == [source_a["value"], source_b["value"]]
+    assert len(runtime.synthesis_calls) == 3
+    assert rendered[0].metadata["voice"] == identity
+    assert rendered[0].metadata["prepared_voice_fingerprint"] == f"prepared:{source_a['sha256']}"
+    assert rendered[2].metadata["prepared_voice_fingerprint"] == f"prepared:{source_b['sha256']}"
+
+
+def test_pocket_managed_prompt_rejects_changed_prepared_provenance(monkeypatch):
+    _pocketsynth, runtime = _install_fakes(monkeypatch)
+    source = {
+        "kind": "managed_reference",
+        "value": "kyutai-tts-voices:alba/casual",
+        "sha256": "a" * 64,
+        "source_revision": "catalog-rev-3",
+    }
+    selection = EngineSelection(
+        engine="pocket",
+        target_id="english-2026",
+        language="en-us",
+        metadata={"voice_source": source},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "prepare_voice",
+        lambda _ref: SimpleNamespace(
+            metadata={
+                "managed_ref": source["value"],
+                "source_sha256": "b" * 64,
+                "source_revision": source["source_revision"],
+            },
+            voice_prompt=None,
+            fingerprint="prepared",
+        ),
+    )
+
+    with (
+        PocketSynthEngineAdapter().open(selection) as session,
+        pytest.raises(EngineBackendError) as error,
+    ):
+        session.synthesize(SpeechRequest(id="changed", text="Changed prompt", language="en-us"))
+    assert error.value.code == "pocket.managed_reference_changed"
+    assert error.value.details["expected_sha256"] == source["sha256"]
+    assert error.value.details["actual_sha256"] == "b" * 64
+
+
+def test_pocket_managed_prompt_reports_stable_offline_cache_failure(monkeypatch):
+    _pocketsynth, runtime = _install_fakes(monkeypatch)
+    source = {
+        "kind": "managed_reference",
+        "value": "kyutai-tts-voices:alba/casual",
+        "sha256": "a" * 64,
+        "source_revision": "catalog-rev-3",
+    }
+    selection = EngineSelection(
+        engine="pocket",
+        target_id="english-2026",
+        language="en-us",
+        metadata={"voice_source": source},
+        offline=True,
+    )
+
+    def fail_prepare(_ref):
+        raise RuntimeError("prompt file is not cached")
+
+    monkeypatch.setattr(runtime, "prepare_voice", fail_prepare)
+    with (
+        PocketSynthEngineAdapter().open(selection) as session,
+        pytest.raises(EngineBackendError) as error,
+    ):
+        session.synthesize(SpeechRequest(id="offline", text="Offline prompt", language="en-us"))
+
+    assert error.value.code == "pocket.voice_prompt_offline_unavailable"
+    assert error.value.details["voice_prompt"] == source["value"]
+    assert error.value.details["offline"] is True
+
+
 def test_pocket_rejects_unrepresentable_pronunciation_directive(monkeypatch):
     _install_fakes(monkeypatch)
     adapter = PocketSynthEngineAdapter()
@@ -382,5 +625,5 @@ def test_pocket_extra_uses_a_published_runtime_release():
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     extras = pyproject["project"]["optional-dependencies"]
 
-    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.1,<0.3"]
-    assert any("pocketsynth[cpu]>=0.2.1,<0.3" in item for item in extras["all"])
+    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.3,<0.3"]
+    assert any("pocketsynth[cpu]>=0.2.3,<0.3" in item for item in extras["all"])

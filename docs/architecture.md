@@ -73,9 +73,15 @@ Readio lowers each UtterPlan segment to a Readio-owned `SpeechRequest`; adapters
 
 A native adapter makes one strict synthesis call for a Readio-shaped request and never invokes the engine's convenience splitter. Readio owns capacity fitting: it measures when supported, handles typed too-long responses, and recursively subdivides exact text at legal sentence, clause, token, or word boundaries. Protected linguistic and pronunciation ranges are not cut. Child audio is merged and child-local timings are rebased to the original request.
 
-Kokoro and Pocket support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
+Kokoro, Pocket, and Supertonic support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
 
-Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. Kokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Composition rate remains separate, so synthesis speed is never applied twice.
+Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. Kokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Supertonic uses the validated model base language and forwards the speed multiplier to its atomic synthesis API. Composition rate remains separate, so synthesis speed is never applied twice.
+
+## Managed and catalog voice sources
+
+Supertonic discovery uses the engine's public model metadata API, while synthesis uses one atomic native request for each Readio request. Readio resolves locale tags to supported base languages and retains its ownership of text splitting and composition.
+
+Pocket voices have three distinct sources: a predefined bundle voice, a local reference WAV identified by its content hash, or a managed prompt identified by its canonical reference, catalog SHA-256, source revision, and available provenance. `readio voices prompts` queries only PocketSynth's public prompt metadata API; it neither opens a Pocket model nor downloads prompt audio. The render plan carries the managed source as typed metadata rather than a semantic Readio voice reference. At synthesis time, Readio verifies the prepared voice provenance and records PocketSynth's normalized-audio fingerprint separately from the source hash. Managed prompts apply to the default synthesis voice and are not role bindings.
 
 ## Composition and status dependencies
 

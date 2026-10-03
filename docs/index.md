@@ -32,7 +32,7 @@ Use the GPU extra when a GPU-enabled ONNX Runtime is available:
 python -m pip install "readio[kokoro,gpu]"
 ```
 
-Install Piper, Pocket, or Kitten with `readio[piper,cpu]`, `readio[pocket]`, or `readio[kitten]`. The `readio[all,cpu]` extra installs all engine packages for a CPU environment.
+Install Piper, Pocket, Supertonic, or Kitten with `readio[piper,cpu]`, `readio[pocket]`, `readio[supertonic]`, or `readio[kitten]`. The `readio[all,cpu]` extra installs all engine packages for a CPU environment.
 
 Engine packages may download model, voice, or bundle assets on first use. Spotify publishing additionally requires the separately installed and authenticated `save-to-spotify` executable.
 
@@ -110,7 +110,8 @@ Synthesis options are available on all three commands:
 ````text
 --voice VOICE             engine voice ID
 --voice-file PATH         PocketSynth reference WAV
---engine ENGINE           kokoro, piper, pocket, or kitten
+--voice-prompt REF        PocketSynth managed reference prompt
+--engine ENGINE           kokoro, piper, pocket, supertonic, or kitten
 --model TARGET            model or engine-specific target ID
 --precision int8|fp32     PocketSynth bundle precision
 --temperature FLOAT       PocketSynth generation temperature
@@ -133,10 +134,10 @@ Synthesis options are available on all three commands:
 --unit UNIT               sentence or paragraph
 
 Readio's short-sentence default is `phrase`; Readio resolves the policy before engine adapters translate it to engine-native settings.
-Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. It supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.1,<0.3, and KittenSynth >=0.1.0,<0.2; each engine package owns its own runtime dependencies and Readio does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`, and `kitten`. Install engines with the matching optional extra; `readio doctor` checks each installed package's public request API without downloading models.
+Readio requires SSMD >=0.9,<0.10 and UtterPlan >=0.3,<0.4, persisting linguistic artifacts as UtterPlan schema v3 inside `readio.plan.v2`. It supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.3,<0.3, SupertonicSynth >=0.1.2,<0.2, and KittenSynth >=0.1.0,<0.2; each engine package owns its own runtime dependencies and Readio does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`. Install engines with the matching optional extra; `readio doctor` checks each installed package's public request API without downloading models.
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
-Speed is an engine synthesis multiplier, not a composition tempo. Kokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, and PocketSynth rejects explicit values other than `1.0`.
+Speed is an engine synthesis multiplier, not a composition tempo. Kokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, PocketSynth rejects explicit values other than `1.0`, and Supertonic forwards the multiplier to its atomic API.
 
 Readio, not the engine adapter, owns text-capacity fitting and exact-text subdivision. Adapters synthesize one strict request at a time and do not call native splitters. Readio preserves legal linguistic and pronunciation boundaries and fails when an oversized request has no legal split.
 
@@ -151,11 +152,15 @@ readio defaults show de-at --json
 readio render --lang de --file notes.md
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
+readio voices list --engine supertonic --lang en-us
+readio voices prompts --engine pocket --dataset alba
 ````
 
-`models`, `voices`, and `lexicons` enumerate targets from the unified engine registry. They are metadata-only and do not load model weights or instantiate ONNX runtimes. Offline mode uses cached catalogs; refresh updates catalog metadata only.
+The `--voice`, `--voice-file`, and `--voice-prompt` selectors are mutually exclusive. Managed prompts are Pocket-only and apply to the default synthesis voice, not per-role bindings.
+
+`models`, `voices`, and `lexicons` enumerate targets from the unified engine registry. They are metadata-only and do not load model weights or instantiate ONNX runtimes. `readio voices prompts` separately lists Pocket managed-prompt metadata without opening a model or fetching prompt audio. Offline mode uses cached catalogs; refresh updates catalog metadata only.
 `--model-source` applies only to engines that advertise distribution-source selection. Voice rosters are target-scoped where the engine exposes them, and lexicons are listed only for engines that support lexicon discovery. SSMD preflight validates role targets against the selected engine catalog.
-Readio uses `readio.engines` as its sole engine registry. The registered engines are `kokoro`, `piper`, `pocket`, and `kitten`; aliases are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
+Readio uses `readio.engines` as its sole engine registry. The registered engines are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; aliases are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
 
 ## Synthesis planning
 
