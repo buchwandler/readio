@@ -13,9 +13,9 @@ def test_voice_target_serialization_keeps_only_structured_identity() -> None:
         }
     )
 
-    assert target == VoiceTarget("pykokoro", "af_heart", target_id="v1.0")
+    assert target == VoiceTarget("kokoro", "af_heart", target_id="v1.0")
     assert target.to_dict() == {
-        "engine": "pykokoro",
+        "engine": "kokoro",
         "voice": "af_heart",
         "target_id": "v1.0",
     }

@@ -385,7 +385,7 @@ def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     assert report.config_exists is False
     assert all(isinstance(item, EngineDiagnostic) for item in report.engines)
     assert all(isinstance(item, DependencyDiagnostic) for item in report.dependencies)
-    assert {"pykokoro", "piper"} <= {item.id for item in report.engines}
+    assert {"kokoro", "piper"} <= {item.id for item in report.engines}
     assert {"utterplan", "audiocompose", "ssmd", "ssmdconvert"} <= {
         item.id for item in report.dependencies
     }

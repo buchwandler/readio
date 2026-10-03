@@ -14,8 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import soundfile as sf
-
+from ..audioio import probe_audio, write_pcm16_wav
 from ..engines.base import EngineSelection
 from ..engines.registry import get_engine
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
@@ -304,15 +303,15 @@ def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int,
     if not path.is_file():
         return None
     try:
-        info = sf.info(path)
+        info = probe_audio(path)
         digest = hash_file(path)
     except (OSError, RuntimeError, ValueError):
         return None
     if expected_sha is not None and digest != expected_sha:
         return None
-    if info.frames <= 0 or info.samplerate <= 0:
+    if info.frames <= 0 or info.sample_rate <= 0:
         return None
-    return int(info.samplerate), int(info.channels), int(info.frames), digest
+    return int(info.sample_rate), int(info.channels), int(info.frames), digest
 
 
 def _link_or_copy(source: Path, destination: Path) -> None:
@@ -727,7 +726,7 @@ def _write_cache_artifact(
     sidecar_path = item["sidecar_path"]
     temporary = cache_path.with_name(f".tmp-{secrets.token_hex(8)}.wav")
     try:
-        sf.write(temporary, result.audio, int(result.sample_rate), subtype="PCM_16")
+        write_pcm16_wav(temporary, result.audio, int(result.sample_rate))
         checked = _valid_audio(temporary)
         if checked is None:
             raise ValueError(f"engine produced invalid audio for {item['segment_id']}")

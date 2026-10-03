@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+import re
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from ..config import normalize_language_key
 from ..errors import (
     EmptySpeechTextError,
     EngineBackendError,
@@ -21,6 +22,7 @@ from ..errors import (
     SpeechRequestTooLongError,
     UnsupportedSynthesisFeatureError,
 )
+from ..models import ModelDiscoveryError
 from .base import (
     EngineCapabilities,
     EngineSelection,
@@ -30,18 +32,216 @@ from .base import (
     SpeechRequest,
     SpeechToken,
     SpeechWordTiming,
+    distribution_version,
     validate_rendered_speech,
+    voice_level_metadata,
 )
-from .catalog import SynthesisTarget
+from .catalog import SynthesisTarget, TargetVoice
+from .registry import normalize_engine_id
 
 logger = logging.getLogger(__name__)
 
 
-def _pykokoro_version() -> str | None:
+PYKOKORO_REQUIRED = ">=0.10.0,<0.11"
+_DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
+
+
+def validate_discovery_preference(preference: str) -> str:
+    if preference not in _DISCOVERY_PREFERENCES:
+        choices = ", ".join(sorted(_DISCOVERY_PREFERENCES))
+        raise ModelDiscoveryError(
+            f"Unknown discovery preference {preference!r}; choose {choices}.",
+            code="pykokoro.invalid_options",
+        )
+    return preference
+
+
+def _version_supported(version: str) -> bool:
+    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", version)
+    if match is None:
+        return False
+    major, minor = int(match.group(1)), int(match.group(2))
+    patch = int(match.group(3) or 0)
+    return (major, minor, patch) >= (0, 10, 0) and (major, minor) == (0, 10)
+
+
+def _package_metadata() -> str | None:
     try:
         return importlib.metadata.version("pykokoro")
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def _pykokoro_module() -> tuple[Any, str, str | None]:
+    try:
+        import pykokoro
+    except Exception as exc:
+        raise ModelDiscoveryError(
+            f"Unable to import PyKokoro for model discovery: {exc}",
+            code="pykokoro.import_failed",
+            distribution_version=_package_metadata(),
+        ) from exc
+    module_version = str(getattr(pykokoro, "__version__", "unknown"))
+    return pykokoro, module_version, _package_metadata()
+
+
+def _pykokoro_discovery() -> Any:
+    pykokoro, version, distribution_version = _pykokoro_module()
+    module_path = getattr(pykokoro, "__file__", None)
+    if not _version_supported(version):
+        raise ModelDiscoveryError(
+            "Installed PyKokoro does not support Readio's model-discovery contract "
+            f"(module version: {version}; distribution version: {distribution_version or 'unknown'}; "
+            f"required: {PYKOKORO_REQUIRED}).",
+            code="pykokoro.version_unsupported",
+            installed_version=version,
+            distribution_version=distribution_version,
+            module_version=version,
+            module_path=str(module_path) if module_path else None,
+        )
+    try:
+        discovery = pykokoro.discover_models
+    except AttributeError as exc:
+        raise ModelDiscoveryError(
+            "Installed PyKokoro does not provide the model-discovery API required by "
+            f"Readio 0.2.0 (module version: {version}; distribution version: "
+            f"{distribution_version or 'unknown'}; module: {module_path or 'unknown'}; "
+            f"required: {PYKOKORO_REQUIRED} with discover_models).",
+            code="pykokoro.discovery_api_missing",
+            installed_version=version,
+            distribution_version=distribution_version,
+            module_version=version,
+            module_path=str(module_path) if module_path else None,
+        ) from exc
+    except (ImportError, ModuleNotFoundError) as exc:
+        missing = getattr(exc, "name", None)
+        detail = f" (missing dependency: {missing})" if missing else ""
+        raise ModelDiscoveryError(
+            f"PyKokoro's public discovery API could not be imported{detail}: {exc}",
+            code="pykokoro.discovery_api_import_failed",
+            installed_version=version,
+            distribution_version=distribution_version,
+            module_version=version,
+            module_path=str(module_path) if module_path else None,
+            missing_dependency=missing,
+        ) from exc
+    except Exception as exc:
+        raise ModelDiscoveryError(
+            f"PyKokoro's public discovery API could not be imported: {exc}",
+            code="pykokoro.discovery_api_import_failed",
+            installed_version=version,
+            distribution_version=distribution_version,
+            module_version=version,
+            module_path=str(module_path) if module_path else None,
+        ) from exc
+    if not callable(discovery):
+        raise ModelDiscoveryError(
+            f"Installed PyKokoro exposes a non-callable discover_models value "
+            f"(module version: {version}; module: {module_path or 'unknown'}).",
+            code="pykokoro.discovery_api_missing",
+            installed_version=version,
+            distribution_version=distribution_version,
+            module_version=version,
+            module_path=str(module_path) if module_path else None,
+        )
+    return discovery
+
+
+def _registry_error(exc: Exception) -> ModelDiscoveryError:
+    message = str(exc) or exc.__class__.__name__
+    name = exc.__class__.__name__.lower()
+    code = (
+        "pykokoro.registry_invalid"
+        if "invalid" in name or "schema" in message.lower()
+        else "pykokoro.registry_unavailable"
+    )
+    return ModelDiscoveryError(message, code=code)
+
+
+def _target_from_capabilities(capabilities: Any) -> SynthesisTarget:
+    languages = tuple(capabilities.languages)
+    fallback = languages[0] if languages else "unknown"
+    indexed: dict[str, TargetVoice] = {}
+    for detail in tuple(getattr(capabilities, "voice_details", ()) or ()):
+        name = getattr(detail, "name", None)
+        if name not in capabilities.voices or name in indexed:
+            raise ValueError(f"voice_details contains invalid or duplicate voice {name!r}")
+        indexed[name] = TargetVoice(
+            id=name,
+            gender=str(getattr(detail, "gender", "unknown")),
+            language=str(getattr(detail, "language", fallback)),
+            locale=str(getattr(detail, "locale", fallback)),
+            language_label=str(getattr(detail, "language_label", fallback)),
+        )
+    voice_details = tuple(
+        indexed.get(
+            voice,
+            TargetVoice(id=voice, language=fallback, locale=fallback, language_label=fallback),
+        )
+        for voice in capabilities.voices
+    )
+    provider = getattr(capabilities, "provider", None)
+    return SynthesisTarget(
+        engine=normalize_engine_id(getattr(capabilities, "engine", "kokoro")),
+        id=capabilities.model_id,
+        display_name=capabilities.model_id,
+        languages=languages,
+        status=capabilities.status,
+        runtime_available=capabilities.runtime_available,
+        sample_rate=getattr(capabilities, "sample_rate", None),
+        voices=tuple(capabilities.voices),
+        voice_details=voice_details,
+        default_voice=capabilities.default_voice,
+        qualities=tuple(capabilities.qualities),
+        aliases=getattr(capabilities, "aliases", ()),
+        capabilities=frozenset({"named_voices", "pronunciation_overrides", "lexicons"}),
+        metadata={
+            "source": capabilities.source,
+            "g2p_backend": capabilities.g2p_backend,
+            "frontend": capabilities.frontend,
+            "lexicons": capabilities.lexicons,
+            "experimental": capabilities.experimental,
+            "redistribution_allowed": capabilities.redistribution_allowed,
+            "distribution_id": getattr(capabilities, "distribution_id", None),
+            "provider": provider,
+            "distribution_provider": getattr(capabilities, "distribution_provider", provider),
+            "sample_rate": getattr(capabilities, "sample_rate", None),
+            "max_tokens": getattr(capabilities, "max_tokens", None),
+        },
+    )
+
+
+def _discover_targets(
+    *,
+    language: str | None = None,
+    offline: bool = False,
+    refresh: bool = False,
+    preference: str = "auto",
+) -> tuple[SynthesisTarget, ...]:
+    from ..models import language_matches
+
+    if offline and refresh:
+        raise ModelDiscoveryError(
+            "--offline and --refresh cannot be combined", code="pykokoro.invalid_options"
+        )
+    preference = validate_discovery_preference(preference)
+    try:
+        result = _pykokoro_discovery()(offline=offline, refresh=refresh, preference=preference)
+    except ModelDiscoveryError:
+        raise
+    except Exception as exc:
+        raise _registry_error(exc) from exc
+    try:
+        targets = tuple(_target_from_capabilities(item) for item in result.models)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ModelDiscoveryError(
+            f"PyKokoro returned invalid model discovery data: {exc}",
+            code="pykokoro.registry_invalid",
+        ) from exc
+    requested = normalize_language_key(language) if language else None
+    if requested is not None:
+        targets = tuple(item for item in targets if language_matches(requested, item.languages))
+    return targets
 
 
 def _translate_pykokoro_error(
@@ -81,7 +281,7 @@ def _translate_pykokoro_error(
 
     context: dict[str, Any] = {
         "engine": "kokoro",
-        "engine_version": _pykokoro_version(),
+        "engine_version": distribution_version("pykokoro"),
         "target_id": selection.target_id,
         "language": request.language if request is not None else selection.language,
         "voice": request.voice if request is not None else selection.voice,
@@ -112,24 +312,6 @@ def _pykokoro_request(request: SpeechRequest, module: Any) -> Any:
         tokens=tuple(_pykokoro_token(item, module) for item in request.tokens),
         phonemes=request.whole_request_phonemes,
     )
-
-
-def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
-    if is_dataclass(value) and not isinstance(value, type):
-        metadata = asdict(value)
-    elif isinstance(value, Mapping):
-        metadata = dict(value)
-    else:
-        metadata = {}
-    return {
-        "mode": metadata.get("mode", mode),
-        "applied": bool(metadata.get("applied", False)),
-        "gain_db": metadata.get("gain_db"),
-        "source": metadata.get("source", "none"),
-        "reason": metadata.get("reason"),
-        "calibration_identity": metadata.get("key", metadata.get("calibration_identity")),
-        "calibration_revision": metadata.get("corpus", metadata.get("catalog_revision")),
-    }
 
 
 class PyKokoroEngineSession:
@@ -189,9 +371,11 @@ class PyKokoroEngineSession:
             "voice": result.voice,
             "phonemes": result.phonemes,
             "token_ids": tuple(result.token_ids),
-            "voice_level": _voice_level_metadata(
+            "voice_level": voice_level_metadata(
                 applications[0] if applications else None,
                 str(self._selection.options.get("voice_level", "off")),
+                identity_keys=("key", "calibration_identity"),
+                revision_keys=("corpus", "catalog_revision"),
             ),
         }
         if result.trace is not None:
@@ -208,7 +392,7 @@ class PyKokoroEngineSession:
             request,
             rendered,
             engine="kokoro",
-            engine_version=_pykokoro_version(),
+            engine_version=distribution_version("pykokoro"),
             target_id=self._selection.target_id,
         )
 
@@ -242,10 +426,7 @@ class PyKokoroEngineAdapter:
     package_name = "pykokoro"
 
     def version(self) -> str | None:
-        try:
-            return importlib.metadata.version(self.package_name)
-        except importlib.metadata.PackageNotFoundError:
-            return None
+        return distribution_version(self.package_name)
 
     def compatible_api(self) -> bool:
         try:
@@ -313,52 +494,11 @@ class PyKokoroEngineAdapter:
         )
 
     def discover(self, request: Any) -> tuple[SynthesisTarget, ...]:
-        from ..models import _discover_pykokoro_model_info
-
-        models, _result = _discover_pykokoro_model_info(
+        return _discover_targets(
             language=getattr(request, "language", None),
             offline=getattr(request, "offline", False),
             preference=getattr(request, "preference", "auto"),
             refresh=getattr(request, "refresh", False),
-        )
-        return tuple(
-            SynthesisTarget(
-                engine=self.id,
-                id=model.id,
-                display_name=model.id,
-                languages=model.languages,
-                status=model.status,
-                runtime_available=model.runtime_available,
-                voices=model.voices,
-                qualities=model.qualities,
-                aliases=getattr(model, "aliases", ()),
-                capabilities=frozenset({"named_voices", "pronunciation_overrides", "lexicons"}),
-                metadata={
-                    "source": model.source,
-                    "g2p_backend": model.g2p_backend,
-                    "frontend": model.frontend,
-                    "default_voice": model.default_voice,
-                    "lexicons": model.lexicons,
-                    "experimental": model.experimental,
-                    "redistribution_allowed": model.redistribution_allowed,
-                    "distribution_id": model.distribution_id,
-                    "provider": model.provider,
-                    "distribution_provider": model.distribution_provider,
-                    "sample_rate": model.sample_rate,
-                    "max_tokens": model.max_tokens,
-                    "voice_details": [
-                        {
-                            "id": item.id,
-                            "gender": item.gender,
-                            "language": item.language,
-                            "locale": item.locale,
-                            "language_label": item.language_label,
-                        }
-                        for item in model.voice_details
-                    ],
-                },
-            )
-            for model in models
         )
 
     def discover_lexicons(

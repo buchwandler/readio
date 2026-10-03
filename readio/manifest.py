@@ -16,6 +16,7 @@ from .jsonutil import json_value
 if TYPE_CHECKING:
     from .audio import RenderSummary
     from .plan import ReadioPlanV2
+    from .stages.composition import CompositionOutcome
 
 
 RENDER_MANIFEST_SCHEMA_V2 = "readio.render-manifest.v2"
@@ -65,7 +66,7 @@ def build_render_manifest_v2(
     plan_v2: Any,  # ReadioPlanV2
     summary: RenderSummary,
     output: Path,
-    composition: Any | None = None,
+    composition: CompositionOutcome | None = None,
     created_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Build v2 evidence for one completed bounded render."""
@@ -93,7 +94,7 @@ def build_render_manifest_v2(
         composition.sample_rate if composition is not None else summary.sample_rate
     )
     composition_sample_count = (
-        int(composition.audio.shape[0]) if composition is not None else summary.sample_count
+        composition.sample_count if composition is not None else summary.sample_count
     )
     composition_markers = composition.markers if composition is not None else summary.markers
     composition_spans = composition.spans if composition is not None else ()

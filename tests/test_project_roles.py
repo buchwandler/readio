@@ -52,6 +52,7 @@ def _roles(project, cfg=None):
 
 
 def test_pdf_provenance_does_not_hide_ssmd_roles(tmp_path) -> None:
+    pytest.importorskip("pypdf")
     source = tmp_path / "book.pdf"
     write_test_pdf(source, "PDF source text")
     project = init_project(source, tmp_path / "book.readio")

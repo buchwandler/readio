@@ -115,7 +115,7 @@ load a TTS engine.
 
 ## Input conversion and provenance
 
-Automatic source conversion has one boundary: the public `ssmdconvert` API. Normal auto-converted `InputDocument` values retain `DocumentProvenance` (source format, media type, source name, converter/version, and metadata). Explicit text, Markdown, and SSMD input is not labeled as a converter result.
+Source conversion has one boundary: the public `ssmdconvert` API. Auto filesystem documents are converted with SSMDConvert unless the file is already canonical SSMD. Explicit or in-memory Markdown is converted through SSMDConvert `convert_content` to canonical SSMD. Explicit literal text remains text and explicit SSMD remains SSMD. Converted `InputDocument` values retain `DocumentProvenance` (source format, media type, source name, converter/version, and metadata). PDF and DOCX ingestion requires the `readio[documents]` extra.
 
 ## Project role targets and resolution
 

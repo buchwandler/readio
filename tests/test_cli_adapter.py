@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from readio import cli_adapter
-from readio.api import SSMDAnalysis, SSMDVoiceReference, default_config
+from readio.api import Readio, SSMDAnalysis, SSMDVoiceReference, default_config
 
 
 def test_prompt_missing_voices_skips_existing_bindings(monkeypatch, capsys) -> None:
@@ -25,7 +25,7 @@ def test_prompt_missing_voices_skips_existing_bindings(monkeypatch, capsys) -> N
 
     bindings = cli_adapter.prompt_missing_voices(
         analysis,
-        default_config(),
+        Readio(default_config()),
         bindings={"host": "af_heart"},
     )
 

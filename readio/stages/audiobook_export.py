@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import soundfile as sf
-
+from ..audioio import probe_audio
 from ..formats import ffmpeg_executable
 from ..project import (
     Project,
@@ -289,13 +288,13 @@ def prepare_audiobook_export(
             code="audiobook.export.invalid_chapters",
         )
     try:
-        master_info = sf.info(master)
+        master_info = probe_audio(master)
     except (OSError, RuntimeError, ValueError) as error:
         raise AudiobookExportError(
             "audiobook composition master is unreadable; recompose the project",
             code="audiobook.export.composition_missing",
         ) from error
-    if master_info.samplerate != sample_rate or master_info.frames != frames:
+    if master_info.sample_rate != sample_rate or master_info.frames != frames:
         raise AudiobookExportError(
             "audiobook composition master does not match its state; recompose the project",
             code="audiobook.export.timeline_stale",

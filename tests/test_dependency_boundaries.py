@@ -24,21 +24,12 @@ DOMAIN_MODULES = frozenset(
 # consolidated, and review any new contact before changing the baseline.
 BASELINE_IMPORTERS = {
     "audiocompose": {
-        "readio/execution.py",
         "readio/stages/composition.py",
-        "readio/stages/pipeline.py",
     },
     "kittensynth": {"readio/engines/kittensynth.py"},
-    "onnxvoice": {
-        "readio/api/catalog.py",
-        "readio/engines/kittensynth.py",
-        "readio/engines/pipersynth.py",
-        "readio/engines/pocketsynth.py",
-        "readio/voices.py",
-    },
     "pipersynth": {"readio/engines/pipersynth.py"},
     "pocketsynth": {"readio/engines/pocketsynth.py"},
-    "pykokoro": {"readio/engines/pykokoro.py", "readio/models.py"},
+    "pykokoro": {"readio/engines/pykokoro.py"},
     "ssmd": {
         "readio/ssmd.py",
     },
@@ -51,9 +42,7 @@ BASELINE_IMPORTERS = {
     },
 }
 
-API_IMPORT_BASELINE = {
-    "onnxvoice": {"readio/api/catalog.py"},
-}
+API_IMPORT_BASELINE = {}
 
 
 def _collect_domain_imports() -> tuple[dict[str, set[str]], dict[str, int]]:
@@ -109,8 +98,8 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
     }
     print(f"Readio external domain import baseline: {metrics}")
     assert metrics == {
-        "domain_packages": 9,
-        "importing_files": 16,
-        "package_file_contacts": 19,
-        "imported_names": 94,
+        "domain_packages": 8,
+        "importing_files": 11,
+        "package_file_contacts": 11,
+        "imported_names": 70,
     }

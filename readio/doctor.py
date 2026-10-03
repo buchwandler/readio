@@ -40,11 +40,6 @@ def check_audiocompose() -> dict[str, Any]:
     return _check_distribution("audiocompose")
 
 
-def check_onnxvoice() -> dict[str, Any]:
-    """Check OnnxVoice package availability without initializing a runtime."""
-    return _check_distribution("onnxvoice")
-
-
 def run_doctor() -> str:
     """Return a formatted package and adapter health report."""
     lines = ["Readio Doctor", "=" * 40, "", "Engines:", "-" * 20]
@@ -69,7 +64,6 @@ def run_doctor() -> str:
         "SSMD": check_ssmd(),
         "SSMDConvert": check_ssmdconvert(),
         "AudioCompose": check_audiocompose(),
-        "OnnxVoice": check_onnxvoice(),
     }
     lines.extend(["Dependencies:", "-" * 20])
     for name, dependency in dependencies.items():
@@ -96,7 +90,6 @@ def run_doctor() -> str:
 __all__ = [
     "check_audiocompose",
     "check_engine_status",
-    "check_onnxvoice",
     "check_ssmd",
     "check_ssmdconvert",
     "check_utterplan",

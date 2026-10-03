@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
@@ -10,6 +11,41 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 if TYPE_CHECKING:
     from .catalog import CatalogRequest, SynthesisTarget
     from .selection import EngineRequest
+
+
+def distribution_version(distribution: str) -> str | None:
+    """Return the installed distribution version, or None when unavailable."""
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def voice_level_metadata(
+    value: Any,
+    mode: str,
+    *,
+    identity_keys: tuple[str, ...],
+    revision_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Map an engine voice-level calibration record to Readio metadata."""
+    metadata = dict(value) if isinstance(value, Mapping) else {}
+
+    def first_present(keys: tuple[str, ...]) -> Any:
+        for key in keys:
+            if key in metadata:
+                return metadata[key]
+        return None
+
+    return {
+        "mode": metadata.get("mode", mode),
+        "applied": bool(metadata.get("applied", False)),
+        "gain_db": metadata.get("gain_db"),
+        "source": metadata.get("source", "none"),
+        "reason": metadata.get("reason"),
+        "calibration_identity": first_present(identity_keys),
+        "calibration_revision": first_present(revision_keys),
+    }
 
 
 @dataclass(frozen=True, slots=True)

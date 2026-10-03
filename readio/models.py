@@ -1,10 +1,8 @@
-"""Readio's adapter for the public, metadata-only PyKokoro discovery API."""
+"""Readio model projection and validation over generic synthesis targets."""
 
 from __future__ import annotations
 
-import importlib.metadata
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,8 +10,6 @@ from .config import LanguageSettings, normalize_language_key
 from .engines.registry import normalize_engine_id
 
 logger = logging.getLogger(__name__)
-PYKOKORO_REQUIRED = ">=0.10.0,<0.11"
-_DISCOVERY_PREFERENCES = {"auto", "github", "huggingface", "upstream"}
 _RUNTIME_SOURCES = {"github", "huggingface"}
 
 
@@ -51,43 +47,6 @@ class VoiceMetadata:
     language_label: str
 
 
-def _voice_metadata(capabilities: Any) -> tuple[VoiceMetadata, ...]:
-    languages = tuple(getattr(capabilities, "languages", ()))
-    fallback = languages[0] if languages else "unknown"
-    fallback_entry = VoiceMetadata(
-        id="",
-        gender="unknown",
-        language=fallback,
-        locale=fallback,
-        language_label=fallback,
-    )
-    indexed: dict[str, VoiceMetadata] = {}
-    for detail in tuple(getattr(capabilities, "voice_details", ()) or ()):
-        name = getattr(detail, "name", None)
-        if name not in capabilities.voices or name in indexed:
-            raise ValueError(f"voice_details contains invalid or duplicate voice {name!r}")
-        indexed[name] = VoiceMetadata(
-            id=name,
-            gender=str(getattr(detail, "gender", "unknown")),
-            language=str(getattr(detail, "language", fallback)),
-            locale=str(getattr(detail, "locale", fallback)),
-            language_label=str(getattr(detail, "language_label", fallback)),
-        )
-    return tuple(
-        indexed.get(
-            voice,
-            VoiceMetadata(
-                id=voice,
-                gender=fallback_entry.gender,
-                language=fallback_entry.language,
-                locale=fallback_entry.locale,
-                language_label=fallback_entry.language_label,
-            ),
-        )
-        for voice in capabilities.voices
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class ModelInfo:
     id: str
@@ -112,53 +71,19 @@ class ModelInfo:
     voice_details: tuple[VoiceMetadata, ...] = ()
 
     @classmethod
-    def from_capabilities(cls, capabilities: Any) -> ModelInfo:
-        try:
-            return cls(
-                id=capabilities.model_id,
-                source=capabilities.source,
-                languages=tuple(capabilities.languages),
-                voices=tuple(capabilities.voices),
-                default_voice=capabilities.default_voice,
-                qualities=tuple(capabilities.qualities),
-                g2p_backend=capabilities.g2p_backend,
-                lexicons=None if capabilities.lexicons is None else tuple(capabilities.lexicons),
-                frontend=capabilities.frontend,
-                status=capabilities.status,
-                experimental=capabilities.experimental,
-                runtime_available=capabilities.runtime_available,
-                redistribution_allowed=capabilities.redistribution_allowed,
-                distribution_id=getattr(capabilities, "distribution_id", None),
-                provider=getattr(capabilities, "provider", None),
-                distribution_provider=getattr(
-                    capabilities, "distribution_provider", getattr(capabilities, "provider", None)
-                ),
-                engine=normalize_engine_id(getattr(capabilities, "engine", "kokoro")),
-                sample_rate=getattr(capabilities, "sample_rate", None),
-                max_tokens=getattr(capabilities, "max_tokens", None),
-                voice_details=_voice_metadata(capabilities),
-            )
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise ModelDiscoveryError(
-                f"PyKokoro returned invalid model capability metadata: {exc}",
-                code="pykokoro.registry_invalid",
-            ) from exc
-
-    @classmethod
     def from_target(cls, target: Any) -> ModelInfo:
         """Build the legacy model view from a neutral discovered target."""
         metadata = target.metadata
         voices = tuple(target.voices)
         details = tuple(
             VoiceMetadata(
-                id=str(item["id"]),
-                gender=str(item["gender"]),
-                language=str(item["language"]),
-                locale=str(item["locale"]),
-                language_label=str(item["language_label"]),
+                id=voice.id,
+                gender=voice.gender,
+                language=voice.language,
+                locale=voice.locale,
+                language_label=voice.language_label,
             )
-            for item in metadata.get("voice_details", ())
-            if isinstance(item, dict)
+            for voice in target.voice_details
         )
         lexicons = metadata.get("lexicons")
         return cls(
@@ -166,7 +91,7 @@ class ModelInfo:
             source=str(metadata.get("source") or target.engine),
             languages=tuple(target.languages),
             voices=voices,
-            default_voice=str(metadata.get("default_voice") or (voices[0] if voices else "")),
+            default_voice=str(target.default_voice or (voices[0] if voices else "")),
             qualities=tuple(target.qualities),
             g2p_backend=metadata.get("g2p_backend"),
             lexicons=tuple(lexicons) if lexicons is not None else None,
@@ -217,221 +142,6 @@ class ModelInfo:
             "sample_rate": self.sample_rate,
             "max_tokens": self.max_tokens,
         }
-
-
-def validate_discovery_preference(preference: str) -> str:
-    if preference not in _DISCOVERY_PREFERENCES:
-        choices = ", ".join(sorted(_DISCOVERY_PREFERENCES))
-        raise ModelDiscoveryError(
-            f"Unknown discovery preference {preference!r}; choose {choices}.",
-            code="pykokoro.invalid_options",
-        )
-    return preference
-
-
-def _version_supported(version: str) -> bool:
-    match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", version)
-    if match is None:
-        return False
-    major, minor = int(match.group(1)), int(match.group(2))
-    patch = int(match.group(3) or 0)
-    return (major, minor, patch) >= (0, 10, 0) and (major, minor) == (0, 10)
-
-
-def _package_metadata() -> str | None:
-    try:
-        return importlib.metadata.version("pykokoro")
-    except importlib.metadata.PackageNotFoundError:
-        return None
-
-
-def _pykokoro_module() -> tuple[Any, str, str | None]:
-    try:
-        import pykokoro
-    except Exception as exc:
-        raise ModelDiscoveryError(
-            f"Unable to import PyKokoro for model discovery: {exc}",
-            code="pykokoro.import_failed",
-            distribution_version=_package_metadata(),
-        ) from exc
-    module_version = str(getattr(pykokoro, "__version__", "unknown"))
-    return pykokoro, module_version, _package_metadata()
-
-
-def _pykokoro_discovery() -> Any:
-    pykokoro, version, distribution_version = _pykokoro_module()
-    module_path = getattr(pykokoro, "__file__", None)
-    if not _version_supported(version):
-        raise ModelDiscoveryError(
-            "Installed PyKokoro does not support Readio's model-discovery contract "
-            f"(module version: {version}; distribution version: {distribution_version or 'unknown'}; "
-            f"required: {PYKOKORO_REQUIRED}).",
-            code="pykokoro.version_unsupported",
-            installed_version=version,
-            distribution_version=distribution_version,
-            module_version=version,
-            module_path=str(module_path) if module_path else None,
-        )
-    try:
-        discovery = pykokoro.discover_models
-    except AttributeError as exc:
-        raise ModelDiscoveryError(
-            "Installed PyKokoro does not provide the model-discovery API required by "
-            f"Readio 0.2.0 (module version: {version}; distribution version: "
-            f"{distribution_version or 'unknown'}; module: {module_path or 'unknown'}; "
-            f"required: {PYKOKORO_REQUIRED} with discover_models).",
-            code="pykokoro.discovery_api_missing",
-            installed_version=version,
-            distribution_version=distribution_version,
-            module_version=version,
-            module_path=str(module_path) if module_path else None,
-        ) from exc
-    except (ImportError, ModuleNotFoundError) as exc:
-        missing = getattr(exc, "name", None)
-        detail = f" (missing dependency: {missing})" if missing else ""
-        raise ModelDiscoveryError(
-            f"PyKokoro's public discovery API could not be imported{detail}: {exc}",
-            code="pykokoro.discovery_api_import_failed",
-            installed_version=version,
-            distribution_version=distribution_version,
-            module_version=version,
-            module_path=str(module_path) if module_path else None,
-            missing_dependency=missing,
-        ) from exc
-    except Exception as exc:
-        raise ModelDiscoveryError(
-            f"PyKokoro's public discovery API could not be imported: {exc}",
-            code="pykokoro.discovery_api_import_failed",
-            installed_version=version,
-            distribution_version=distribution_version,
-            module_version=version,
-            module_path=str(module_path) if module_path else None,
-        ) from exc
-    if not callable(discovery):
-        raise ModelDiscoveryError(
-            f"Installed PyKokoro exposes a non-callable discover_models value "
-            f"(module version: {version}; module: {module_path or 'unknown'}).",
-            code="pykokoro.discovery_api_missing",
-            installed_version=version,
-            distribution_version=distribution_version,
-            module_version=version,
-            module_path=str(module_path) if module_path else None,
-        )
-    return discovery
-
-
-def pykokoro_diagnostics() -> dict[str, Any]:
-    """Return import/API diagnostics without contacting the model registry."""
-    result: dict[str, Any] = {
-        "required": PYKOKORO_REQUIRED,
-        "distribution_version": _package_metadata(),
-        "module_version": None,
-        "module_path": None,
-        "symbols": {},
-    }
-    try:
-        pykokoro, module_version, distribution_version = _pykokoro_module()
-    except ModelDiscoveryError as exc:
-        result.update(
-            error_code=exc.code,
-            error=str(exc),
-            distribution_version=exc.distribution_version or result["distribution_version"],
-            missing_dependency=exc.missing_dependency,
-        )
-        return result
-    result.update(
-        distribution_version=distribution_version,
-        module_version=module_version,
-        module_path=str(getattr(pykokoro, "__file__", "")) or None,
-    )
-    if not _version_supported(module_version):
-        result["error_code"] = "pykokoro.version_unsupported"
-    for name in ("discover_models", "ModelCapabilities", "ModelDiscoveryResult"):
-        try:
-            value = getattr(pykokoro, name)
-        except AttributeError:
-            result["symbols"][name] = "missing"
-        except (ImportError, ModuleNotFoundError) as exc:
-            result["symbols"][name] = {
-                "status": "import_failed",
-                "error": str(exc),
-                "missing_dependency": getattr(exc, "name", None),
-            }
-        except (
-            Exception  # noqa: BLE001
-        ) as exc:  # pragma: no cover - defensive lazy import boundary
-            result["symbols"][name] = {"status": "import_failed", "error": str(exc)}
-        else:
-            result["symbols"][name] = (
-                "ok" if callable(value) or name != "discover_models" else "missing"
-            )
-    if result["symbols"].get("discover_models") != "ok" and "error_code" not in result:
-        symbol = result["symbols"]["discover_models"]
-        result["error_code"] = (
-            "pykokoro.discovery_api_import_failed"
-            if isinstance(symbol, dict)
-            else "pykokoro.discovery_api_missing"
-        )
-    return result
-
-
-def _registry_error(exc: Exception) -> ModelDiscoveryError:
-    message = str(exc) or exc.__class__.__name__
-    name = exc.__class__.__name__.lower()
-    code = (
-        "pykokoro.registry_invalid"
-        if "invalid" in name or "schema" in message.lower()
-        else "pykokoro.registry_unavailable"
-    )
-    return ModelDiscoveryError(message, code=code)
-
-
-def _discover_pykokoro_model_info(
-    *,
-    language: str | None = None,
-    status: str | None = None,
-    offline: bool = False,
-    refresh: bool = False,
-    preference: str = "auto",
-) -> tuple[tuple[ModelInfo, ...], Any]:
-    logger.info(
-        "models.discovery.start language=%s status=%s offline=%s refresh=%s preference=%s",
-        language or "all",
-        status or "all",
-        offline,
-        refresh,
-        preference,
-    )
-    if offline and refresh:
-        raise ModelDiscoveryError(
-            "--offline and --refresh cannot be combined", code="pykokoro.invalid_options"
-        )
-    preference = validate_discovery_preference(preference)
-    try:
-        result = _pykokoro_discovery()(offline=offline, refresh=refresh, preference=preference)
-    except ModelDiscoveryError:
-        raise
-    except Exception as exc:
-        raise _registry_error(exc) from exc
-
-    try:
-        raw_models = result.models
-        models = tuple(ModelInfo.from_capabilities(item) for item in raw_models)
-    except ModelDiscoveryError:
-        raise
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise ModelDiscoveryError(
-            f"PyKokoro returned invalid model discovery data: {exc}",
-            code="pykokoro.registry_invalid",
-        ) from exc
-
-    requested = normalize_language_key(language) if language else None
-    if requested is not None:
-        models = tuple(item for item in models if language_matches(requested, item.languages))
-    if status is not None:
-        models = tuple(item for item in models if item.status == status)
-    logger.info("models.discovery.finish count=%d", len(models))
-    return models, result
 
 
 def language_matches(requested: str, declared: tuple[str, ...]) -> bool:
@@ -590,14 +300,11 @@ def validate_language_settings(
 
 
 __all__ = [
-    "PYKOKORO_REQUIRED",
     "ModelDiscoveryError",
     "ModelInfo",
     "VoiceMetadata",
     "discover_model_info",
     "get_model_info",
     "language_matches",
-    "pykokoro_diagnostics",
-    "validate_discovery_preference",
     "validate_language_settings",
 ]

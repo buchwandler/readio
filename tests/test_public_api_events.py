@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from readio.api import (
@@ -12,6 +10,7 @@ from readio.api import (
     compose_event_handlers,
 )
 from readio.api.projects import ProjectService
+from readio.stages.composition import CompositionProgress
 
 
 def test_public_event_vocabulary_is_typed() -> None:
@@ -59,33 +58,33 @@ def test_composition_callbacks_translate_to_public_progress() -> None:
     assert handler is not None
 
     handler(
-        SimpleNamespace(
+        CompositionProgress(
             kind="compose_started",
             details={"clip_items": 3, "metadata_kinds": {"speech": 2}},
         )
     )
     handler(
-        SimpleNamespace(
+        CompositionProgress(
             kind="item_started",
             item_kind="clip",
             item_id="internal-item-1",
-            item_metadata={"segment_id": "segment-1"},
+            details={"item_metadata": {"segment_id": "segment-1"}},
         )
     )
     handler(
-        SimpleNamespace(
+        CompositionProgress(
             kind="item_completed",
             item_kind="clip",
             item_id="internal-item-1",
-            item_metadata={"segment_id": "segment-1"},
+            details={"item_metadata": {"segment_id": "segment-1"}},
         )
     )
     handler(
-        SimpleNamespace(
+        CompositionProgress(
             kind="item_completed",
             item_kind="silence",
             item_id="internal-silence",
-            item_metadata={"kind": "silence"},
+            details={"item_metadata": {"kind": "silence"}},
         )
     )
 
@@ -112,11 +111,11 @@ def test_assembly_and_loudness_progress_exposes_finalization_timings() -> None:
     handler = service._composition_handler(events.append, "projects.compose")
     assert handler is not None
 
-    handler(SimpleNamespace(kind="assembly_started"))
-    handler(SimpleNamespace(kind="assembly_completed", details={}))
-    handler(SimpleNamespace(kind="loudness_started"))
+    handler(CompositionProgress(kind="assembly_started"))
+    handler(CompositionProgress(kind="assembly_completed"))
+    handler(CompositionProgress(kind="loudness_started"))
     handler(
-        SimpleNamespace(
+        CompositionProgress(
             kind="loudness_completed",
             details={
                 "analysis_seconds": 0.25,

@@ -67,7 +67,6 @@ def test_plan_v2_compiles_semantics_without_opening_a_synthesis_runtime(monkeypa
     assert resolved.plan.render.default_target.id == "fixture-model"
 
 
-
 def test_plan_v2_routes_explicit_markdown_through_ssmdconvert(monkeypatch):
     adapter = _PlanningOnlyAdapter()
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
@@ -86,8 +85,6 @@ def test_plan_v2_routes_explicit_markdown_through_ssmdconvert(monkeypatch):
 
     assert resolved.plan.ok
     assert resolved.document.format == "ssmd"
-    assert resolved.document.text == document_from_text(
-        document.text, input_format="markdown"
-    ).text
+    assert resolved.document.text == document_from_text(document.text, input_format="markdown").text
     assert resolved.semantic is not None
     assert resolved.semantic.plan.units

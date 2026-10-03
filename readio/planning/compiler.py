@@ -39,6 +39,7 @@ def _compute_sha256(data: bytes) -> str:
     """Compute SHA-256 hash of data."""
     return hashlib.sha256(data).hexdigest()
 
+
 class PlanSchemaMismatchError(ValueError):
     """A persisted Readio semantic plan is not the supported UtterPlan schema."""
 
@@ -70,7 +71,6 @@ def load_utterplan_v3(path: Path) -> UtterancePlan:
     if type(stored) is not int or stored != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
         raise PlanSchemaMismatchError(stored)
     return UtterancePlan.from_dict(data)
-
 
 
 def compile_semantic_plan(

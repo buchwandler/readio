@@ -42,7 +42,6 @@ def test_markdown_inputs_are_canonicalized_consistently(tmp_path: Path):
     assert document_from_stdin("# heading", input_format="markdown").format == "ssmd"
 
 
-
 def test_rich_markdown_paths_produce_identical_canonical_ssmd(tmp_path: Path):
     fixture = Path(__file__).parent / "fixtures" / "markdown" / "all-elements.md"
     content = fixture.read_text(encoding="utf-8")
@@ -51,11 +50,10 @@ def test_rich_markdown_paths_produce_identical_canonical_ssmd(tmp_path: Path):
 
     automatic = document_from_file(source)
     explicit = document_from_file(source, input_format="markdown")
-    in_memory = document_from_text(
-        content, input_format="markdown", source_name=source.name
-    )
+    in_memory = document_from_text(content, input_format="markdown", source_name=source.name)
 
     assert automatic.text == explicit.text == in_memory.text
+
 
 def test_explicit_file_formats_preserve_textual_interpretation(tmp_path: Path):
     source = tmp_path / "episode.md"

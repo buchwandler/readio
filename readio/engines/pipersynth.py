@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.metadata
-import inspect
 import math
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
-from onnxvoice import language_base, normalize_language_tag
-from onnxvoice.inventory import normalize_gender
-
+from ..catalog_metadata import language_base, normalize_gender, normalize_locale_tag
 from ..config import normalize_language_key
 from ..errors import (
     EmptySpeechTextError,
@@ -33,9 +29,11 @@ from .base import (
     RequestMeasure,
     SpeechRequest,
     SpeechToken,
+    distribution_version,
     validate_rendered_speech,
+    voice_level_metadata,
 )
-from .catalog import CatalogRequest, SynthesisTarget
+from .catalog import CatalogRequest, SynthesisTarget, TargetVoice
 
 PIPER_RENDER_OPTIONS = frozenset(
     {
@@ -69,7 +67,7 @@ class PiperTargetRequiredError(ValueError):
 def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> SynthesisTarget:
     speaker_map = dict(getattr(metadata, "speaker_id_map", {}) or {})
     language_code = getattr(metadata, "language_code", None)
-    locale = normalize_language_tag(language_code)
+    locale = normalize_locale_tag(language_code)
     language_family = getattr(metadata, "language_family", None)
     language = language_base(language_family) or language_base(locale)
     language_label = getattr(metadata, "language_label", None)
@@ -92,6 +90,16 @@ def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> Synthes
         runtime_available=True,
         sample_rate=getattr(metadata, "sample_rate", None),
         voices=(metadata.id,),
+        voice_details=(
+            TargetVoice(
+                id=metadata.id,
+                gender=normalize_gender(getattr(metadata, "gender", None)),
+                language=language,
+                locale=locale,
+                language_label=language_label,
+            ),
+        ),
+        default_voice=metadata.id,
         speakers=tuple(str(name) for name in speaker_map),
         qualities=((metadata.quality,) if getattr(metadata, "quality", None) else ()),
         aliases=tuple(getattr(metadata, "aliases", ()) or ()),
@@ -110,13 +118,6 @@ def _target_from_voice_metadata(metadata: Any, engine: str = "piper") -> Synthes
             "source_revision": getattr(metadata, "source_revision", None),
         },
     )
-
-
-def _piper_version() -> str | None:
-    try:
-        return importlib.metadata.version("pipersynth")
-    except importlib.metadata.PackageNotFoundError:
-        return None
 
 
 def _translate_piper_error(
@@ -159,7 +160,7 @@ def _translate_piper_error(
 
     context: dict[str, Any] = {
         "engine": "piper",
-        "engine_version": _piper_version(),
+        "engine_version": distribution_version("pipersynth"),
         "target_id": selection.target_id,
         "language": request.language if request is not None else selection.language,
         "voice": request.voice if request is not None else selection.voice,
@@ -204,23 +205,6 @@ def _piper_pronunciation(item: PronunciationSpan, module: Any) -> Any:
         phonemes=item.phonemes,
         language=item.language,
     )
-
-
-def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
-    metadata = dict(value) if isinstance(value, Mapping) else {}
-    return {
-        "mode": metadata.get("mode", mode),
-        "applied": bool(metadata.get("applied", False)),
-        "gain_db": metadata.get("gain_db"),
-        "source": metadata.get("source", "none"),
-        "reason": metadata.get("reason"),
-        "calibration_identity": metadata.get(
-            "calibration_key", metadata.get("calibration_identity")
-        ),
-        "calibration_revision": metadata.get(
-            "catalog_revision", metadata.get("calibration_revision")
-        ),
-    }
 
 
 def _piper_request_language(language: str, voice: Any) -> str:
@@ -274,8 +258,11 @@ class PiperSynthEngineSession:
             raise _translate_piper_error(exc, self._selection, request) from exc
 
         metadata = dict(result.metadata)
-        metadata["voice_level"] = _voice_level_metadata(
-            metadata.get("voice_level"), str(self._selection.options.get("voice_level", "off"))
+        metadata["voice_level"] = voice_level_metadata(
+            metadata.get("voice_level"),
+            str(self._selection.options.get("voice_level", "off")),
+            identity_keys=("calibration_key", "calibration_identity"),
+            revision_keys=("catalog_revision", "calibration_revision"),
         )
         rendered = RenderedSpeech(
             id=result.id,
@@ -289,7 +276,7 @@ class PiperSynthEngineSession:
             request,
             rendered,
             engine="piper",
-            engine_version=_piper_version(),
+            engine_version=distribution_version("pipersynth"),
             target_id=self._selection.target_id,
         )
 
@@ -301,10 +288,7 @@ class PiperSynthEngineAdapter:
     package_name = "pipersynth"
 
     def version(self) -> str | None:
-        try:
-            return importlib.metadata.version(self.package_name)
-        except importlib.metadata.PackageNotFoundError:
-            return None
+        return distribution_version(self.package_name)
 
     def compatible_api(self) -> bool:
         try:
@@ -312,6 +296,7 @@ class PiperSynthEngineAdapter:
 
             required = (
                 "PiperVoice",
+                "VoiceAssetManager",
                 "SynthesisRequest",
                 "SynthesisResult",
                 "SynthesisConfig",
@@ -322,11 +307,8 @@ class PiperSynthEngineAdapter:
             )
             if not all(hasattr(pipersynth, name) for name in required):
                 return False
-            parameters = inspect.signature(pipersynth.PiperVoice.synthesize).parameters
-            return (
-                "request" in parameters
-                and "config" in parameters
-                and parameters["config"].kind is inspect.Parameter.KEYWORD_ONLY
+            return callable(getattr(pipersynth.PiperVoice, "synthesize", None)) and callable(
+                getattr(pipersynth, "VoiceAssetManager", None)
             )
         except (
             ImportError,
@@ -359,10 +341,10 @@ class PiperSynthEngineAdapter:
 
     def discover(self, request: CatalogRequest) -> tuple[SynthesisTarget, ...]:
         try:
-            from pipersynth.asset_manager import VoiceAssetManager
+            import pipersynth
         except ImportError:
             return ()
-        manager = VoiceAssetManager(offline=request.offline)
+        manager = pipersynth.VoiceAssetManager(offline=request.offline)
         voices = manager.list_voices(language=request.language, refresh=request.refresh)
         return tuple(_target_from_voice_metadata(item, self.id) for item in voices)
 
@@ -412,7 +394,7 @@ class PiperSynthEngineAdapter:
         from ..plan import PlanDiagnostic
 
         try:
-            from pipersynth.asset_manager import VoiceAssetManager
+            import pipersynth
         except ImportError:
             return (
                 PlanDiagnostic(
@@ -422,7 +404,7 @@ class PiperSynthEngineAdapter:
                     field="synthesis.engine",
                 ),
             )
-        manager = VoiceAssetManager(offline=selection.offline)
+        manager = pipersynth.VoiceAssetManager(offline=selection.offline)
         try:
             metadata = manager.get_voice_metadata(selection.target_id, refresh=selection.refresh)
         except (KeyError, LookupError, OSError, ValueError) as exc:
@@ -463,9 +445,9 @@ class PiperSynthEngineAdapter:
 
     def target_metadata(self, selection: EngineSelection) -> Mapping[str, Any]:
         try:
-            from pipersynth.asset_manager import VoiceAssetManager
+            import pipersynth
 
-            metadata = VoiceAssetManager(offline=selection.offline).get_voice_metadata(
+            metadata = pipersynth.VoiceAssetManager(offline=selection.offline).get_voice_metadata(
                 selection.target_id,
                 refresh=selection.refresh,
             )

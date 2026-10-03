@@ -27,9 +27,7 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
     assert "ssmdconvert>=0.1.1,<0.2" in dependencies
     assert "markdown-it-py>=3.0,<5.0" not in dependencies
     assert "mdit-py-plugins>=0.4,<1.0" not in dependencies
-    assert _project_optional_dependencies()["documents"] == [
-        "ssmdconvert[pdf,docx]>=0.1.1,<0.2"
-    ]
+    assert _project_optional_dependencies()["documents"] == ["ssmdconvert[pdf,docx]>=0.1.1,<0.2"]
     assert not any(
         item.split("[", 1)[0].split(">", 1)[0].lower()
         in {"epub2text", "ebooklib", "pypdf", "python-docx"}
@@ -42,6 +40,10 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
     assert "audiocompose>=0.1.1,<0.2" not in dependencies
     assert "sounddevice>=0.4.6,<1.0" in dependencies
     assert not any(item.startswith("pykokoro") for item in dependencies)
+
+
+def test_numpy_is_a_direct_dependency() -> None:
+    assert "numpy>=1.23" in _project_dependencies()
 
 
 def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
@@ -62,7 +64,7 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
 
     assert "pykokoro[playback]" not in workflow
     assert "kitten" in workflow
-    assert '"onnxvoice==0.2.0"' in workflow
+    assert "onnxvoice" not in workflow
     assert "engine-compatibility" in workflow
     assert "released-engine-api" in workflow
     assert "READIO_TEST_ENGINE" in workflow
@@ -75,11 +77,49 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     assert "document_from_file" in workflow
 
 
+def test_base_ci_and_wheel_smoke_cover_dependency_ownership() -> None:
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    tests_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[0]
+
+    assert "python -m pip check" in tests_job
+    assert "readio-wheel-smoke-base" in workflow
+    assert "readio-wheel-smoke-documents" in workflow
+    assert "readio[documents] @ file://" in workflow
+
+
+OWNED_DEPENDENCIES = {
+    "numpy>=1.23",
+    "utterplan>=0.3.0,<0.4",
+    "audiocompose>=0.2.0,<0.3",
+    "ssmd>=0.9.2,<0.10",
+    "ssmdconvert>=0.1.1,<0.2",
+    "platformdirs>=4.0",
+    "soundfile>=0.12",
+    "sounddevice>=0.4.6,<1.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "typing_extensions>=4.0",
+    "tomli-w>=1.0",
+    "PyYAML>=6.0",
+    "rich-argparse>=1.7,<2",
+}
+
+
+def test_hard_dependencies_match_owned_surface() -> None:
+    assert set(_project_dependencies()) == OWNED_DEPENDENCIES
+
+
+def test_current_docs_have_no_stale_integration_references() -> None:
+    for relative in ("README.md", "docs/architecture.md", "docs/index.md"):
+        content = (ROOT / relative).read_text(encoding="utf-8").lower()
+        for stale in ("onnxvoice requires", "ttsready", "markdown-it", "mdit-py-plugins"):
+            assert stale not in content, f"{relative} still references {stale!r}"
+
+
 def test_engine_runtime_dependency_floors_are_declared() -> None:
     dependencies = _project_dependencies()
     optional = _project_optional_dependencies()
 
-    assert "onnxvoice>=0.2.0,<0.3" in dependencies
+    assert not any("onnxvoice" in item for item in dependencies)
     assert optional["kokoro"] == ["pykokoro>=0.10.2,<0.11"]
     assert "pykokoro>=0.10.2,<0.11" in optional["all"]
     assert not any("pykokoro[playback]" in item for item in optional["all"])

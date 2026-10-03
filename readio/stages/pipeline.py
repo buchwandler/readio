@@ -7,8 +7,6 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
-from audiocompose import CompositionProgressCallback
-
 from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
 from ..formats import AudioFormat
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
@@ -21,7 +19,12 @@ from ..project_settings import (
     synthesis_request_fingerprint,
 )
 from . import audiobook_export as audiobook_export_stage
-from .composition import build_audio_job, compose_artifacts, compose_project
+from .composition import (
+    CompositionProgressCallback,
+    build_audio_job,
+    compose_artifacts,
+    compose_project,
+)
 from .export import export_project, is_export_current, project_export_states
 from .planning import load_scope_plan, plan_project, semantic_status
 from .synthesis import synthesize_project

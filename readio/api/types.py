@@ -508,28 +508,30 @@ class LoudnessSummary:
         )
 
     @classmethod
-    def from_loudness_result(cls, profile: MasteringProfile, value: Any) -> LoudnessSummary:
-        before = value.before
-        after = value.after
+    def from_loudness_result(
+        cls, profile: MasteringProfile, value: Mapping[str, Any]
+    ) -> LoudnessSummary:
+        before = value["before"]
+        after = value["after"]
         return cls.from_mapping(
             {
                 "profile": profile,
-                "integrated_lufs_before": before.integrated_lufs,
-                "integrated_lufs_after": after.integrated_lufs,
-                "sample_peak_dbfs_before": before.sample_peak_dbfs,
-                "sample_peak_dbfs_after": after.sample_peak_dbfs,
-                "true_peak_dbtp_before": before.true_peak_dbtp,
-                "true_peak_dbtp_after": after.true_peak_dbtp,
-                "target_lufs": value.target_lufs,
-                "true_peak_ceiling_dbtp": value.true_peak_ceiling_dbtp,
-                "requested_gain_db": value.requested_gain_db,
-                "applied_gain_db": value.applied_gain_db,
-                "target_reached": value.target_reached,
-                "peak_policy": value.peak_policy,
-                "warning": value.warning,
-                "analysis_seconds": value.analysis_seconds,
-                "gain_seconds": value.gain_seconds,
-                "post_gain_metrics_seconds": value.post_gain_metrics_seconds,
+                "integrated_lufs_before": before["integrated_lufs"],
+                "integrated_lufs_after": after["integrated_lufs"],
+                "sample_peak_dbfs_before": before["sample_peak_dbfs"],
+                "sample_peak_dbfs_after": after["sample_peak_dbfs"],
+                "true_peak_dbtp_before": before["true_peak_dbtp"],
+                "true_peak_dbtp_after": after["true_peak_dbtp"],
+                "target_lufs": value["target_lufs"],
+                "true_peak_ceiling_dbtp": value["true_peak_ceiling_dbtp"],
+                "requested_gain_db": value["requested_gain_db"],
+                "applied_gain_db": value["applied_gain_db"],
+                "target_reached": value["target_reached"],
+                "peak_policy": value["peak_policy"],
+                "warning": value["warning"],
+                "analysis_seconds": value["analysis_seconds"],
+                "gain_seconds": value["gain_seconds"],
+                "post_gain_metrics_seconds": value["post_gain_metrics_seconds"],
             }
         )
 
@@ -651,6 +653,8 @@ class SynthesisTargetInfo:
     runtime_available: bool = True
     sample_rate: int | None = None
     voices: tuple[str, ...] = ()
+    voice_details: tuple[ModelVoiceInfo, ...] = ()
+    default_voice: str | None = None
     speakers: tuple[str, ...] = ()
     qualities: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()

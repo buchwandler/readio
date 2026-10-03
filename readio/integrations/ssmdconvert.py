@@ -223,9 +223,7 @@ def _book_input_error(error: Exception, source: Path) -> InputError:
             str(error), source_path=source, code="input.book_dependency_missing"
         )
     if isinstance(error, SSMDConvertUnsupportedBookSourceError):
-        return BookInputError(
-            str(error), source_path=source, code="input.book_format_unsupported"
-        )
+        return BookInputError(str(error), source_path=source, code="input.book_format_unsupported")
     if isinstance(error, SSMDConvertBookError):
         return BookInputError(str(error), source_path=source)
     return BookInputError(str(error), source_path=source)
@@ -309,7 +307,6 @@ def convert_document_source(source: Path) -> CanonicalDocument:
     )
 
 
-
 def convert_document_content(
     content: str,
     *,
@@ -360,6 +357,7 @@ def convert_document_content(
         metadata=_json_mapping(result.document.metadata),
         converter_version=ssmdconvert_version,
     )
+
 
 def inspect_book_source(source: Path) -> BookInspection:
     path = source.expanduser().resolve()

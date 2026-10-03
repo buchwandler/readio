@@ -8,11 +8,11 @@ import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-import soundfile as sf
 from audiocompose import (
     AudioAnchor,
     AudioBufferSource,
@@ -20,7 +20,6 @@ from audiocompose import (
     AudioFileSource,
     AudioJob,
     Composer,
-    CompositionProgressCallback,
     FadeIn,
     FadeOut,
     Gain,
@@ -31,7 +30,9 @@ from audiocompose import (
     Tempo,
 )
 
+from ..audioio import probe_audio, read_audio, write_pcm16_wav
 from ..errors import InputError
+from ..jsonutil import JsonValue
 from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..stages.speech_identity import (
@@ -52,6 +53,107 @@ def composition_id(payload: Mapping[str, Any]) -> str:
 def seconds_to_frames(seconds: float, sample_rate: int) -> int:
     """Use the one composition rounding rule for layout and silence audio."""
     return round(float(seconds) * sample_rate)
+
+
+@dataclass(frozen=True, slots=True)
+class CompositionOutcome:
+    """Readio-owned composition result detached from AudioCompose types."""
+
+    audio: np.ndarray
+    sample_rate: int
+    items: tuple[Mapping[str, JsonValue], ...] = ()
+    markers: tuple[Mapping[str, JsonValue], ...] = ()
+    spans: tuple[Mapping[str, JsonValue], ...] = ()
+    loudness: Mapping[str, JsonValue] | None = None
+
+    @property
+    def sample_count(self) -> int:
+        return int(self.audio.shape[0])
+
+
+@dataclass(frozen=True, slots=True)
+class CompositionProgress:
+    """Readio-owned progress event translated at the composition boundary."""
+
+    kind: str
+    item_kind: str | None = None
+    item_id: str | None = None
+    details: Mapping[str, JsonValue] = field(default_factory=dict)
+
+
+CompositionProgressCallback = Callable[[CompositionProgress], None]
+
+
+def _artifact_payload(value: Any) -> dict[str, Any]:
+    if hasattr(value, "to_dict"):
+        return dict(value.to_dict())
+    if is_dataclass(value):
+        return asdict(value)
+    if hasattr(value, "__dict__"):
+        return dict(value.__dict__)
+    return {"value": value}
+
+
+def _progress_adapter(
+    callback: CompositionProgressCallback | None,
+) -> Callable[[Any], None] | None:
+    if callback is None:
+        return None
+
+    def adapt(event: Any) -> None:
+        details = dict(getattr(event, "details", {}) or {})
+        item_metadata = dict(getattr(event, "item_metadata", {}) or {})
+        if item_metadata:
+            details["item_metadata"] = item_metadata
+        callback(
+            CompositionProgress(
+                kind=str(getattr(event, "kind", "")),
+                item_kind=getattr(event, "item_kind", None),
+                item_id=getattr(event, "item_id", None),
+                details=details,
+            )
+        )
+
+    return adapt
+
+
+def _outcome(result: Any) -> CompositionOutcome:
+    return CompositionOutcome(
+        audio=np.asarray(result.audio),
+        sample_rate=int(result.sample_rate),
+        items=tuple(_artifact_payload(item) for item in result.items),
+        markers=tuple(_artifact_payload(marker) for marker in result.markers),
+        spans=tuple(_artifact_payload(span) for span in result.spans),
+        loudness=_artifact_payload(result.loudness) if result.loudness is not None else None,
+    )
+
+
+def compose_job(
+    job: AudioJob,
+    *,
+    on_progress: CompositionProgressCallback | None = None,
+) -> CompositionOutcome:
+    """Execute one built layout and return Readio-owned composition data."""
+    result = Composer().compose(job, on_progress=_progress_adapter(on_progress))
+    return _outcome(result)
+
+
+def compose_segment(
+    job: AudioJob,
+    *,
+    on_progress: CompositionProgressCallback | None = None,
+) -> CompositionOutcome:
+    """Compose one prepared segment job for interactive playback."""
+    return compose_job(job, on_progress=on_progress)
+
+
+def compose_layout(
+    job: AudioJob,
+    *,
+    on_progress: CompositionProgressCallback | None = None,
+) -> CompositionOutcome:
+    """Compose a full-program layout job."""
+    return compose_job(job, on_progress=on_progress)
 
 
 _SSMD_RATE_FACTORS = {
@@ -462,16 +564,10 @@ def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tu
         raise ValueError("silence frame count must be positive")
     if project is not None:
         path = project.root / "composition" / "parts" / f"silence-{sample_rate}-{frames}.wav"
-        if not path.is_file() or sf.info(path).frames != frames:
+        if not path.is_file() or probe_audio(path).frames != frames:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_name(f".{path.name}.tmp")
-            sf.write(
-                temporary,
-                np.zeros(frames, dtype=np.float32),
-                sample_rate,
-                subtype="PCM_16",
-                format="WAV",
-            )
+            write_pcm16_wav(temporary, np.zeros(frames, dtype=np.float32), sample_rate)
             temporary.replace(path)
         digest = hash_file(path)
         return AudioFileSource(
@@ -662,7 +758,7 @@ class LayoutBuilder:
                 np.asarray(entry["audio"], dtype=np.float32), int(entry["sample_rate"])
             )
         else:
-            audio, source_rate = sf.read(source_path, always_2d=False, dtype="float32")
+            audio, source_rate = read_audio(source_path)
             source = AudioBufferSource(audio, source_rate)
         markers = tuple(entry.get("markers", ()))
         anchors = tuple(
@@ -871,31 +967,30 @@ def build_audio_job(
     )
 
 
-def _loudness_payload(result: Any, profile: str) -> dict[str, Any] | None:
-    loudness = result.loudness
+def _loudness_payload(loudness: Mapping[str, Any] | None, profile: str) -> dict[str, Any] | None:
     if loudness is None:
         return None
-    before = loudness.before
-    after = loudness.after
+    before = loudness["before"]
+    after = loudness["after"]
     return {
         "profile": profile,
-        "integrated_lufs_before": before.integrated_lufs,
-        "integrated_lufs_after": after.integrated_lufs,
-        "sample_peak_dbfs_before": before.sample_peak_dbfs,
-        "sample_peak_dbfs_after": after.sample_peak_dbfs,
-        "true_peak_dbtp_before": before.true_peak_dbtp,
-        "true_peak_dbtp_after": after.true_peak_dbtp,
-        "target_lufs": loudness.target_lufs,
-        "true_peak_ceiling_dbtp": loudness.true_peak_ceiling_dbtp,
-        "requested_gain_db": loudness.requested_gain_db,
-        "applied_gain_db": loudness.applied_gain_db,
-        "gain_db": loudness.applied_gain_db,
-        "target_reached": loudness.target_reached,
-        "peak_policy": loudness.peak_policy,
-        "warning": loudness.warning,
-        "analysis_seconds": loudness.analysis_seconds,
-        "gain_seconds": loudness.gain_seconds,
-        "post_gain_metrics_seconds": loudness.post_gain_metrics_seconds,
+        "integrated_lufs_before": before["integrated_lufs"],
+        "integrated_lufs_after": after["integrated_lufs"],
+        "sample_peak_dbfs_before": before["sample_peak_dbfs"],
+        "sample_peak_dbfs_after": after["sample_peak_dbfs"],
+        "true_peak_dbtp_before": before["true_peak_dbtp"],
+        "true_peak_dbtp_after": after["true_peak_dbtp"],
+        "target_lufs": loudness["target_lufs"],
+        "true_peak_ceiling_dbtp": loudness["true_peak_ceiling_dbtp"],
+        "requested_gain_db": loudness["requested_gain_db"],
+        "applied_gain_db": loudness["applied_gain_db"],
+        "gain_db": loudness["applied_gain_db"],
+        "target_reached": loudness["target_reached"],
+        "peak_policy": loudness["peak_policy"],
+        "warning": loudness["warning"],
+        "analysis_seconds": loudness["analysis_seconds"],
+        "gain_seconds": loudness["gain_seconds"],
+        "post_gain_metrics_seconds": loudness["post_gain_metrics_seconds"],
     }
 
 
@@ -919,7 +1014,7 @@ def _write_composition_result(
     if on_phase is not None:
         on_phase("Writing master WAV")
     phase_started = time.perf_counter()
-    sf.write(temporary, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
+    write_pcm16_wav(temporary, result.audio, result.sample_rate)
     temporary.replace(master)
     if on_phase is not None:
         on_phase(f"Master WAV written in {time.perf_counter() - phase_started:.3f}s")
@@ -927,7 +1022,9 @@ def _write_composition_result(
         on_phase("Building and writing composition timeline")
     phase_started = time.perf_counter()
     chapter_metadata = identity.get("identity_payload", {}).get("chapters", [])
-    item_ranges = {item.item_id: (item.start_sample, item.end_sample) for item in result.items}
+    item_ranges = {
+        item["item_id"]: (item["start_sample"], item["end_sample"]) for item in result.items
+    }
     layout_items = identity.get("layout", [])
     timeline_chapters = []
     previous_end = 0
@@ -957,20 +1054,20 @@ def _write_composition_result(
         **({"chapters": timeline_chapters} if timeline_chapters else {}),
         "items": [
             {
-                "id": item.item_id,
-                "kind": item.kind,
-                "start_sample": item.start_sample,
-                "end_sample": item.end_sample,
-                "source_sample_rate": item.source_sample_rate,
+                "id": item["item_id"],
+                "kind": item["kind"],
+                "start_sample": item["start_sample"],
+                "end_sample": item["end_sample"],
+                "source_sample_rate": item["source_sample_rate"],
             }
             for item in result.items
         ],
         "markers": [
             {
-                "id": marker.id,
-                "sample_offset": marker.sample_offset,
-                "name": marker.name,
-                "item_id": marker.item_id,
+                "id": marker["id"],
+                "sample_offset": marker["sample_offset"],
+                "name": marker["name"],
+                "item_id": marker["item_id"],
             }
             for marker in result.markers
         ],
@@ -990,7 +1087,7 @@ def _write_composition_result(
         on_phase(f"Composition artifacts hashed in {time.perf_counter() - phase_started:.3f}s")
     policy = identity.get("identity_payload", {}).get("loudness", {})
     profile = policy.get("profile", DEFAULT_MASTERING_PROFILE)
-    loudness_summary = _loudness_payload(result, str(profile))
+    loudness_summary = _loudness_payload(result.loudness, str(profile))
     if on_phase is not None:
         on_phase("Writing composition state")
     phase_started = time.perf_counter()
@@ -1053,7 +1150,7 @@ def compose_project(
         )
         if on_phase is not None:
             on_phase(f"Composition layout prepared in {time.perf_counter() - phase_started:.3f}s")
-        result = Composer().compose(job, on_progress=on_progress)
+        result = compose_job(job, on_progress=on_progress)
         if on_phase is not None:
             on_phase("Writing composition artifacts")
         return _write_composition_result(project, job, identity, result, on_phase=on_phase)
@@ -1198,12 +1295,12 @@ def compose_artifacts(
             scope_metadata=scope_metadata,
             output_sample_rate=output_sample_rate,
         )
-    result = Composer().compose(job, on_progress=on_progress)
+    result = compose_job(job, on_progress=on_progress)
     if output is not None:
         if on_phase is not None:
             on_phase("Writing preview artifacts")
         output.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(output, result.audio, result.sample_rate, subtype="PCM_16", format="WAV")
+        write_pcm16_wav(output, result.audio, result.sample_rate)
     return {
         "sample_rate": result.sample_rate,
         "frames": len(result.audio),
@@ -1211,7 +1308,7 @@ def compose_artifacts(
         "output": output,
         "composition_id": identity["composition_id"],
         "warnings": list(identity.get("warnings", [])),
-        "loudness": _loudness_payload(result, mastering_policy.profile),
+        "loudness": _loudness_payload(result.loudness, mastering_policy.profile),
     }
 
 

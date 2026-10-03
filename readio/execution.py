@@ -5,12 +5,11 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass, is_dataclass, replace
+from dataclasses import dataclass, replace
 from json import dumps
 from typing import Any, cast
 
 import numpy as np
-from audiocompose import AudioJob, Composer, CompositionResult
 
 from .audio import AudioSink, RenderProgress, RenderProgressCallback, RenderSummary
 from .document import InputDocument
@@ -19,6 +18,11 @@ from .engines.registry import get_engine
 from .errors import RenderError
 from .plan import ReadioPlanV2
 from .planning.compiler import CompiledSemanticPlan, UtterancePlan
+from .stages.composition import (
+    CompositionOutcome,
+    compose_layout,
+    compose_segment,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,8 +52,8 @@ class MasterRenderResult:
     """Full-master result retaining composition artifacts for file rendering."""
 
     summary: RenderSummary
-    audio_job: AudioJob
-    composition: CompositionResult
+    layout: Mapping[str, Any]
+    composition: CompositionOutcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,16 +61,6 @@ class PlaybackExecutionResult:
     """Execution-neutral result for incremental interactive playback."""
 
     summary: RenderSummary
-
-
-def _artifact_dict(value: Any) -> dict[str, Any]:
-    if hasattr(value, "to_dict"):
-        return dict(value.to_dict())
-    if is_dataclass(value):
-        return asdict(value)
-    if hasattr(value, "__dict__"):
-        return dict(value.__dict__)
-    return {"value": value}
 
 
 def _selection_for_target(base: EngineSelection, target: Any) -> EngineSelection:
@@ -214,7 +208,7 @@ def execute_render_v2(
     rendered_segments = cast(
         list[tuple[Any, Mapping[str, Any]]], list(iter_synthesized_segments(resolved))
     )
-    audio_job, _composition_identity = _build_layout(
+    audio_job, layout_identity = _build_layout(
         None,
         rendered_segments,
         mastering=plan.composition.mastering,
@@ -226,37 +220,36 @@ def execute_render_v2(
     )
     if on_phase is not None and plan.output.format:
         on_phase(f"Composing {plan.output.format.upper()}")
-    composition = Composer().compose(audio_job)
-    audio = np.asarray(composition.audio)
+    outcome = compose_layout(audio_job)
+    audio = np.asarray(outcome.audio)
     if audio.size == 0:
         raise RenderError("render produced no audio")
 
     total_units = len(resolved.semantic.plan.segments)
     if on_progress is not None:
-        on_progress(RenderProgress(0, total_units, 0, composition.sample_rate))
-    sink.write(audio, composition.sample_rate)
+        on_progress(RenderProgress(0, total_units, 0, outcome.sample_rate))
+    sink.write(audio, outcome.sample_rate)
     if on_progress is not None:
         on_progress(
             RenderProgress(
                 total_units,
                 total_units,
                 int(audio.shape[0]),
-                composition.sample_rate,
+                outcome.sample_rate,
             )
         )
 
-    markers = tuple(_artifact_dict(marker) for marker in composition.markers)
     summary = RenderSummary(
-        sample_rate=composition.sample_rate,
+        sample_rate=outcome.sample_rate,
         sample_count=int(audio.shape[0]),
         channels=1 if audio.ndim == 1 else int(audio.shape[1]),
         document_metadata={},
-        markers=markers,
+        markers=tuple(dict(marker) for marker in outcome.markers),
     )
     return MasterRenderResult(
         summary=summary,
-        audio_job=audio_job,
-        composition=composition,
+        layout=layout_identity,
+        composition=outcome,
     )
 
 
@@ -283,9 +276,9 @@ def execute_playback_v2(
         on_progress(RenderProgress(0, total_units, 0, sample_rate))
 
     for segment, entry in iter_synthesized_segments(resolved, release_after_yield=True):
-        job: AudioJob | None = None
+        job: Any | None = None
         clips: tuple[Any, ...] | None = None
-        composition: CompositionResult | None = None
+        outcome: CompositionOutcome | None = None
         audio: np.ndarray | None = None
         try:
             if sample_rate == 0:
@@ -302,15 +295,15 @@ def execute_playback_v2(
                 )
             clips = layout_builder.append(segment, entry)
             job, _identity = layout_builder.build_job(clips)
-            composition = Composer().compose(job)
-            audio = np.asarray(composition.audio, dtype=np.float32)
+            outcome = compose_segment(job)
+            audio = np.asarray(outcome.audio, dtype=np.float32)
             if audio.size == 0:
                 raise RenderError("playback produced an empty segment")
-            if int(composition.sample_rate) != sample_rate:
+            if int(outcome.sample_rate) != sample_rate:
                 raise RenderError("playback composition changed the output sample rate")
             sink.write(audio, sample_rate)
-            for marker in composition.markers:
-                payload = _artifact_dict(marker)
+            for marker in outcome.markers:
+                payload = dict(marker)
                 if "sample_offset" in payload:
                     payload["sample_offset"] = int(payload["sample_offset"]) + sample_count
                 markers.append(payload)
@@ -322,7 +315,7 @@ def execute_playback_v2(
         finally:
             entry["audio"] = None
             audio = None
-            composition = None
+            outcome = None
             job = None
             clips = None
 

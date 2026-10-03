@@ -31,7 +31,6 @@ _DEPENDENCIES = (
     "audiocompose",
     "ssmd",
     "ssmdconvert",
-    "onnxvoice",
     "sounddevice",
     "soundfile",
 )

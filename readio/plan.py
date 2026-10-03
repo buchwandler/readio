@@ -1788,7 +1788,6 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     diagnostics.extend(output_diags)
     decisions.extend(output_decisions)
 
-
     policy = PlanningPolicy(
         language=candidate.language,
         unit=candidate.unit,
@@ -1868,7 +1867,6 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         "utterplan": _package_version("utterplan"),
         "ssmd": _package_version("ssmd"),
         "audiocompose": _package_version("audiocompose"),
-        "onnxvoice": _package_version("onnxvoice"),
     }
     if adapter is not None:
         engine_version = adapter.version()

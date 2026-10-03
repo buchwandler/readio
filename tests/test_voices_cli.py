@@ -400,8 +400,8 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
             ref="piper:en_US-amy-medium",
             id="en_US-amy-medium",
             gender="female",
-            language="en-US",
-            locale="en_US",
+            language="en",
+            locale="en-us",
             language_label="American English",
             model="en_US-amy-medium",
             source="pipersynth",
@@ -415,9 +415,9 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
             ref="piper:en_US-lee-medium",
             id="en_US-lee-medium",
             gender="unknown",
-            language="en-US",
-            locale="en_US",
-            language_label="US",
+            language="en",
+            locale="en-us",
+            language_label="en-us",
             model="en_US-lee-medium",
             source="pipersynth",
             default=False,
@@ -445,10 +445,10 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
         "piper:en_US-lee-medium",
     ]
     assert all("selector" not in voice for voice in voices)
-    assert [voice["locale"] for voice in voices] == ["en-US", "en-US"]
+    assert [voice["locale"] for voice in voices] == ["en-us", "en-us"]
     assert [voice["language"] for voice in voices] == ["en", "en"]
     assert [voice["gender"] for voice in voices] == ["female", "unknown"]
-    assert voices[1]["language_label"] == "en-US"
+    assert voices[1]["language_label"] == "en-us"
 
     table_args = cli.build_parser().parse_args(
         ["voices", "list", "--engine", "piper", "--lang", "en-us"]
@@ -457,7 +457,7 @@ def test_voice_cli_json_and_table_share_normalized_piper_metadata(monkeypatch, t
     table = capsys.readouterr().out
     assert "piper:en_US-amy-medium" in table and "female" in table
     assert "piper:en_US-lee-medium" in table and "unknown" in table
-    assert "en-US" in table and "American English" in table
+    assert "en-us" in table and "American English" in table
 
 
 def test_pocket_voice_cli_includes_generic_bundle_for_specific_language(

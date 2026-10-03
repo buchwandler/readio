@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -94,6 +95,21 @@ def test_bounded_execution_lowers_segments_to_engine_requests(monkeypatch) -> No
         composition=CompositionOptions(sample_rate=16000, clip_policy="warn"),
     )
 
+    captured = {}
+
+    class _RecordingComposer:
+        def compose(self, job, on_progress=None):
+            captured["job"] = job
+            return SimpleNamespace(
+                audio=np.zeros(16, dtype=np.float32),
+                sample_rate=job.output.sample_rate,
+                items=(),
+                markers=(),
+                spans=(),
+                loudness=None,
+            )
+
+    monkeypatch.setattr("readio.stages.composition.Composer", _RecordingComposer)
     resolved = resolve_execution_v2(config, request)
     sink = _Sink()
     result = execute_render_v2(resolved, sink)
@@ -102,15 +118,16 @@ def test_bounded_execution_lowers_segments_to_engine_requests(monkeypatch) -> No
     assert resolved.plan.to_dict()["composition"]["sample_rate"] == 16000
     assert adapter.session.requests
     assert adapter.session.requests[0].text
-    assert result.audio_job.items[0].metadata["segment_id"] == adapter.session.requests[0].id
+    job = captured["job"]
+    assert job.items[0].metadata["segment_id"] == adapter.session.requests[0].id
     assert sink.writes[0][1] == 16000
     assert result.summary.sample_rate == 16000
-    assert result.audio_job.output.sample_rate == 16000
-    assert result.audio_job.output.clip_policy == "warn"
-    assert result.audio_job.output.loudness.target_lufs == -16.0
-    assert result.audio_job.output.loudness.true_peak_ceiling_dbtp == -1.0
+    assert job.output.sample_rate == 16000
+    assert job.output.clip_policy == "warn"
+    assert job.output.loudness.target_lufs == -16.0
+    assert job.output.loudness.true_peak_ceiling_dbtp == -1.0
     assert adapter.open_selections[0].options["speed"] == 1.5
-    assert not any(isinstance(item, Tempo) for item in result.audio_job.items[0].operations)
+    assert not any(isinstance(item, Tempo) for item in job.items[0].operations)
     assert isinstance(result.summary, RenderSummary)
 
 

@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
-
-from onnxvoice import language_base, language_tags_match, normalize_language_tag
-from onnxvoice.inventory import normalize_gender
+from typing import TYPE_CHECKING, cast
 
 from .. import formats as formats_internal
 from .. import lexicons as lexicons_internal
 from .. import models as models_internal
 from .. import voices as voices_internal
+from ..catalog_metadata import language_tags_match, normalize_locale_tag
 from ..engines.discovery import discover_targets
 from ..engines.registry import engine_status, get_engine, normalize_engine_id
 from ..errors import ReadioError
 from ..jsonutil import JsonValue, json_value
 from ..lexicons import discover_lexicon_catalog
-from ..models import discover_model_info, get_model_info
 from ..voice_refs import (
     engine_for_public_system,
     is_voice_ref,
@@ -65,34 +62,6 @@ def _public_voice_engine(engine: str) -> str:
         return public_system_for_engine(engine)
     except ValueError:
         return engine
-
-
-def _normalized_voice_metadata(
-    language: Any,
-    locale: Any,
-    language_label: Any,
-    gender: Any,
-) -> tuple[str, str, str, str]:
-    locale = normalize_language_tag(locale or language)
-    language = language_base(language) or language_base(locale)
-    if (
-        not isinstance(language_label, str)
-        or not language_label.strip()
-        or (
-            len(language_label.strip()) == 2
-            and language_label.strip().isalpha()
-            and language_label.strip().isupper()
-        )
-    ):
-        language_label = locale or language or "unknown"
-    else:
-        language_label = language_label.strip()
-    return (
-        normalize_gender(gender),
-        language or "unknown",
-        locale or "unknown",
-        language_label,
-    )
 
 
 class CatalogService:
@@ -177,37 +146,22 @@ class CatalogService:
     ) -> CatalogListing[ModelInfo]:
         try:
             engine = self.normalize_engine(query.engine) if query.engine else None
-            if engine not in {None, "kokoro"}:
-                targets = self.targets(
-                    TargetQuery(engine=engine, language=query.language, status=query.status),
-                    discovery=discovery,
-                )
-                return CatalogListing(
-                    tuple(self._target_model(target) for target in targets),
-                    self._discovery_metadata(None, discovery),
-                )
-
-            discovered, raw_discovery = discover_model_info(
+            result = discover_targets(
+                engine=engine,
                 language=query.language,
-                status=query.status,
                 offline=discovery.offline,
                 refresh=discovery.refresh,
                 preference=discovery.preference,
-                engine=engine,
             )
-            models = tuple(self._model_info(model) for model in discovered)
-            if query.engine is not None:
-                return CatalogListing(models, self._discovery_metadata(raw_discovery, discovery))
-
-            other_targets = self.targets(
-                TargetQuery(language=query.language, status=query.status),
-                discovery=discovery,
-            )
-            extras = tuple(
-                self._target_model(target) for target in other_targets if target.engine != "kokoro"
+            targets = tuple(self._target_info(target) for target in result.targets)
+            targets = tuple(
+                target
+                for target in targets
+                if query.status is None or target.status == query.status
             )
             return CatalogListing(
-                (*models, *extras), self._discovery_metadata(raw_discovery, discovery)
+                tuple(self._target_model(target) for target in targets),
+                self._discovery_metadata(result, discovery),
             )
         except ReadioError:
             raise
@@ -218,41 +172,42 @@ class CatalogService:
         self,
         model_id: str,
         *,
+        engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> ModelInfo:
-        return self.model_listing(model_id, discovery=discovery).items[0]
+        return self.model_listing(model_id, engine=engine, discovery=discovery).items[0]
 
     def model_listing(
         self,
         model_id: str,
         *,
+        engine: str | None = None,
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[ModelInfo]:
         try:
-            try:
-                info, raw_discovery = get_model_info(
-                    model_id,
-                    offline=discovery.offline,
-                    refresh=discovery.refresh,
-                    preference=discovery.preference,
+            result = discover_targets(
+                engine=self.normalize_engine(engine) if engine else None,
+                offline=discovery.offline,
+                refresh=discovery.refresh,
+                preference=discovery.preference,
+            )
+            matches = tuple(target for target in result.targets if target.id == model_id)
+            if not matches:
+                raise api_errors.DiscoveryError(
+                    f"Unknown model {model_id!r}. "
+                    "Run `readio models list` to inspect available models.",
+                    code="catalog.model_not_found",
                 )
-            except models_internal.ModelDiscoveryError as error:
-                if error.code != "readio.model_not_found":
-                    raise self._discovery_error(error, "catalog.model_not_found") from error
-                targets = self.targets(discovery=discovery)
-                matches = tuple(target for target in targets if target.id == model_id)
-                if len(matches) != 1:
-                    raise api_errors.DiscoveryError(
-                        f"Model {model_id!r} matched {len(matches)} engine targets.",
-                        code="catalog.model_not_found",
-                    ) from error
-                return CatalogListing(
-                    (self._target_model(matches[0]),),
-                    self._discovery_metadata(None, discovery),
+            if len(matches) > 1:
+                alternatives = ", ".join(f"{target.engine}:{target.id}" for target in matches)
+                raise api_errors.DiscoveryError(
+                    f"Model {model_id!r} matches multiple engine targets ({alternatives}). "
+                    "Use an engine-qualified lookup.",
+                    code="catalog.model_ambiguous",
                 )
             return CatalogListing(
-                (self._model_info(info),),
-                self._discovery_metadata(raw_discovery, discovery),
+                (self._target_model(self._target_info(matches[0])),),
+                self._discovery_metadata(result, discovery),
             )
         except ReadioError:
             raise
@@ -288,7 +243,7 @@ class CatalogService:
         except Exception as error:
             raise self._discovery_error(error, "catalog.voices_failed") from error
 
-        normalized_query = normalize_language_tag(query.language) if query.language else None
+        normalized_query = normalize_locale_tag(query.language) if query.language else None
         filtered = tuple(
             item
             for item in entries
@@ -487,84 +442,41 @@ class CatalogService:
             )
         return tuple(result)
 
-    def _model_info(self, model: models_internal.ModelInfo) -> ModelInfo:
-        return ModelInfo(
-            id=model.id,
-            source=model.source,
-            languages=model.languages,
-            voices=model.voices,
-            default_voice=model.default_voice,
-            qualities=model.qualities,
-            g2p_backend=model.g2p_backend,
-            lexicons=model.lexicons,
-            frontend=model.frontend,
-            status=model.status,
-            experimental=model.experimental,
-            runtime_available=model.runtime_available,
-            redistribution_allowed=model.redistribution_allowed,
-            distribution_id=model.distribution_id,
-            provider=model.provider,
-            distribution_provider=model.distribution_provider,
-            engine=model.engine,
-            sample_rate=model.sample_rate,
-            max_tokens=model.max_tokens,
-            voice_details=tuple(
-                ModelVoiceInfo(
-                    id=detail.id,
-                    gender=detail.gender,
-                    language=detail.language,
-                    locale=detail.locale,
-                    language_label=detail.language_label,
-                )
-                for detail in model.voice_details
-            ),
-        )
-
     def _target_model(self, target: SynthesisTargetInfo) -> ModelInfo:
-        default_voice = str(
-            target.metadata.get("default_voice") or (target.voices[0] if target.voices else "")
-        )
+        metadata = target.metadata
+        voices = tuple(target.voices)
+        provider = str(metadata["provider"]) if metadata.get("provider") else None
         return ModelInfo(
             id=target.id,
-            source=str(target.metadata.get("source") or target.engine),
-            languages=target.languages,
-            voices=target.voices,
-            default_voice=default_voice,
-            qualities=target.qualities,
-            g2p_backend=(
-                str(target.metadata["g2p_backend"]) if target.metadata.get("g2p_backend") else None
+            source=str(metadata.get("source") or target.engine),
+            languages=tuple(target.languages),
+            voices=voices,
+            default_voice=str(target.default_voice or (voices[0] if voices else "")),
+            qualities=tuple(target.qualities),
+            g2p_backend=str(metadata["g2p_backend"]) if metadata.get("g2p_backend") else None,
+            lexicons=(
+                tuple(str(item) for item in metadata["lexicons"])
+                if isinstance(metadata.get("lexicons"), (tuple, list))
+                else None
             ),
-            lexicons=tuple(str(item) for item in target.metadata["lexicons"])
-            if isinstance(target.metadata.get("lexicons"), (tuple, list))
-            else None,
-            frontend=str(target.metadata.get("frontend") or ""),
+            frontend=str(metadata.get("frontend") or ""),
             status=target.status,
-            experimental=target.status == "experimental",
+            experimental=bool(metadata.get("experimental", target.status == "experimental")),
             runtime_available=target.runtime_available,
-            redistribution_allowed=bool(target.metadata.get("redistribution_allowed", False)),
-            distribution_id=str(target.metadata.get("distribution_id") or target.id),
-            provider=str(target.metadata["provider"]) if target.metadata.get("provider") else None,
+            redistribution_allowed=bool(metadata.get("redistribution_allowed", False)),
+            distribution_id=(
+                str(metadata["distribution_id"]) if metadata.get("distribution_id") else None
+            ),
+            provider=provider,
+            distribution_provider=(
+                str(metadata["distribution_provider"])
+                if metadata.get("distribution_provider")
+                else provider
+            ),
             engine=target.engine,
             sample_rate=target.sample_rate,
-            voice_details=tuple(
-                ModelVoiceInfo(
-                    id=str(item.get("id", "")),
-                    gender=str(item.get("gender", "unknown")),
-                    language=str(
-                        item.get("language", target.languages[0] if target.languages else "unknown")
-                    ),
-                    locale=str(
-                        item.get("locale", target.languages[0] if target.languages else "unknown")
-                    ),
-                    language_label=str(
-                        item.get(
-                            "language_label", target.languages[0] if target.languages else "unknown"
-                        )
-                    ),
-                )
-                for item in target.metadata.get("voice_details", ())
-                if isinstance(item, dict)
-            ),
+            max_tokens=int(metadata["max_tokens"]) if metadata.get("max_tokens") else None,
+            voice_details=target.voice_details,
         )
 
     def _target_info(self, target) -> SynthesisTargetInfo:
@@ -581,21 +493,29 @@ class CatalogService:
             qualities=tuple(target.qualities),
             aliases=tuple(target.aliases),
             capabilities=frozenset(target.capabilities),
+            voice_details=tuple(
+                ModelVoiceInfo(
+                    id=voice.id,
+                    gender=voice.gender,
+                    language=voice.language,
+                    locale=voice.locale,
+                    language_label=voice.language_label,
+                )
+                for voice in target.voice_details
+            ),
+            default_voice=target.default_voice,
             metadata=cast(dict[str, JsonValue], json_value(target.metadata)),
         )
 
     def _voice_info(self, entry: voices_internal.VoiceCatalogEntry) -> VoiceInfo:
-        gender, language, locale, language_label = _normalized_voice_metadata(
-            entry.language, entry.locale, entry.language_label, entry.gender
-        )
         public_engine = _public_voice_engine(entry.engine)
         return VoiceInfo(
             ref=entry.ref,
             id=entry.id,
-            gender=gender,
-            language=language,
-            locale=locale,
-            language_label=language_label,
+            gender=entry.gender,
+            language=entry.language,
+            locale=entry.locale,
+            language_label=entry.language_label,
             model=entry.model,
             source=entry.source,
             default=entry.default,

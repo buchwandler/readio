@@ -105,7 +105,7 @@ Project manifests also use schema 3. Before opening a v0.3 project, run `readio 
 
 Readio uses one registry for `kokoro`, `piper`, `pocket`, and `kitten`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to check whether an engine package and its required public API are available.
 
-Supported engine package floors are PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.1,<0.3, and KittenSynth >=0.1.0,<0.2; Readio requires OnnxVoice >=0.2,<0.3. Install Kokoro or Piper with a runtime extra such as `readio[kokoro,cpu]` or `readio[piper,cpu]`, and install Pocket and Kitten with `readio[pocket]` or `readio[kitten]`. `readio[all,cpu]` also installs optional spaCy support.
+Supported engine package floors are PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.1,<0.3, and KittenSynth >=0.1.0,<0.2. Each engine package owns its own runtime dependencies; Readio does not require OnnxVoice. Install Kokoro or Piper with a runtime extra such as `readio[kokoro,cpu]` or `readio[piper,cpu]`, and install Pocket and Kitten with `readio[pocket]` or `readio[kitten]`. PDF and DOCX ingestion requires the `readio[documents]` extra. `readio[all,cpu]` also installs optional spaCy support.
 
 `readio voices list` shows runnable voices with semantic references. Canonical engine IDs are `kokoro`, `piper`, `pocket`, and `kitten`; upstream package names such as `pykokoro` and `pipersynth` are accepted only as input aliases where applicable. Filters use `--engine`, `--model`, `--lang`, and `--gender`.
 

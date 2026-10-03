@@ -138,10 +138,10 @@ def test_piper_discovery_preserves_target_identity_and_language_metadata(monkeyp
         engine="piper",
         id="en_US-amy-medium",
         display_name="Amy",
-        languages=("en_US",),
+        languages=("en-us",),
         metadata={
-            "language": "en-US",
-            "locale": "en_US",
+            "language": "en",
+            "locale": "en-us",
             "language_label": "American English",
             "gender": "female",
         },
@@ -157,6 +157,6 @@ def test_piper_discovery_preserves_target_identity_and_language_metadata(monkeyp
     assert entry.ref == "piper:en_US-amy-medium"
     assert entry.target_id == "en_US-amy-medium"
     assert entry.language == "en"
-    assert entry.locale == "en-US"
+    assert entry.locale == "en-us"
     assert entry.language_label == "American English"
     assert entry.gender == "female"

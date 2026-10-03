@@ -5,9 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from onnxvoice import language_base, normalize_language_tag
-from onnxvoice.inventory import normalize_gender
-
 from .config import normalize_language_key
 from .engines.discovery import discover_targets
 from .engines.registry import get_engine, normalize_engine_id
@@ -192,48 +189,29 @@ def _target_voice_entries(targets: tuple[Any, ...]) -> tuple[VoiceCatalogEntry, 
             system = public_system_for_engine(target.engine)
         except ValueError:
             system = None
-        details = target.metadata.get("voice_details", ())
-        indexed = (
-            {
-                str(item.get("id")): item
-                for item in details
-                if isinstance(item, dict) and item.get("id") is not None
-            }
-            if isinstance(details, (list, tuple))
-            else {}
-        )
+        indexed = {detail.id: detail for detail in target.voice_details}
         metadata = target.metadata
         voices = (target.id,) if system == "piper" else tuple(target.voices)
-        default_voice = metadata.get("default_voice")
+        default_voice = target.default_voice
+        fallback = target.languages[0] if target.languages else "unknown"
         for voice in voices:
-            detail = indexed.get(voice, {})
-            fallback_locale = (
-                detail.get("language")
-                or metadata.get("locale")
-                or metadata.get("language")
-                or (target.languages[0] if target.languages else "unknown")
-            )
-            locale = normalize_language_tag(detail.get("locale") or fallback_locale)
-            language = language_base(detail.get("language") or metadata.get("language") or locale)
-            language_label = detail.get("language_label") or metadata.get("language_label")
-            if (
-                not isinstance(language_label, str)
-                or not language_label.strip()
-                or (
-                    len(language_label.strip()) == 2
-                    and language_label.strip().isalpha()
-                    and language_label.strip().isupper()
-                )
-            ):
-                language_label = locale or language or "unknown"
+            detail = indexed.get(voice)
             entries.append(
                 VoiceCatalogEntry(
                     ref=_voice_ref_for(target.engine, target.id, voice),
                     id=voice,
-                    gender=normalize_gender(detail.get("gender") or metadata.get("gender")),
-                    language=language,
-                    locale=locale,
-                    language_label=language_label,
+                    gender=(detail.gender if detail else None)
+                    or metadata.get("gender")
+                    or "unknown",
+                    language=(detail.language if detail else None)
+                    or metadata.get("language")
+                    or fallback,
+                    locale=(detail.locale if detail else None)
+                    or metadata.get("locale")
+                    or fallback,
+                    language_label=(detail.language_label if detail else None)
+                    or metadata.get("language_label")
+                    or fallback,
                     model=target.id,
                     source=str(metadata.get("source") or target.engine),
                     default=voice == default_voice,

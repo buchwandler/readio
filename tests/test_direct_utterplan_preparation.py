@@ -68,9 +68,7 @@ def test_direct_utterplan_preserves_substitution_and_phoneme_directives() -> Non
     assert substitution["annotations"][0]["attrs"] == {"sub": "Mister Smith", "tag": "sub"}
     assert substitution["annotations"][0]["spoken_start"] == 0
     assert substitution["annotations"][0]["spoken_end"] == 9
-    assert substitution["segments"][0]["directives"] == {
-        "substitution": {"alias": "Mister Smith"}
-    }
+    assert substitution["segments"][0]["directives"] == {"substitution": {"alias": "Mister Smith"}}
     assert [segment["text"] for segment in substitution["segments"]] == [
         "Mr. Smith",
         " greeted us.",
@@ -165,7 +163,9 @@ def test_direct_utterplan_maps_pronunciation_offsets_across_spokenform_edits() -
     assert plan["segments"][1]["directives"] == {
         "pronunciation": {"alphabet": "ipa", "phonemes": "cats tomorrow"}
     }
-    assert [(token["text"], token["spoken_start"], token["spoken_end"]) for token in plan["tokens"]] == [
+    assert [
+        (token["text"], token["spoken_start"], token["spoken_end"]) for token in plan["tokens"]
+    ] == [
         ("forty", 0, 5),
         ("two", 6, 9),
         ("cats", 10, 14),
@@ -177,9 +177,7 @@ def test_direct_utterplan_preserves_unicode_punctuation() -> None:
     _, plan = _plan("Unicode: «Bonjour\u202f!» — café…")
 
     assert plan["texts"]["spoken"] == "Unicode: «Bonjour!» — café…"
-    assert [segment["text"] for segment in plan["segments"]] == [
-        "Unicode: «Bonjour!» — café…"
-    ]
+    assert [segment["text"] for segment in plan["segments"]] == ["Unicode: «Bonjour!» — café…"]
     assert [token["text"] for token in plan["tokens"]] == [
         "Unicode:",
         "«Bonjour!»",

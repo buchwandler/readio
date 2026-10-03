@@ -17,7 +17,7 @@ from project_support import assert_neutral_session_contract
 from utterplan import PlannerConfig, UtterancePlanner
 
 from readio.engines.base import SpeechRequest
-from readio.engines.catalog import CatalogRequest
+from readio.engines.catalog import CatalogRequest, TargetVoice
 from readio.engines.pocketsynth import PocketSynthEngineAdapter
 from readio.engines.registry import engine_for_ssmd_provider, ssmd_provider_for_engine
 from readio.engines.selection import EngineRequest
@@ -135,7 +135,7 @@ def test_pocket_discovery_maps_bundle_catalog(monkeypatch):
     assert engine_for_ssmd_provider("pocket") == "pocket"
     assert ssmd_provider_for_engine("pocket") == "pocket"
 
-    assert targets[0].metadata.get("voice_details", ()) == ()
+    assert targets[0].voice_details == ()
 
 
 def test_pocket_discovery_includes_generic_language_but_excludes_other_region(monkeypatch):
@@ -194,23 +194,23 @@ def test_pocket_discovery_normalizes_bundle_and_voice_details(monkeypatch):
     targets = PocketSynthEngineAdapter().discover(CatalogRequest(engine="pocket", language="en-us"))
 
     assert len(targets) == 1
-    assert targets[0].languages == ("en-US",)
-    assert targets[0].metadata["language"] == "en-US"
-    assert targets[0].metadata["voice_details"] == (
-        {
-            "id": "alba",
-            "language": "en",
-            "locale": "en",
-            "language_label": "English",
-            "gender": "female",
-        },
-        {
-            "id": "bella",
-            "language": "en",
-            "locale": "en-GB",
-            "language_label": "en-GB",
-            "gender": "unknown",
-        },
+    assert targets[0].languages == ("en-us",)
+    assert targets[0].metadata["language"] == "en-us"
+    assert targets[0].voice_details == (
+        TargetVoice(
+            id="alba",
+            gender="female",
+            language="en",
+            locale="en",
+            language_label="English",
+        ),
+        TargetVoice(
+            id="bella",
+            gender="unknown",
+            language="en",
+            locale="en-gb",
+            language_label="en-gb",
+        ),
     )
 
 
@@ -382,5 +382,5 @@ def test_pocket_extra_uses_a_published_runtime_release():
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     extras = pyproject["project"]["optional-dependencies"]
 
-    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.0,<0.3"]
-    assert any("pocketsynth[cpu]>=0.2.0,<0.3" in item for item in extras["all"])
+    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.1,<0.3"]
+    assert any("pocketsynth[cpu]>=0.2.1,<0.3" in item for item in extras["all"])

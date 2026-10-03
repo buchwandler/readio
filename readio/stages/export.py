@@ -8,8 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import soundfile as sf
-
+from ..audioio import read_audio
 from ..formats import AudioFormat, ensure_audio_format_available
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..wave import atomic_audio_path, create_audio_sink
@@ -178,7 +177,7 @@ def export_project(
         target = target.resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         replace_existing = _can_replace_target(project, target, force=force)
-        audio, rate = sf.read(master, always_2d=False, dtype="float32")
+        audio, rate = read_audio(master)
         with (
             atomic_audio_path(target, force=replace_existing) as temporary,
             create_audio_sink(temporary, audio_format, bitrate=options.get("bitrate")) as sink,

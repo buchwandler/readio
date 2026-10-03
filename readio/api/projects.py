@@ -18,7 +18,7 @@ from ..project_settings import (
     project_synthesis_request,
     with_project_settings,
 )
-from ..stages.composition import compose_project
+from ..stages.composition import CompositionProgress, compose_project
 from ..stages.export import export_project
 from ..stages.pipeline import _project_request, build_project, preview_project, project_status
 from ..stages.planning import plan_project
@@ -603,9 +603,9 @@ class ProjectService:
                 )
             self._forward_synthesis_event(handler, operation, event)
 
-        def composition_event(event: object) -> None:
+        def composition_event(event: CompositionProgress) -> None:
             nonlocal composition_started, composition_completed
-            kind = getattr(event, "kind", None)
+            kind = event.kind
             if kind == "compose_started" and not composition_started:
                 composition_started = True
                 self._notify(
@@ -770,8 +770,8 @@ class ProjectService:
 
         state = {"completed": 0, "total": 0}
 
-        def forward(event: object) -> None:
-            internal_kind = getattr(event, "kind", None)
+        def forward(event: CompositionProgress) -> None:
+            internal_kind = event.kind
             phase_key = {
                 "assembly_started": "assembly",
                 "loudness_started": "loudness",
@@ -782,8 +782,7 @@ class ProjectService:
                 "assembly_completed": "assembly",
                 "loudness_completed": "loudness",
             }.get(internal_kind)
-            event_details = getattr(event, "details", {}) or {}
-            details = dict(event_details) if isinstance(event_details, Mapping) else {}
+            details = {key: value for key, value in event.details.items() if key != "item_metadata"}
             if phase_ended is not None:
                 started = state.setdefault("phase_started", {}).pop(phase_ended, None)
                 if started is not None:
@@ -791,7 +790,7 @@ class ProjectService:
             if internal_kind == "compose_completed":
                 return
             if internal_kind == "compose_started":
-                details = getattr(event, "details", {}) or {}
+                details = dict(event.details)
                 metadata_kinds = details.get("metadata_kinds", {})
                 speech_count = (
                     metadata_kinds.get("speech") if isinstance(metadata_kinds, Mapping) else None
@@ -808,9 +807,9 @@ class ProjectService:
                     total=state["total"],
                 )
                 return
-            item_kind = getattr(event, "item_kind", None)
+            item_kind = event.item_kind
             if internal_kind == "item_completed" and item_kind == "clip":
-                metadata = getattr(event, "item_metadata", {}) or {}
+                metadata = event.details.get("item_metadata", {}) or {}
                 if metadata.get("kind") != "silence":
                     state["completed"] += 1
             is_clip = item_kind == "clip"
@@ -829,22 +828,22 @@ class ProjectService:
         self,
         handler: EventHandler,
         operation: str,
-        event: object,
+        event: CompositionProgress,
         *,
         completed: int | None = None,
         total: int | None = None,
         details: Mapping[str, JsonValue] | None = None,
     ) -> None:
-        internal_kind = getattr(event, "kind", None)
+        internal_kind = event.kind
         event_details = details or {}
         if internal_kind == "compose_completed":
             return
         if internal_kind == "item_started":
-            item_kind = getattr(event, "item_kind", None)
+            item_kind = event.item_kind
             progress_kind = "segment.started" if item_kind == "clip" else "item.started"
             message = "Preparing segment" if item_kind == "clip" else "Preparing item"
         elif internal_kind == "item_completed":
-            item_kind = getattr(event, "item_kind", None)
+            item_kind = event.item_kind
             progress_kind = "segment.completed" if item_kind == "clip" else "item.completed"
             message = "Segment complete" if item_kind == "clip" else "Item complete"
         elif internal_kind == "compose_started":
@@ -889,8 +888,8 @@ class ProjectService:
                 "operation_started": "Applying audio operation",
                 "resample_started": "Resampling audio",
             }.get(internal_kind, "Composing audio")
-        item_metadata = getattr(event, "item_metadata", {}) or {}
-        segment_id = item_metadata.get("segment_id") or getattr(event, "item_id", None)
+        item_metadata = event.details.get("item_metadata", {}) or {}
+        segment_id = item_metadata.get("segment_id") or event.item_id
         self._notify(
             handler,
             ReadioEvent(

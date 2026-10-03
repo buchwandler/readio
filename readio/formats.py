@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import soundfile as sf
-
+from .audioio import format_available
 from .errors import RenderError
 
 logger = logging.getLogger(__name__)
@@ -126,7 +125,7 @@ def soundfile_format_available(audio_format: AudioFormat) -> bool:
     if spec.soundfile_format is None or spec.soundfile_subtype is None:
         return False
     try:
-        return bool(sf.check_format(spec.soundfile_format, spec.soundfile_subtype))
+        return format_available(spec.soundfile_format, spec.soundfile_subtype)
     except (RuntimeError, ValueError):
         return False
 

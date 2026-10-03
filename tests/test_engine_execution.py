@@ -229,7 +229,7 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
     assert len(adapter.received_requests) == 1
     assert adapter.received_requests[0].text == "hello world"
     assert sink.sample_rate == 24000
-    assert result.composition.items[0].item_id == adapter.received_requests[0].id
+    assert result.composition.items[0]["item_id"] == adapter.received_requests[0].id
 
 
 def test_explicit_engine_switch_does_not_inherit_reader_voice() -> None:

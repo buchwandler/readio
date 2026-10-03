@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Literal
 
 from . import api
-from . import config as config_internal
 from .progress import TerminalProgress
 from .role_targets import engine_for_ssmd_namespace
 
@@ -144,23 +143,23 @@ def synthesis_request_from_args(
 
 def prompt_missing_voices(
     analysis: api.SSMDAnalysis,
-    config: api.ReadioConfig,
+    app: api.Readio,
     synthesis: api.SynthesisRequest | None = None,
     bindings: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     unresolved = set(analysis.unresolved_references) - set(bindings or ())
     references = tuple(item for item in analysis.voice_references if item.reference in unresolved)
     resolved_model = getattr(synthesis, "resolved_model", None)
+    engine = engine_for_ssmd_namespace(analysis.provider)
     available = (
         tuple(resolved_model.voices)
         if resolved_model is not None
         else tuple(
             sorted(
                 {
-                    target.voice
-                    for target in config_internal.role_targets(
-                        config, engine_for_ssmd_namespace(analysis.provider)
-                    ).values()
+                    binding.target.voice
+                    for binding in app.roles.list_global()
+                    if binding.engine == engine
                 }
             )
         )

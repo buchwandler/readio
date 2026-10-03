@@ -5,6 +5,7 @@ import pytest
 
 from readio import cli
 from readio.config import ReadioConfig
+from readio.role_targets import VoiceTarget
 from readio.ssmd import analyze_ssmd, preflight_ssmd, resolve_voice_references
 
 FIXTURE = Path(__file__).parent / "fixtures" / "architecture-review.ssmd"
@@ -26,7 +27,7 @@ def test_fixture_collects_all_roles_and_runtime_bindings_pass():
         additional_bindings={
             "moderator": "af_sarah",
             "architect": "am_michael",
-            "skeptic": "am_adam",
+            "skeptic": "af_bella",
         },
     )
     assert result.ok
@@ -75,15 +76,17 @@ def test_central_voice_resolution_preserves_project_layer_precedence() -> None:
     cfg = ReadioConfig()
     text = '[Hello.]{voice="narrator"}'
 
-    project = resolve_voice_references(text, cfg, project_bindings={"narrator": "af_heart"})[0]
+    project = resolve_voice_references(
+        text, cfg, project_targets={"narrator": VoiceTarget("kokoro", "af_heart")}
+    )[0]
     assert (project.voice, project.origin) == ("af_heart", "project")
-    assert project.locator == ("project.settings.ssmd.voice_bindings.kokoro.narrator")
+    assert project.locator == "project.settings.ssmd.role_bindings.narrator"
 
     invocation = resolve_voice_references(
         text,
         cfg,
         additional_bindings={"narrator": "af_bella"},
-        project_bindings={"narrator": "af_heart"},
+        project_targets={"narrator": VoiceTarget("kokoro", "af_heart")},
     )[0]
     assert (invocation.voice, invocation.origin) == ("af_bella", "cli")
 
@@ -95,7 +98,7 @@ def test_central_voice_resolution_preserves_project_layer_precedence() -> None:
         document_text,
         cfg,
         additional_bindings={"narrator": "af_bella"},
-        project_bindings={"narrator": "af_heart"},
+        project_targets={"narrator": VoiceTarget("kokoro", "af_heart")},
     )[0]
     assert (document.voice, document.origin) == ("am_michael", "document")
 

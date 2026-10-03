@@ -26,7 +26,17 @@ jobs:
       - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,documents]"
+          python -m pip install -e ".[dev]"
+      - name: Verify dependency resolution
+        run: python -m pip check
+      - name: Dependency firewall and packaging metadata
+        run: >-
+          python -m pytest -q
+          tests/test_dependency_boundaries.py
+          tests/test_packaging_metadata.py
+          tests/test_audioio.py
+      - name: Public API import smoke without synthesis engines
+        run: python -c "import readio, readio.api, readio.plan, readio.project"
       - name: Run test suite
         run: python -m pytest -q
 
@@ -123,7 +133,7 @@ jobs:
         env:
           ENGINE_PACKAGE: ${{ matrix.package }}
           ENGINE_SPECIFIER: ${{ matrix.specifier }}
-        run: python -m pip install "onnxvoice==0.2.0" "${ENGINE_PACKAGE}${ENGINE_SPECIFIER}"
+        run: python -m pip install "${ENGINE_PACKAGE}${ENGINE_SPECIFIER}"
       - name: Verify dependency resolution
         run: python -m pip check
       - name: Run released-package API contract without model downloads
@@ -150,7 +160,6 @@ jobs:
       - name: Install exact released engine packages
         run: |
           python -m pip install \
-            "onnxvoice==0.2.0" \
             "pykokoro==0.10.2" \
             "pipersynth==0.2.1" \
             "pocketsynth[cpu]==0.2.1" \
@@ -199,34 +208,25 @@ jobs:
         run: python -m build
       - name: Validate artifact metadata
         run: python -m twine check dist/*
-      - name: Installed-wheel smoke
+      - name: Installed-wheel smoke (base)
         shell: bash
         run: |
-          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install \
-            "onnxvoice==0.2.0" \
-            "pykokoro==0.10.2" \
-            "pipersynth==0.2.1" \
-            "pocketsynth[cpu]==0.2.1" \
-            "kittensynth[cpu]==0.1.0"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install dist/*.whl
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip check
+          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-base"
+          "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/python" -m pip install dist/*.whl
+          "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
-          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" - <<'PY'
+          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/python" - <<'PY'
           import importlib.metadata
           import importlib.resources
           from pathlib import Path
 
           import readio
-          import onnxvoice
           import ssmdconvert
-          from document_support import write_test_docx, write_test_pdf
           from readio.api import document_from_file
 
           distribution_version = importlib.metadata.version("readio")
           assert readio.__version__ == distribution_version
           assert importlib.metadata.version("ssmdconvert")
-          assert importlib.metadata.version("onnxvoice") == "0.2.0"
           assert importlib.resources.files("readio").joinpath("py.typed").is_file()
           assert importlib.resources.files("readio.resources.templates").joinpath(
               "podcast.ssmd"
@@ -235,14 +235,52 @@ jobs:
           root = Path.cwd()
           html = root / "sample.html"
           html.write_text("<html><body><p>HTML wheel smoke</p></body></html>", encoding="utf-8")
+          text = root / "sample.txt"
+          text.write_text("Plain-text wheel smoke.", encoding="utf-8")
+          markdown = root / "sample.md"
+          markdown.write_text("# Markdown wheel smoke\n", encoding="utf-8")
+          ssmd = root / "sample.ssmd"
+          ssmd.write_text("SSMD wheel smoke.\n", encoding="utf-8")
+          for source in (html, text, markdown, ssmd):
+              document = document_from_file(source)
+              assert document.format == "ssmd"
+          PY
+          "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/readio" --version
+      - name: Installed-wheel smoke (documents extra)
+        shell: bash
+        run: |
+          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-documents"
+          WHEEL="$(ls "${PWD}"/dist/*.whl | head -n 1)"
+          "${RUNNER_TEMP}/readio-wheel-smoke-documents/bin/python" -m pip install \
+            "readio[documents] @ file://${WHEEL}"
+          "${RUNNER_TEMP}/readio-wheel-smoke-documents/bin/python" -m pip check
+          cd "${RUNNER_TEMP}"
+          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke-documents/bin/python" - <<'PY'
+          from pathlib import Path
+
+          from document_support import write_test_docx, write_test_pdf
+          from readio.api import document_from_file
+
+          root = Path.cwd()
           pdf = root / "sample.pdf"
           write_test_pdf(pdf, "PDF wheel smoke")
           docx = root / "sample.docx"
           write_test_docx(docx)
-          for source in (html, pdf, docx):
+          for source in (pdf, docx):
               document = document_from_file(source)
               assert document.format == "ssmd"
           PY
-          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pytest -q \
+      - name: Installed-wheel smoke (engines)
+        shell: bash
+        run: |
+          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-engines"
+          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip install \
+            "pykokoro==0.10.2" \
+            "pipersynth==0.2.1" \
+            "pocketsynth[cpu]==0.2.1" \
+            "kittensynth[cpu]==0.1.0"
+          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip install dist/*.whl
+          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip check
+          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pytest -q \
             "${GITHUB_WORKSPACE}/tests/test_released_engine_apis.py"
-          "${RUNNER_TEMP}/readio-wheel-smoke/bin/readio" --version
+          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/readio" --version

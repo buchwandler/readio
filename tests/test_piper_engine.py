@@ -84,6 +84,7 @@ def test_piper_discovery_maps_published_voice_metadata(monkeypatch):
     piper_module = ModuleType("pipersynth")
     asset_manager_module = ModuleType("pipersynth.asset_manager")
     asset_manager_module.VoiceAssetManager = VoiceAssetManager
+    piper_module.VoiceAssetManager = VoiceAssetManager
     monkeypatch.setitem(sys.modules, "pipersynth", piper_module)
     monkeypatch.setitem(sys.modules, "pipersynth.asset_manager", asset_manager_module)
     targets = PiperSynthEngineAdapter().discover(
@@ -93,10 +94,10 @@ def test_piper_discovery_maps_published_voice_metadata(monkeypatch):
     assert calls == {"offline": True, "language": "de", "refresh": True}
     assert len(targets) == 1
     assert targets[0].id == metadata.id
-    assert targets[0].languages == ("de-DE",)
+    assert targets[0].languages == ("de-de",)
     assert targets[0].metadata["language"] == "de"
-    assert targets[0].metadata["locale"] == "de-DE"
-    assert targets[0].metadata["language_label"] == "de-DE"
+    assert targets[0].metadata["locale"] == "de-de"
+    assert targets[0].metadata["language_label"] == "de-de"
     assert targets[0].metadata["gender"] == "unknown"
     assert targets[0].speakers == ("narrator", "announcer")
     assert targets[0].qualities == ("medium",)
@@ -129,6 +130,7 @@ def test_piper_discovery_preserves_optional_authoritative_metadata(monkeypatch):
     piper_module = ModuleType("pipersynth")
     asset_manager_module = ModuleType("pipersynth.asset_manager")
     asset_manager_module.VoiceAssetManager = VoiceAssetManager
+    piper_module.VoiceAssetManager = VoiceAssetManager
     monkeypatch.setitem(sys.modules, "pipersynth", piper_module)
     monkeypatch.setitem(sys.modules, "pipersynth.asset_manager", asset_manager_module)
     targets = PiperSynthEngineAdapter().discover(CatalogRequest(engine="piper"))
@@ -137,13 +139,13 @@ def test_piper_discovery_preserves_optional_authoritative_metadata(monkeypatch):
         EngineSelection(engine="piper", target_id=metadata.id, language="en-us")
     )
     assert target_metadata["language"] == "en"
-    assert target_metadata["locale"] == "en-US"
+    assert target_metadata["locale"] == "en-us"
     assert target_metadata["language_label"] == "American English"
     assert target_metadata["gender"] == "female"
     assert len(targets) == 1
-    assert targets[0].languages == ("en-US",)
+    assert targets[0].languages == ("en-us",)
     assert targets[0].metadata["language"] == "en"
-    assert targets[0].metadata["locale"] == "en-US"
+    assert targets[0].metadata["locale"] == "en-us"
     assert targets[0].metadata["language_label"] == "American English"
     assert targets[0].metadata["gender"] == "female"
 

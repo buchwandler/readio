@@ -54,7 +54,6 @@ def test_document_conversion_returns_readio_dto_and_translates_missing_parser(
     assert missing.value.source_path == pdf.resolve()
 
 
-
 def test_in_memory_document_conversion_returns_readio_dto(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

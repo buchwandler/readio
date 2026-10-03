@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.metadata
-import inspect
 import math
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
-from onnxvoice import OnnxVoice, language_base, normalize_language_tag
-from onnxvoice.errors import OnnxVoiceError
-from onnxvoice.inventory import normalize_gender
-
+from ..catalog_metadata import language_base, normalize_gender, normalize_locale_tag
 from ..config import normalize_language_key
 from ..errors import (
     EmptySpeechTextError,
@@ -22,8 +17,15 @@ from ..errors import (
     InvalidEngineOptionError,
     InvalidEngineVoiceError,
 )
-from .base import EngineCapabilities, EngineSelection, RenderedSpeech, RequestMeasure, SpeechRequest
-from .catalog import CatalogRequest, SynthesisTarget
+from .base import (
+    EngineCapabilities,
+    EngineSelection,
+    RenderedSpeech,
+    RequestMeasure,
+    SpeechRequest,
+    distribution_version,
+)
+from .catalog import CatalogRequest, SynthesisTarget, TargetVoice
 
 DEFAULT_KITTEN_MODEL = "nano-0.8-int8"
 DEFAULT_KITTEN_VOICE = "Jasper"
@@ -56,7 +58,7 @@ def _is_english(language: str) -> bool:
 
 def _language_values(value: Any) -> tuple[str, str, str]:
     raw = str(value or "en")
-    normalized = normalize_language_tag(raw)
+    normalized = normalize_locale_tag(raw)
     base = language_base(normalized) or normalize_language_key(raw)
     if base == "english":
         base = "en"
@@ -64,100 +66,57 @@ def _language_values(value: Any) -> tuple[str, str, str]:
     return base or "unknown", normalized or base or "unknown", raw
 
 
-def _details_for_voices(records: tuple[Any, ...], target_id: str) -> list[dict[str, str]]:
-    details: list[dict[str, str]] = []
-    for record in records:
-        catalog_item = getattr(record, "catalog_item", None)
-        if getattr(catalog_item, "id", None) != target_id:
-            continue
-        metadata = getattr(record, "metadata", None)
-        metadata = metadata if isinstance(metadata, Mapping) else {}
-        voice_id = getattr(record, "voice_id", None)
-        if not isinstance(voice_id, str) or not voice_id:
-            continue
-        languages = tuple(getattr(record, "languages", ()) or ())
-        base, locale, raw = _language_values(languages[0] if languages else "en")
-        details.append(
-            {
-                "id": voice_id,
-                "gender": normalize_gender(metadata.get("gender")),
-                "language": base,
-                "locale": locale,
-                "language_label": str(metadata.get("language_label") or raw),
-            }
-        )
-    return details
-
-
-def _target_from_item(item: Any, voice_records: tuple[Any, ...] = ()) -> SynthesisTarget:
-    metadata = dict(item.metadata) if isinstance(item.metadata, Mapping) else {}
-    language, locale, raw_language = _language_values(metadata.get("language"))
-    quality = metadata.get("quality")
-    voices = tuple(str(voice) for voice in getattr(item, "voices", ()) if isinstance(voice, str))
-    sample_rate = getattr(item, "sample_rate", None)
-    if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
-        sample_rate = None
-    display_name = str(metadata.get("name") or item.id)
-    model_version = metadata.get("version")
-    if model_version:
-        display_name = f"{display_name} {model_version}"
+def _target_from_model(model: Any) -> SynthesisTarget:
+    language, locale, raw_language = _language_values(model.language)
+    quality = model.quality
+    voices = tuple(str(voice) for voice in model.voice_ids)
+    display_name = str(model.display_name)
+    if model.version:
+        display_name = f"{display_name} {model.version}"
     normalized_metadata = {
-        **metadata,
+        **dict(model.metadata),
         "language": language,
         "locale": locale,
         "language_label": raw_language if raw_language.casefold() != "en" else "English",
-        "voice_details": _details_for_voices(voice_records, str(item.id)),
-        "default_voice": DEFAULT_KITTEN_VOICE if DEFAULT_KITTEN_VOICE in voices else None,
         "quality": quality,
-        "source": "onnxvoice",
+        "source": "kittensynth",
     }
     return SynthesisTarget(
         engine="kitten",
-        id=str(item.id),
+        id=str(model.id),
         display_name=display_name,
         languages=(locale,) if locale and locale != "unknown" else (),
         status="ready",
-        runtime_available=True,
-        sample_rate=sample_rate,
+        runtime_available=bool(model.runtime_available),
+        sample_rate=model.sample_rate,
         voices=voices,
+        voice_details=tuple(
+            TargetVoice(
+                id=str(voice.id),
+                gender=normalize_gender(voice.gender),
+                language=language_base(voice.language) or language,
+                locale=normalize_locale_tag(voice.locale) or locale,
+                language_label=str(voice.language_label or raw_language),
+            )
+            for voice in model.voices
+        ),
+        default_voice=model.default_voice,
         qualities=(str(quality),) if isinstance(quality, str) and quality else (),
-        aliases=tuple(str(alias) for alias in getattr(item, "aliases", ()) or ()),
+        aliases=tuple(str(alias) for alias in model.aliases),
         capabilities=frozenset({"named_voices"}),
         metadata=normalized_metadata,
     )
 
 
 def _catalog_targets(request: CatalogRequest) -> tuple[SynthesisTarget, ...]:
-    manager = OnnxVoice(offline=request.offline)
-    items = manager.list(
-        "kitten",
+    import kittensynth
+
+    models = kittensynth.discover_models(
         language=request.language,
+        offline=request.offline,
         refresh=request.refresh,
     )
-    # This remains on the public OnnxVoice API; it supplies descriptive metadata
-    # without inferring demographics from public voice names.
-    records = tuple(
-        manager.list_voices(
-            "kitten",
-            language=request.language,
-            refresh=False,
-        )
-    )
-    return tuple(_target_from_item(item, records) for item in items if item.system == "kitten")
-
-
-def _kitten_version() -> str | None:
-    try:
-        return importlib.metadata.version("kittensynth")
-    except importlib.metadata.PackageNotFoundError:
-        return None
-
-
-def _dependency_version(distribution: str) -> str | None:
-    try:
-        return importlib.metadata.version(distribution)
-    except importlib.metadata.PackageNotFoundError:
-        return None
+    return tuple(_target_from_model(model) for model in models)
 
 
 def _translate_kitten_error(
@@ -194,7 +153,7 @@ def _translate_kitten_error(
                 code = "kitten.invalid_options"
     context: dict[str, Any] = {
         "engine": "kitten",
-        "engine_version": _kitten_version(),
+        "engine_version": distribution_version("kittensynth"),
         "target_id": selection.target_id,
         "language": request.language if request is not None else selection.language,
         "voice": request.voice if request is not None else selection.voice,
@@ -257,43 +216,39 @@ class KittenSynthEngineAdapter:
     package_name = "kittensynth"
 
     def version(self) -> str | None:
-        return _kitten_version()
+        return distribution_version(self.package_name)
 
     def compatible_api(self) -> bool:
         try:
             import kittensynth
 
-            required = ("KittenVoice", "SynthesisConfig", "SynthesisResult")
+            required = (
+                "KittenVoice",
+                "SynthesisConfig",
+                "SynthesisResult",
+                "discover_models",
+                "runtime_identity",
+            )
             if not all(hasattr(kittensynth, name) for name in required):
                 return False
             voice_type = kittensynth.KittenVoice
-            synth_parameters = inspect.signature(voice_type.synthesize_prepared).parameters
-            pretrained_parameters = inspect.signature(voice_type.from_pretrained).parameters
-            required_keywords = ("voice", "speed", "config")
-            if not all(
-                name in synth_parameters
-                and synth_parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
-                for name in required_keywords
-            ):
-                return False
-            if not all(
-                name in pretrained_parameters
-                for name in (
-                    "quality",
-                    "cache_dir",
-                    "offline",
-                    "refresh_catalog",
-                    "force_download",
-                    "providers",
-                    "provider_options",
-                    "session_options",
+            return (
+                all(
+                    callable(getattr(voice_type, name, None))
+                    for name in ("synthesize_prepared", "from_pretrained", "from_local", "close")
                 )
-            ):
-                return False
-            return callable(getattr(OnnxVoice, "list", None)) and callable(
-                getattr(OnnxVoice, "list_voices", None)
+                and callable(kittensynth.discover_models)
+                and callable(kittensynth.runtime_identity)
             )
-        except (ImportError, AttributeError, TypeError, ValueError, OSError, RuntimeError):
+        except (
+            ImportError,
+            SyntaxError,
+            OSError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ):
             return False
 
     def capabilities(self) -> EngineCapabilities:
@@ -394,7 +349,7 @@ class KittenSynthEngineAdapter:
                     refresh=selection.refresh,
                 )
             )
-        except (ImportError, OnnxVoiceError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
             return (
                 PlanDiagnostic(
                     code="kitten.engine_unavailable",
@@ -416,7 +371,7 @@ class KittenSynthEngineAdapter:
                 PlanDiagnostic(
                     code="kitten.model_not_found",
                     severity="error",
-                    message=f"Kitten model {selection.target_id!r} was not found in the OnnxVoice catalog.",
+                    message=f"Kitten model {selection.target_id!r} was not found in the Kitten catalog.",
                     field="render.target.id",
                 ),
             )
@@ -487,6 +442,8 @@ class KittenSynthEngineAdapter:
         }
 
     def canonical_synthesis_identity(self, selection: EngineSelection) -> Mapping[str, Any]:
+        import kittensynth
+
         pcm_options = {
             key: selection.options[key]
             for key in ("quality", "speed", "providers", "provider_options", "session_options")
@@ -495,8 +452,7 @@ class KittenSynthEngineAdapter:
         return {
             "engine": self.id,
             "engine_version": self.version(),
-            "onnxvoice_version": _dependency_version("onnxvoice"),
-            "g2p_version": _dependency_version("kitteng2p"),
+            "engine_identity": dict(kittensynth.runtime_identity()),
             "target_id": selection.target_id,
             "voice": selection.voice,
             "language": selection.language,

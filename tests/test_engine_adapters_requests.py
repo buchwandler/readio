@@ -30,6 +30,7 @@ def _mock_pipersynth():
     ):
         setattr(module, name, NativeObject)
     module.PiperVoice = NativeObject
+    module.VoiceAssetManager = NativeObject
     return module
 
 
@@ -211,7 +212,7 @@ def test_piper_release_capabilities_claim_request_context_support() -> None:
     assert capabilities.supports_voice_level_calibration
 
 
-def test_piper_api_compatibility_checks_published_voice_signature(monkeypatch) -> None:
+def test_piper_api_compatibility_accepts_published_surface(monkeypatch) -> None:
     pipersynth = _mock_pipersynth()
     monkeypatch.setitem(sys.modules, "pipersynth", pipersynth)
 
@@ -224,13 +225,12 @@ def test_piper_api_compatibility_checks_published_voice_signature(monkeypatch) -
     assert PiperSynthEngineAdapter().compatible_api()
 
 
-def test_piper_api_compatibility_rejects_legacy_text_signature(monkeypatch) -> None:
+def test_piper_api_compatibility_rejects_missing_public_surface(monkeypatch) -> None:
     pipersynth = _mock_pipersynth()
     monkeypatch.setitem(sys.modules, "pipersynth", pipersynth)
 
     class _LegacyVoice:
-        def synthesize(self, text, syn_config=None):
-            return iter(())
+        pass
 
     monkeypatch.setattr(pipersynth, "PiperVoice", _LegacyVoice)
 

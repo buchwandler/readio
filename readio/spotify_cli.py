@@ -207,9 +207,7 @@ def _resolve_interactive_bindings(
             "--resolve-voices requires an interactive terminal; "
             "provide --voice-bind ROLE=VOICE_ID instead"
         )
-    bindings.update(
-        cli_adapter.prompt_missing_voices(analysis, app.config, synthesis, bindings=bindings)
-    )
+    bindings.update(cli_adapter.prompt_missing_voices(analysis, app, synthesis, bindings=bindings))
     return bindings
 
 

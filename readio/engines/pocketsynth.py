@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
-import inspect
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 
-from onnxvoice import language_base, language_tags_match, normalize_language_tag
-from onnxvoice.inventory import normalize_gender
-
+from ..catalog_metadata import (
+    language_base,
+    language_tags_match,
+    normalize_gender,
+    normalize_locale_tag,
+)
 from ..config import normalize_language_key
 from ..errors import (
     EmptySpeechTextError,
@@ -32,9 +33,11 @@ from .base import (
     RenderedSpeech,
     RequestMeasure,
     SpeechRequest,
+    distribution_version,
     validate_rendered_speech,
+    voice_level_metadata,
 )
-from .catalog import CatalogRequest, SynthesisTarget
+from .catalog import CatalogRequest, SynthesisTarget, TargetVoice
 
 POCKET_OPTION_NAMES = frozenset(
     {
@@ -58,13 +61,21 @@ _GENERATION_OPTION_NAMES = frozenset({"temperature", "lsd_steps", "max_frames", 
 
 def _bundle_fields(
     bundle: Any,
-) -> tuple[str, str, tuple[str, ...], tuple[str, ...], int | None, Mapping[str, Any]]:
+) -> tuple[
+    str,
+    str,
+    tuple[str, ...],
+    tuple[str, ...],
+    int | None,
+    Mapping[str, Any],
+    tuple[TargetVoice, ...],
+]:
     metadata = getattr(bundle, "metadata", None)
     metadata = metadata if isinstance(metadata, Mapping) else {}
     bundle_id = str(getattr(bundle, "id", None) or getattr(bundle, "bundle_id", ""))
     display_name = str(metadata.get("display_name") or metadata.get("name") or bundle_id)
     raw_language = metadata.get("language")
-    language = normalize_language_tag(raw_language) if isinstance(raw_language, str) else ""
+    language = normalize_locale_tag(raw_language) if isinstance(raw_language, str) else ""
     languages = (language,) if language else ()
     raw_voices = metadata.get("predefined_voice_names", getattr(bundle, "voices", ()))
     voices = tuple(str(name) for name in raw_voices if isinstance(name, str))
@@ -73,7 +84,7 @@ def _bundle_fields(
         tuple(sorted(str(name) for name in profiles)) if isinstance(profiles, Mapping) else ()
     )
     raw_voice_details = metadata.get("voice_details")
-    voice_details = []
+    voice_details: list[TargetVoice] = []
     if isinstance(raw_voice_details, (list, tuple)):
         for detail in raw_voice_details:
             if not isinstance(detail, Mapping):
@@ -81,7 +92,7 @@ def _bundle_fields(
             voice_id = detail.get("id")
             if not isinstance(voice_id, str) or not voice_id:
                 continue
-            locale = normalize_language_tag(
+            locale = normalize_locale_tag(
                 detail.get("locale") or detail.get("language") or language
             )
             voice_language = language_base(detail.get("language") or locale)
@@ -99,13 +110,13 @@ def _bundle_fields(
             else:
                 language_label = language_label.strip()
             voice_details.append(
-                {
-                    "id": voice_id,
-                    "language": voice_language,
-                    "locale": locale,
-                    "language_label": language_label,
-                    "gender": normalize_gender(detail.get("gender")),
-                }
+                TargetVoice(
+                    id=voice_id,
+                    gender=normalize_gender(detail.get("gender")),
+                    language=voice_language,
+                    locale=locale,
+                    language_label=language_label,
+                )
             )
     sample_rate = getattr(bundle, "sample_rate", None)
     normalized_metadata = {
@@ -114,8 +125,6 @@ def _bundle_fields(
         "profiles": dict(profiles) if isinstance(profiles, Mapping) else {},
         "qualities": qualities,
     }
-    if raw_voice_details is not None:
-        normalized_metadata["voice_details"] = tuple(voice_details)
     return (
         bundle_id,
         display_name,
@@ -123,6 +132,7 @@ def _bundle_fields(
         voices,
         sample_rate,
         normalized_metadata,
+        tuple(voice_details),
     )
 
 
@@ -182,7 +192,18 @@ def _manager(*, options: Mapping[str, Any], offline: bool) -> Any:
 def _find_bundle(
     bundles: tuple[Any, ...], target_id: str
 ) -> (
-    tuple[Any, tuple[str, str, tuple[str, ...], tuple[str, ...], int | None, Mapping[str, Any]]]
+    tuple[
+        Any,
+        tuple[
+            str,
+            str,
+            tuple[str, ...],
+            tuple[str, ...],
+            int | None,
+            Mapping[str, Any],
+            tuple[TargetVoice, ...],
+        ],
+    ]
     | None
 ):
     for bundle in bundles:
@@ -191,13 +212,6 @@ def _find_bundle(
         if target_id == fields[0] or target_id in aliases:
             return bundle, fields
     return None
-
-
-def _pocket_version() -> str | None:
-    try:
-        return importlib.metadata.version("pocketsynth")
-    except importlib.metadata.PackageNotFoundError:
-        return None
 
 
 def _translate_pocket_error(
@@ -237,7 +251,7 @@ def _translate_pocket_error(
 
     context: dict[str, Any] = {
         "engine": "pocket",
-        "engine_version": _pocket_version(),
+        "engine_version": distribution_version("pocketsynth"),
         "target_id": selection.target_id,
         "language": request.language if request is not None else selection.language,
         "voice": request.voice if request is not None else selection.voice,
@@ -254,19 +268,6 @@ def _translate_pocket_error(
             source="pocketsynth.runtime",
         )
     return error_type(str(error), **context)
-
-
-def _voice_level_metadata(value: Any, mode: str) -> dict[str, Any]:
-    metadata = dict(value) if isinstance(value, Mapping) else {}
-    return {
-        "mode": metadata.get("mode", mode),
-        "applied": bool(metadata.get("applied", False)),
-        "gain_db": metadata.get("gain_db"),
-        "source": metadata.get("source", "none"),
-        "reason": metadata.get("reason"),
-        "calibration_identity": metadata.get("identity", metadata.get("calibration_identity")),
-        "calibration_revision": metadata.get("catalog_revision", metadata.get("bundle_revision")),
-    }
 
 
 class PocketSynthEngineSession:
@@ -403,8 +404,11 @@ class PocketSynthEngineSession:
             bundle_id=self._selection.target_id,
             precision=self._selection.options.get("precision", "int8"),
             voice=_voice_identity_for_request(self._selection, request),
-            voice_level=_voice_level_metadata(
-                metadata.get("voice_level_application"), self._voice_level.mode
+            voice_level=voice_level_metadata(
+                metadata.get("voice_level_application"),
+                self._voice_level.mode,
+                identity_keys=("identity", "calibration_identity"),
+                revision_keys=("catalog_revision", "bundle_revision"),
             ),
         )
         measured = self.measure(request)
@@ -421,7 +425,7 @@ class PocketSynthEngineSession:
             request,
             rendered,
             engine="pocket",
-            engine_version=_pocket_version(),
+            engine_version=distribution_version("pocketsynth"),
             target_id=self._selection.target_id,
         )
 
@@ -451,10 +455,7 @@ class PocketSynthEngineAdapter:
     package_name = "pocketsynth"
 
     def version(self) -> str | None:
-        try:
-            return importlib.metadata.version(self.package_name)
-        except importlib.metadata.PackageNotFoundError:
-            return None
+        return distribution_version(self.package_name)
 
     def compatible_api(self) -> bool:
         try:
@@ -471,10 +472,10 @@ class PocketSynthEngineAdapter:
             )
             if runtime is None or not all(hasattr(pocketsynth, name) for name in required):
                 return False
-            if not all(hasattr(runtime, name) for name in ("from_resolved", "prepare_voice")):
-                return False
-            parameters = inspect.signature(runtime.synthesize).parameters
-            return all(name in parameters for name in ("request", "voice", "config", "voice_level"))
+            return all(
+                callable(getattr(runtime, name, None))
+                for name in ("from_resolved", "prepare_voice", "synthesize")
+            )
         except (
             ImportError,
             SyntaxError,
@@ -499,7 +500,7 @@ class PocketSynthEngineAdapter:
         )
 
     def discover(self, request: CatalogRequest) -> tuple[SynthesisTarget, ...]:
-        requested = normalize_language_tag(request.language) if request.language else None
+        requested = normalize_locale_tag(request.language) if request.language else None
         upstream_language = language_base(requested) if requested else None
         try:
             bundles = _manager(options={}, offline=request.offline).list_bundles(
@@ -510,9 +511,16 @@ class PocketSynthEngineAdapter:
             return ()
         targets = []
         for bundle in bundles:
-            bundle_id, display_name, languages, voices, sample_rate, metadata = _bundle_fields(
-                bundle
-            )
+            (
+                bundle_id,
+                display_name,
+                languages,
+                voices,
+                sample_rate,
+                metadata,
+                voice_details,
+            ) = _bundle_fields(bundle)
+            raw_default_voice = metadata.get("default_voice")
             targets.append(
                 SynthesisTarget(
                     engine=self.id,
@@ -521,6 +529,10 @@ class PocketSynthEngineAdapter:
                     languages=languages,
                     sample_rate=sample_rate,
                     voices=voices,
+                    voice_details=voice_details,
+                    default_voice=(
+                        str(raw_default_voice) if isinstance(raw_default_voice, str) else None
+                    ),
                     qualities=tuple(metadata["qualities"]),
                     aliases=tuple(getattr(bundle, "aliases", ()) or ()),
                     capabilities=frozenset({"predefined_voice", "reference_voice"}),
@@ -582,7 +594,6 @@ class PocketSynthEngineAdapter:
 
         try:
             import pocketsynth
-            from onnxvoice.errors import OnnxVoiceError
         except ImportError as exc:
             return (
                 PlanDiagnostic(
@@ -612,12 +623,7 @@ class PocketSynthEngineAdapter:
             bundles = _manager(options=selection.options, offline=selection.offline).list_bundles(
                 refresh=selection.refresh
             )
-        except (
-            OSError,
-            ValueError,
-            pocketsynth.PocketSynthError,
-            OnnxVoiceError,
-        ) as exc:
+        except (OSError, ValueError, pocketsynth.PocketSynthError) as exc:
             return (
                 PlanDiagnostic(
                     code="pocket.catalog_unavailable",
@@ -637,7 +643,7 @@ class PocketSynthEngineAdapter:
                 ),
             )
         _bundle, fields = found
-        bundle_id, _display_name, languages, voices, _sample_rate, metadata = fields
+        bundle_id, _display_name, languages, voices, _sample_rate, metadata, _voice_details = fields
         diagnostics = []
         if languages and not any(_matches_language(selection.language, item) for item in languages):
             diagnostics.append(
@@ -717,19 +723,20 @@ class PocketSynthEngineAdapter:
     def target_metadata(self, selection: EngineSelection) -> Mapping[str, Any]:
         try:
             import pocketsynth
-            from onnxvoice.errors import OnnxVoiceError
         except ImportError:
             return {}
         try:
             bundles = _manager(options=selection.options, offline=selection.offline).list_bundles(
                 refresh=selection.refresh
             )
-        except (OSError, ValueError, pocketsynth.PocketSynthError, OnnxVoiceError):
+        except (OSError, ValueError, pocketsynth.PocketSynthError):
             return {}
         found = _find_bundle(bundles, selection.target_id)
         if found is None:
             return {}
-        bundle_id, _display_name, languages, voices, sample_rate, metadata = found[1]
+        bundle_id, _display_name, languages, voices, sample_rate, metadata, _voice_details = found[
+            1
+        ]
         result: dict[str, Any] = {
             "bundle_id": bundle_id,
             "languages": languages,

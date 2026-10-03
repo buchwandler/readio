@@ -103,6 +103,7 @@ def test_schema_v2_scope_format_is_semantic_not_source_provenance(tmp_path):
 
 
 def test_pdf_project_uses_editable_ssmd_without_reopening_source(tmp_path, monkeypatch):
+    pytest.importorskip("pypdf")
     source = tmp_path / "report.pdf"
     write_test_pdf(source, "Original PDF text")
     project = init_project(source, tmp_path / "report.readio")

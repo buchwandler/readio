@@ -55,14 +55,13 @@ class ProjectPlanningResult:
     scopes: tuple[PlannedScope, ...]
 
 
-
-
 def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSemanticPlanning:
     prepared = prepare_input_document(document)
     planner_document_format = "ssmd" if prepared.format == "ssmd" else "plain"
     policy = PlanningPolicy.from_semantic_config(cfg, document_format=planner_document_format)
     compiled = compile_semantic_plan(prepared, planning=policy)
     return ResolvedSemanticPlanning(prepared, policy, compiled)
+
 
 def _write_plan_artifact(path: Path, compiled: CompiledSemanticPlan) -> str:
     serialized = compiled.serialized or serialize_utterplan(compiled.plan)
@@ -78,9 +77,7 @@ def prepare_project_document(project: Project) -> InputDocument:
     metadata = __import__("json").loads(paths["document_metadata"].read_text(encoding="utf-8"))
     input_format = metadata.get("input_format", project.manifest.source_format)
     if input_format == "markdown":
-        normalized_document = document_from_text(
-            raw, source_path=source, input_format="markdown"
-        )
+        normalized_document = document_from_text(raw, source_path=source, input_format="markdown")
         normalized = normalized_document.text
         document_format = normalized_document.format
     elif input_format == "ssmd":
@@ -234,8 +231,6 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
     return resolved.compiled
 
 
-
-
 def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
     return load_utterplan_v3(project.root / "plan" / scope.path)
 
@@ -345,7 +340,8 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                 }
         expected_scope_format = (
             "ssmd"
-            if document_scope is not None and document_scope.input_format.casefold() in {"ssmd", "markdown"}
+            if document_scope is not None
+            and document_scope.input_format.casefold() in {"ssmd", "markdown"}
             else expected_format
         )
         actual_format = plan.config.get("document_format")

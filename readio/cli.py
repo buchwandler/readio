@@ -338,11 +338,11 @@ def _validate_live(args: argparse.Namespace) -> None:
 
 
 def _prompt_for_missing_voices(
+    app: public_api.Readio,
     result: public_api.SSMDAnalysis,
-    cfg: public_api.ReadioConfig,
     synthesis: public_api.SynthesisRequest | None = None,
 ) -> dict[str, str]:
-    return cli_adapter.prompt_missing_voices(result, cfg, synthesis)
+    return cli_adapter.prompt_missing_voices(result, app, synthesis)
 
 
 def _cmd_speak(args: argparse.Namespace) -> int:
@@ -403,7 +403,7 @@ def _build_plan_request(
             )
         result = app.ssmd.analyze(document, bindings=bindings or None)
         if result.unresolved_references:
-            bindings.update(_prompt_for_missing_voices(result, cfg))
+            bindings.update(_prompt_for_missing_voices(app, result))
 
     synthesis = _synthesis_request_from_args(args)
 
@@ -1204,7 +1204,7 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
                     "--resolve-voices requires an interactive terminal; "
                     "provide --voice-bind ROLE=VOICE_ID instead"
                 )
-            bindings.update(_prompt_for_missing_voices(checked.analysis, cfg, synthesis))
+            bindings.update(_prompt_for_missing_voices(app, checked.analysis, synthesis))
     result = app.ssmd.validate(
         args.file,
         synthesis=synthesis,

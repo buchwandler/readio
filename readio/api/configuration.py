@@ -244,7 +244,7 @@ class ConfigurationService:
                 )
             updated = replace(
                 base,
-                schema=2,
+                schema=3,
                 languages={**base.languages, resolved_language: resolved_settings},
             )
             config_internal.validate_config(updated)
@@ -317,7 +317,7 @@ class ConfigurationService:
                     code="config.language_profile_not_found",
                 )
             del profiles[normalized]
-            updated = replace(base, schema=2, languages=profiles)
+            updated = replace(base, schema=3, languages=profiles)
             config_internal.save_config(updated)
         except ReadioError:
             raise

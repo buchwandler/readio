@@ -53,6 +53,7 @@ class ParsedSSMD09:
     header: Mapping[str, Any]
     voice_references: tuple[VoiceReferenceUse, ...]
 
+
 def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09:
     try:
         structure = ssmd_api.parse_structure(
@@ -131,6 +132,7 @@ def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09
         voice_references=references,
     )
 
+
 def serialize_generated_front_matter(
     text: str,
     generated: Mapping[str, Any],
@@ -143,6 +145,7 @@ def serialize_generated_front_matter(
     front_matter = ssmd_api.parse_front_matter(text)
     merged = ssmd_api.merge_generated_header(dict(parsed.header), dict(generated))
     return ssmd_api.serialize_front_matter(merged, front_matter.body)
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedVoiceReference:

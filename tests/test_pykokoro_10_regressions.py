@@ -10,11 +10,10 @@ import pytest
 from readio import cli
 from readio.api.catalog import CatalogService
 from readio.config import LanguageSettings
+from readio.engines.pykokoro import _pykokoro_discovery, _version_supported
 from readio.models import (
     ModelDiscoveryError,
     ModelInfo,
-    _pykokoro_discovery,
-    _version_supported,
     validate_language_settings,
 )
 from readio.voices import VoiceCatalogEntry

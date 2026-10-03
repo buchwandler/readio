@@ -12,6 +12,20 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
+class TargetVoice:
+    """Typed descriptive metadata for one voice of a synthesis target.
+
+    Adapters populate canonical Readio values; generic layers only project them.
+    """
+
+    id: str
+    gender: str = "unknown"
+    language: str = "unknown"
+    locale: str = "unknown"
+    language_label: str = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
 class SynthesisTarget:
     """A neutral representation of a synthesis target.
 
@@ -28,6 +42,8 @@ class SynthesisTarget:
     sample_rate: int | None = None
     voices: tuple[str, ...] = ()
     speakers: tuple[str, ...] = ()
+    voice_details: tuple[TargetVoice, ...] = ()
+    default_voice: str | None = None
     qualities: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
     capabilities: frozenset[str] = frozenset()
@@ -60,4 +76,5 @@ __all__ = [
     "CatalogRequest",
     "CatalogResult",
     "SynthesisTarget",
+    "TargetVoice",
 ]

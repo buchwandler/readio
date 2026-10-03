@@ -33,6 +33,7 @@ def _config(config: ReadioConfig | ReaderSettings) -> ReadioConfig:
 def prepare_input_document(document: InputDocument) -> InputDocument:
     return canonicalize_document(document)
 
+
 def _synthesis_request(synthesis: ResolvedSynthesis) -> SynthesisRequest:
     return SynthesisRequest(
         voice_level=synthesis.voice_level,

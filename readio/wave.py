@@ -11,8 +11,8 @@ from types import TracebackType
 from typing import Any
 
 import numpy as np
-import soundfile as sf
 
+from .audioio import open_audio_writer
 from .errors import RenderError
 from .formats import AUDIO_FORMATS, AudioFormat, ffmpeg_executable
 
@@ -24,7 +24,7 @@ class SoundFileSink:
         self.path = path
         self._file_format = file_format
         self._subtype = subtype
-        self._writer: sf.SoundFile | None = None
+        self._writer: Any | None = None
         self._sample_rate: int | None = None
         self._channels: int | None = None
         self.sample_count = 0
@@ -37,12 +37,11 @@ class SoundFileSink:
         if self._writer is None:
             self._sample_rate = sample_rate
             self._channels = channels
-            self._writer = sf.SoundFile(
+            self._writer = open_audio_writer(
                 self.path,
-                mode="w",
-                samplerate=sample_rate,
+                sample_rate=sample_rate,
                 channels=channels,
-                format=self._file_format,
+                file_format=self._file_format,
                 subtype=self._subtype,
             )
         elif sample_rate != self._sample_rate or channels != self._channels:

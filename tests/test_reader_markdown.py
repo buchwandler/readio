@@ -23,6 +23,7 @@ def test_prepare_input_document_canonicalizes_markdown_with_ssmdconvert(tmp_path
     assert "# Title" not in prepared.text
     assert "Paragraph." in prepared.text
 
+
 def test_render_text_uses_canonical_ssmd_for_markdown(monkeypatch):
     captured = {}
     summary = RenderSummary(sample_rate=24000, sample_count=24000, channels=1)
@@ -63,9 +64,10 @@ def test_render_text_uses_canonical_ssmd_for_markdown(monkeypatch):
 
     assert result is summary
     assert captured["document"].format == "ssmd"
-    assert captured["document"].text == document_from_text(
-        "# Title\n\n- first\n- second", input_format="markdown"
-    ).text
+    assert (
+        captured["document"].text
+        == document_from_text("# Title\n\n- first\n- second", input_format="markdown").text
+    )
     assert captured["request"].input.document == captured["document"]
     assert captured["request"].input.selector == "last-paragraph"
     assert captured["kwargs"]["selector"] == "last-paragraph"

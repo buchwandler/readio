@@ -15,25 +15,38 @@ from readio.api import (
     default_config,
 )
 from readio.lexicons import LexiconCatalogEntry
-from readio.models import ModelInfo
 from readio.voices import VoiceCatalogEntry
 
 
 def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> None:
-    model = ModelInfo(
+    from readio.engines.catalog import SynthesisTarget, TargetVoice
+
+    target = SynthesisTarget(
+        engine="kokoro",
         id="de-fixture",
-        source="github",
+        display_name="de-fixture",
         languages=("de",),
+        status="ready",
+        runtime_available=True,
         voices=("fixture",),
+        voice_details=(
+            TargetVoice(
+                id="fixture",
+                gender="unknown",
+                language="de",
+                locale="de-DE",
+                language_label="German",
+            ),
+        ),
         default_voice="fixture",
         qualities=("fp32",),
-        g2p_backend=None,
-        lexicons=(),
-        frontend="fixture",
-        status="ready",
-        experimental=False,
-        runtime_available=True,
-        redistribution_allowed=True,
+        metadata={
+            "source": "github",
+            "g2p_backend": None,
+            "lexicons": (),
+            "frontend": "fixture",
+            "redistribution_allowed": True,
+        },
     )
     voice = VoiceCatalogEntry(
         ref="kokoro:de-fixture/fixture",
@@ -67,9 +80,16 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
         offline=True,
         refreshed=True,
     )
+    result = SimpleNamespace(
+        targets=(target,),
+        registry_source="fixture-cache",
+        cache_fallback=True,
+        offline=True,
+        refreshed=True,
+    )
     monkeypatch.setattr(
-        "readio.api.catalog.discover_model_info",
-        lambda **_: ((model,), raw),
+        "readio.api.catalog.discover_targets",
+        lambda **_: result,
     )
     monkeypatch.setattr(
         "readio.api.catalog.discover_voice_catalog",
@@ -82,7 +102,7 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
 
     app = Readio(default_config())
     options = DiscoveryOptions(offline=True, refresh=True, preference="github")
-    assert app.catalog.normalize_engine("kokoro") == "pykokoro"
+    assert app.catalog.normalize_engine("pykokoro") == "kokoro"
     assert app.catalog.normalize_engine("pipersynth") == "piper"
     expected_metadata = {
         "source": "fixture-cache",
@@ -176,9 +196,9 @@ def test_public_voice_metadata_is_canonical_and_language_matching_is_regional(mo
         )
 
     entries = (
-        entry("american", "en-US", "en_US", "US", "FEMALE"),
+        entry("american", "en", "en-us", "American English", "female"),
         entry("generic", "en", "en", "English", "unknown"),
-        entry("british", "en-GB", "en_GB", "British English", "male"),
+        entry("british", "en", "en-gb", "British English", "male"),
     )
     monkeypatch.setattr(
         "readio.api.catalog.discover_voice_catalog", lambda **_: (entries, SimpleNamespace())
@@ -191,9 +211,9 @@ def test_public_voice_metadata_is_canonical_and_language_matching_is_regional(mo
     assert (specific[0].gender, specific[0].language, specific[0].locale) == (
         "female",
         "en",
-        "en-US",
+        "en-us",
     )
-    assert specific[0].language_label == "en-US"
+    assert specific[0].language_label == "American English"
     assert (specific[1].language, specific[1].locale, specific[1].language_label) == (
         "en",
         "en",
@@ -205,7 +225,7 @@ def test_public_voice_metadata_is_canonical_and_language_matching_is_regional(mo
 
 
 def test_pocket_voice_details_are_normalized_and_filtered_by_locale(monkeypatch) -> None:
-    from readio.engines.catalog import CatalogResult, SynthesisTarget
+    from readio.engines.catalog import CatalogResult, SynthesisTarget, TargetVoice
 
     target = SynthesisTarget(
         engine="pocket",
@@ -213,23 +233,22 @@ def test_pocket_voice_details_are_normalized_and_filtered_by_locale(monkeypatch)
         display_name="English",
         languages=("en",),
         voices=("alba", "british"),
-        metadata={
-            "voice_details": [
-                {
-                    "id": "alba",
-                    "language": "en",
-                    "locale": "en",
-                    "language_label": "English",
-                    "gender": "female",
-                },
-                {
-                    "id": "british",
-                    "language": "en_GB",
-                    "locale": "en_GB",
-                    "language_label": "GB",
-                },
-            ]
-        },
+        voice_details=(
+            TargetVoice(
+                id="alba",
+                gender="female",
+                language="en",
+                locale="en",
+                language_label="English",
+            ),
+            TargetVoice(
+                id="british",
+                gender="unknown",
+                language="en",
+                locale="en-gb",
+                language_label="en-gb",
+            ),
+        ),
     )
     monkeypatch.setattr(
         "readio.voices.discover_targets",
@@ -250,7 +269,7 @@ def test_pocket_voice_details_are_normalized_and_filtered_by_locale(monkeypatch)
     assert [voice.id for voice in generic] == ["alba", "british"]
     assert (generic[1].language, generic[1].locale, generic[1].language_label) == (
         "en",
-        "en-GB",
-        "en-GB",
+        "en-gb",
+        "en-gb",
     )
     assert generic[1].gender == "unknown"

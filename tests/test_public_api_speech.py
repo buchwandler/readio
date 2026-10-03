@@ -26,6 +26,7 @@ from readio.api import (
 from readio.audio import RenderProgress
 from readio.config import ReadioConfig
 from readio.execution import MasterRenderResult, PlaybackExecutionResult
+from readio.stages.composition import CompositionOutcome
 
 
 def _request(*, output: OutputRequest | None = None) -> PlanRequest:
@@ -55,14 +56,8 @@ def _fake_execution(_resolved, sink, *, on_progress=None, on_phase=None):
         sample_count=len(audio),
         channels=1,
     )
-    composition = SimpleNamespace(
-        sample_rate=22050,
-        audio=audio,
-        markers=(),
-        spans=(),
-        items=(),
-    )
-    return MasterRenderResult(summary, SimpleNamespace(), composition)
+    composition = CompositionOutcome(audio=audio, sample_rate=22050)
+    return MasterRenderResult(summary, {}, composition)
 
 
 def _fake_playback_execution(_resolved, sink, *, on_progress=None):

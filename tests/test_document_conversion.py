@@ -78,6 +78,7 @@ def test_convert_document_source_returns_canonical_ssmd(
 
 
 def test_convert_document_source_supports_pdf(tmp_path: Path) -> None:
+    pytest.importorskip("pypdf")
     source = tmp_path / "report.pdf"
     write_test_pdf(source, "PDF text")
 
@@ -136,7 +137,6 @@ def test_document_from_file_auto_uses_conversion_and_explicit_text_does_not(
     assert literal.text == "# Markdown heading"
 
 
-
 def test_canonical_ssmd_file_bypasses_conversion_and_keeps_source_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -157,7 +157,9 @@ def test_canonical_ssmd_file_bypasses_conversion_and_keeps_source_hash(
     assert document.provenance.converter is None
 
 
-def test_raw_auto_file_calls_ssmdconvert_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_raw_auto_file_calls_ssmdconvert_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "notes.txt"
     source.write_text("Raw source", encoding="utf-8")
     original_convert = conversion.convert_document_source
@@ -173,9 +175,8 @@ def test_raw_auto_file_calls_ssmdconvert_once(tmp_path: Path, monkeypatch: pytes
     document = document_from_file(source)
 
     assert calls == 1
-    assert document.canonical_sha256 == hashlib.sha256(
-        document.text.encode("utf-8")
-    ).hexdigest()
+    assert document.canonical_sha256 == hashlib.sha256(document.text.encode("utf-8")).hexdigest()
+
 
 @pytest.mark.parametrize(
     ("error", "code"),

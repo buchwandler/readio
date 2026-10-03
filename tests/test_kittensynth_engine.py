@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import inspect
+import importlib.metadata
 import sys
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -18,75 +19,62 @@ from readio.engines.kittensynth import (
 from readio.engines.selection import EngineRequest
 
 
-def _catalog_item(
-    *,
-    model: str = DEFAULT_KITTEN_MODEL,
-    voices: tuple[str, ...] = ("Jasper", "Bella"),
-    language: str = "en",
-    quality: str = "int8",
-    sample_rate: int = 24000,
-    system: str = "kitten",
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=model,
-        system=system,
+def _discovered_model() -> Any:
+    import kittensynth
+
+    return kittensynth.DiscoveredModel(
+        id=DEFAULT_KITTEN_MODEL,
+        display_name="Kitten Nano",
+        version="0.8",
+        language="en",
+        quality="int8",
+        sample_rate=24000,
         aliases=("nano-current",),
-        sample_rate=sample_rate,
-        voices=voices,
+        voices=(
+            kittensynth.DescribedVoice(
+                id="Jasper",
+                gender="unknown",
+                language="en",
+                locale="en",
+                language_label="English",
+                languages=("en",),
+            ),
+            kittensynth.DescribedVoice(
+                id="Bella",
+                gender="unknown",
+                language="en",
+                locale="en",
+                language_label="English",
+                languages=("en",),
+            ),
+        ),
+        default_voice=DEFAULT_KITTEN_VOICE,
+        source_revision="a" * 40,
         metadata={
             "name": "Kitten Nano",
             "version": "0.8",
-            "language": language,
-            "quality": quality,
+            "language": "en",
+            "quality": "int8",
             "runtime": {"profile": "ONNX2"},
             "source_revision": "a" * 40,
             "source_repository": "example/kitten",
             "license": "Apache-2.0",
-            "voice_aliases": {voice: voice.casefold() for voice in voices},
+            "voice_aliases": {"Jasper": "jasper", "Bella": "bella"},
         },
     )
 
 
-class _OnnxVoiceManager:
-    items = (_catalog_item(),)
+def _install_fake_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    import kittensynth
 
-    def __init__(self, *, offline: bool = False) -> None:
-        self.offline = offline
-        self.calls: list[tuple[str, dict[str, object]]] = []
-
-    def list(self, system: str, **kwargs: object) -> list[SimpleNamespace]:
-        self.calls.append(("list", {"system": system, **kwargs}))
-        return list(self.items)
-
-    def list_voices(self, system: str, **kwargs: object) -> list[SimpleNamespace]:
-        self.calls.append(("list_voices", {"system": system, **kwargs}))
-        item = self.items[0]
-        return [
-            SimpleNamespace(
-                catalog_item=item,
-                voice_id=voice,
-                metadata=SimpleNamespace(
-                    gender="unknown",
-                    language_label="English",
-                ),
-                languages=("en",),
-            )
-            for voice in item.voices
-        ]
-
-
-def _install_fake_catalog(monkeypatch: pytest.MonkeyPatch, manager_type=_OnnxVoiceManager) -> None:
-    monkeypatch.setattr("readio.engines.kittensynth.OnnxVoice", manager_type)
+    monkeypatch.setattr(kittensynth, "discover_models", lambda **_kwargs: (_discovered_model(),))
 
 
 def test_kitten_adapter_compatible_public_api_without_loading_model() -> None:
     adapter = KittenSynthEngineAdapter()
     assert adapter.compatible_api()
     assert "KittenVoice" in vars(__import__("kittensynth"))
-    params = inspect.signature(__import__("kittensynth").KittenVoice.synthesize_prepared).parameters
-    assert params["voice"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert params["speed"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert params["config"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert callable(__import__("kittensynth").KittenVoice.synthesize_prepared)
 
 
 def test_kitten_capabilities_match_supported_contract() -> None:
@@ -104,7 +92,7 @@ def test_kitten_capabilities_match_supported_contract() -> None:
     assert not capabilities.supports_timestamps
 
 
-def test_kitten_discovery_maps_public_onnxvoice_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kitten_discovery_maps_public_kittensynth_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_catalog(monkeypatch)
     targets = KittenSynthEngineAdapter().discover(
         CatalogRequest(engine="kitten", language="en-us", offline=True, refresh=True)
@@ -118,8 +106,8 @@ def test_kitten_discovery_maps_public_onnxvoice_catalog(monkeypatch: pytest.Monk
     assert target.voices == ("Jasper", "Bella")
     assert target.qualities == ("int8",)
     assert target.metadata["source_revision"] == "a" * 40
-    assert target.metadata["default_voice"] == DEFAULT_KITTEN_VOICE
-    assert target.metadata["voice_details"][0]["gender"] == "unknown"
+    assert target.default_voice == DEFAULT_KITTEN_VOICE
+    assert target.voice_details[0].gender == "unknown"
 
 
 def test_kitten_resolve_uses_explicit_default_model_and_voice() -> None:
@@ -263,17 +251,24 @@ def test_kitten_error_translation_has_stable_diagnostic_code(
     assert error.native_error_type == "InvalidVoiceError"
 
 
-def test_kitten_cache_identity_includes_pcm_runtime_versions(
+def test_kitten_cache_identity_uses_engine_owned_runtime_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def version(distribution: str) -> str:
-        return {
-            "kittensynth": "0.1.0",
-            "onnxvoice": "0.2.0",
-            "kitteng2p": "0.1.1",
-        }[distribution]
+    runtime_identity = {
+        "engine_version": "0.1.0",
+        "runtime_revision": "onnxvoice-0.2.0",
+        "g2p_revision": "0.1.1",
+        "catalog_revision": None,
+        "model_revision": "0.8",
+    }
+    module = ModuleType("kittensynth")
+    module.runtime_identity = lambda: dict(runtime_identity)
+    monkeypatch.setitem(sys.modules, "kittensynth", module)
 
-    monkeypatch.setattr("readio.engines.kittensynth.importlib.metadata.version", version)
+    def version(distribution: str) -> str:
+        return {"kittensynth": "0.1.0"}[distribution]
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
     adapter = KittenSynthEngineAdapter()
     selection = EngineSelection(
         engine="kitten",
@@ -286,8 +281,7 @@ def test_kitten_cache_identity_includes_pcm_runtime_versions(
     identity = adapter.canonical_synthesis_identity(selection)
     assert identity["engine"] == "kitten"
     assert identity["engine_version"] == "0.1.0"
-    assert identity["onnxvoice_version"] == "0.2.0"
-    assert identity["g2p_version"] == "0.1.1"
+    assert identity["engine_identity"] == runtime_identity
     assert identity["model_revision"] == "a" * 40
     assert identity["options"] == {"speed": 1.2}
     assert "/transient/model-cache" not in repr(identity)
