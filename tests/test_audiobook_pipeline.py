@@ -149,14 +149,14 @@ def test_cli_audiobook_init_plan_and_render_end_to_end(tmp_path, monkeypatch, ca
         cli.main(["status", "--json"])
     assert status_exit.value.code == 0
     status = json.loads(capsys.readouterr().out)
-    assert status["project"]["root"] == str(output.resolve())
+    assert status["project"]["root"] == output.resolve().as_posix()
 
     with pytest.raises(SystemExit) as render_exit:
         cli.main(["render", str(output / ".readio" / "plan"), "--format", "wav", "--json"])
     assert render_exit.value.code == 0
     rendered = json.loads(capsys.readouterr().out)
-    assert rendered["project"]["root"] == str(output.resolve())
-    assert rendered["output_path"] == str(output / ".readio" / "output" / "novel.wav")
+    assert rendered["project"]["root"] == output.resolve().as_posix()
+    assert rendered["output_path"] == (output / ".readio" / "output" / "novel.wav").as_posix()
     assert not (output / "output").exists()
     assert rendered["ok"] is True
     assert adapter.open_calls == 1
