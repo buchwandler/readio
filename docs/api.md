@@ -179,7 +179,9 @@ Requestless `synthesize()`, `compose()`, `export()`, and `build()` use saved set
 
 `ProjectCompositionResult.loudness` is a typed `LoudnessSummary` with before/after integrated LUFS, sample peak and true peak, requested/applied gain, target status, warning, and analysis/gain/post-gain metric timings. The mastering operation is transparent constant gain: `reduce_gain` may stop short of the LUFS target to honor the true-peak ceiling; this is not a true-peak limiter or ACX compliance check.
 
-`app.audiobooks.inspect(source)` accepts an EPUB file, an `.ssmdbook` directory, or an `.ssmdbook.zip` bundle and returns typed book metadata plus a chapter inventory. Each `AudiobookChapter.number` is its original 1-based source chapter number. `create_project()` creates a chapter-scoped Readio project from the same source types; `create_project_result()` additionally returns the selected source chapter numbers and scope IDs. Selectors address available source numbers and preserve source order, including when a bundle contains a non-contiguous subset. Readio stores each chapter as standalone editable SSMD and retains the input as provenance. Directory bundles are snapshotted as deterministic ZIP files. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+`app.audiobooks.inspect(source)` accepts an EPUB file, an `.ssmdbook` directory, or an `.ssmdbook.zip` bundle and returns typed book metadata plus a chapter inventory. Each `AudiobookChapter.number` is its original 1-based source chapter number. `create_project()` materializes EPUB and ZIP inputs as a full `.ssmdbook` workspace before attaching Readio state; an existing directory is attached in place. `create_project_result()` additionally returns selected chapter numbers and scope IDs. Selection is Readio-local under `.readio/` and does not remove chapters from the canonical workspace. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+
+For attached projects, `ProjectRef.root` identifies the canonical `.ssmdbook` workspace and Readio state is under `.readio/`. Chapter `DocumentScope.path` values resolve against the workspace, so edits are immediately visible; refresh diagnostics update only Readio indexes and do not rewrite the book manifest. Delete `.readio/` to remove derived state without deleting the book, then call `create_project()` on the workspace to recreate it. A portable ssmdbook ZIP excludes Readio state.
 Unsupported document formats, missing converter adapters, conversion failures, invalid bundle sources, and invalid chapter selections are translated to Readio API errors with stable codes and the original source path where applicable. Common codes include `input.format_unsupported`, `input.converter_dependency_missing`, `input.conversion_failed`, `input.book_bundle_invalid`, and `request.chapter_selection_invalid`.
 `describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
 `create_project(..., settings=ProjectSettings(audiobook_export=...))` can save output, metadata, cover, and bitrate defaults at creation time. Omitted export options use those values; explicitly supplied non-`None` values override them for one invocation without mutating the manifest. `app.audiobooks.build(project)` runs the ordinary plan, synthesis, and composition services before M4B export. It respects the project's stored chapter scope and returns an `AudiobookExportResult`.
@@ -196,7 +198,7 @@ from pathlib import Path
 from readio.api import Readio, SynthesisRequest
 
 app = Readio()
-project = app.projects.open(Path("novel.readio"))
+project = app.projects.open(Path("novel.ssmdbook"))
 book = app.audiobooks.describe_project(project)
 for chapter in book.chapters:
     print(chapter.number, chapter.title, chapter.scope_id)
@@ -208,7 +210,7 @@ print(resolved.model, resolved.model_source, resolved.quality)
 ```
 
 ```python
-book = app.projects.open(Path("novel.readio"))
+book = app.projects.open(Path("novel.ssmdbook"))
 m4b = app.audiobooks.export(
     book,
     AudiobookExportOptions(

@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-import supertonicsynth
+
+supertonicsynth = pytest.importorskip("supertonicsynth")
 
 from readio.engines.base import EngineSelection, SpeechRequest, SpeechToken
 from readio.engines.catalog import CatalogRequest

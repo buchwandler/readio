@@ -41,7 +41,7 @@ jobs:
         run: python -m pytest -q
 
   ssmdconvert-minimum:
-    name: ssmdconvert 0.1.1 public API contract
+    name: ssmdconvert 0.1.2 + utterplan 0.3.3 public API contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,22 +52,24 @@ jobs:
         with:
           python-version: "3.10"
           cache: pip
-      - name: Install minimum released converter and project
+      - name: Install minimum released converter/compiler and project
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "ssmdconvert[pdf,docx]==0.1.1"
+          python -m pip install "ssmdconvert[pdf,docx]==0.1.2" "utterplan==0.3.3"
           python -m pip install -e ".[dev,documents]"
       - name: Verify dependency resolution
         run: python -m pip check
       - name: Test public conversion boundary at minimum release
         env:
           READIO_TEST_SSMD_CONVERT_MINIMUM: "1"
+          READIO_TEST_UTTERPLAN_MINIMUM: "1"
         run: >-
           python -m pytest -q
           tests/test_ssmdconvert_api_contract.py
           tests/test_document_conversion.py
           tests/test_packaging_metadata.py
           tests/test_audiobook_project.py
+          tests/test_utterplan_v3_linguistics.py
           tests/test_audiobook_cli.py
   engine-compatibility:
     name: ${{ matrix.engine }} ${{ matrix.channel }} API (Ubuntu, Python ${{ matrix.python-version }})
@@ -178,7 +180,7 @@ jobs:
       - name: Verify dependency resolution
         run: python -m pip check
       - name: Run released-package API contracts without model downloads
-        run: python -m pytest -q tests/test_released_engine_apis.py
+        run: python -m pytest -q tests/test_released_engine_apis.py tests/test_supertonicsynth_engine.py
 
   quality:
     name: Static quality checks

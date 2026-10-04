@@ -829,7 +829,7 @@ def _cmd_audiobook_chapters(args: argparse.Namespace) -> int:
 def _cmd_audiobook_init(args: argparse.Namespace) -> int:
     app = _api_for(args)
     result = app.audiobooks.create_project_result(
-        args.source, chapters=args.chapters, output=args.output
+        args.source, chapters=args.chapters, language=args.language, output=args.output
     )
     project = result.project
     payload = {
@@ -2170,10 +2170,11 @@ def build_parser() -> argparse.ArgumentParser:
     audiobook_chapters.add_argument("--json", action="store_true")
     audiobook_chapters.set_defaults(func=_cmd_audiobook_chapters)
     audiobook_init = audiobook_sub.add_parser(
-        "init", help="initialize a chapter-scoped audiobook project from a book source"
+        "init", help="attach a book workspace or create an editable .ssmdbook workspace"
     )
     audiobook_init.add_argument("source", type=Path)
     audiobook_init.add_argument("--chapters", default="all")
+    audiobook_init.add_argument("--language", help="semantic language override for EPUB conversion")
     audiobook_init.add_argument("-o", "--output", type=Path)
     audiobook_init.add_argument("--json", action="store_true")
     audiobook_init.set_defaults(func=_cmd_audiobook_init)

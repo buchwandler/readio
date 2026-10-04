@@ -14,7 +14,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from .config import (
     DEFAULT_SHORT_SENTENCE_POLICY,
@@ -682,13 +682,14 @@ def _resolve_synthesis_candidate(
     cfg: ReadioConfig,
     request: SynthesisRequest,
     document_language_detection: tuple[str, tuple[str, ...]] | None = None,
+    document_language: str | None = None,
 ) -> SynthesisCandidate:
     """Apply Readio precedence rules and record provenance."""
     decisions: list[ResolutionDecision] = []
 
     voice_resolution = resolve_voice_reference(
         request.voice,
-        language=request.language,
+        language=request.language or document_language,
         model=request.model,
         source=request.model_source,
         offline=request.offline,
@@ -721,12 +722,15 @@ def _resolve_synthesis_candidate(
         )
     # Language
     cli_language = request.language
-    raw_language = normalize_language_key(cli_language or cfg.reader.lang)
+    raw_language = normalize_language_key(cli_language or document_language or cfg.reader.lang)
     profile_key, profile = language_profile(cfg, raw_language)
 
     if cli_language is not None:
         lang_origin = ORIGIN_CLI
         lang_locator = "request.language"
+    elif document_language is not None:
+        lang_origin = ORIGIN_DOCUMENT
+        lang_locator = "document.language"
     else:
         lang_origin = ORIGIN_CONFIG_READER
         lang_locator = "reader.lang"
@@ -1133,6 +1137,7 @@ def _resolve_synthesis_candidate(
         voice is None
         and model is None
         and not cli_language
+        and document_language is None
         and profile is None
         and (request.engine is None or selected_engine == reader_engine)
     ):
@@ -1386,7 +1391,9 @@ def _resolve_v2_ssmd_roles(
 
     invocation_bindings = dict(request.voice_bindings)
     project_targets = dict(request.project_voice_targets)
-    target_metadata = getattr(adapter, "target_metadata", lambda _selection: {})(selection)
+    target_metadata: Mapping[str, Any] = getattr(adapter, "target_metadata", lambda _selection: {})(
+        selection
+    )
     available = set(target_metadata.get("voices", ()))
     if adapter.capabilities().voice_binding_scope == "target":
         available.add(selection.target_id)
@@ -1526,9 +1533,9 @@ def _resolve_v2_ssmd_roles(
         ):
             target_id = selected_target.target_id or selected_target.voice
             role_selection = replace(selection, target_id=target_id)
-            role_metadata = getattr(adapter, "target_metadata", lambda _selection: {})(
-                role_selection
-            )
+            role_metadata: Mapping[str, Any] = getattr(
+                adapter, "target_metadata", lambda _selection: {}
+            )(role_selection)
             role_target = RenderTargetV2(
                 id=target_id,
                 language=default_target.language,
@@ -1571,9 +1578,153 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     input_plan, effective_doc, input_diags = _plan_input(request.input, cfg)
     diagnostics: list[PlanDiagnostic] = list(input_diags)
     decisions: list[ResolutionDecision] = []
-
     document_language_detection: tuple[str, tuple[str, ...]] | None = None
-    candidate = _resolve_synthesis_candidate(cfg, request.synthesis, document_language_detection)
+    metadata_language = (
+        effective_doc.provenance.metadata.get("language")
+        if effective_doc.provenance is not None
+        else None
+    )
+    document_language = metadata_language.strip() if isinstance(metadata_language, str) else None
+    preliminary_policy = PlanningPolicy.from_semantic_config(
+        cfg,
+        document_format="ssmd" if effective_doc.format == "ssmd" else "plain",
+    )
+    if request.synthesis.language is not None:
+        preliminary_policy = replace(preliminary_policy, language=request.synthesis.language)
+    elif document_language is not None:
+        preliminary_policy = replace(preliminary_policy, language=document_language)
+    if request.synthesis.unit is not None:
+        preliminary_policy = replace(
+            preliminary_policy,
+            unit=cast(Literal["sentence", "paragraph"], request.synthesis.unit),
+        )
+    if request.synthesis.pause_mode is not None:
+        preliminary_policy = replace(preliminary_policy, pause_mode=request.synthesis.pause_mode)
+    if request.synthesis.spacy is not None:
+        preliminary_policy = replace(
+            preliminary_policy,
+            spacy_policy=normalize_spacy_policy(request.synthesis.spacy),
+        )
+    if (
+        request.synthesis.language_detection is not None
+        or request.synthesis.detect_languages is not None
+    ):
+        detection = request.synthesis.language_detection
+        if detection is None and request.synthesis.detect_languages is not None:
+            detection = "auto"
+        preliminary_policy = replace(
+            preliminary_policy,
+            language_detection=detection,
+            detect_languages=tuple(request.synthesis.detect_languages or ()),
+        )
+
+    policy = preliminary_policy
+    semantic_plan_ref = SemanticPlanRef()
+    semantic: CompiledSemanticPlan | None = None
+    render: RenderPlanV2 | None = None
+
+    def compile_semantic(policy_for_plan: PlanningPolicy) -> CompiledSemanticPlan | None:
+        nonlocal semantic_plan_ref
+        semantic_plan_ref = SemanticPlanRef()
+        try:
+            compiled = compile_semantic_plan(effective_doc, planning=policy_for_plan)
+        except (ImportError, AttributeError, TypeError, ValueError, RenderError) as exc:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="semantic_plan_failed",
+                    severity="error",
+                    message=f"semantic plan compilation failed: {exc}",
+                    field="planning",
+                    source_path=effective_doc.source_path,
+                )
+            )
+            return None
+        semantic_plan_ref = SemanticPlanRef(
+            format="utterplan",
+            schema_version=compiled.plan.schema_version,
+            plan_id=compiled.plan_id,
+            sha256=compiled.sha256,
+            path=None,
+        )
+        return compiled
+
+    semantic = compile_semantic(policy)
+    header: Mapping[str, Any] = {}
+    if semantic is not None and effective_doc.format == "ssmd":
+        raw_header = semantic.plan.document_metadata.get("header", {})
+        if isinstance(raw_header, Mapping):
+            header = raw_header
+        header_language = header.get("language", semantic.plan.document_metadata.get("language"))
+        if isinstance(header_language, str) and header_language.strip():
+            document_language = header_language.strip()
+            if request.synthesis.language is None:
+                policy = replace(policy, language=document_language)
+        if (
+            request.synthesis.language_detection is None
+            and request.synthesis.detect_languages is None
+        ):
+            from .ssmd import language_detection_hint_from_header
+
+            try:
+                document_language_detection = language_detection_hint_from_header(
+                    header,
+                    source_path=effective_doc.source_path,
+                )
+            except ValueError as exc:
+                diagnostics.append(
+                    PlanDiagnostic(
+                        code="ssmd_language_hint_invalid",
+                        severity="error",
+                        message=str(exc),
+                        field="planning.language_detection",
+                        source_path=effective_doc.source_path,
+                    )
+                )
+            if document_language_detection is not None:
+                policy = replace(
+                    policy,
+                    language_detection=document_language_detection[0],
+                    detect_languages=document_language_detection[1],
+                )
+        if policy != preliminary_policy:
+            preliminary_policy = policy
+            semantic = compile_semantic(policy)
+    semantic_language = next(
+        (
+            segment.language.strip()
+            for segment in (semantic.plan.segments if semantic is not None else ())
+            if isinstance(segment.language, str) and segment.language.strip()
+        ),
+        document_language,
+    )
+    candidate_document_language = document_language
+    if semantic_language is not None and (
+        document_language is not None
+        or semantic_language.casefold() != preliminary_policy.language.casefold()
+    ):
+        candidate_document_language = semantic_language
+    candidate = _resolve_synthesis_candidate(
+        cfg,
+        request.synthesis,
+        document_language_detection,
+        candidate_document_language,
+    )
+
+    def planning_policy_for(current: SynthesisCandidate) -> PlanningPolicy:
+        return PlanningPolicy(
+            language=current.language,
+            unit=cast(Literal["sentence", "paragraph"], current.unit),
+            text_preparation="spokenform",
+            document_format="ssmd" if effective_doc.format == "ssmd" else "plain",
+            pause_mode=current.pause_mode,
+            spacy_policy=current.spacy,
+            language_detection=current.language_detection,
+            detect_languages=tuple(current.detect_languages or ()),
+        )
+
+    policy = planning_policy_for(candidate)
+    if semantic is not None and policy != preliminary_policy:
+        semantic = compile_semantic(policy)
     decisions.extend(candidate.decisions)
     engine_id = normalize_engine_id(candidate.engine or cfg.reader.engine)
     if request.synthesis.voice_prompt is not None and engine_id != "pocket":
@@ -1740,7 +1891,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
                         )
                     )
                 else:
-                    engine_options["voice_source"] = voice_source
+                    engine_options["voice_source"] = cast(JsonValue, voice_source)
         voice_prompt = request.synthesis.voice_prompt
         if voice_prompt is not None and engine_id == "pocket":
             engine_options["voice_source"] = {
@@ -1809,16 +1960,6 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     diagnostics.extend(output_diags)
     decisions.extend(output_decisions)
 
-    policy = PlanningPolicy(
-        language=candidate.language,
-        unit=candidate.unit,
-        text_preparation="spokenform",
-        document_format="ssmd" if effective_doc.format == "ssmd" else "plain",
-        pause_mode=candidate.pause_mode,
-        spacy_policy=candidate.spacy,
-        language_detection=candidate.language_detection,
-        detect_languages=tuple(candidate.detect_languages or ()),
-    )
     planning = PlanningPlanV2(
         language=candidate.language,
         unit=candidate.unit,
@@ -1828,28 +1969,6 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
         language_detection=candidate.language_detection,
         detect_languages=candidate.detect_languages,
     )
-    semantic_plan_ref = SemanticPlanRef()
-    semantic: CompiledSemanticPlan | None = None
-    render: RenderPlanV2 | None = None
-    try:
-        semantic = compile_semantic_plan(effective_doc, planning=policy)
-        semantic_plan_ref = SemanticPlanRef(
-            format="utterplan",
-            schema_version=semantic.plan.schema_version,
-            plan_id=semantic.plan_id,
-            sha256=semantic.sha256,
-            path=None,
-        )
-    except (ImportError, AttributeError, TypeError, ValueError, RenderError) as exc:
-        diagnostics.append(
-            PlanDiagnostic(
-                code="semantic_plan_failed",
-                severity="error",
-                message=f"semantic plan compilation failed: {exc}",
-                field="planning",
-                source_path=effective_doc.source_path,
-            )
-        )
     if adapter is not None and selection is not None and semantic is not None:
         selected_voice_source = selection.metadata.get("voice_source")
         if "voice_source" in selection.metadata:

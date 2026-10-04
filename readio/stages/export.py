@@ -70,13 +70,13 @@ def build_audio_export_identity(
 def target_record(project: Project, target: Path) -> str:
     resolved = target.expanduser().resolve()
     try:
-        return resolved.relative_to(project.root.resolve()).as_posix()
+        return resolved.relative_to(project.state_root.resolve()).as_posix()
     except ValueError:
         return str(resolved)
 
 
 def _load_output_records(project: Project) -> dict[str, dict[str, Any]]:
-    state_path = project.root / _EXPORT_STATE_PATH
+    state_path = project.state_root / _EXPORT_STATE_PATH
     if not state_path.is_file():
         return {}
     state = read_json(state_path)
@@ -104,7 +104,7 @@ def store_export_state(project: Project, target: Path, state: Mapping[str, Any])
     outputs = _load_output_records(project)
     outputs[target_record(project, target)] = dict(state)
     atomic_write_json(
-        project.root / _EXPORT_STATE_PATH,
+        project.state_root / _EXPORT_STATE_PATH,
         {"format": "readio.export-index", "schema_version": 2, "outputs": outputs},
     )
 
@@ -170,10 +170,10 @@ def export_project(
             audio_format=audio_format,
             effective_options=options,
         )
-        target = output or project.root / "output" / f"{project.manifest.name}.{audio_format}"
+        target = output or project.state_root / "output" / f"{project.manifest.name}.{audio_format}"
         target = Path(target).expanduser()
         if not target.is_absolute():
-            target = project.root / target
+            target = project.state_root / target
         target = target.resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         replace_existing = _can_replace_target(project, target, force=force)

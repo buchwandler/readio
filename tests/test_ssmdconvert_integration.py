@@ -21,6 +21,7 @@ from readio.integrations.ssmdconvert import (
     convert_document_source,
     inspect_book_source,
     load_book_bundle_source,
+    load_book_workspace_source,
     write_book_bundle,
 )
 
@@ -140,7 +141,7 @@ def test_book_boundary_translates_unsupported_bundle_and_selection_errors(
     bundle = tmp_path / "novel.ssmdbook.zip"
     make_subset_book_bundle(epub, bundle, format="zip")
     with pytest.raises(BookSelectionError) as bundle_selection_error:
-        init_audiobook_project(bundle, tmp_path / "invalid.readio", chapters="5")
+        init_audiobook_project(bundle, tmp_path / "invalid.ssmdbook", chapters="5")
     assert bundle_selection_error.value.code == "input.book_selection_invalid"
     assert bundle_selection_error.value.source_path == bundle.resolve()
 
@@ -154,3 +155,31 @@ def test_document_boundary_translates_unsupported_input(tmp_path: Path) -> None:
 
     assert error.value.code == "input.format_unsupported"
     assert error.value.source_path == source.resolve()
+
+
+def test_workspace_loader_uses_current_chapter_bytes_and_reports_dirty_digests(
+    tmp_path: Path,
+) -> None:
+    epub = tmp_path / "novel.epub"
+    make_epub(epub)
+    workspace = tmp_path / "novel.ssmdbook"
+    write_book_bundle(convert_book_source(epub), workspace, format="directory")
+
+    clean = load_book_workspace_source(workspace)
+    assert clean.workspace_dirty is False
+    assert clean.dirty_chapter_ids == ()
+    assert set(clean.chapter_paths) == {chapter.id for chapter in clean.chapters}
+
+    changed_id = clean.chapters[0].id
+    changed_path = workspace / clean.chapter_paths[changed_id]
+    original_manifest = (workspace / "manifest.json").read_bytes()
+    changed_path.write_text(
+        changed_path.read_text(encoding="utf-8") + "\n\nAn unsynchronized author edit.\n",
+        encoding="utf-8",
+    )
+    dirty = load_book_workspace_source(workspace)
+
+    assert dirty.workspace_dirty is True
+    assert dirty.dirty_chapter_ids == (changed_id,)
+    assert dirty.chapters[0].ssmd.endswith("An unsynchronized author edit.\n")
+    assert (workspace / "manifest.json").read_bytes() == original_manifest

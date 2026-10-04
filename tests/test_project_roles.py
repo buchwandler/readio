@@ -105,7 +105,7 @@ def test_collects_all_sample_role_counts_and_config_fallback(tmp_path) -> None:
     assert roles["narrator"].effective_voice == "af_sarah"
     assert roles["narrator"].origin == "config.voice_role"
     assert roles["guest"].effective_voice == "af_bella"
-    assert roles["guest"].locations[0].lines == tuple(range(23, 34))
+    assert roles["guest"].locations[0].lines == tuple(range(24, 35))
 
 
 def test_project_binding_overrides_config_role(tmp_path) -> None:
@@ -144,7 +144,7 @@ def test_document_binding_overrides_project_binding(tmp_path) -> None:
     assert narrator.origin == "document"
     assert narrator.document_binding == "af_bella"
     assert narrator.project_binding == "af_heart"
-    assert narrator.locations[0].lines == (8,)
+    assert narrator.locations[0].lines == (9,)
 
 
 def test_multiscope_document_bindings_report_mixed_values(tmp_path) -> None:

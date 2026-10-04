@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -22,6 +22,9 @@ from ssmdconvert import (
 )
 from ssmdconvert import (
     BookInspectionChapter as SSMDConvertBookInspectionChapter,
+)
+from ssmdconvert import (
+    BookWorkspace as SSMDConvertBookWorkspace,
 )
 from ssmdconvert import (
     ChapterSelectionError as SSMDConvertChapterSelectionError,
@@ -56,6 +59,9 @@ from ssmdconvert import (
 )
 from ssmdconvert import (
     load_book_bundle as ssmdconvert_load_book_bundle,
+)
+from ssmdconvert import (
+    load_book_workspace as ssmdconvert_load_book_workspace,
 )
 from ssmdconvert import (
     write_book_bundle as ssmdconvert_write_book_bundle,
@@ -113,6 +119,9 @@ class CanonicalBook:
     source_sha256: str
     source_chapter_count: int | None
     converter_version: str
+    workspace_dirty: bool = False
+    dirty_chapter_ids: tuple[str, ...] = ()
+    chapter_paths: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,7 +410,9 @@ def inspect_book_source(source: Path) -> BookInspection:
     )
 
 
-def convert_book_source(source: Path, *, chapters: str | None = "all") -> CanonicalBook:
+def convert_book_source(
+    source: Path, *, chapters: str | None = "all", language: str | None = None
+) -> CanonicalBook:
     path = source.expanduser().resolve()
     if book_source_kind(path) != "epub":
         raise BookInputError(
@@ -410,7 +421,7 @@ def convert_book_source(source: Path, *, chapters: str | None = "all") -> Canoni
             code="input.book_format_unsupported",
         )
     try:
-        book = ssmdconvert_convert_book(path, chapters=chapters)
+        book = ssmdconvert_convert_book(path, chapters=chapters, language=language)
     except (SSMDConvertError, OSError, UnicodeError, ValueError) as error:
         raise _book_input_error(error, path) from error
     return _canonical_book(book)
@@ -429,6 +440,27 @@ def load_book_bundle_source(source: Path) -> CanonicalBook:
     except (SSMDConvertError, OSError, UnicodeError, ValueError) as error:
         raise _book_input_error(error, path) from error
     return _canonical_book(book)
+
+
+def load_book_workspace_source(source: Path) -> CanonicalBook:
+    """Load current chapter bytes and manifest dirtiness through the public workspace API."""
+    path = source.expanduser().resolve()
+    if book_source_kind(path) != "bundle" or not path.is_dir():
+        raise BookInputError(
+            "workspace loading requires an existing .ssmdbook directory",
+            source_path=path,
+            code="input.book_format_unsupported",
+        )
+    try:
+        workspace: SSMDConvertBookWorkspace = ssmdconvert_load_book_workspace(path)
+    except (SSMDConvertError, OSError, UnicodeError, ValueError) as error:
+        raise _book_input_error(error, path) from error
+    return replace(
+        _canonical_book(workspace.book),
+        workspace_dirty=workspace.dirty,
+        chapter_paths={chapter.id: chapter.path for chapter in workspace.chapters},
+        dirty_chapter_ids=tuple(chapter.id for chapter in workspace.chapters if chapter.dirty),
+    )
 
 
 def write_book_bundle(
@@ -484,5 +516,6 @@ __all__ = [
     "convert_document_source",
     "inspect_book_source",
     "load_book_bundle_source",
+    "load_book_workspace_source",
     "write_book_bundle",
 ]

@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
-from .document import InputDocument
+from .document import DocumentProvenance, InputDocument, InputFormat
 from .integrations.ssmdconvert import convert_document_source
 from .jsonutil import json_value
 from .project_model import (
@@ -76,50 +76,111 @@ def read_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def _safe_relative(project_root: Path, path: str) -> Path:
+def _safe_workspace_relative(workspace_root: Path, path: str) -> Path:
     candidate = Path(path)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        raise ProjectFormatError(f"project path must be relative and contained: {path!r}")
-    resolved = (project_root / candidate).resolve()
-    root = project_root.resolve()
+    if candidate.is_absolute() or ".." in candidate.parts or "\\" in path:
+        raise ProjectFormatError(f"workspace path must be relative and contained: {path!r}")
+    resolved = (workspace_root / candidate).resolve()
+    root = workspace_root.resolve()
     if resolved != root and root not in resolved.parents:
-        raise ProjectFormatError(f"project path escapes project root: {path!r}")
-    return project_root / candidate
+        raise ProjectFormatError(f"workspace path escapes workspace root: {path!r}")
+    return workspace_root / candidate
 
 
-def project_paths(root: Path) -> dict[str, Path]:
-    root = root.expanduser().resolve()
-    manifest = ProjectManifest.from_dict(read_json(root / "project.json"))
-    paths = {
-        "root": root,
-        "project": root / "project.json",
-        "source": _safe_relative(root, manifest.source_path),
-        "document_text": _safe_relative(root, manifest.document_text_path),
-        "document_metadata": _safe_relative(root, manifest.document_metadata_path),
-        "document_index": _safe_relative(root, manifest.document_index_path),
-        "plan_index": _safe_relative(root, manifest.plan_index_path),
-        "synthesis_profile": _safe_relative(root, manifest.synthesis_profile_path),
-        "synthesis_trace": _safe_relative(root, manifest.synthesis_trace_path),
-        "composition_audiojob": _safe_relative(root, manifest.composition_audiojob_path),
-        "composition_state": _safe_relative(root, manifest.composition_state_path),
-        "composition_master": _safe_relative(root, manifest.composition_master_path),
-        "composition_timeline": _safe_relative(root, manifest.composition_timeline_path),
-        "lock": root / ".lock",
+def _safe_state_relative(state_root: Path, path: str) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute() or ".." in candidate.parts or "\\" in path:
+        raise ProjectFormatError(f"project path must be relative and contained: {path!r}")
+    resolved = (state_root / candidate).resolve()
+    root = state_root.resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ProjectFormatError(f"project path escapes state root: {path!r}")
+    return state_root / candidate
+
+
+def _safe_relative(project_root: Path, path: str) -> Path:
+    """Backward-compatible alias for resolving Readio state-relative paths."""
+    return _safe_state_relative(project_root, path)
+
+
+def project_paths(root: Path, *, state_root: Path | None = None) -> dict[str, Path]:
+    workspace_root = root.expanduser().resolve()
+    if state_root is None:
+        attached_root = workspace_root / ".readio"
+        state_root = attached_root if (attached_root / "project.json").is_file() else workspace_root
+    state_root = state_root.expanduser().resolve()
+    manifest = ProjectManifest.from_dict(read_json(state_root / "project.json"))
+    if manifest.schema_version == 4:
+        attached_state = workspace_root / ".readio"
+        if attached_state.is_symlink() or state_root != attached_state:
+            raise ProjectFormatError("attached project state must be stored in workspace/.readio")
+    state_path = lambda relative: _safe_state_relative(state_root, relative)
+    workspace_path = lambda relative: _safe_workspace_relative(workspace_root, relative)
+    source_path = workspace_path(manifest.source_path)
+    if manifest.schema_version == 4 and (
+        source_path.resolve() == state_root or state_root in source_path.resolve().parents
+    ):
+        raise ProjectFormatError("attached workspace source path must not point inside .readio")
+    return {
+        "root": workspace_root,
+        "workspace_root": workspace_root,
+        "state_root": state_root,
+        "project": state_root / "project.json",
+        "source": source_path,
+        "document_text": state_path(manifest.document_text_path),
+        "document_metadata": state_path(manifest.document_metadata_path),
+        "document_index": state_path(manifest.document_index_path),
+        "plan_index": state_path(manifest.plan_index_path),
+        "synthesis_profile": state_path(manifest.synthesis_profile_path),
+        "synthesis_trace": state_path(manifest.synthesis_trace_path),
+        "composition_audiojob": state_path(manifest.composition_audiojob_path),
+        "composition_state": state_path(manifest.composition_state_path),
+        "composition_master": state_path(manifest.composition_master_path),
+        "composition_timeline": state_path(manifest.composition_timeline_path),
+        "lock": state_root / ".lock",
     }
-    return paths
 
 
 class Project:
-    def __init__(self, root: Path, manifest: ProjectManifest) -> None:
-        self.root = root.resolve()
+    def __init__(
+        self, root: Path, manifest: ProjectManifest, state_root: Path | None = None
+    ) -> None:
+        self.workspace_root = root.resolve()
+        self.root = self.workspace_root
+        if manifest.schema_version == 4:
+            attached_state_root = self.workspace_root / ".readio"
+            _safe_workspace_relative(self.workspace_root, ".readio")
+            if attached_state_root.is_symlink():
+                raise ProjectFormatError("attached project state root must not be a symlink")
+            requested_state_root = (state_root or attached_state_root).expanduser().absolute()
+            if requested_state_root != attached_state_root:
+                raise ProjectFormatError("attached project state root must be workspace/.readio")
+            self.state_root = attached_state_root
+        else:
+            if state_root is not None and state_root.resolve() != self.workspace_root:
+                raise ProjectFormatError(
+                    "standalone project state root must equal its workspace root"
+                )
+            self.state_root = self.workspace_root
         self.manifest = manifest
 
     @property
     def paths(self) -> dict[str, Path]:
-        return project_paths(self.root)
+        return project_paths(self.workspace_root, state_root=self.state_root)
 
     def path(self, relative: str) -> Path:
-        return _safe_relative(self.root, relative)
+        return self.state_path(relative)
+
+    def state_path(self, relative: str) -> Path:
+        return _safe_state_relative(self.state_root, relative)
+
+    def workspace_path(self, relative: str) -> Path:
+        path = _safe_workspace_relative(self.workspace_root, relative)
+        if self.manifest.schema_version == 4 and (
+            path.resolve() == self.state_root or self.state_root in path.resolve().parents
+        ):
+            raise ProjectFormatError("attached workspace path must not point inside .readio")
+        return path
 
     def load_plan_index(self) -> PlanIndex:
         return PlanIndex.from_dict(read_json(self.paths["plan_index"]))
@@ -131,18 +192,30 @@ class Project:
         return self.load_document_index().scopes
 
     def load_document_scope(self, scope: DocumentScope) -> InputDocument:
-        indexed = next(
-            (item for item in self.document_scopes() if item.id == scope.id),
-            None,
-        )
+        index = self.load_document_index()
+        indexed = next((item for item in index.scopes if item.id == scope.id), None)
         if indexed is None:
             raise KeyError(f"document scope is not indexed: {scope.id}")
-        path = self.path(indexed.path)
-        source_path = path
+        path = (
+            self.workspace_path(indexed.path)
+            if self.manifest.schema_version == 4
+            else self.state_path(indexed.path)
+        )
+        provenance = (
+            DocumentProvenance(
+                source_format="ssmd",
+                media_type="text/markdown",
+                source_name=path.name,
+                metadata=index.metadata,
+            )
+            if self.manifest.schema_version == 4
+            else None
+        )
         return InputDocument(
             text=path.read_text(encoding="utf-8"),
-            source_path=source_path,
-            format=indexed.input_format,
+            source_path=path,
+            format=cast(InputFormat, indexed.input_format),
+            provenance=provenance,
             canonical_sha256=hash_file(path) if indexed.input_format.casefold() == "ssmd" else None,
         )
 
@@ -186,6 +259,11 @@ def find_project(path: Path | str | None = None) -> Path | None:
         candidate = candidate.parent
     candidate = candidate.resolve()
     for directory in (candidate, *candidate.parents):
+        if directory.name == ".readio":
+            continue
+        attached_project = directory / ".readio" / "project.json"
+        if attached_project.is_file():
+            return directory
         if (directory / "project.json").is_file():
             return directory
     return None
@@ -195,10 +273,17 @@ def load_project(path: Path | str | None = None) -> Project:
     root = find_project(path)
     if root is None:
         raise ProjectError(f"not a Readio project: {path or Path.cwd()}")
-    manifest = ProjectManifest.from_dict(read_json(root / "project.json"))
-    # Validate every manifest path even before a stage tries to use it.
+    attached_state_root = root / ".readio"
+    has_attached_project = (attached_state_root / "project.json").is_file()
+    if has_attached_project and attached_state_root.is_symlink():
+        raise ProjectFormatError("attached project state root must not be a symlink")
+    state_root = attached_state_root if has_attached_project else root
+    manifest = ProjectManifest.from_dict(read_json(state_root / "project.json"))
+    if manifest.schema_version == 4 and state_root != attached_state_root:
+        raise ProjectFormatError("attached schema-v4 project must store state in workspace/.readio")
+    # State fields are always relative to the state root; canonical source and
+    # chapter fields are independently resolved from the workspace root.
     for relative in (
-        manifest.source_path,
         manifest.document_metadata_path,
         manifest.document_text_path,
         manifest.plan_index_path,
@@ -210,8 +295,13 @@ def load_project(path: Path | str | None = None) -> Project:
         manifest.composition_master_path,
         manifest.composition_timeline_path,
     ):
-        _safe_relative(root, relative)
-    return Project(root, manifest)
+        _safe_state_relative(state_root, relative)
+    source_path = _safe_workspace_relative(root, manifest.source_path)
+    if manifest.schema_version == 4 and (
+        source_path.resolve() == state_root or state_root in source_path.resolve().parents
+    ):
+        raise ProjectFormatError("attached workspace source path must not point inside .readio")
+    return Project(root, manifest, state_root=state_root)
 
 
 def update_project_manifest(
@@ -224,7 +314,7 @@ def update_project_manifest(
     with project_lock(project, operation=operation):
         current = load_project(project.root)
         manifest = update(current.manifest)
-        atomic_write_json(current.root / "project.json", manifest.to_dict())
+        atomic_write_json(current.paths["project"], manifest.to_dict())
     return load_project(project.root)
 
 

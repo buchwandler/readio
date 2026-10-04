@@ -35,6 +35,37 @@ def test_semantic_planning_does_not_resolve_engine_and_is_acoustic_invariant(mon
     assert first.compiled.plan.units
 
 
+def test_ssmd_language_and_detection_hints_precede_readio_fallback():
+    document = document_from_text(
+        "---\n"
+        "ssmd_version: '0.9'\n"
+        "language: de-DE\n"
+        "language_detection:\n"
+        "  mode: auto\n"
+        "  languages: [de, en]\n"
+        "sequence_fallback_mode: preserve\n"
+        "---\n\n"
+        "Guten Tag. 12345.",
+        input_format="ssmd",
+    )
+    resolved = resolve_semantic_planning(
+        ReadioConfig(
+            reader=ReaderSettings(
+                lang="en-us",
+                language_detection="off",
+                spacy="off",
+            )
+        ),
+        document,
+    )
+
+    assert resolved.policy.language == "de-DE"
+    assert resolved.policy.language_detection == "auto"
+    assert resolved.policy.detect_languages == ("de", "en")
+    assert resolved.compiled.plan.segments[0].language == "de-DE"
+    assert resolved.compiled.plan.document_metadata["sequence_fallback_mode"] == "preserve"
+
+
 def test_semantic_policy_changes_identity():
     document = document_from_text("Hello.\n\nWorld.")
     first = resolve_semantic_planning(

@@ -82,6 +82,7 @@ _STATUS_DETAIL_KEYS = frozenset(
         "total",
         "scopes",
         "per_scope",
+        "workspace",
         "profile_id",
         "composition_id",
         "format",
@@ -136,7 +137,9 @@ class ProjectService:
     def settings(self, project: ProjectLike) -> ProjectSettings:
         """Return the project's detached immutable desired pipeline settings."""
         internal = self._load(project)
-        return self._call(lambda: project_settings_from_manifest(internal.manifest, internal.root))
+        return self._call(
+            lambda: project_settings_from_manifest(internal.manifest, internal.state_root)
+        )
 
     def configure(
         self,
@@ -150,7 +153,7 @@ class ProjectService:
         return self._call(
             lambda: self._write_settings(
                 internal,
-                lambda manifest: with_project_settings(manifest, settings, internal.root),
+                lambda manifest: with_project_settings(manifest, settings, internal.state_root),
                 validate=validate,
                 operation="project-configure",
             )
@@ -168,7 +171,7 @@ class ProjectService:
         return self._call(
             lambda: self._write_settings(
                 internal,
-                lambda manifest: apply_project_settings_patch(manifest, patch, internal.root),
+                lambda manifest: apply_project_settings_patch(manifest, patch, internal.state_root),
                 validate=validate,
                 operation="project-settings-update",
             )
@@ -185,13 +188,13 @@ class ProjectService:
         def update(manifest: ProjectManifest) -> ProjectManifest:
             candidate = transform(manifest)
             if validate:
-                settings = project_settings_from_manifest(candidate, project.root)
+                settings = project_settings_from_manifest(candidate, project.state_root)
                 settings = self._materialize_project_synthesis(project, settings)
-                candidate = with_project_settings(manifest, settings, project.root)
+                candidate = with_project_settings(manifest, settings, project.state_root)
             return candidate
 
         updated = project_internal.update_project_manifest(project, update, operation=operation)
-        return project_settings_from_manifest(updated.manifest, updated.root)
+        return project_settings_from_manifest(updated.manifest, updated.state_root)
 
     def _materialize_project_synthesis(
         self, project: project_internal.Project, settings: ProjectSettings
@@ -444,7 +447,7 @@ class ProjectService:
         on_event: EventHandler | None = None,
     ) -> ProjectCompositionResult:
         internal = self._load(project)
-        settings = project_settings_from_manifest(internal.manifest, internal.root)
+        settings = project_settings_from_manifest(internal.manifest, internal.state_root)
         options = options or settings.composition or CompositionOptions()
         handler = self._handler(on_event)
         operation = "projects.compose"
@@ -503,7 +506,7 @@ class ProjectService:
         on_event: EventHandler | None = None,
     ) -> ProjectExportResult:
         internal = self._load(project)
-        settings = project_settings_from_manifest(internal.manifest, internal.root)
+        settings = project_settings_from_manifest(internal.manifest, internal.state_root)
         options = options or settings.export or ExportOptions()
         handler = self._handler(on_event)
         operation = "projects.export"

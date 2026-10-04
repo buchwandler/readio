@@ -521,10 +521,10 @@ def _verify_m4b_output(
 
 
 def audiobook_export_target(project: Project, output: Path | None) -> Path:
-    target = output or project.root / "output" / f"{project.manifest.name}.m4b"
+    target = output or project.state_root / "output" / f"{project.manifest.name}.m4b"
     target = Path(target).expanduser()
     if not target.is_absolute():
-        target = project.root / target
+        target = project.state_root / target
     if not target.suffix:
         target = target.with_name(f"{target.name}.m4b")
     elif target.suffix.lower() != ".m4b":

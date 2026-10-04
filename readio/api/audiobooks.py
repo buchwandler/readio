@@ -68,7 +68,7 @@ def _export_options(
     internal: project_internal.Project,
     options: AudiobookExportOptions | None,
 ) -> AudiobookExportOptions:
-    saved = project_settings_from_manifest(internal.manifest, internal.root).audiobook_export
+    saved = project_settings_from_manifest(internal.manifest, internal.state_root).audiobook_export
     if options is None:
         return saved or AudiobookExportOptions()
     if saved is None:
@@ -110,12 +110,18 @@ class AudiobookService:
         source: Path,
         *,
         chapters: str = "all",
+        language: str | None = None,
         output: Path | None = None,
         settings: ProjectSettings | None = None,
         on_event: EventHandler | None = None,
     ) -> ProjectRef:
         return self.create_project_result(
-            source, chapters=chapters, output=output, settings=settings, on_event=on_event
+            source,
+            chapters=chapters,
+            language=language,
+            output=output,
+            settings=settings,
+            on_event=on_event,
         ).project
 
     def create_project_result(
@@ -123,6 +129,7 @@ class AudiobookService:
         source: Path,
         *,
         chapters: str = "all",
+        language: str | None = None,
         output: Path | None = None,
         settings: ProjectSettings | None = None,
         on_event: EventHandler | None = None,
@@ -132,7 +139,9 @@ class AudiobookService:
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         source = self._resolve_source(source)
         project = self._call(
-            lambda: audiobook_internal.init_audiobook_project(source, output, chapters),
+            lambda: audiobook_internal.init_audiobook_project(
+                source, output, chapters, language=language
+            ),
             source_path=source,
         )
         project_ref = self._project_ref(project)
@@ -153,7 +162,11 @@ class AudiobookService:
             )
         return AudiobookProjectDescription(
             project=self._project_ref(internal),
-            source=internal.path(internal.manifest.source_path),
+            source=(
+                internal.workspace_path(internal.manifest.source_path)
+                if internal.manifest.schema_version == 4
+                else internal.path(internal.manifest.source_path)
+            ),
             chapters=self._call(lambda: _audiobook_chapters(internal)),
         )
 

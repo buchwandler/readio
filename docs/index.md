@@ -75,7 +75,7 @@ Generic project export supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus. `.ogg
 ```bash
 readio export novel.readio --format flac
 readio export novel.readio --format opus --bitrate 96k
-readio audiobook export novel.readio --format m4b --cover cover.jpg
+readio audiobook export novel.ssmdbook --format m4b --cover cover.jpg
 ```
 
 M4B is available only for audiobook projects through `readio audiobook export`. It muxes AAC audio and embedded chapters; title/author default from project metadata and cover art is explicit-only (JPEG/PNG). Readio's M4B AAC default is 192k.

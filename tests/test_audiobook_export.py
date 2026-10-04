@@ -14,6 +14,7 @@ from readio.audiobook import init_audiobook_project
 from readio.project import atomic_write_json, hash_file, init_project
 from readio.stages.audiobook_export import (
     AudiobookExportError,
+    audiobook_export_target,
     build_audiobook_export_identity,
     escape_ffmetadata_value,
     export_audiobook_project,
@@ -27,7 +28,18 @@ _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 def _book_project(tmp_path: Path):
     source = tmp_path / "book.epub"
     make_epub(source)
-    return init_audiobook_project(source, tmp_path / "book.readio")
+    return init_audiobook_project(source, tmp_path / "book.ssmdbook")
+
+
+def test_audiobook_export_target_uses_state_for_defaults_and_relative_paths(tmp_path: Path) -> None:
+    project = _book_project(tmp_path)
+
+    assert audiobook_export_target(project, None) == project.state_root / "output" / "book.m4b"
+    assert audiobook_export_target(project, Path("exports/custom.m4b")) == (
+        project.state_root / "exports" / "custom.m4b"
+    )
+    external = tmp_path / "outside.m4b"
+    assert audiobook_export_target(project, external) == external
 
 
 def _write_composition(
@@ -305,7 +317,7 @@ def test_export_produces_chapters_metadata_and_attached_cover(
         check=True,
         capture_output=True,
     )
-    output = project.root / "output" / "finished"
+    output = project.state_root / "output" / "finished"
 
     result = export_audiobook_project(
         project,
@@ -320,7 +332,9 @@ def test_export_produces_chapters_metadata_and_attached_cover(
     assert result["chapter_count"] == 2
     assert result["path"] == output.with_suffix(".m4b")
     assert result["path"].is_file()
-    state_index = json.loads((project.root / "output" / "state.json").read_text(encoding="utf-8"))
+    state_index = json.loads(
+        (project.state_root / "output" / "state.json").read_text(encoding="utf-8")
+    )
     state = state_index["outputs"]["output/finished.m4b"]
     assert state["format"] == "readio.audiobook-export-state"
     assert state["options"]["bitrate"] == "96k"
@@ -344,7 +358,7 @@ def test_export_produces_chapters_metadata_and_attached_cover(
 def test_failed_ffmpeg_preserves_existing_destination_and_state(tmp_path: Path, monkeypatch):
     project = _book_project(tmp_path)
     _write_composition(project)
-    output = project.root / "output" / "book.m4b"
+    output = project.state_root / "output" / "book.m4b"
     output.write_bytes(b"previous valid artifact")
 
     def failed_run(command, *, capture_output, text, check):
@@ -364,8 +378,8 @@ def test_failed_ffmpeg_preserves_existing_destination_and_state(tmp_path: Path, 
     assert error.value.code == "audiobook.export.encode_failed"
     assert "encoder failed" in str(error.value)
     assert output.read_bytes() == b"previous valid artifact"
-    assert not (project.root / "output" / "state.json").exists()
-    assert not list((project.root / "output").glob("*.ffmeta"))
+    assert not (project.state_root / "output" / "state.json").exists()
+    assert not list((project.state_root / "output").glob("*.ffmeta"))
 
 
 def test_existing_untracked_output_requires_force(tmp_path: Path):

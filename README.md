@@ -486,14 +486,14 @@ readio status manuscript.readio --json
 readio render manuscript.readio --format mp3  # build stale stages
 ```
 
-Chapter-aware audiobook projects accept EPUB files and `.ssmdbook` directory or `.ssmdbook.zip` bundles produced by ssmdconvert. Book inspection and conversion use ssmdconvert's public API; Readio stores the resulting standalone SSMD chapter documents as editable project inputs:
+Chapter-aware audiobook projects accept EPUB files and `.ssmdbook` directories or `.ssmdbook.zip` bundles produced by ssmdconvert. EPUB and ZIP inputs are materialized as standalone editable `.ssmdbook` directories. Readio attaches disposable project state under `.readio/` and indexes the canonical chapter files in place instead of copying them.
 
 ```bash
 readio audiobook chapters novel.epub
 readio audiobook init novel.epub --chapters 2-20
 readio audiobook chapters novel.ssmdbook.zip
 readio audiobook init novel.ssmdbook --chapters 3-4,7
-cd novel.readio
+cd novel.ssmdbook
 readio plan roles
 readio plan
 readio synth --voice en-ko-01
@@ -501,10 +501,10 @@ readio compose
 readio export --format m4a
 readio audiobook export . --format m4b --cover cover.jpg
 # Or build all stale stages with:
-readio render novel.readio --format m4a
+readio render novel.ssmdbook --format m4a
 ```
 
-Chapter selectors use the available 1-based source chapter numbers reported by `readio audiobook chapters` and preserve source order. This also works for bundle subsets with non-contiguous chapter numbers. Edit the canonical SSMD files under `document/chapters/` to change semantics. Readio replans and resynthesizes only affected content. The original source snapshot under `source/` is provenance. A changed source is reported but is never silently reconverted; reinitialize from the updated source to ingest its changes. A generic EPUB render is one combined document, so use the audiobook commands for chapter-aware processing.
+Chapter selectors use the available 1-based source chapter numbers reported by `readio audiobook chapters` and preserve source order, including non-contiguous bundle subsets. Edit canonical chapter files under `chapters/` (or paths listed in `manifest.json`). Readio reads edits immediately, refreshes only its local index, and replans/resynthesizes affected content. After chapter edits, run `ssmdconvert book refresh novel.ssmdbook` to update canonical manifest hashes; Readio never does this automatically. Deleting `.readio/` removes local plans, caches, and outputs but leaves the editable book intact; `readio audiobook init novel.ssmdbook` can recreate that state. Generic EPUB rendering remains one combined document, so use audiobook commands for chapter-aware processing.
 
 Audiobook projects can be exported as M4B with embedded chapters: `readio audiobook export . --format m4b`. Title and author default from the book's metadata and can be overridden with `--title` and `--author`. Readio's AAC bitrate default is 192k; use `--bitrate` to choose another supported bitrate.
 

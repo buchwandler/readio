@@ -13,6 +13,7 @@ from . import config as config_internal
 from .config import ReadioConfig
 from .engines.registry import normalize_engine_id
 from .errors import SSMDInputError, VoiceResolutionError
+from .jsonutil import JsonValue
 from .role_targets import (
     VoiceTarget,
     engine_for_ssmd_namespace,
@@ -69,7 +70,7 @@ def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09
     errors = [item for item in structure.diagnostics if item.severity == "error"]
     if errors:
         diagnostic = errors[0]
-        details = {
+        details: dict[str, JsonValue] = {
             "diagnostics": [
                 {
                     "code": item.code,
@@ -100,8 +101,8 @@ def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09
     source_lines: dict[str, list[int]] = {}
     for match in re.finditer(r"\bvoice\s*=\s*([\"'])(.*?)\1", text):
         reference = match.group(2)
-        line = text.count("\n", 0, match.start()) + 1
-        source_lines.setdefault(reference, []).append(line)
+        match_line = text.count("\n", 0, match.start()) + 1
+        source_lines.setdefault(reference, []).append(match_line)
     source_line_index: dict[str, int] = {}
     for index, annotation in annotations:
         reference = annotation.attrs.get("voice")
@@ -384,7 +385,15 @@ def language_detection_hint(
 ) -> tuple[str, tuple[str, ...]] | None:
     """Return the SSMD language-detection hint from a validated 0.9 parse."""
     parsed = parsed or parse_ssmd_09(text, source_path=source_path)
-    header = parsed.header
+    return language_detection_hint_from_header(parsed.header, source_path=source_path)
+
+
+def language_detection_hint_from_header(
+    header: Mapping[str, Any],
+    *,
+    source_path: Path | None = None,
+) -> tuple[str, tuple[str, ...]] | None:
+    """Validate an Utterplan header's language-detection policy."""
     raw = header.get("language_detection")
     if raw is None:
         return None

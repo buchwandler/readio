@@ -91,6 +91,49 @@ def test_new_projects_serialize_only_schema_three(tmp_path: Path) -> None:
     assert project.document_scopes()[0].id == "document"
 
 
+def test_attached_schema_four_round_trips_explicit_workspace_and_path_spaces() -> None:
+    manifest = ProjectManifest(
+        project_id="sha256:project-id",
+        name="Book",
+        source_path="manifest.json",
+        source_format="ssmdbook",
+        source_sha256="a" * 64,
+        kind="audiobook",
+        schema_version=4,
+        layout_mode="attached-ssmdbook",
+        workspace_manifest_path="manifest.json",
+        workspace_manifest_sha256="a" * 64,
+        document_index_path="document/index.json",
+        plan_index_path="plan/index.json",
+    )
+    payload = manifest.to_dict()
+
+    assert payload["layout"] == {"mode": "attached-ssmdbook"}
+    assert payload["workspace"] == {
+        "format": "ssmdbook",
+        "manifest_path": "manifest.json",
+        "manifest_sha256": "a" * 64,
+    }
+    assert "source" not in payload
+    assert ProjectManifest.from_dict(payload).to_dict() == payload
+
+
+def test_schema_four_requires_attached_audiobook_workspace() -> None:
+    with pytest.raises(ProjectFormatError, match="attached audiobook layout"):
+        ProjectManifest(
+            project_id="id",
+            name="Book",
+            source_path="manifest.json",
+            source_format="ssmdbook",
+            source_sha256="a" * 64,
+            kind="document",
+            schema_version=4,
+            layout_mode="attached-ssmdbook",
+            workspace_manifest_path="manifest.json",
+            workspace_manifest_sha256="a" * 64,
+        )
+
+
 @pytest.mark.parametrize("schema", [1, 2])
 def test_old_project_schemas_require_explicit_migration(tmp_path: Path, schema: int) -> None:
     source = tmp_path / "book.txt"

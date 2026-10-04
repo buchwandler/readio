@@ -170,7 +170,7 @@ def test_audiobook_inspection_and_project_creation_are_typed(tmp_path: Path) -> 
     project = app.audiobooks.create_project(
         source,
         chapters="1-2",
-        output=tmp_path / "book.readio",
+        output=tmp_path / "book.ssmdbook",
     )
 
     assert isinstance(inspection, AudiobookInspection)
@@ -181,7 +181,7 @@ def test_audiobook_inspection_and_project_creation_are_typed(tmp_path: Path) -> 
     assert app.projects.open(project.root) == project
     assert app.projects.status(project).stage("document").state == "current"
     creation = app.audiobooks.create_project_result(
-        source, chapters="2-3", output=tmp_path / "selected.readio"
+        source, chapters="2-3", output=tmp_path / "selected.ssmdbook"
     )
     assert isinstance(creation, AudiobookProjectResult)
     assert creation.selected_chapters == 2
@@ -193,7 +193,7 @@ def test_describe_reopened_audiobook_project_returns_persisted_chapters(tmp_path
     make_epub(source)
     app = Readio(ReadioConfig())
     created = app.audiobooks.create_project_result(
-        source, chapters="2-3", output=tmp_path / "book.readio"
+        source, chapters="2-3", output=tmp_path / "book.ssmdbook"
     )
     reopened = app.projects.open(created.project.root)
 
@@ -201,7 +201,7 @@ def test_describe_reopened_audiobook_project_returns_persisted_chapters(tmp_path
 
     assert isinstance(description, AudiobookProjectDescription)
     assert description.project == created.project
-    assert description.source == created.project.root / "source" / "book.epub"
+    assert description.source == created.project.root / "manifest.json"
     assert description.chapters == created.chapters
     payload = json.loads(json.dumps(description.to_dict()))
     assert [chapter["number"] for chapter in payload["chapters"]] == [2, 3]
@@ -229,8 +229,8 @@ def test_describe_project_rejects_non_audiobook_and_translates_load_errors(
 
     epub = tmp_path / "book.epub"
     make_epub(epub)
-    audiobook = app.audiobooks.create_project(epub, output=tmp_path / "book.readio")
-    (audiobook.root / "document" / "index.json").write_text("{", encoding="utf-8")
+    audiobook = app.audiobooks.create_project(epub, output=tmp_path / "book.ssmdbook")
+    (audiobook.root / ".readio" / "document" / "index.json").write_text("{", encoding="utf-8")
     with pytest.raises(ProjectFormatError) as corrupt:
         app.audiobooks.describe_project(audiobook)
     assert corrupt.value.code == "project.invalid"

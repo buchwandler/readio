@@ -8,6 +8,7 @@ from audiobook_support import make_epub, make_subset_book_bundle
 from readio import cli
 from readio.api import AudiobookExportResult, ProjectExportResult, ProjectRef
 from readio.audiobook import inspect_book_source
+from readio.integrations.ssmdconvert import load_book_workspace_source
 
 
 def run_cli(argv: list[str], capsys) -> str:
@@ -236,21 +237,49 @@ def test_audiobook_cli_inspects_and_initializes_book_bundles(
     chapters = json.loads(run_cli(["audiobook", "chapters", str(bundle), "--json"], capsys))
     assert [chapter["number"] for chapter in chapters["chapters"]] == [2, 3, 4, 7]
 
-    project_path = tmp_path / "novel.readio"
-    initialized = json.loads(
+    project_path = tmp_path / "novel.ssmdbook"
+    command = [
+        "audiobook",
+        "init",
+        str(bundle),
+        "--chapters",
+        "3-4",
+    ]
+    if format == "zip":
+        command.extend(["--output", str(project_path)])
+    command.append("--json")
+    initialized = json.loads(run_cli(command, capsys))
+    expected_root = bundle if format == "directory" else project_path
+    assert initialized["project"] == str(expected_root.resolve())
+    assert initialized["selected_chapters"] == 2
+    assert [chapter["number"] for chapter in initialized["chapters"]] == [3, 4]
+
+
+def test_audiobook_cli_language_override_materializes_full_workspace(tmp_path, capsys) -> None:
+    source = tmp_path / "novel.epub"
+    make_epub(source)
+    original_source = source.read_bytes()
+    output = tmp_path / "localized.ssmdbook"
+    result = json.loads(
         run_cli(
             [
                 "audiobook",
                 "init",
-                str(bundle),
+                str(source),
                 "--chapters",
-                "3-4",
+                "2",
+                "--language",
+                "de-DE",
                 "--output",
-                str(project_path),
+                str(output),
                 "--json",
             ],
             capsys,
         )
     )
-    assert initialized["selected_chapters"] == 2
-    assert [chapter["number"] for chapter in initialized["chapters"]] == [3, 4]
+    workspace = load_book_workspace_source(output)
+    assert result["project"] == str(output.resolve())
+    assert result["selected_chapters"] == 1
+    assert len(workspace.chapters) == 7
+    assert workspace.metadata["language"] == "de-DE"
+    assert source.read_bytes() == original_source

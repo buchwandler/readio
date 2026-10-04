@@ -23,7 +23,7 @@ from readio.stages.audiobook_export import AudiobookExportError
 def _project(tmp_path: Path):
     source = tmp_path / "book.epub"
     make_epub(source)
-    return init_audiobook_project(source, tmp_path / "book.readio")
+    return init_audiobook_project(source, tmp_path / "book.ssmdbook")
 
 
 def test_audiobook_export_api_translates_result_for_public_consumers(tmp_path: Path, monkeypatch):
@@ -38,7 +38,7 @@ def test_audiobook_export_api_translates_result_for_public_consumers(tmp_path: P
         captured.update(kwargs)
         return {
             "export_id": "sha256:export",
-            "path": project.root / "output" / "book.m4b",
+            "path": project.state_root / "output" / "book.m4b",
             "format": "m4b",
             "output_sha256": "sha256:output",
             "chapter_count": 7,
@@ -66,7 +66,7 @@ def test_audiobook_export_api_translates_result_for_public_consumers(tmp_path: P
     assert SUPPORTED_AUDIOBOOK_FORMATS == ("m4b",)
     assert "m4b" not in SUPPORTED_AUDIO_FORMATS
     assert result.project.root == project.root
-    assert result.output_path == project.root / "output" / "book.m4b"
+    assert result.output_path == project.state_root / "output" / "book.m4b"
     assert result.format == "m4b"
     assert result.chapter_count == 7
     assert result.to_dict()["format"] == "m4b"
@@ -129,17 +129,17 @@ def test_audiobook_export_uses_saved_defaults_and_transient_overrides(
 ) -> None:
     project = _project(tmp_path)
     app = Readio()
-    output = project.root / "exports" / "saved.m4b"
+    output = Path("exports/saved.m4b")
     settings = ProjectSettings(
         audiobook_export=AudiobookExportOptions(
             output=output,
             title="Saved title",
             author="Saved author",
-            cover=project.root / "saved-cover.jpg",
+            cover=Path("saved-cover.jpg"),
             bitrate="128k",
         )
     )
-    app.projects.configure(project.root, settings)
+    persisted_settings = app.projects.configure(project.root, settings)
     captured = []
 
     def fake_export(internal, **kwargs):
@@ -163,22 +163,22 @@ def test_audiobook_export_uses_saved_defaults_and_transient_overrides(
     )
 
     assert captured[0] == {
-        "output": output,
+        "output": project.state_root / output,
         "title": "Saved title",
         "author": "Saved author",
-        "cover": settings.audiobook_export.cover,
+        "cover": project.state_root / "saved-cover.jpg",
         "bitrate": "128k",
         "force": False,
     }
     assert captured[1] == {
-        "output": output,
+        "output": project.state_root / output,
         "title": "Run title",
         "author": "Saved author",
         "cover": Path("run-cover.jpg"),
         "bitrate": "128k",
         "force": True,
     }
-    assert app.projects.settings(project.root) == settings
+    assert app.projects.settings(project.root) == persisted_settings
 
 
 def test_audiobook_build_runs_project_stages_before_export(tmp_path: Path, monkeypatch) -> None:
@@ -236,7 +236,7 @@ def test_audiobook_project_creation_can_persist_settings(tmp_path: Path) -> None
     )
 
     created = app.audiobooks.create_project_result(
-        source, output=tmp_path / "configured.readio", settings=settings
+        source, output=tmp_path / "configured.ssmdbook", settings=settings
     )
 
     assert app.projects.settings(created.project) == settings

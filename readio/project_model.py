@@ -391,9 +391,16 @@ class DocumentScope:
             kind=_require_string(data.get("kind"), "document scope.kind"),
             path=_require_string(data.get("path"), "document scope.path"),
             input_format=_require_string(data.get("input_format"), "document scope.input_format"),
-            **optional_strings,
-            **optional_ints,
+            title=optional_strings["title"],
+            source_number=optional_ints["source_number"],
+            source_id=optional_strings["source_id"],
+            href=optional_strings["href"],
+            parent_id=optional_strings["parent_id"],
+            level=optional_ints["level"],
+            char_count=optional_ints["char_count"],
+            extracted_sha256=optional_strings["extracted_sha256"],
             diagnostics=tuple(dict(item) for item in diagnostics),
+            source_parent_id=optional_strings["source_parent_id"],
         )
 
 
@@ -504,11 +511,34 @@ class ProjectManifest:
     kind: str = "document"
     schema_version: int = 3
     format: str = "readio.project"
+    layout_mode: str = "standalone"
+    workspace_manifest_path: str | None = None
+    workspace_manifest_sha256: str | None = None
 
     def __post_init__(self) -> None:
         _validate_project_settings(self.settings)
-        if self.schema_version != 3:
-            raise ProjectFormatError("new Readio projects must use schema_version 3")
+        if self.schema_version == 3:
+            if (
+                self.layout_mode != "standalone"
+                or self.workspace_manifest_path is not None
+                or self.workspace_manifest_sha256 is not None
+            ):
+                raise ProjectFormatError("schema_version 3 projects must use the standalone layout")
+        elif self.schema_version == 4:
+            if self.kind != "audiobook" or self.layout_mode != "attached-ssmdbook":
+                raise ProjectFormatError("schema_version 4 requires an attached audiobook layout")
+            if self.source_format != "ssmdbook":
+                raise ProjectFormatError("attached audiobook workspace format must be ssmdbook")
+            if not self.workspace_manifest_path or not self.workspace_manifest_sha256:
+                raise ProjectFormatError(
+                    "schema_version 4 requires a workspace manifest path and digest"
+                )
+            if self.source_path != self.workspace_manifest_path:
+                raise ProjectFormatError(
+                    "attached project source path must match its workspace manifest path"
+                )
+        else:
+            raise ProjectFormatError("unsupported project schema_version")
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -516,11 +546,6 @@ class ProjectManifest:
             "schema_version": self.schema_version,
             "project_id": self.project_id,
             "name": self.name,
-            "source": {
-                "path": self.source_path,
-                "format": self.source_format,
-                "sha256": self.source_sha256,
-            },
             "plan": {"index_path": self.plan_index_path},
             "active_synthesis": {
                 "profile_path": self.synthesis_profile_path,
@@ -534,9 +559,22 @@ class ProjectManifest:
             },
             "outputs": {key: dict(value) for key, value in self.outputs.items()},
             "settings": dict(self.settings),
+            "kind": self.kind,
+            "document": {"index_path": self.document_index_path},
         }
-        result["kind"] = self.kind
-        result["document"] = {"index_path": self.document_index_path}
+        if self.schema_version == 3:
+            result["source"] = {
+                "path": self.source_path,
+                "format": self.source_format,
+                "sha256": self.source_sha256,
+            }
+        else:
+            result["layout"] = {"mode": self.layout_mode}
+            result["workspace"] = {
+                "format": self.source_format,
+                "manifest_path": self.workspace_manifest_path,
+                "manifest_sha256": self.workspace_manifest_sha256,
+            }
         return result
 
     @classmethod
@@ -545,11 +583,31 @@ class ProjectManifest:
         if data.get("format") != "readio.project":
             raise ProjectFormatError("project.json has an unexpected format")
         schema_version = data.get("schema_version")
-        if schema_version != 3:
+        if schema_version not in {3, 4}:
             raise ProjectFormatError(
                 "unsupported project schema_version; run `readio project migrate` for v0.3 data"
             )
-        source = _require_mapping(data.get("source"), "project.source")
+        if schema_version == 3:
+            source = _require_mapping(data.get("source"), "project.source")
+            source_path = _require_string(source.get("path"), "source.path")
+            source_format = _require_string(source.get("format"), "source.format")
+            source_sha256 = _require_string(source.get("sha256"), "source.sha256")
+            layout_mode = "standalone"
+            workspace_manifest_path = None
+            workspace_manifest_sha256 = None
+        else:
+            layout = _require_mapping(data.get("layout"), "project.layout")
+            if layout.get("mode") != "attached-ssmdbook":
+                raise ProjectFormatError("schema_version 4 layout.mode must be attached-ssmdbook")
+            workspace = _require_mapping(data.get("workspace"), "project.workspace")
+            source_path = _require_string(workspace.get("manifest_path"), "workspace.manifest_path")
+            source_format = _require_string(workspace.get("format"), "workspace.format")
+            source_sha256 = _require_string(
+                workspace.get("manifest_sha256"), "workspace.manifest_sha256"
+            )
+            layout_mode = "attached-ssmdbook"
+            workspace_manifest_path = source_path
+            workspace_manifest_sha256 = source_sha256
         document = _require_mapping(data.get("document"), "project.document")
         plan = _require_mapping(data.get("plan"), "project.plan")
         synthesis = _require_mapping(data.get("active_synthesis"), "project.active_synthesis")
@@ -560,19 +618,15 @@ class ProjectManifest:
         settings = data.get("settings", {})
         if not isinstance(settings, Mapping):
             raise ProjectFormatError("project.settings must be an object")
-        document_index_path = _require_string(document.get("index_path"), "document.index_path")
-        document_metadata_path = "document/metadata.json"
-        document_text_path = "document/document.ssmd.md"
-        kind = _require_string(data.get("kind"), "kind")
         return cls(
             project_id=_require_string(data.get("project_id"), "project_id"),
             name=_require_string(data.get("name"), "name"),
-            source_path=_require_string(source.get("path"), "source.path"),
-            source_format=_require_string(source.get("format"), "source.format"),
-            source_sha256=_require_string(source.get("sha256"), "source.sha256"),
-            document_metadata_path=document_metadata_path,
-            document_text_path=document_text_path,
-            document_index_path=document_index_path,
+            source_path=source_path,
+            source_format=source_format,
+            source_sha256=source_sha256,
+            document_metadata_path="document/metadata.json",
+            document_text_path="document/document.ssmd.md",
+            document_index_path=_require_string(document.get("index_path"), "document.index_path"),
             plan_index_path=_require_string(plan.get("index_path"), "plan.index_path"),
             synthesis_profile_path=_require_string(
                 synthesis.get("profile_path"), "active_synthesis.profile_path"
@@ -594,8 +648,11 @@ class ProjectManifest:
             ),
             outputs=outputs,
             settings=settings,
-            kind=kind,
+            kind=_require_string(data.get("kind"), "kind"),
             schema_version=schema_version,
+            layout_mode=layout_mode,
+            workspace_manifest_path=workspace_manifest_path,
+            workspace_manifest_sha256=workspace_manifest_sha256,
         )
 
 

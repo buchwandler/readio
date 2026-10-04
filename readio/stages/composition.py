@@ -506,7 +506,7 @@ def _cache_entries(
     if not isinstance(canonical, dict) or not profile_id:
         raise ValueError("synthesis profile is missing canonical identity")
     entries: dict[tuple[str, str], dict[str, Any]] = {}
-    cache_dir = project.root / "synthesis" / "cache"
+    cache_dir = project.state_root / "synthesis" / "cache"
     markers_by_segment = _markers_by_segment(plan, scope_id)
     for segment in plan.segments:
         route_identity = segment_route_profile(profile, scope_id, str(segment.id))
@@ -563,7 +563,7 @@ def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tu
     if frames <= 0:
         raise ValueError("silence frame count must be positive")
     if project is not None:
-        path = project.root / "composition" / "parts" / f"silence-{sample_rate}-{frames}.wav"
+        path = project.state_root / "composition" / "parts" / f"silence-{sample_rate}-{frames}.wav"
         if not path.is_file() or probe_audio(path).frames != frames:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_name(f".{path.name}.tmp")
@@ -739,9 +739,11 @@ class LayoutBuilder:
         if self.project is None:
             part = None
         elif scope_id == "document":
-            part = self.project.root / "composition" / "parts" / f"{segment_id}.wav"
+            part = self.project.state_root / "composition" / "parts" / f"{segment_id}.wav"
         else:
-            part = self.project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
+            part = (
+                self.project.state_root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
+            )
         source_path = entry["cache_path"]
         if part is not None:
             part.parent.mkdir(parents=True, exist_ok=True)
@@ -942,7 +944,7 @@ def build_audio_job(
                     document_scope.source_number if document_scope is not None else None
                 ),
                 "plan_id": plan.plan_id,
-                "plan_sha256": hash_file(project.root / "plan" / scope.path),
+                "plan_sha256": hash_file(project.state_root / "plan" / scope.path),
             }
         )
         entries = _cache_entries(project, plan, scope.id)

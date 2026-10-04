@@ -35,6 +35,25 @@ UtterancePlan schema v3
                               codec-specific export
 ```
 
+## Canonical audiobook workspace and Readio state
+
+An attached audiobook uses a dual-root layout:
+
+```text
+Novel.ssmdbook/                  # canonical, editable book
+  manifest.json
+  chapters/*.ssmd.md
+  .readio/                       # disposable Readio state
+    project.json
+    document/index.json          # chapter selection and local index
+    plan/                        # Utterplan artifacts
+    synthesis/                   # cache and trace
+    composition/                 # timeline and master
+    output/
+```
+
+`Project.root` and public project references identify the `.ssmdbook` workspace; `Project.state_root` is `.readio/`. Chapter scope paths resolve against the workspace, so Readio plans from current chapter bytes without copying them. The public ssmdconvert workspace API reports manifest/chapter dirtiness; Readio may refresh its local index but never rewrites canonical chapter files or manifest hashes. Run `ssmdconvert book refresh` explicitly after editing when you want a clean manifest. Portable `.ssmdbook.zip` archives omit `.readio/`, and deleting that directory removes only Readio-derived state. Standalone schema-v3 document projects remain self-contained and retain their existing layout.
+
 ## Semantic plan and speech cache
 
 UtterPlan remains the owner of semantic identity. Its unit hashes may include

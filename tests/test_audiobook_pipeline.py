@@ -46,7 +46,7 @@ def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(tmp_path, m
     assert len(set(duplicate_keys)) < len(duplicate_keys)
     for item in trace["segments"]:
         assert item["path"].startswith(f"synthesis/segments/{item['scope_id']}/")
-        assert (project.root / item["path"]).is_file()
+        assert (project.state_root / item["path"]).is_file()
 
     cached = synthesize_project(project, cfg, request=request)
     assert cached["rendered"] == 0
@@ -103,7 +103,7 @@ def test_preview_selects_project_wide_and_render_composes_every_scope(
             scope_id = item["scope_id"]
             segment_id = item["segment_id"]
             assert (
-                project.root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
+                project.state_root / "composition" / "parts" / scope_id / f"{segment_id}.wav"
             ).is_file()
     stages = {row["stage"]: row for row in project_status(project)["stages"]}
     assert all(
@@ -119,7 +119,7 @@ def test_cli_audiobook_init_plan_and_render_end_to_end(tmp_path, monkeypatch, ca
     monkeypatch.setattr(cli, "_resolved_config", lambda args: cfg)
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "novel.epub"
-    output = tmp_path / "novel.readio"
+    output = tmp_path / "novel.ssmdbook"
     make_epub(source)
 
     with pytest.raises(SystemExit) as init_exit:
@@ -144,10 +144,20 @@ def test_cli_audiobook_init_plan_and_render_end_to_end(tmp_path, monkeypatch, ca
     planned = json.loads(capsys.readouterr().out)
     assert len(planned["scopes"]) == 4
 
+    monkeypatch.chdir(output / ".readio" / "plan")
+    with pytest.raises(SystemExit) as status_exit:
+        cli.main(["status", "--json"])
+    assert status_exit.value.code == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["project"]["root"] == str(output.resolve())
+
     with pytest.raises(SystemExit) as render_exit:
-        cli.main(["render", str(output), "--format", "wav", "--json"])
+        cli.main(["render", str(output / ".readio" / "plan"), "--format", "wav", "--json"])
     assert render_exit.value.code == 0
     rendered = json.loads(capsys.readouterr().out)
+    assert rendered["project"]["root"] == str(output.resolve())
+    assert rendered["output_path"] == str(output / ".readio" / "output" / "novel.wav")
+    assert not (output / "output").exists()
     assert rendered["ok"] is True
     assert adapter.open_calls == 1
     project = load_project(output)

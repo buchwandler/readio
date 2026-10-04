@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import ClassVar
 
 import numpy as np
 import pytest
 
-from readio.config import ReaderSettings, ReadioConfig
+from readio.config import LanguageSettings, ReaderSettings, ReadioConfig, normalize_language_key
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
 from readio.plan import (
@@ -123,6 +124,38 @@ class _KokoroTargetAdapter(_PiperTargetAdapter):
             voice_binding_scope="target",
             supports_named_voices=True,
         )
+
+
+class _MultilingualTargetAdapter(_PiperTargetAdapter):
+    id = "localized"
+    target_ids = ("model-en", "model-de")
+    target_languages: ClassVar[dict[str, str]] = {"model-en": "en-us", "model-de": "de-de"}
+
+    def __init__(self):
+        super().__init__()
+        self.resolve_calls = []
+
+    def resolve(self, request):
+        self.resolve_calls.append((request.language, request.target_id))
+        return super().resolve(request)
+
+    def validate_selection(self, selection):
+        diagnostics = super().validate_selection(selection)
+        if diagnostics:
+            return diagnostics
+        expected_language = self.target_languages[selection.target_id]
+        if normalize_language_key(selection.language) != expected_language:
+            return (
+                PlanDiagnostic(
+                    code="localized.language_incompatible",
+                    severity="error",
+                    message=(
+                        f"Target {selection.target_id!r} is incompatible with "
+                        f"language {selection.language!r}."
+                    ),
+                ),
+            )
+        return ()
 
 
 def test_project_routes_roles_to_distinct_target_sessions_without_replanning_semantics(
@@ -290,3 +323,62 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
     scope = project.load_plan_index().scopes[0]
     plan = load_scope_plan(project, scope)
     assert len(_cache_entries(project, plan, scope.id)) == 3
+
+
+def _multilingual_config(adapter: _MultilingualTargetAdapter) -> ReadioConfig:
+    return ReadioConfig(
+        reader=ReaderSettings(engine=adapter.id, lang="fr-fr", voice=None, spacy="off"),
+        languages={
+            "en-us": LanguageSettings(engine=adapter.id, model="model-en"),
+            "de-de": LanguageSettings(engine=adapter.id, model="model-de"),
+        },
+        roles={},
+    )
+
+
+def _multilingual_project(tmp_path):
+    source = tmp_path / "languages.ssmd.md"
+    source.write_text(
+        '---\nssmd_version: "0.9"\nlanguage: en-US\n---\n'
+        '[Guten Tag]{lang="de-DE"}. English sentence.\n',
+        encoding="utf-8",
+    )
+    return init_project(source, tmp_path / "languages.readio")
+
+
+def test_semantic_languages_select_language_profiles_before_each_route(tmp_path, monkeypatch):
+    adapter = _MultilingualTargetAdapter()
+    monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    cfg = _multilingual_config(adapter)
+    project = _multilingual_project(tmp_path)
+    plan_project(project, cfg)
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=project.document()),
+        synthesis=SynthesisRequest(),
+        output=OutputRequest(mode="file", requested_format="wav", force=True),
+    )
+
+    result = synthesize_project(project, cfg, request=request)
+
+    assert result["rendered"] >= 2
+    assert adapter.resolve_calls[0] == ("de-de", "model-de")
+    assert ("en-us", "model-en") in adapter.resolve_calls
+    assert set(adapter.open_calls) == {"model-en", "model-de"}
+
+
+def test_explicit_model_incompatible_with_semantic_language_fails(tmp_path, monkeypatch):
+    adapter = _MultilingualTargetAdapter()
+    monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    cfg = _multilingual_config(adapter)
+    project = _multilingual_project(tmp_path)
+    plan_project(project, cfg)
+    request = PlanRequest(
+        operation="render",
+        input=InputRequest(document=project.document()),
+        synthesis=SynthesisRequest(model="model-en"),
+        output=OutputRequest(mode="file", requested_format="wav", force=True),
+    )
+
+    with pytest.raises(ValueError, match="incompatible with language"):
+        synthesize_project(project, cfg, request=request)

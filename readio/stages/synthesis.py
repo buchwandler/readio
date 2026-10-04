@@ -12,9 +12,10 @@ from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..audioio import probe_audio, write_pcm16_wav
+from ..config import normalize_language_key
 from ..engines.base import EngineSelection
 from ..engines.registry import get_engine
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
@@ -282,10 +283,10 @@ def _profile_from_route(
 def _record_project_settings(
     profile: SynthesisProfile, project: Project, request: SynthesisRequest
 ) -> SynthesisProfile:
-    settings = project_settings_from_manifest(project.manifest, project.root).synthesis
+    settings = project_settings_from_manifest(project.manifest, project.state_root).synthesis
     if settings is None:
         return profile
-    fingerprint = synthesis_request_fingerprint(request, project.root)
+    fingerprint = synthesis_request_fingerprint(request, project.state_root)
     provenance = {"synthesis_sha256": fingerprint}
     identity = {
         "schema": "readio.project-synthesis-profile.v1",
@@ -333,7 +334,6 @@ def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None
         return request
     reader = cfg.reader
     synthesis = SynthesisRequest(
-        language=reader.lang,
         speed=reader.speed,
         pause_mode=reader.pause_mode,
         unit=reader.unit,
@@ -357,17 +357,24 @@ def _project_request_with_voice_bindings(
     project_targets, _ = effective_project_role_targets(project.manifest)
     active_namespace = project_voice_namespace(project.manifest)
     requested_engine = request.synthesis.engine
-    engine = requested_engine or (
-        engine_for_ssmd_namespace(active_namespace)
-        if active_namespace is not None
-        else cfg.reader.engine
+    profile_engine = requested_engine or (
+        engine_for_ssmd_namespace(active_namespace) if active_namespace is not None else None
     )
+    attached_workspace = project.manifest.schema_version == 4
+    if profile_engine is None and not attached_workspace:
+        profile_engine = cfg.reader.engine
+    engine = profile_engine or cfg.reader.engine
 
     namespace = ssmd_namespace_for_engine(engine)
     voice = request.synthesis.voice
-    if voice is None and not project_targets and requested_engine is None:
+    if (
+        voice is None
+        and not attached_workspace
+        and not project_targets
+        and requested_engine is None
+    ):
         voice = cfg.reader.voice
-    synthesis = replace(request.synthesis, engine=engine, voice=voice)
+    synthesis = replace(request.synthesis, engine=profile_engine, voice=voice)
     scope_targets = _project_scope_voice_targets(
         project,
         cfg,
@@ -408,7 +415,9 @@ def _project_scope_voice_targets(
             configured_targets=cfg.roles,
             provider=namespace,
             engine=engine,
-            source_path=project.path(scope.path),
+            source_path=project.workspace_path(scope.path)
+            if project.manifest.schema_version == 4
+            else project.path(scope.path),
         )
         unresolved = next((item for item in resolved if item.target is None), None)
         if unresolved is not None:
@@ -429,32 +438,27 @@ def _resolve_profile(
 ) -> tuple[Any, Any, SynthesisProfile]:
     if not request.scope_voice_targets:
         request = _project_request_with_voice_bindings(project, cfg, request)
-    requested_engine = request.synthesis.engine or cfg.reader.engine
-    requested_adapter = None
-    if requested_engine is not None:
+    requested_engine = request.synthesis.engine
+    if requested_engine is not None and request.synthesis.voice is None:
         try:
             requested_adapter = get_engine(requested_engine)
         except (ImportError, ValueError):
-            pass
-    if (
-        requested_adapter is not None
-        and requested_adapter.capabilities().supports_named_voices
-        and request.synthesis.voice is None
-    ):
-        seed_voice = next(
-            (
-                target.voice
-                for bindings in request.scope_voice_targets.values()
-                for target in bindings.values()
-                if target.engine == requested_engine
-            ),
-            None,
-        )
-        if seed_voice is not None:
-            request = replace(
-                request,
-                synthesis=replace(request.synthesis, voice=seed_voice),
+            requested_adapter = None
+        if requested_adapter is not None and requested_adapter.capabilities().supports_named_voices:
+            seed_voice = next(
+                (
+                    target.voice
+                    for bindings in request.scope_voice_targets.values()
+                    for target in bindings.values()
+                    if target.engine == requested_engine
+                ),
+                None,
             )
+            if seed_voice is not None:
+                request = replace(
+                    request,
+                    synthesis=replace(request.synthesis, voice=seed_voice),
+                )
     resolved = resolve_execution_v2(cfg, request)
     if not resolved.plan.ok or resolved.selection is None:
         diagnostics = "; ".join(item.message for item in resolved.plan.diagnostics)
@@ -486,7 +490,7 @@ def resolve_project_synthesis(
 ) -> tuple[PlanRequest, Any, Any, SynthesisProfile]:
     """Resolve a project's effective engine selection without synthesis side effects."""
     saved = (
-        project_settings_from_manifest(project.manifest, project.root).synthesis
+        project_settings_from_manifest(project.manifest, project.state_root).synthesis
         if merge_saved_settings
         else None
     )
@@ -618,6 +622,34 @@ def _route_profile_identity(
     return route_key, identity, route_profile_id
 
 
+def _resolve_project_default_language_target(
+    cfg: Any,
+    request: PlanRequest,
+    default_adapter: Any,
+    default_selection: EngineSelection,
+    language: str,
+    adapters: dict[str, Any],
+) -> tuple[Any, EngineSelection]:
+    if normalize_language_key(language) == normalize_language_key(default_selection.language):
+        return default_adapter, default_selection
+    language_request = replace(
+        request,
+        synthesis=replace(request.synthesis, language=language),
+    )
+    resolved = resolve_execution_v2(cfg, language_request)
+    if not resolved.plan.ok or resolved.selection is None:
+        details = "; ".join(item.message for item in resolved.plan.diagnostics)
+        raise ValueError(
+            f"cannot resolve a synthesis target for language {language!r}"
+            + (f": {details}" if details else "")
+        )
+    route_adapter = adapters.get(resolved.selection.engine)
+    if route_adapter is None:
+        route_adapter = get_engine(resolved.selection.engine)
+        adapters[resolved.selection.engine] = route_adapter
+    return route_adapter, resolved.selection
+
+
 def _build_project_synthesis_route(
     project: Project,
     cfg: Any,
@@ -638,6 +670,9 @@ def _build_project_synthesis_route(
     route_engines: set[str] = set()
     route_providers: set[str] = set()
     target_selections: dict[tuple[VoiceTarget, str], tuple[Any, EngineSelection]] = {}
+    default_target_selections: dict[str, tuple[Any, EngineSelection]] = {
+        normalize_language_key(default_selection.language): (adapter, default_selection)
+    }
 
     def register(route_adapter: Any, selection: EngineSelection) -> str:
         route_key, identity, profile_id = _route_profile_identity(route_adapter, selection)
@@ -663,8 +698,19 @@ def _build_project_synthesis_route(
             reference = _segment_voice_reference(segment)
             target = scope_bindings.get(reference) if reference is not None else None
             if target is None:
-                selection = replace(default_selection, language=language)
-                route_adapter = adapter
+                route_language = normalize_language_key(language)
+                resolved_default = default_target_selections.get(route_language)
+                if resolved_default is None:
+                    resolved_default = _resolve_project_default_language_target(
+                        cfg,
+                        request,
+                        adapter,
+                        default_selection,
+                        language,
+                        adapters,
+                    )
+                    default_target_selections[route_language] = resolved_default
+                route_adapter, selection = resolved_default
                 route_key = register(route_adapter, selection)
                 if default_route_key is None:
                     default_route_key = route_key
@@ -748,7 +794,7 @@ def _write_cache_artifact(
                 "channels": channels,
                 "frames": frames,
                 "word_timings": [
-                    asdict(timing) if is_dataclass(timing) else dict(timing)
+                    asdict(cast(Any, timing)) if is_dataclass(timing) else dict(timing)
                     for timing in getattr(result, "word_timings", ())
                 ],
             },
@@ -1032,7 +1078,9 @@ def synthesize_project(
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
-        saved_synthesis = project_settings_from_manifest(project.manifest, project.root).synthesis
+        saved_synthesis = project_settings_from_manifest(
+            project.manifest, project.state_root
+        ).synthesis
         requested_synthesis = (
             request.synthesis
             if request is not None
@@ -1051,7 +1099,7 @@ def synthesize_project(
             selected_by_scope,
         )
         profile = _profile_from_route(route, profile)
-        cache_dir = project.root / "synthesis" / "cache"
+        cache_dir = project.state_root / "synthesis" / "cache"
         if requested_synthesis is not None:
             profile = _record_project_settings(profile, project, requested_synthesis)
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1107,7 +1155,7 @@ def synthesize_project(
                     "cache_path": cache_dir / f"{_safe_key(key)}.wav",
                     "sidecar_path": cache_dir / f"{_safe_key(key)}.json",
                     "path": (
-                        project.root
+                        project.state_root
                         / "synthesis"
                         / "segments"
                         / (
@@ -1249,7 +1297,7 @@ def synthesize_project(
                     artifact = cached[(scope_id, item["segment_id"])]
                     segment_rows.append(
                         {
-                            **artifact.to_dict(project.root),
+                            **artifact.to_dict(project.state_root),
                             "unit_id": item["unit"].id,
                             "unit_index": int(item["unit"].index),
                             **(
@@ -1271,7 +1319,9 @@ def synthesize_project(
                         item = unit_items[0]
                         compatibility_units.append(
                             {
-                                **cached[(scope_id, item["segment_id"])].to_dict(project.root),
+                                **cached[(scope_id, item["segment_id"])].to_dict(
+                                    project.state_root
+                                ),
                                 "unit_id": unit.id,
                                 "unit_index": int(unit.index),
                                 "content_hash": unit.content_hash,
@@ -1296,7 +1346,9 @@ def synthesize_project(
                     {
                         "scope_id": scope_work["scope"].id,
                         "plan_id": scope_work["plan"].plan_id,
-                        "plan_sha256": hash_file(project.root / "plan" / scope_work["scope"].path),
+                        "plan_sha256": hash_file(
+                            project.state_root / "plan" / scope_work["scope"].path
+                        ),
                     }
                     for scope_work in included_work
                 ],

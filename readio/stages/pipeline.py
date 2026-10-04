@@ -80,14 +80,14 @@ def _project_request(
     use_saved_settings: bool = True,
 ) -> PlanRequest:
     saved = (
-        project_settings_from_manifest(project.manifest, project.root).synthesis
+        project_settings_from_manifest(project.manifest, project.state_root).synthesis
         if use_saved_settings
         else None
     )
     if saved is not None:
         effective_synthesis = merge_project_synthesis_request(saved, synthesis)
     else:
-        effective_synthesis = synthesis or SynthesisRequest(language=cfg.reader.lang)
+        effective_synthesis = synthesis or SynthesisRequest()
     return PlanRequest(
         operation="render",
         input=InputRequest(
@@ -136,13 +136,15 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
     canonical = profile.get("canonical")
     if not isinstance(canonical, dict):
         return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
-    configured_synthesis = project_settings_from_manifest(project.manifest, project.root).synthesis
+    configured_synthesis = project_settings_from_manifest(
+        project.manifest, project.state_root
+    ).synthesis
     recorded_settings = profile.get("project_settings")
     if configured_synthesis is None:
         settings_changed = recorded_settings is not None
     else:
         expected_settings_hash = synthesis_request_fingerprint(
-            project_synthesis_request(configured_synthesis), project.root
+            project_synthesis_request(configured_synthesis), project.state_root
         )
         settings_changed = (
             not isinstance(recorded_settings, Mapping)
@@ -191,7 +193,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                     "reason": "synthesis.stale.plan_changed",
                 }
             scope, plan = current
-            current_sha = hash_file(project.root / "plan" / scope.path)
+            current_sha = hash_file(project.state_root / "plan" / scope.path)
             if (
                 recorded.get("plan_id") != plan.plan_id
                 or recorded.get("plan_sha256") != current_sha
@@ -216,8 +218,10 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             route_profile, route_profile_id = route_identity
             speech_hash = segment_speech_hash(plan, segment, route_profile)
             key = segment_synthesis_key(speech_hash, route_profile_id)
-            cache_path = project.root / "synthesis" / "cache" / f"{key.replace(':', '-')}.wav"
-            sidecar_path = project.root / "synthesis" / "cache" / f"{key.replace(':', '-')}.json"
+            cache_path = project.state_root / "synthesis" / "cache" / f"{key.replace(':', '-')}.wav"
+            sidecar_path = (
+                project.state_root / "synthesis" / "cache" / f"{key.replace(':', '-')}.json"
+            )
             checked = _valid_audio(cache_path)
             if checked is None:
                 continue
@@ -298,7 +302,7 @@ def _audiobook_desired_output_status(
         ):
             continue
         stored_path = Path(str(state.get("path", "")))
-        path = stored_path if stored_path.is_absolute() else project.root / stored_path
+        path = stored_path if stored_path.is_absolute() else project.state_root / stored_path
         if path.is_file() and hash_file(path) == state.get("output_sha256"):
             return {
                 "stage": "output",
@@ -315,7 +319,7 @@ def _audiobook_desired_output_status(
 
 def project_status(project: Project) -> dict[str, Any]:
     rows = semantic_status(project)
-    desired_settings = project_settings_from_manifest(project.manifest, project.root)
+    desired_settings = project_settings_from_manifest(project.manifest, project.state_root)
     plan_current = rows[-1]["state"] == "current"
     synthesis = (
         _synthesis_status(project)
@@ -424,7 +428,11 @@ def project_status(project: Project) -> dict[str, Any]:
             if desired_export is None:
                 for state in states:
                     stored_path = Path(str(state.get("path", "")))
-                    path = stored_path if stored_path.is_absolute() else project.root / stored_path
+                    path = (
+                        stored_path
+                        if stored_path.is_absolute()
+                        else project.state_root / stored_path
+                    )
                     if (
                         path.is_file()
                         and hash_file(path) == state.get("output_sha256")
@@ -447,10 +455,10 @@ def project_status(project: Project) -> dict[str, Any]:
             else:
                 audio_format = desired_export.format
                 target = desired_export.output or (
-                    project.root / "output" / f"{project.manifest.name}.{audio_format}"
+                    project.state_root / "output" / f"{project.manifest.name}.{audio_format}"
                 )
                 if not target.is_absolute():
-                    target = project.root / target
+                    target = project.state_root / target
                 if is_export_current(
                     project,
                     target,
@@ -472,7 +480,9 @@ def project_status(project: Project) -> dict[str, Any]:
                         has_current_master_state = True
                         stored_path = Path(str(state.get("path", "")))
                         path = (
-                            stored_path if stored_path.is_absolute() else project.root / stored_path
+                            stored_path
+                            if stored_path.is_absolute()
+                            else project.state_root / stored_path
                         )
                         if path.is_file() and hash_file(path) == state.get("output_sha256"):
                             has_valid_current_export = True
@@ -512,6 +522,21 @@ def project_status(project: Project) -> dict[str, Any]:
             output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
     stages = [*rows, synthesis, composition, output]
     issues = [issue for row in stages if (issue := _stage_issue(row)) is not None]
+    workspace = rows[1].get("workspace")
+    if isinstance(workspace, dict) and workspace.get("status") == "dirty":
+        dirty_count = int(workspace.get("dirty_chapter_count", 0))
+        refresh_command = str(workspace.get("refresh_command", "ssmdconvert book refresh ."))
+        issues.append(
+            {
+                "code": "workspace.dirty",
+                "stage": "document",
+                "message": (
+                    f"SSMD book workspace: dirty; {dirty_count} chapter digest(s) differ from "
+                    f"the manifest. Run: {refresh_command}"
+                ),
+                "details": workspace,
+            }
+        )
     commands = {
         "plan": "readio plan",
         "synthesis": "readio synth",
@@ -550,7 +575,7 @@ def build_project(
     on_stage: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
     if request is None:
-        saved = project_settings_from_manifest(project.manifest, project.root)
+        saved = project_settings_from_manifest(project.manifest, project.state_root)
         request = ProjectBuildRequest(
             composition=saved.composition or CompositionOptions(),
             export=saved.export or ExportOptions(),
@@ -651,10 +676,10 @@ def build_project(
     export_options = request.export
     audio_format = export_options.format
     target = export_options.output or (
-        project.root / "output" / f"{project.manifest.name}.{audio_format}"
+        project.state_root / "output" / f"{project.manifest.name}.{audio_format}"
     )
     if not target.is_absolute():
-        target = project.root / target
+        target = project.state_root / target
     current_output = is_export_current(
         project,
         target,
@@ -694,7 +719,7 @@ def render_project(
     request = ProjectBuildRequest(
         target="export",
         selection=selector,
-        synthesis=synthesis or SynthesisRequest(language=cfg.reader.lang),
+        synthesis=synthesis or SynthesisRequest(),
         composition=CompositionOptions(target_lufs=target_lufs),
         export=ExportOptions(format=cast(AudioFormat, audio_format)),
     )
@@ -746,7 +771,7 @@ def preview_project(
             "title": document_scopes[scope_id].title,
             "source_number": document_scopes[scope_id].source_number,
             "plan_id": plan.plan_id,
-            "plan_sha256": hash_file(project.root / "plan" / indexed_plans[scope_id].path),
+            "plan_sha256": hash_file(project.state_root / "plan" / indexed_plans[scope_id].path),
         }
         for scope_id, plan in scoped_plans
     )

@@ -14,7 +14,7 @@ def make_audiobook_project(tmp_path: Path, chapters: str = "2-4,5"):
     make_epub(source)
     project = init_audiobook_project(
         source,
-        tmp_path / "book.readio",
+        tmp_path / "book.ssmdbook",
         chapters=chapters,
     )
     cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice", spacy="off"))

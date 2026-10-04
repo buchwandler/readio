@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from ..audiobook import refresh_audiobook_index
 from ..document import InputDocument, document_from_text
 from ..errors import SSMDInputError
 from ..planning import (
@@ -34,7 +36,7 @@ from ..project_settings import (
     project_settings_from_manifest,
 )
 from ..reader import prepare_input_document
-from ..ssmd import parse_ssmd_09
+from ..ssmd import language_detection_hint_from_header, parse_ssmd_09
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +61,36 @@ def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSema
     prepared = prepare_input_document(document)
     planner_document_format = "ssmd" if prepared.format == "ssmd" else "plain"
     policy = PlanningPolicy.from_semantic_config(cfg, document_format=planner_document_format)
+    if prepared.format == "ssmd":
+        metadata_language = (
+            prepared.provenance.metadata.get("language")
+            if prepared.provenance is not None
+            else None
+        )
+        if isinstance(metadata_language, str) and metadata_language.strip():
+            policy = replace(policy, language=metadata_language.strip())
     compiled = compile_semantic_plan(prepared, planning=policy)
+    if prepared.format == "ssmd":
+        header = compiled.plan.document_metadata.get("header", {})
+        original_policy = policy
+        if isinstance(header, Mapping):
+            header_language = header.get(
+                "language", compiled.plan.document_metadata.get("language")
+            )
+            if isinstance(header_language, str) and header_language.strip():
+                policy = replace(policy, language=header_language.strip())
+            detection = language_detection_hint_from_header(
+                header,
+                source_path=prepared.source_path,
+            )
+            if detection is not None:
+                policy = replace(
+                    policy,
+                    language_detection=detection[0],
+                    detect_languages=detection[1],
+                )
+        if policy != original_policy:
+            compiled = compile_semantic_plan(prepared, planning=policy)
     return ResolvedSemanticPlanning(prepared, policy, compiled)
 
 
@@ -113,7 +144,9 @@ def compile_project_scope(
     """Compile one document scope without writing artifacts or mutating indexes."""
     if not scope.id or "/" in scope.id or "\\" in scope.id or scope.id in {".", ".."}:
         raise ValueError("scope_id must be a simple identifier")
-    synthesis_settings = project_settings_from_manifest(project.manifest, project.root).synthesis
+    synthesis_settings = project_settings_from_manifest(
+        project.manifest, project.state_root
+    ).synthesis
     planning_config = project_planning_config(cfg, synthesis_settings)
     resolved = resolve_semantic_planning(planning_config, document)
     relative = (
@@ -122,7 +155,11 @@ def compile_project_scope(
         else Path("chapters") / f"{scope.id}.utterplan.json"
     )
     serialized = resolved.compiled.serialized or resolved.compiled.plan.to_json().encode("utf-8")
-    input_path = project.path(scope.path)
+    input_path = (
+        project.workspace_path(scope.path)
+        if project.manifest.schema_version == 4
+        else project.path(scope.path)
+    )
     document_sha = document_sha256
     if document_sha is None:
         document_sha = (
@@ -153,6 +190,8 @@ def plan_project_scope(
     document_sha256: str | None = None,
 ) -> CompiledSemanticPlan:
     """Compile and replace one independent plan scope while preserving others."""
+    if project.manifest.schema_version == 4:
+        refresh_audiobook_index(project)
     scope = DocumentScope(
         id=scope_id,
         kind=kind,
@@ -164,7 +203,7 @@ def plan_project_scope(
         planned = compile_project_scope(
             project, cfg, scope, document, document_sha256=document_sha256
         )
-        plan_path = project.root / "plan" / planned.scope.path
+        plan_path = project.state_root / "plan" / planned.scope.path
         plan_sha = _write_plan_artifact(plan_path, planned.compiled)
         replacement = PlanScope(
             id=planned.scope.id,
@@ -181,7 +220,7 @@ def plan_project_scope(
         if not any(item.id == scope_id for item in old_scopes):
             scopes = (*scopes, replacement)
         current_settings_sha256 = project_planning_settings_fingerprint(
-            project_settings_from_manifest(project.manifest, project.root).synthesis
+            project_settings_from_manifest(project.manifest, project.state_root).synthesis
         )
         settings_sha256 = (
             current_settings_sha256
@@ -201,6 +240,8 @@ def plan_project_scope(
 
 def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
     """Plan every persisted document scope, then atomically replace the plan index."""
+    if project.manifest.schema_version == 4:
+        refresh_audiobook_index(project)
     with project_lock(project, operation="plan"):
         document_scopes = project.document_scopes()
         planned_scopes = []
@@ -212,10 +253,10 @@ def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
             planned_scopes.append(compile_project_scope(project, cfg, scope, document))
 
         for planned in planned_scopes:
-            plan_path = project.root / "plan" / planned.scope.path
+            plan_path = project.state_root / "plan" / planned.scope.path
             _write_plan_artifact(plan_path, planned.compiled)
         settings_sha256 = project_planning_settings_fingerprint(
-            project_settings_from_manifest(project.manifest, project.root).synthesis
+            project_settings_from_manifest(project.manifest, project.state_root).synthesis
         )
         index = PlanIndex(
             scopes=tuple(item.scope for item in planned_scopes),
@@ -232,7 +273,7 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
 
 
 def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
-    return load_utterplan_v3(project.root / "plan" / scope.path)
+    return load_utterplan_v3(project.state_root / "plan" / scope.path)
 
 
 def load_primary_scope_plan(project: Project) -> UtterancePlan:
@@ -253,7 +294,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
             "details": {},
         }
     current_settings_sha256 = project_planning_settings_fingerprint(
-        project_settings_from_manifest(project.manifest, project.root).synthesis
+        project_settings_from_manifest(project.manifest, project.state_root).synthesis
     )
     if index.project_planning_settings_sha256 != current_settings_sha256:
         return {
@@ -331,7 +372,11 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
             }
         document_scope = document_scopes.get(scope.id)
         if document_scope is not None and scope.document_sha256 is not None:
-            document_path = project.path(document_scope.path)
+            document_path = (
+                project.workspace_path(document_scope.path)
+                if project.manifest.schema_version == 4
+                else project.path(document_scope.path)
+            )
             if not document_path.is_file() or hash_file(document_path) != scope.document_sha256:
                 return {
                     "state": "stale",
@@ -370,22 +415,55 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
         source_reason = "current"
     source_state = "current" if source_reason == "current" else "stale"
 
-    if project.manifest.schema_version == 3:
+    workspace_book: Any = None
+    workspace_details: dict[str, Any] | None = None
+    if project.manifest.schema_version == 4:
+        refresh_command = f"ssmdconvert book refresh {project.workspace_root}"
+        try:
+            workspace_book = refresh_audiobook_index(project)
+            workspace_details = {
+                "status": "dirty" if workspace_book.workspace_dirty else "clean",
+                "dirty_chapter_count": len(workspace_book.dirty_chapter_ids),
+                "dirty_chapter_ids": list(workspace_book.dirty_chapter_ids),
+                "refresh_command": refresh_command,
+            }
+        except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
+            workspace_details = {
+                "status": "invalid",
+                "error": str(error),
+                "refresh_command": refresh_command,
+            }
+
+    if project.manifest.schema_version in {3, 4}:
         document_state = "current"
         document_reason = "current"
         document_details: dict[str, Any] = {}
+        if workspace_details is not None:
+            document_details["workspace"] = workspace_details
+            if workspace_details["status"] == "invalid":
+                document_state = "stale"
+                document_reason = "document.workspace.invalid"
         try:
             document_index = project.load_document_index()
             if project.manifest.kind == "audiobook":
                 source_numbers = tuple(scope.source_number for scope in document_index.scopes)
+                valid_source_numbers = tuple(
+                    number
+                    for number in source_numbers
+                    if isinstance(number, int) and not isinstance(number, bool) and number >= 1
+                )
                 if (
-                    any(number is None or number < 1 for number in source_numbers)
-                    or tuple(sorted(set(source_numbers))) != source_numbers
-                    or tuple(document_index.selection) != source_numbers
+                    len(valid_source_numbers) != len(source_numbers)
+                    or tuple(sorted(set(valid_source_numbers))) != valid_source_numbers
+                    or tuple(document_index.selection) != valid_source_numbers
                 ):
                     raise ValueError("document index selection/order is invalid")
             for scope in document_index.scopes:
-                scope_path = project.path(scope.path)
+                scope_path = (
+                    project.workspace_path(scope.path)
+                    if project.manifest.schema_version == 4
+                    else project.state_path(scope.path)
+                )
                 if not scope_path.is_file():
                     document_state = "stale"
                     document_reason = (
@@ -393,7 +471,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
                         if scope.kind == "chapter"
                         else "document.scope.missing"
                     )
-                    document_details = {"scope_id": scope.id}
+                    document_details["scope_id"] = scope.id
                     break
                 document = project.load_document_scope(scope)
                 if scope.input_format.casefold() == "ssmd":
@@ -402,7 +480,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
                     except SSMDInputError:
                         document_state = "stale"
                         document_reason = "document.scope.invalid"
-                        document_details = {"scope_id": scope.id}
+                        document_details["scope_id"] = scope.id
                         break
                 elif scope.input_format.casefold() not in {"text", "markdown"}:
                     raise ValueError(f"unsupported semantic input format: {scope.input_format}")
