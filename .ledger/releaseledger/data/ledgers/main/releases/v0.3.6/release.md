@@ -3,15 +3,15 @@ schema_version: 2
 object_type: release
 versioning:
   schema_version: 1
-  revision: 3
+  revision: 4
 version: v0.3.6
-status: planned
+status: canceled
 history_state: curated
 title: Readio 0.3.6
 released_at: null
 previous_version: v0.3.5
-cancel_reason: null
-superseded_by: null
+cancel_reason: Superseded by v0.4.0; v0.3.5 was the last shipped release
+superseded_by: v0.4.0
 changelog_file: docs/changelog.md
 boundary_ref: null
 source_refs: []
