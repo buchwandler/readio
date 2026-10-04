@@ -292,6 +292,7 @@ jobs:
         run: |
           python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-engines"
           "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip install \
+            "pytest>=8" \
             "pykokoro==0.10.2" \
             "pipersynth==0.2.1" \
             "pocketsynth[cpu]==0.2.3" \
