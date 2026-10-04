@@ -48,7 +48,7 @@ def test_numpy_is_a_direct_dependency() -> None:
 
 def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
-    core_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[0]
+    tests_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[0]
     minimum_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[1]
     assert "ssmdconvert[pdf,docx]==0.1.2" in minimum_job
     assert "utterplan==0.3.3" in minimum_job
@@ -56,9 +56,14 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     assert "tests/test_utterplan_v3_linguistics.py" in minimum_job
     assert "tests/test_supertonicsynth_engine.py" in workflow
     assert all(
-        engine not in core_job
+        engine not in tests_job
         for engine in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth", "supertonicsynth")
     )
+    base_install = tests_job.index('python -m pip install -e ".[dev]"')
+    engine_free_smoke = tests_job.index("Public API import smoke without synthesis engines")
+    optional_engine_install = tests_job.index('python -m pip install ".[kokoro,kitten,cpu]"')
+    full_suite = tests_job.index("Run test suite")
+    assert base_install < engine_free_smoke < optional_engine_install < full_suite
 
     for requirement in (
         "pykokoro==0.10.2",

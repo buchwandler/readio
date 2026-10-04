@@ -37,6 +37,10 @@ jobs:
           tests/test_audioio.py
       - name: Public API import smoke without synthesis engines
         run: python -c "import readio, readio.api, readio.plan, readio.project"
+      - name: Install optional engines used by integration tests
+        run: python -m pip install ".[kokoro,kitten,cpu]"
+      - name: Verify full test environment dependency resolution
+        run: python -m pip check
       - name: Run test suite
         run: python -m pytest -q
 
