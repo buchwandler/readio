@@ -57,9 +57,9 @@ When file creation is unavailable, the guide instructs the LLM to return the com
 
 The guides target the conservative authoring subset used by:
 
-- Readio with SSMD 0.9 and Utterplan 0.3 support
+- Readio with SSMD 0.9 and Utterplan >=0.3.4,<0.4 support
 - SSMD >=0.9.0,<0.10
-- Utterplan >=0.3.0,<0.4
+- Utterplan >=0.3.4,<0.4
 - Readio's UtterPlan schema-v3 semantic planning and engine-neutral request contract
   This is a compatibility target, not a claim that the authoring environment ran validation. A generated file should be checked on the destination system before rendering.
 

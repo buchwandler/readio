@@ -81,4 +81,4 @@ def test_minimum_ssmdconvert_release_contract_when_requested() -> None:
 def test_minimum_utterplan_release_contract_when_requested() -> None:
     if os.environ.get("READIO_TEST_UTTERPLAN_MINIMUM") != "1":
         pytest.skip("run this assertion in the minimum-release contract job")
-    assert version("utterplan") == "0.3.3"
+    assert version("utterplan") == "0.3.4"

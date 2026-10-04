@@ -58,9 +58,9 @@ Write for a listener who cannot see the source, markup, speaker labels, or page 
 Generate conservative SSMD for this compatibility target:
 Each generated document must include `ssmd_version: '0.9'` in its YAML front matter.
 
-- Readio with SSMD 0.9 and Utterplan 0.3 support
+- Readio with SSMD 0.9 and Utterplan >=0.3.4,<0.4 support
 - SSMD >=0.9.0,<0.10
-- Utterplan >=0.3.0,<0.4
+- Utterplan >=0.3.4,<0.4
 - PyKokoro with Utterplan schema-v3 support
 
 These are authoring instructions, not a requirement to install or execute the runtime. They must work without Python, a Readio installation, the Readio Agent Skill, local SSMD tooling, or local model discovery. The generated file can be checked and rendered later on a Readio-capable system.

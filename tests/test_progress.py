@@ -174,3 +174,98 @@ def test_public_progress_disables_on_stream_failure() -> None:
 
     assert not progress.enabled
     progress.close()
+
+
+def test_plan_progress_reports_typed_phases_and_scope_based_eta() -> None:
+    stream = io.StringIO()
+    clock = Clock()
+    progress = TerminalProgress(stream=stream, enabled=True, tty=False, clock=clock)
+    progress.public_event(
+        ReadioEvent(kind="stage.started", operation="projects.plan", stage="plan")
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.plan",
+            stage="plan",
+            progress_kind="item.started",
+            scope_id="ch-0001",
+            completed=0,
+            total=2,
+            details={"scope_index": 1},
+        )
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.plan",
+            stage="plan",
+            progress_kind="phase",
+            message="Linguistic analysis",
+            scope_id="ch-0001",
+            details={
+                "phase": "source_analysis",
+                "event_kind": "phase.started",
+                "pass_index": 1,
+                "pass_total": 2,
+                "language": "en-us",
+                "provider": "spacy",
+                "model": "en_core_web_sm",
+            },
+        )
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.plan",
+            stage="plan",
+            progress_kind="phase",
+            message="Reusing linguistic analysis",
+            scope_id="ch-0001",
+            details={
+                "phase": "spoken_analysis",
+                "event_kind": "phase.started",
+                "pass_index": 2,
+                "pass_total": 2,
+                "reused": True,
+            },
+        )
+    )
+    before_completion = stream.getvalue()
+    assert (
+        "Planning ch-0001  1/2  Linguistic analysis 1/2 · en-us · spaCy · en_core_web_sm…"
+        in before_completion
+    )
+    assert "Reusing linguistic analysis…" in before_completion
+    assert "%" not in before_completion
+
+    clock.value = 102
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.plan",
+            stage="plan",
+            progress_kind="item.completed",
+            scope_id="ch-0001",
+            completed=1,
+            total=2,
+            details={"scope_index": 1},
+        )
+    )
+    assert "Planning  50%  1/2 scopes  elapsed 00:02  ETA ~00:02" in stream.getvalue()
+
+    clock.value = 104
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.plan",
+            stage="plan",
+            progress_kind="item.completed",
+            scope_id="ch-0002",
+            completed=2,
+            total=2,
+            details={"scope_index": 2},
+        )
+    )
+    assert "Planning 100%  2/2 scopes  elapsed 00:04" in stream.getvalue()
+    assert "ETA" not in stream.getvalue().splitlines()[-1]

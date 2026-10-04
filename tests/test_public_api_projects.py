@@ -109,9 +109,26 @@ def test_project_build_returns_typed_incremental_operations(tmp_path: Path, monk
         export=ExportOptions(format="wav"),
     )
 
-    first = app.projects.build(project, request)
+    events = []
+    first = app.projects.build(project, request, on_event=events.append)
     second = app.projects.build(project, request)
 
+    planning_progress = [
+        event for event in events if event.kind == "progress" and event.stage == "plan"
+    ]
+    assert any(event.progress_kind == "item.started" for event in planning_progress)
+    assert any(event.progress_kind == "phase" for event in planning_progress)
+    plan_completed = next(
+        index
+        for index, event in enumerate(events)
+        if event.kind == "stage.completed" and event.stage == "plan"
+    )
+    synthesis_started = next(
+        index
+        for index, event in enumerate(events)
+        if event.kind == "stage.started" and event.stage == "synthesis"
+    )
+    assert plan_completed < synthesis_started
     assert isinstance(first, ProjectBuildResult)
     assert first.output_path is not None and first.output_path.is_file()
     assert [operation.action for operation in second.operations] == [

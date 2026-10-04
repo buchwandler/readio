@@ -124,7 +124,7 @@ def test_plan_without_subcommand_still_builds_current_project(
     calls: list[Path] = []
     result = SimpleNamespace(scopes=(), to_dict=dict)
 
-    def plan(path: Path) -> SimpleNamespace:
+    def plan(path: Path, *, on_event=None) -> SimpleNamespace:
         calls.append(path)
         return result
 

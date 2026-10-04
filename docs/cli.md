@@ -189,3 +189,15 @@ Composition events identify the current speech segment and operation, show compl
 With `--json`, stdout remains one JSON document. Explicit progress remains on stderr, and progress callbacks are runtime observations only. They do not enter composition IDs, AudioJob serialization, timelines, or composition state identities.
 
 `readio plan` is a project command family: `build` creates semantic Utterplan artifacts, `roles` inspects SSMD roles, and `bind` / `unbind` manage project-local acoustic settings. It never selects an engine or loads TTS. Use `readio render --dry-run` to inspect the complete execution plan for one-shot input.
+
+## Planning progress
+
+`readio plan build [PROJECT]` (and bare `readio plan`) shares the existing `--progress` / `--no-progress` option. Progress is automatic on interactive terminals, disabled by default for non-TTY and JSON output, and can be forced explicitly. It is written only to stderr; `readio plan build PROJECT --json` keeps stdout as one parseable JSON document, including when used with `--progress`.
+
+Planning progress identifies the current scope and operational phases such as document parsing, local spaCy model loading, linguistic analysis passes, spoken-text preparation, segmentation, and finalization. Percentages and ETA describe completed project scopes only; Readio does not invent progress inside one opaque linguistic run. Utterplan still performs all semantic SSMD interpretation. The selected linguistic behavior is controlled by the existing `reader.spacy` policy (`auto`, an explicit local model tier, or `off`); progress adds observability without changing that policy or plan identity.
+
+```bash
+readio plan build . --progress
+readio plan build . --no-progress
+readio plan build . --json --progress
+```

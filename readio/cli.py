@@ -226,11 +226,15 @@ def _add_runtime_options(parser: argparse.ArgumentParser, *, playback: bool = Tr
         parser.add_argument("--device", help="sounddevice output device name or id")
 
 
-def _add_progress_option(parser: argparse.ArgumentParser) -> None:
+def _add_progress_option(
+    parser: argparse.ArgumentParser,
+    *,
+    default: object = None,
+) -> None:
     parser.add_argument(
         "--progress",
         action=argparse.BooleanOptionalAction,
-        default=None,
+        default=default,
         help=(
             "show progress on stderr; enabled automatically on an "
             "interactive terminal, use --no-progress to disable"
@@ -926,7 +930,12 @@ def _plan_project_path(args: argparse.Namespace) -> Path:
 def _cmd_plan_build(args: argparse.Namespace) -> int:
     app = _api_for(args)
     project_path = _plan_project_path(args)
-    result = app.projects.plan(project_path)
+    progress = _build_progress(args)
+    with progress:
+        result = app.projects.plan(
+            project_path,
+            on_event=_api_progress_handler(progress),
+        )
     scope_rows = [item.to_dict() for item in result.scopes]
     payload = {
         "ok": True,
@@ -2047,12 +2056,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build project speech plans and manage project role voices.",
     )
     plan_cmd.add_argument("--json", action="store_true", help="emit JSON output")
+    _add_progress_option(plan_cmd)
     plan_cmd.set_defaults(func=_cmd_plan_build, project=None)
     plan_sub = plan_cmd.add_subparsers(dest="plan_action")
 
     plan_build = plan_sub.add_parser("build", help="build semantic plans for a project")
     plan_build.add_argument("project_pos", nargs="?", type=Path)
     plan_build.add_argument("--project", dest="project_option", type=Path)
+    _add_progress_option(plan_build, default=argparse.SUPPRESS)
     plan_build.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     plan_build.set_defaults(func=_cmd_plan_build)
 

@@ -26,7 +26,7 @@ from .composition import (
     compose_project,
 )
 from .export import export_project, is_export_current, project_export_states
-from .planning import load_scope_plan, plan_project, semantic_status
+from .planning import PlanningProgressCallback, load_scope_plan, plan_project, semantic_status
 from .synthesis import synthesize_project
 
 _STAGE_REASON_MESSAGES = {
@@ -570,6 +570,7 @@ def build_project(
     request: ProjectBuildRequest | None,
     *,
     on_synthesis_event: Callable[[Any], None] | None = None,
+    on_planning_progress: PlanningProgressCallback | None = None,
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
     on_stage: Callable[[str, str], None] | None = None,
@@ -595,7 +596,7 @@ def build_project(
         report("plan", "skipped")
     else:
         report("plan", "started")
-        planned = plan_project(project, cfg)
+        planned = plan_project(project, cfg, on_progress=on_planning_progress)
         operations.append({"stage": "plan", "action": "rebuilt", "scopes": len(planned.scopes)})
         report("plan", "rebuilt")
     if request.target == "plan":
@@ -712,6 +713,7 @@ def render_project(
     synthesis: SynthesisRequest | None = None,
     selector: str = "all",
     on_synthesis_event: Callable[[Any], None] | None = None,
+    on_planning_progress: PlanningProgressCallback | None = None,
     on_composition_progress: CompositionProgressCallback | None = None,
     on_phase: Callable[[str], None] | None = None,
     on_stage: Callable[[str, str], None] | None = None,
@@ -728,6 +730,7 @@ def render_project(
         cfg,
         request,
         on_synthesis_event=on_synthesis_event,
+        on_planning_progress=on_planning_progress,
         on_composition_progress=on_composition_progress,
         on_phase=on_phase,
         on_stage=on_stage,

@@ -70,7 +70,7 @@ def test_fake_spacy_annotations_and_provenance_are_persisted(
     from utterplan.model import TokenAnnotation
 
     class FakePool(LinguisticResourcePool):
-        def analyze(self, text, run, config):
+        def analyze(self, text, run, config, *, phase="source_analysis", on_progress=None):
             tokens = []
             words = text.split()
             for index, word in enumerate(words):

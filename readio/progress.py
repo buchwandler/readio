@@ -36,6 +36,14 @@ class TerminalProgress:
         self._tty = tty
         self._clock = clock
         self._started_at: float | None = None
+        self._plan_started_at: float | None = None
+        self._plan_total_scopes: int | None = None
+        self._plan_completed_scopes = 0
+        self._plan_current_scope = "document"
+        self._plan_current_scope_index = 1
+        self._plan_current_phase: str | None = None
+        self._plan_last_logged_percent: int | None = None
+        self._plan_last_update_at: float | None = None
         self._last_update_at: float | None = None
         self._last_logged_percent: int | None = None
         self._last_logged_completed = -1
@@ -180,6 +188,17 @@ class TerminalProgress:
         if not self._enabled:
             return
         if event.kind == "stage.started":
+            if event.stage == "plan":
+                self._plan_started_at = self._clock()
+                self._plan_total_scopes = None
+                self._plan_completed_scopes = 0
+                self._plan_current_scope = "document"
+                self._plan_current_scope_index = 1
+                self._plan_current_phase = None
+                self._plan_last_logged_percent = None
+                self._plan_last_update_at = None
+                self.phase(event.message or "Planning")
+                return
             if event.stage == "composition":
                 self._composition_started_at = self._clock()
                 self._composition_last_update_at = None
@@ -206,10 +225,105 @@ class TerminalProgress:
             return
         if event.kind != "progress":
             return
-        if event.stage == "synthesis":
+        if event.stage == "plan":
+            self._plan_public_event(event)
+        elif event.stage == "synthesis":
             self._synthesis_public_event(event)
         elif event.stage == "composition":
             self._composition_public_event(event)
+
+    def _plan_public_event(self, event: ReadioEvent) -> None:
+        details = event.details
+        if event.progress_kind == "item.started":
+            self._plan_current_scope = event.scope_id or "document"
+            scope_index = details.get("scope_index")
+            if isinstance(scope_index, int) and not isinstance(scope_index, bool):
+                self._plan_current_scope_index = scope_index
+            if event.total is not None:
+                self._plan_total_scopes = event.total
+            self._plan_current_phase = "preparation"
+            self._plan_emit_phase("Preparing")
+            return
+        if event.progress_kind == "item.completed":
+            if event.scope_id is not None:
+                self._plan_current_scope = event.scope_id
+            if event.completed is not None:
+                self._plan_completed_scopes = event.completed
+            else:
+                self._plan_completed_scopes += 1
+            if event.total is not None:
+                self._plan_total_scopes = event.total
+            self._plan_emit_summary()
+            return
+        if event.progress_kind != "phase":
+            return
+
+        event_kind = details.get("event_kind")
+        if event_kind in {"phase.completed", "run.completed", "model.completed"}:
+            return
+        if event.scope_id is not None:
+            self._plan_current_scope = event.scope_id
+        phase = details.get("phase")
+        self._plan_current_phase = phase if isinstance(phase, str) else None
+        message = event.message or "Planning"
+        if message == "Linguistic analysis":
+            pass_index = details.get("pass_index")
+            pass_total = details.get("pass_total")
+            if isinstance(pass_index, int) and isinstance(pass_total, int):
+                message += f" {pass_index}/{pass_total}"
+        suffix: list[str] = []
+        if message.startswith("Loading "):
+            model = details.get("model")
+            if isinstance(model, str) and model:
+                suffix.append(model)
+        elif message.startswith("Linguistic analysis"):
+            language = details.get("language")
+            provider = details.get("provider")
+            model = details.get("model")
+            if isinstance(language, str) and language:
+                suffix.append(language)
+            if isinstance(provider, str) and provider:
+                suffix.append("spaCy" if provider == "spacy" else provider)
+            if isinstance(model, str) and model:
+                suffix.append(model)
+        if suffix:
+            message += (" " if message.startswith("Loading ") else " · ") + " · ".join(suffix)
+        self._plan_emit_phase(message)
+
+    def _plan_prefix(self) -> str:
+        scope = self._plan_current_scope or "document"
+        total = self._plan_total_scopes
+        if total is None:
+            return f"Planning {scope}"
+        return f"Planning {scope}  {self._plan_current_scope_index}/{total}"
+
+    def _plan_emit_phase(self, message: str) -> None:
+        self._finish_line()
+        self._write(f"{self._plan_prefix()}  {message}…", newline=True)
+        self._plan_last_update_at = self._clock()
+
+    def _plan_emit_summary(self) -> None:
+        total = self._plan_total_scopes
+        if total is None:
+            return
+        completed = min(self._plan_completed_scopes, total) if total else 0
+        percent = 100 if total == 0 else min(100, round(completed * 100 / total))
+        now = self._clock()
+        started_at = self._plan_started_at if self._plan_started_at is not None else now
+        elapsed = max(0.0, now - started_at)
+        noun = "scope" if total == 1 else "scopes"
+        text = (
+            f"Planning {percent:3d}%  {completed}/{total} {noun}"
+            f"  elapsed {format_duration(elapsed)}"
+        )
+        if completed > 0 and total > completed and elapsed >= 1.0:
+            eta = elapsed / completed * (total - completed)
+            if eta > 0:
+                text += f"  ETA ~{format_duration(eta)}"
+        self._finish_line()
+        self._write(text, newline=True)
+        self._plan_last_logged_percent = percent
+        self._plan_last_update_at = now
 
     def _synthesis_public_event(self, event: ReadioEvent) -> None:
         if event.progress_kind == "phase":

@@ -989,3 +989,117 @@ def test_project_settings_cli_inspects_sets_and_clears_supported_sections(
         ]
     )["settings"]
     assert "composition" not in cleared
+
+
+def test_plan_build_progress_flags_cover_subcommand_and_bare_plan():
+    parser = build_parser()
+    assert parser.parse_args(["plan", "build", ".", "--progress"]).progress is True
+    assert parser.parse_args(["plan", "build", ".", "--no-progress"]).progress is False
+    assert parser.parse_args(["plan", "--progress", "build", "."]).progress is True
+    assert parser.parse_args(["plan", "--progress"]).progress is True
+    assert parser.parse_args(["plan", "--no-progress"]).progress is False
+
+
+def test_plan_build_help_documents_progress_options(capsys):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["plan", "build", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--progress" in help_text
+    assert "--no-progress" in help_text
+
+
+def _install_plan_build_stub(monkeypatch):
+    from readio.api.types import ProjectPlanResult, ProjectPlanScope
+
+    scope = ProjectPlanScope(scope_id="document", plan_id="plan-id", units=4)
+    result = ProjectPlanResult(
+        project=ProjectRef(
+            root=Path("project"),
+            project_id="project-id",
+            name="Project",
+            kind="document",
+            source_format="text",
+        ),
+        scopes=(scope,),
+    )
+
+    def plan(_path, *, on_event=None):
+        if on_event is not None:
+            on_event(ReadioEvent(kind="stage.started", operation="projects.plan", stage="plan"))
+            on_event(
+                ReadioEvent(
+                    kind="progress",
+                    operation="projects.plan",
+                    stage="plan",
+                    progress_kind="item.started",
+                    scope_id="document",
+                    completed=0,
+                    total=1,
+                    details={"scope_index": 1},
+                )
+            )
+            on_event(
+                ReadioEvent(
+                    kind="progress",
+                    operation="projects.plan",
+                    stage="plan",
+                    progress_kind="phase",
+                    message="Loading spaCy model",
+                    scope_id="document",
+                    details={
+                        "phase": "source_analysis",
+                        "event_kind": "model.started",
+                        "provider": "spacy",
+                        "model": "en_core_web_sm",
+                    },
+                )
+            )
+            on_event(
+                ReadioEvent(
+                    kind="progress",
+                    operation="projects.plan",
+                    stage="plan",
+                    progress_kind="item.completed",
+                    scope_id="document",
+                    completed=1,
+                    total=1,
+                    details={"scope_index": 1},
+                )
+            )
+            on_event(ReadioEvent(kind="stage.completed", operation="projects.plan", stage="plan"))
+        return result
+
+    monkeypatch.setattr(
+        cli,
+        "_api_for",
+        lambda _args: SimpleNamespace(projects=SimpleNamespace(plan=plan)),
+    )
+
+
+def test_plan_build_progress_uses_public_events_and_stderr(monkeypatch, capsys):
+    _install_plan_build_stub(monkeypatch)
+    args = build_parser().parse_args(["plan", "build", ".", "--progress"])
+
+    assert cli._cmd_plan_build(args) == 0
+    captured = capsys.readouterr()
+    assert "Semantic plan: plan-id" in captured.out
+    assert "Planning…" in captured.err
+    assert "Loading spaCy model en_core_web_sm…" in captured.err
+    assert "Planning 100%  1/1 scope" in captured.err
+
+
+def test_plan_build_no_progress_and_json_keep_outputs_clean(monkeypatch, capsys):
+    _install_plan_build_stub(monkeypatch)
+    args = build_parser().parse_args(["plan", "build", ".", "--no-progress"])
+
+    assert cli._cmd_plan_build(args) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "Semantic plan: plan-id" in captured.out
+
+    args = build_parser().parse_args(["plan", "build", ".", "--json", "--progress"])
+    assert cli._cmd_plan_build(args) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["scopes"][0]["plan_id"] == "plan-id"
+    assert "Loading spaCy model en_core_web_sm…" in captured.err

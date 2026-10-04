@@ -10,11 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from utterplan import UtterancePlan
+from utterplan import PlannerProgressEvent, UtterancePlan
 
 from .semantic import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
 
@@ -77,6 +78,7 @@ def compile_semantic_plan(
     document: InputDocument,
     *,
     planning: PlanningPolicy,
+    on_progress: Callable[[PlannerProgressEvent], None] | None = None,
 ) -> CompiledSemanticPlan:
     """Compile a document into a semantic UtterancePlan.
 
@@ -95,7 +97,11 @@ def compile_semantic_plan(
     from .semantic import SemanticPlanningService
 
     service = SemanticPlanningService()
-    plan = service.compile_from_document(document, planning)
+    plan = (
+        service.compile_from_document(document, planning)
+        if on_progress is None
+        else service.compile_from_document(document, planning, on_progress=on_progress)
+    )
     # Compute identity after the compiler has materialized UtterPlan identity.
     plan = plan.with_identity()
     plan_id = plan.plan_id or ""

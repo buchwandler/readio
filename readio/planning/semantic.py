@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
-from utterplan import CURRENT_SCHEMA_VERSION, UtterancePlan, UtterancePlanner
+from utterplan import CURRENT_SCHEMA_VERSION, PlannerProgressEvent, UtterancePlan, UtterancePlanner
 
 from .policy import PlanningPolicy
 
@@ -26,10 +27,20 @@ class SemanticPlanningService:
         self._last_plan: UtterancePlan | None = None
         self._last_provenance: dict[str, Any] = {}
 
-    def compile(self, text: str, policy: PlanningPolicy) -> UtterancePlan:
+    def compile(
+        self,
+        text: str,
+        policy: PlanningPolicy,
+        *,
+        on_progress: Callable[[PlannerProgressEvent], None] | None = None,
+    ) -> UtterancePlan:
         """Compile text into the canonical UtterancePlan."""
         planner = UtterancePlanner(policy.to_planner_config())
-        plan = planner.plan(text)
+        plan = (
+            planner.plan(text)
+            if on_progress is None
+            else planner.plan(text, on_progress=on_progress)
+        )
         self._last_plan = plan
         self._last_provenance = {
             "plan_id": plan.plan_id,
@@ -46,9 +57,19 @@ class SemanticPlanningService:
         )
         return plan
 
-    def compile_from_document(self, document: Any, policy: PlanningPolicy) -> UtterancePlan:
+    def compile_from_document(
+        self,
+        document: Any,
+        policy: PlanningPolicy,
+        *,
+        on_progress: Callable[[PlannerProgressEvent], None] | None = None,
+    ) -> UtterancePlan:
         """Compile the text of an InputDocument."""
-        return self.compile(document.text, policy)
+        return (
+            self.compile(document.text, policy)
+            if on_progress is None
+            else self.compile(document.text, policy, on_progress=on_progress)
+        )
 
     @property
     def last_plan(self) -> UtterancePlan | None:

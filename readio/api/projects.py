@@ -21,7 +21,7 @@ from ..project_settings import (
 from ..stages.composition import CompositionProgress, compose_project
 from ..stages.export import export_project
 from ..stages.pipeline import _project_request, build_project, preview_project, project_status
-from ..stages.planning import plan_project
+from ..stages.planning import PlanningProgressCallback, ProjectPlanningProgress, plan_project
 from ..stages.synthesis import resolve_project_synthesis, synthesize_project
 from .errors import (
     ExecutionError,
@@ -281,7 +281,10 @@ class ProjectService:
         operation = "projects.plan"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="plan"))
-        result = self._call(lambda: plan_project(internal, self._app.config))
+        planning_handler = self._planning_handler(handler, operation)
+        result = self._call(
+            lambda: plan_project(internal, self._app.config, on_progress=planning_handler)
+        )
         self._notify(
             handler,
             ReadioEvent(
@@ -552,6 +555,7 @@ class ProjectService:
                 self._app.config,
                 request,
                 on_synthesis_event=self._synthesis_handler(handler, operation),
+                on_planning_progress=self._planning_handler(handler, operation),
                 on_composition_progress=self._composition_handler(handler, operation),
                 on_phase=self._phase_handler(handler, operation),
                 on_stage=lambda stage, state: self._build_stage_event(
@@ -689,6 +693,104 @@ class ProjectService:
 
     def _handler(self, on_event: EventHandler | None) -> EventHandler | None:
         return compose_event_handlers(self._app.on_event, on_event)
+
+    def _planning_handler(
+        self,
+        handler: EventHandler | None,
+        operation: str,
+    ) -> PlanningProgressCallback | None:
+        if handler is None:
+            return None
+
+        def forward(progress: ProjectPlanningProgress) -> None:
+            if progress.kind == "scope.started":
+                scope_index = progress.scope_index or 1
+                details: dict[str, JsonValue] = {"scope_index": scope_index}
+                event = ReadioEvent(
+                    kind="progress",
+                    operation=operation,
+                    stage="plan",
+                    progress_kind="item.started",
+                    scope_id=progress.scope_id,
+                    completed=scope_index - 1,
+                    total=progress.scope_total,
+                    details=details,
+                )
+            elif progress.kind == "scope.completed":
+                scope_index = progress.scope_index or 1
+                details = {"scope_index": scope_index}
+                event = ReadioEvent(
+                    kind="progress",
+                    operation=operation,
+                    stage="plan",
+                    progress_kind="item.completed",
+                    scope_id=progress.scope_id,
+                    completed=scope_index,
+                    total=progress.scope_total,
+                    details=details,
+                )
+            elif progress.planner_event is not None:
+                planner_event = progress.planner_event
+                details = {
+                    "phase": planner_event.phase,
+                    "event_kind": planner_event.kind,
+                }
+                for key, value in (
+                    ("pass_index", planner_event.pass_index),
+                    ("pass_total", planner_event.pass_total),
+                    ("language", planner_event.language),
+                    ("provider", planner_event.provider),
+                    ("model", planner_event.model),
+                    ("char_count", planner_event.char_count),
+                    ("run_completed", planner_event.completed),
+                    ("run_total", planner_event.total),
+                ):
+                    if value is not None:
+                        details[key] = cast(JsonValue, json_value(value))
+                for key in ("reused", "skipped", "reason"):
+                    value = planner_event.details.get(key)
+                    if value is not None and isinstance(value, (str, int, float, bool)):
+                        details[key] = cast(JsonValue, json_value(value))
+                event = ReadioEvent(
+                    kind="progress",
+                    operation=operation,
+                    stage="plan",
+                    progress_kind="phase",
+                    message=self._planning_message(planner_event),
+                    scope_id=progress.scope_id,
+                    details=details,
+                )
+            else:
+                return
+            self._notify(handler, event)
+
+        return forward
+
+    def _planning_message(self, event: Any) -> str:
+        if event.kind == "model.started":
+            provider = event.provider
+            label = "spaCy" if provider == "spacy" else provider
+            return f"Loading {label} model" if label else "Loading linguistic model"
+        if event.kind == "model.completed":
+            provider = "spaCy" if event.provider == "spacy" else event.provider
+            return f"{provider} model ready" if provider else "Linguistic model ready"
+        if event.phase == "parse":
+            return "Parsing document"
+        if event.phase == "source_analysis":
+            return "Linguistic analysis"
+        if event.phase == "preparation":
+            return "Preparing spoken text"
+        if event.phase == "spoken_analysis":
+            return (
+                "Reusing linguistic analysis"
+                if event.details.get("reused") is True
+                else "Linguistic analysis"
+            )
+        if event.phase == "segmentation":
+            return "Segmenting speech units"
+        if event.phase == "finalization":
+            return "Finalizing semantic plan"
+        return "Planning"
 
     def _notify(self, handler: EventHandler | None, event: ReadioEvent) -> None:
         if handler is None:

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from utterplan import PlannerProgressEvent
 
 from ..audiobook import refresh_audiobook_index
 from ..document import InputDocument, document_from_text
@@ -57,7 +59,27 @@ class ProjectPlanningResult:
     scopes: tuple[PlannedScope, ...]
 
 
-def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSemanticPlanning:
+@dataclass(frozen=True, slots=True)
+class ProjectPlanningProgress:
+    """Internal planning progress enriched with project-scope context."""
+
+    kind: Literal["scope.started", "scope.completed", "planner"]
+    scope_id: str | None = None
+    scope_index: int | None = None
+    scope_total: int | None = None
+    planner_event: PlannerProgressEvent | None = None
+
+
+PlannerProgressCallback = Callable[[PlannerProgressEvent], None]
+PlanningProgressCallback = Callable[[ProjectPlanningProgress], None]
+
+
+def resolve_semantic_planning(
+    cfg: Any,
+    document: InputDocument,
+    *,
+    on_progress: PlannerProgressCallback | None = None,
+) -> ResolvedSemanticPlanning:
     prepared = prepare_input_document(document)
     planner_document_format = "ssmd" if prepared.format == "ssmd" else "plain"
     policy = PlanningPolicy.from_semantic_config(cfg, document_format=planner_document_format)
@@ -69,28 +91,23 @@ def resolve_semantic_planning(cfg: Any, document: InputDocument) -> ResolvedSema
         )
         if isinstance(metadata_language, str) and metadata_language.strip():
             policy = replace(policy, language=metadata_language.strip())
-    compiled = compile_semantic_plan(prepared, planning=policy)
-    if prepared.format == "ssmd":
-        header = compiled.plan.document_metadata.get("header", {})
-        original_policy = policy
-        if isinstance(header, Mapping):
-            header_language = header.get(
-                "language", compiled.plan.document_metadata.get("language")
+
+        parsed = parse_ssmd_09(prepared.text, source_path=prepared.source_path)
+        header_language = parsed.header.get("language")
+        if isinstance(header_language, str) and header_language.strip():
+            policy = replace(policy, language=header_language.strip())
+        detection = language_detection_hint_from_header(
+            parsed.header,
+            source_path=prepared.source_path,
+        )
+        if detection is not None:
+            policy = replace(
+                policy,
+                language_detection=detection[0],
+                detect_languages=detection[1],
             )
-            if isinstance(header_language, str) and header_language.strip():
-                policy = replace(policy, language=header_language.strip())
-            detection = language_detection_hint_from_header(
-                header,
-                source_path=prepared.source_path,
-            )
-            if detection is not None:
-                policy = replace(
-                    policy,
-                    language_detection=detection[0],
-                    detect_languages=detection[1],
-                )
-        if policy != original_policy:
-            compiled = compile_semantic_plan(prepared, planning=policy)
+
+    compiled = compile_semantic_plan(prepared, planning=policy, on_progress=on_progress)
     return ResolvedSemanticPlanning(prepared, policy, compiled)
 
 
@@ -140,6 +157,9 @@ def compile_project_scope(
     document: InputDocument,
     *,
     document_sha256: str | None = None,
+    on_progress: PlanningProgressCallback | None = None,
+    scope_index: int = 1,
+    scope_total: int = 1,
 ) -> PlannedScope:
     """Compile one document scope without writing artifacts or mutating indexes."""
     if not scope.id or "/" in scope.id or "\\" in scope.id or scope.id in {".", ".."}:
@@ -148,7 +168,22 @@ def compile_project_scope(
         project.manifest, project.state_root
     ).synthesis
     planning_config = project_planning_config(cfg, synthesis_settings)
-    resolved = resolve_semantic_planning(planning_config, document)
+    planner_callback: PlannerProgressCallback | None = None
+    if on_progress is not None:
+
+        def planner_progress(event: PlannerProgressEvent) -> None:
+            on_progress(
+                ProjectPlanningProgress(
+                    kind="planner",
+                    scope_id=scope.id,
+                    scope_index=scope_index,
+                    scope_total=scope_total,
+                    planner_event=event,
+                )
+            )
+
+        planner_callback = planner_progress
+    resolved = resolve_semantic_planning(planning_config, document, on_progress=planner_callback)
     relative = (
         Path("document.utterplan.json")
         if scope.id == "document" and scope.kind == "document"
@@ -188,6 +223,7 @@ def plan_project_scope(
     kind: str = "chapter",
     title: str | None = None,
     document_sha256: str | None = None,
+    on_progress: PlanningProgressCallback | None = None,
 ) -> CompiledSemanticPlan:
     """Compile and replace one independent plan scope while preserving others."""
     if project.manifest.schema_version == 4:
@@ -200,9 +236,34 @@ def plan_project_scope(
         title=title,
     )
     with project_lock(project, operation="plan-scope"):
+        if on_progress is not None:
+            on_progress(
+                ProjectPlanningProgress(
+                    kind="scope.started",
+                    scope_id=scope.id,
+                    scope_index=1,
+                    scope_total=1,
+                )
+            )
         planned = compile_project_scope(
-            project, cfg, scope, document, document_sha256=document_sha256
+            project,
+            cfg,
+            scope,
+            document,
+            document_sha256=document_sha256,
+            on_progress=on_progress,
+            scope_index=1,
+            scope_total=1,
         )
+        if on_progress is not None:
+            on_progress(
+                ProjectPlanningProgress(
+                    kind="scope.completed",
+                    scope_id=scope.id,
+                    scope_index=1,
+                    scope_total=1,
+                )
+            )
         plan_path = project.state_root / "plan" / planned.scope.path
         plan_sha = _write_plan_artifact(plan_path, planned.compiled)
         replacement = PlanScope(
@@ -238,19 +299,56 @@ def plan_project_scope(
         return planned.compiled
 
 
-def plan_project(project: Project, cfg: Any) -> ProjectPlanningResult:
+def plan_project(
+    project: Project,
+    cfg: Any,
+    *,
+    on_progress: PlanningProgressCallback | None = None,
+) -> ProjectPlanningResult:
     """Plan every persisted document scope, then atomically replace the plan index."""
     if project.manifest.schema_version == 4:
         refresh_audiobook_index(project)
     with project_lock(project, operation="plan"):
         document_scopes = project.document_scopes()
         planned_scopes = []
-        for scope in document_scopes:
+        for index, scope in enumerate(document_scopes, start=1):
+            if on_progress is not None:
+                on_progress(
+                    ProjectPlanningProgress(
+                        kind="scope.started",
+                        scope_id=scope.id,
+                        scope_index=index,
+                        scope_total=len(document_scopes),
+                    )
+                )
             if project.manifest.schema_version == 1:
                 document = prepare_project_document(project)
             else:
                 document = project.load_document_scope(scope)
-            planned_scopes.append(compile_project_scope(project, cfg, scope, document))
+            if on_progress is None:
+                planned = compile_project_scope(project, cfg, scope, document)
+            else:
+                planned = compile_project_scope(
+                    project,
+                    cfg,
+                    scope,
+                    document,
+                    on_progress=on_progress,
+                    scope_index=index,
+                    scope_total=len(document_scopes),
+                )
+            planned_scopes.append(planned)
+            # Scope completion means semantic compilation succeeded; artifacts and the index
+            # are persisted only after every scope has compiled successfully below.
+            if on_progress is not None:
+                on_progress(
+                    ProjectPlanningProgress(
+                        kind="scope.completed",
+                        scope_id=scope.id,
+                        scope_index=index,
+                        scope_total=len(document_scopes),
+                    )
+                )
 
         for planned in planned_scopes:
             plan_path = project.state_root / "plan" / planned.scope.path

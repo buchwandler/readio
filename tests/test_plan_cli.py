@@ -28,7 +28,7 @@ def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, c
     monkeypatch.setattr(
         ProjectService,
         "plan",
-        lambda self, project: requested.append(project) or result,
+        lambda self, project, *, on_event=None: requested.append(project) or result,
     )
 
     args = build_parser().parse_args(["plan", "--json"])

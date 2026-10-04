@@ -30,6 +30,8 @@ Install a compatible local spaCy language model separately. Readio never downloa
 
 `readio plan` stores token annotations and linguistic provenance in the Utterplan schema v3 artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected engine's local frontend because they do not consume a persisted semantic plan.
 
+`readio plan build` reports planning phases on interactive terminals; force this with `--progress` or suppress it with `--no-progress`. Progress is written to stderr, so JSON stdout stays machine-readable. The phase details can identify a spaCy model and linguistic-analysis passes; the existing `reader.spacy` configuration still controls analysis. See the [CLI guide](docs/cli.md#planning-progress).
+
 ## Python API
 
 Use `readio.api` from Python applications for typed synchronous speech, project, catalog, configuration, and diagnostics services. Start with the [Python API guide](docs/api.md) and executable [planning example](examples/python_api.py).
@@ -385,7 +387,7 @@ M4A and Opus require an `ffmpeg` executable on `PATH`. WAV and FLAC use PCM16; M
 
 For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan once, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD.
 
-Readio accepts SSMD 0.9.x and UtterPlan 0.3.x/schema v3 only. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Existing project plans using UtterPlan schema v1 or v2 are stale and must be rebuilt from valid SSMD 0.9 or plain text. This does not change Readio's own `readio.plan.v2` response schema.
+Readio accepts SSMD 0.9.x and UtterPlan >=0.3.4,<0.4/schema v3 only. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Existing project plans using UtterPlan schema v1 or v2 are stale and must be rebuilt from valid SSMD 0.9 or plain text. This does not change Readio's own `readio.plan.v2` response schema.
 
 Inspect a document before rendering:
 

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from document_support import write_test_pdf
 
+from readio.api import Readio
 from readio.config import ReaderSettings, ReadioConfig
-from readio.document import document_from_text
+from readio.document import DocumentProvenance, document_from_text
 from readio.project import init_project
 from readio.project_model import DocumentIndex, DocumentScope
 from readio.stages.planning import (
@@ -35,7 +37,7 @@ def test_semantic_planning_does_not_resolve_engine_and_is_acoustic_invariant(mon
     assert first.compiled.plan.units
 
 
-def test_ssmd_language_and_detection_hints_precede_readio_fallback():
+def test_ssmd_language_and_detection_hints_precede_readio_fallback(monkeypatch):
     document = document_from_text(
         "---\n"
         "ssmd_version: '0.9'\n"
@@ -48,6 +50,20 @@ def test_ssmd_language_and_detection_hints_precede_readio_fallback():
         "Guten Tag. 12345.",
         input_format="ssmd",
     )
+    document = replace(
+        document,
+        provenance=DocumentProvenance(metadata={"language": "fr-FR"}),
+    )
+    from readio.stages import planning as planning_stage
+
+    original_compile = planning_stage.compile_semantic_plan
+    compile_policies = []
+
+    def track_compile(*args, **kwargs):
+        compile_policies.append(kwargs["planning"])
+        return original_compile(*args, **kwargs)
+
+    monkeypatch.setattr(planning_stage, "compile_semantic_plan", track_compile)
     resolved = resolve_semantic_planning(
         ReadioConfig(
             reader=ReaderSettings(
@@ -58,6 +74,8 @@ def test_ssmd_language_and_detection_hints_precede_readio_fallback():
         ),
         document,
     )
+    assert len(compile_policies) == 1
+    assert compile_policies[0] == resolved.policy
 
     assert resolved.policy.language == "de-DE"
     assert resolved.policy.language_detection == "auto"
@@ -287,3 +305,63 @@ def test_project_planning_does_not_replace_index_when_scope_compile_fails(tmp_pa
     with pytest.raises(ValueError, match="compile failed"):
         plan_project(project, ReadioConfig(reader=ReaderSettings(spacy="off")))
     assert not project.paths["plan_index"].exists()
+
+
+def test_project_api_forwards_typed_planning_progress(tmp_path):
+    project = _multi_scope_project(tmp_path)
+    app = Readio(ReadioConfig(reader=ReaderSettings(spacy="off")))
+    events = []
+
+    app.projects.plan(project.root, on_event=events.append)
+
+    assert events[0].kind == "operation.started"
+    assert events[1].kind == "stage.started" and events[1].stage == "plan"
+    assert events[-2].kind == "stage.completed" and events[-2].stage == "plan"
+    assert events[-1].kind == "operation.completed"
+    progress = [event for event in events if event.kind == "progress"]
+    scope_started = [event for event in progress if event.progress_kind == "item.started"]
+    scope_completed = [event for event in progress if event.progress_kind == "item.completed"]
+    assert [(event.completed, event.total) for event in scope_started] == [(0, 2), (1, 2)]
+    assert [(event.completed, event.total) for event in scope_completed] == [(1, 2), (2, 2)]
+    assert [event.scope_id for event in scope_completed] == ["chapter-0002", "chapter-0003"]
+    planner_events = [event for event in progress if event.progress_kind == "phase"]
+    assert planner_events
+    assert all({"phase", "event_kind"} <= set(event.details) for event in planner_events)
+    for event in progress:
+        json.dumps(event.details)
+
+
+def test_project_planning_progress_preserves_keyboard_interrupt(tmp_path):
+    project = _multi_scope_project(tmp_path)
+    app = Readio(ReadioConfig(reader=ReaderSettings(spacy="off")))
+
+    def interrupt_on_plan_progress(event):
+        if event.kind == "progress" and event.stage == "plan":
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        app.projects.plan(project.root, on_event=interrupt_on_plan_progress)
+
+
+def test_planning_progress_does_not_change_plan_artifacts(tmp_path):
+    source = tmp_path / "stable.txt"
+    source.write_text("First sentence.\n\nSecond sentence.", encoding="utf-8")
+    project = init_project(source, tmp_path / "stable.readio")
+    config = ReadioConfig(reader=ReaderSettings(spacy="off"))
+
+    without_progress = plan_project(project, config)
+    first_scope = without_progress.scopes[0]
+    artifact_path = project.state_root / "plan" / first_scope.scope.path
+    artifact_before = artifact_path.read_bytes()
+    index_before = project.paths["plan_index"].read_bytes()
+
+    progress_events = []
+    with_progress = plan_project(project, config, on_progress=progress_events.append)
+    second_scope = with_progress.scopes[0]
+
+    assert progress_events
+    assert first_scope.scope.plan_id == second_scope.scope.plan_id
+    assert first_scope.scope == second_scope.scope
+    assert first_scope.compiled.plan.units == second_scope.compiled.plan.units
+    assert artifact_path.read_bytes() == artifact_before
+    assert project.paths["plan_index"].read_bytes() == index_before
