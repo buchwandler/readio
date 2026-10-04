@@ -333,7 +333,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
     expected_format = "ssmd" if document_format == "ssmd" else "plain"
     for scope in index.scopes:
         try:
-            path = project.path(str(Path("plan") / scope.path))
+            path = project.state_path(f"plan/{scope.path}")
             if not path.is_file():
                 return {
                     "state": "stale",

@@ -383,7 +383,7 @@ def init_project(source: Path | str, output: Path | str | None = None) -> Projec
         ):
             (temporary / directory).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_path, temporary / source_relative)
-        (temporary / manifest.document_text_path).write_text(document_text, encoding="utf-8")
+        atomic_write_bytes(temporary / manifest.document_text_path, document_text.encode("utf-8"))
         atomic_write_json(
             temporary / manifest.document_index_path,
             DocumentIndex(

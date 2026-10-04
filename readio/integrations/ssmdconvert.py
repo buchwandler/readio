@@ -152,6 +152,10 @@ def _json_mapping(value: Mapping[str, Any]) -> dict[str, JsonValue]:
     return cast(dict[str, JsonValue], json_value(dict(value)))
 
 
+def _normalize_newlines(value: str) -> str:
+    return value.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _diagnostics(value: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, JsonValue], ...]:
     return tuple(_json_mapping(item) for item in value)
 
@@ -161,7 +165,7 @@ def _canonical_chapter(chapter: SSMDConvertBookChapter) -> CanonicalChapter:
         id=chapter.id,
         source_number=chapter.source_number,
         title=chapter.title,
-        ssmd=chapter.ssmd,
+        ssmd=_normalize_newlines(chapter.ssmd),
         source_id=chapter.source_id,
         href=chapter.href,
         source_parent_id=chapter.source_parent_id,
@@ -310,7 +314,7 @@ def convert_document_source(source: Path) -> CanonicalDocument:
         source_format=source_info.format,
         media_type=source_info.media_type,
         source_name=source_info.name or path.name,
-        ssmd=result.ssmd,
+        ssmd=_normalize_newlines(result.ssmd),
         metadata=_json_mapping(result.document.metadata),
         converter_version=ssmdconvert_version,
     )
@@ -362,7 +366,7 @@ def convert_document_content(
         source_format=source_info.format,
         media_type=source_info.media_type,
         source_name=source_info.name or source_name,
-        ssmd=result.ssmd,
+        ssmd=_normalize_newlines(result.ssmd),
         metadata=_json_mapping(result.document.metadata),
         converter_version=ssmdconvert_version,
     )
