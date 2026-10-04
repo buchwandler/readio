@@ -69,7 +69,7 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
         "pykokoro==0.10.2",
         "pipersynth==0.2.1",
         "pocketsynth[cpu]==0.2.3",
-        "kittensynth[cpu]==0.1.0",
+        "kittensynth[cpu]==0.1.1",
         "supertonicsynth[cpu]==0.1.2",
     ):
         assert requirement in workflow
@@ -140,10 +140,10 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
     assert optional["spacy"] == ["utterplan[spacy]>=0.3.3,<0.4"]
     assert "pipersynth>=0.2.1,<0.3" in optional["all"]
     assert "pocketsynth[cpu]>=0.2.3,<0.3" in optional["all"]
-    assert optional["kitten"] == ["kittensynth[cpu]>=0.1.0,<0.2"]
+    assert optional["kitten"] == ["kittensynth[cpu]>=0.1.1,<0.2"]
     assert optional["supertonic"] == ["supertonicsynth[cpu]>=0.1.2,<0.2"]
     assert "supertonicsynth[cpu]>=0.1.2,<0.2" in optional["all"]
-    assert "kittensynth[cpu]>=0.1.0,<0.2" in optional["all"]
+    assert "kittensynth[cpu]>=0.1.1,<0.2" in optional["all"]
     assert "utterplan[spacy]>=0.3.3,<0.4" in optional["all"]
     assert all(
         dependency != "utterplan[spacy]>=0.1.4,<0.2"
