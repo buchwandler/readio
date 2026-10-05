@@ -37,6 +37,26 @@ def target(
     )
 
 
+def supertonic_multilingual_target() -> SynthesisTarget:
+    return SynthesisTarget(
+        engine="supertonic",
+        id="supertonic-3",
+        display_name="Supertonic 3",
+        languages=("en", "de", "fr"),
+        voices=("F1",),
+        voice_details=(
+            TargetVoice(
+                id="F1",
+                gender="unknown",
+                language="unknown",
+                locale="unknown",
+                language_label="Multilingual",
+                languages=("en", "de", "fr"),
+            ),
+        ),
+    )
+
+
 def discover(monkeypatch, targets: tuple[SynthesisTarget, ...]) -> None:
     monkeypatch.setattr(
         "readio.voices.discover_targets",
@@ -225,3 +245,33 @@ def test_pocket_base_language_capability_accepts_regional_request_and_preserves_
     assert resolved.language == "en-us"
     assert resolved.catalog_entry.locale == "en"
     assert resolved.catalog_entry.languages == ("en",)
+
+
+def test_supertonic_multilingual_voice_preserves_explicit_german_request(monkeypatch) -> None:
+    discover(monkeypatch, (supertonic_multilingual_target(),))
+
+    resolved = resolve_voice_reference(
+        "supertonic:supertonic-3/F1",
+        language="de-DE",
+        model=None,
+        source=None,
+    )
+
+    assert resolved is not None
+    assert resolved.language == "de-de"
+    assert resolved.catalog_entry.locale == "unknown"
+    assert resolved.catalog_entry.languages == ("en", "de", "fr")
+
+
+def test_supertonic_multilingual_voice_rejects_unsupported_language(monkeypatch) -> None:
+    discover(monkeypatch, (supertonic_multilingual_target(),))
+
+    with pytest.raises(ModelDiscoveryError) as error:
+        resolve_voice_reference(
+            "supertonic:supertonic-3/F1",
+            language="pl",
+            model=None,
+            source=None,
+        )
+
+    assert error.value.code == "readio.voice_reference_language_conflict"

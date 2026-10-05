@@ -40,17 +40,17 @@ def _model(
         SimpleNamespace(
             id="F1",
             gender="female",
-            language="en",
-            locale="en-US",
-            language_label="English",
+            language="unknown",
+            locale="unknown",
+            language_label="unknown",
             languages=("en", "de"),
         ),
         SimpleNamespace(
             id="M1",
             gender="male",
-            language="de",
-            locale="de-DE",
-            language_label="Deutsch",
+            language="unknown",
+            locale="unknown",
+            language_label="unknown",
             languages=("en", "de"),
         ),
     )
@@ -141,7 +141,9 @@ def test_discovery_maps_metadata_and_forwards_language_offline_refresh(monkeypat
     assert target.voices == ("F1", "M1")
     assert target.default_voice == "M1"
     assert target.voice_details[0].gender == "female"
-    assert target.voice_details[0].locale == "en-us"
+    assert target.voice_details[0].language == "unknown"
+    assert target.voice_details[0].locale == "unknown"
+    assert target.voice_details[0].language_label == "Multilingual"
     assert target.voice_details[0].languages == ("en", "de")
     assert target.metadata["source_revision"] == "catalog-rev-1"
     assert "na" not in target.languages
@@ -190,10 +192,33 @@ def test_discovery_projects_multilingual_capabilities_and_cleans_unknown_metadat
     voice = target.voice_details[0]
 
     assert voice.languages == ("en-us", "de", "ja")
-    assert voice.language == "en"
-    assert voice.locale == "en"
+    assert voice.language == "unknown"
+    assert voice.locale == "unknown"
     assert voice.language_label == "Multilingual"
     assert voice.gender == "unknown"
+
+
+def test_discovery_uses_model_languages_as_voice_capability_fallback(monkeypatch) -> None:
+    model = _model(languages=("en", "de", "fr", "na"))
+    model.voices = (
+        SimpleNamespace(
+            id="F1",
+            gender=None,
+            language="unknown",
+            locale="unknown",
+            language_label="unknown",
+        ),
+    )
+    _install_catalog(monkeypatch, model)
+
+    target = SupertonicSynthEngineAdapter().discover(CatalogRequest(engine="supertonic"))[0]
+
+    assert target.voices == ("F1",)
+    voice = target.voice_details[0]
+    assert voice.language == "unknown"
+    assert voice.locale == "unknown"
+    assert voice.language_label == "Multilingual"
+    assert voice.languages == ("en", "de", "fr")
 
 
 def test_resolve_uses_target_and_catalog_default_voice(monkeypatch) -> None:
@@ -229,6 +254,7 @@ def test_resolve_canonicalizes_model_alias_and_maps_speed_and_generation_options
     assert selection.target_id == "supertonic-3"
     assert selection.voice == "F1"
     assert selection.options["steps"] == 7
+    assert selection.language == "de-de"
     assert selection.options["speed"] == 1.15
     assert selection.options["seed"] == 42
     assert selection.options["voice_level"] == "calibrated"
@@ -315,6 +341,35 @@ def test_synthesis_forwards_one_exact_atomic_request_and_no_composition_options(
     assert rendered.sample_rate == 44_100
     assert rendered.word_timings == ()
     assert rendered.metadata["engine_language"] == "en"
+
+
+def test_synthesis_forwards_base_german_and_unchanged_voice_for_regional_request() -> None:
+    class Runtime:
+        def synthesize(self, request: Any, *, voice: str, config: Any, voice_level: Any) -> Any:
+            self.request = request
+            self.voice = voice
+            return supertonicsynth.AtomicSynthesisResult(
+                id=request.id,
+                audio=np.array([0.1], dtype=np.float32),
+                sample_rate=44_100,
+                text=request.text,
+                language=request.language,
+                metadata={"voice_level": {"applied": False, "source": "off"}},
+            )
+
+    runtime = Runtime()
+    session = SupertonicSynthEngineSession(
+        runtime,
+        _selection(language="de-DE", voice="F1"),
+        supertonicsynth.GenerationConfig(),
+        supertonicsynth.VoiceLevelConfig(),
+    )
+
+    rendered = session.synthesize(SpeechRequest("segment-de", "Guten Tag.", "de-DE"))
+
+    assert runtime.request.language == "de"
+    assert runtime.voice == "F1"
+    assert rendered.metadata["engine_language"] == "de"
 
 
 @pytest.mark.parametrize(
@@ -409,7 +464,11 @@ def test_canonical_identity_tracks_audio_inputs_but_not_display_metadata(monkeyp
     assert adapter.canonical_synthesis_identity(display_only) == base_identity
 
     assert adapter.canonical_synthesis_identity(replace(base, voice="M1")) != base_identity
-    assert adapter.canonical_synthesis_identity(replace(base, language="de-DE")) != base_identity
+    german_identity = adapter.canonical_synthesis_identity(replace(base, language="de-DE"))
+    assert base_identity["voice"] == german_identity["voice"] == "F1"
+    assert base_identity["language"] == "en"
+    assert german_identity["language"] == "de"
+    assert german_identity != base_identity
     assert (
         adapter.canonical_synthesis_identity(replace(base, options={"steps": 8})) != base_identity
     )

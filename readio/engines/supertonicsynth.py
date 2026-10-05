@@ -69,13 +69,13 @@ def _effective_language(value: str | None) -> str:
     return language_base(normalized) or normalize_language_key(value or "en-us")
 
 
-def _target_voice(voice: Any, fallback_language: str) -> TargetVoice:
+def _target_voice(voice: Any, target_languages: tuple[str, ...]) -> TargetVoice:
     voice_language = language_base(getattr(voice, "language", None))
     locale = normalize_locale_tag(getattr(voice, "locale", None))
     supported_languages = tuple(
         dict.fromkeys(
             normalized
-            for raw in (getattr(voice, "languages", ()) or ())
+            for raw in (getattr(voice, "languages", ()) or target_languages)
             if (normalized := normalize_locale_tag(raw))
             and language_base(normalized) not in {"na", "unknown"}
         )
@@ -86,14 +86,15 @@ def _target_voice(voice: Any, fallback_language: str) -> TargetVoice:
         locale = ""
     raw_label = str(getattr(voice, "language_label", "") or "").strip()
     language_label = "" if raw_label.casefold() in {"na", "unknown"} else raw_label
+    descriptive_fallback = supported_languages[0] if len(supported_languages) == 1 else "unknown"
     if not language_label and len(supported_languages) > 1:
         language_label = "Multilingual"
     return TargetVoice(
         id=str(voice.id),
         gender=normalize_gender(getattr(voice, "gender", None)),
-        language=voice_language or fallback_language,
-        locale=locale or fallback_language,
-        language_label=language_label or fallback_language,
+        language=voice_language or descriptive_fallback,
+        locale=locale or descriptive_fallback,
+        language_label=language_label or descriptive_fallback,
         languages=supported_languages,
     )
 
@@ -106,9 +107,8 @@ def _target_from_model(model: Any) -> SynthesisTarget:
             if (base := language_base(language)) and base != "na"
         )
     )
-    fallback_language = languages[0] if languages else "unknown"
     voices = tuple(str(voice.id) for voice in model.voices)
-    voice_details = tuple(_target_voice(voice, fallback_language) for voice in model.voices)
+    voice_details = tuple(_target_voice(voice, languages) for voice in model.voices)
     metadata = dict(model.metadata)
     metadata.update(
         {
