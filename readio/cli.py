@@ -1606,7 +1606,7 @@ def _normalize_voice_list_filters(
     available_engines: set[str] | None,
     normalize_engine: Callable[[str], str],
 ) -> tuple[str | None, str | None]:
-    available = available_engines or {"kokoro", "piper", "pocket", "kitten"}
+    available = available_engines or {"kokoro", "piper", "pocket", "kitten", "supertonic"}
     if engine is not None:
         canonical = normalize_engine(engine)
         if canonical == engine:

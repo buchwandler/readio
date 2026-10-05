@@ -136,9 +136,7 @@ class TerminalProgress:
         noun: str = "units",
     ) -> str:
         if total_units is None:
-            text = (
-                f"Rendering live input  {completed_units} {noun}  elapsed {format_duration(elapsed)}"
-            )
+            text = f"Rendering live input  {completed_units} {noun}  elapsed {format_duration(elapsed)}"
         else:
             total = max(0, total_units)
             completed = min(completed_units, total) if total else 0
@@ -375,7 +373,11 @@ class TerminalProgress:
             parts.append(scope_id)
             return " · ".join(parts)
         if scope_kind == "document":
-            return f"Document · {scope_title}" if isinstance(scope_title, str) and scope_title else None
+            return (
+                f"Document · {scope_title}"
+                if isinstance(scope_title, str) and scope_title
+                else None
+            )
         if isinstance(scope_title, str) and scope_title:
             label = scope_kind.title() if isinstance(scope_kind, str) else "Scope"
             return f"{label} · {scope_title} · {scope_id}"

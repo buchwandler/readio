@@ -341,3 +341,50 @@ def test_managed_voice_prompt_catalog_passes_filters_and_offline_options(monkeyp
     with pytest.raises(DiscoveryError) as error:
         app.catalog.voice_prompts(VoicePromptQuery(engine="supertonic"))
     assert error.value.code == "catalog.voice_prompts_engine_unsupported"
+
+
+def test_supertonic_voice_language_capabilities_survive_public_filtering(monkeypatch):
+    from readio.engines.catalog import CatalogResult, SynthesisTarget, TargetVoice
+
+    languages = ("en", "de", "ja")
+    target = SynthesisTarget(
+        engine="supertonic",
+        id="supertonic-3",
+        display_name="Supertonic 3",
+        languages=languages,
+        voices=("F1", "M1"),
+        voice_details=(
+            TargetVoice(
+                id="F1",
+                language="en",
+                locale="en",
+                language_label="Multilingual",
+                languages=languages,
+            ),
+            TargetVoice(
+                id="M1",
+                language="en",
+                locale="en",
+                language_label="Multilingual",
+                languages=languages,
+            ),
+        ),
+        default_voice="F1",
+        metadata={"source": "supertonicsynth"},
+    )
+    monkeypatch.setattr(
+        "readio.voices.discover_targets",
+        lambda **_kwargs: CatalogResult(targets=(target,)),
+    )
+    app = Readio(default_config())
+
+    for requested in ("en", "en-US", "de", "de-DE", "ja"):
+        voices = app.catalog.voices(VoiceQuery(language=requested, engine="supertonic"))
+        assert [voice.ref for voice in voices] == [
+            "supertonic:supertonic-3/F1",
+            "supertonic:supertonic-3/M1",
+        ]
+
+    assert app.catalog.voices(VoiceQuery(language="fr", engine="supertonic")) == ()
+    assert not hasattr(voices[0], "languages")
+    assert "languages" not in voices[0].to_dict()

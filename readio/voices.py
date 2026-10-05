@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .catalog_metadata import language_tags_match
 from .config import normalize_language_key
 from .engines.discovery import discover_targets
 from .engines.registry import get_engine, normalize_engine_id
@@ -41,6 +42,8 @@ class VoiceCatalogEntry:
     distribution_id: str | None = None
     provider: str | None = None
     engine: str = "kokoro"
+
+    languages: tuple[str, ...] = ()
 
     @property
     def target_id(self) -> str:
@@ -221,6 +224,7 @@ def _target_voice_entries(targets: tuple[Any, ...]) -> tuple[VoiceCatalogEntry, 
                     distribution_id=str(metadata.get("distribution_id") or target.id),
                     provider=(str(metadata["provider"]) if metadata.get("provider") else None),
                     engine=target.engine,
+                    languages=(tuple(detail.languages) if detail else ()),
                 )
             )
     return tuple(entries)
@@ -246,6 +250,8 @@ def discover_voice_catalog(
 
 def _language_matches_entry(requested: str, entry: VoiceCatalogEntry) -> bool:
     requested = normalize_language_key(requested)
+    if entry.languages:
+        return any(language_tags_match(requested, available) for available in entry.languages)
     locale = normalize_locale(entry.locale)
     language = normalize_locale(entry.language)
     if "-" in requested:

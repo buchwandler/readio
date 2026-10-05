@@ -54,6 +54,7 @@ def test_malformed_selected_plan_fails_before_engine_session_opens(tmp_path, mon
         @contextmanager
         def session_context():
             with original_open(selection) as session:
+
                 class CountingSession:
                     def synthesize(self, speech_request):
                         adapter.synthesize_calls += 1
@@ -129,7 +130,9 @@ def test_internal_synthesis_events_preserve_exact_long_renderer_text(tmp_path, m
     adapter, cfg, project, segment = _long_text_project(tmp_path, monkeypatch)
     events = []
 
-    synthesis_stage.synthesize_project(project, cfg, request=request(project), on_event=events.append)
+    synthesis_stage.synthesize_project(
+        project, cfg, request=request(project), on_event=events.append
+    )
 
     segment_events = [
         event
@@ -157,9 +160,10 @@ def test_backend_failure_includes_complete_segment_context_and_cause(tmp_path, m
     error = raised.value
     assert error.__cause__ is backend_error
     assert error.details["scope_id"] == "document"
-    assert error.details["unit_id"] == synthesis_stage.load_scope_plan(
-        project, project.load_plan_index().scopes[0]
-    ).units[0].id
+    assert (
+        error.details["unit_id"]
+        == synthesis_stage.load_scope_plan(project, project.load_plan_index().scopes[0]).units[0].id
+    )
     assert error.details["segment_id"] == segment.id
     assert error.details["segment_index"] == 0
     assert error.details["text"] == LONG_RENDERER_TEXT

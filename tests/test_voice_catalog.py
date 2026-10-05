@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from readio.models import ModelInfo, VoiceMetadata
-from readio.voices import build_voice_catalog, filter_voice_catalog
+from readio.voices import VoiceCatalogEntry, build_voice_catalog, filter_voice_catalog
 
 
 def model(
@@ -160,3 +160,46 @@ def test_piper_discovery_preserves_target_identity_and_language_metadata(monkeyp
     assert entry.locale == "en-us"
     assert entry.language_label == "American English"
     assert entry.gender == "female"
+
+
+def test_multilingual_capabilities_match_base_and_specific_language_tags() -> None:
+    entry = VoiceCatalogEntry(
+        ref="supertonic:supertonic-3/F1",
+        id="F1",
+        gender="unknown",
+        language="en",
+        locale="en",
+        language_label="Multilingual",
+        model="supertonic-3",
+        source="supertonicsynth",
+        default=True,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+        engine="supertonic",
+        languages=("en", "de", "ja"),
+    )
+
+    for requested in ("en", "en-US", "de", "de-DE", "ja"):
+        assert filter_voice_catalog((entry,), language=requested) == (entry,)
+    assert filter_voice_catalog((entry,), language="fr") == ()
+
+
+def test_multilingual_capabilities_do_not_match_distinct_specific_locales() -> None:
+    entry = VoiceCatalogEntry(
+        ref="supertonic:target/F1",
+        id="F1",
+        gender="unknown",
+        language="en",
+        locale="en-US",
+        language_label="Multilingual",
+        model="target",
+        source="supertonicsynth",
+        default=True,
+        status="ready",
+        experimental=False,
+        runtime_available=True,
+        languages=("en-GB",),
+    )
+
+    assert filter_voice_catalog((entry,), language="en-US") == ()

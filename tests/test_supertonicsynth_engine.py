@@ -43,6 +43,7 @@ def _model(
             language="en",
             locale="en-US",
             language_label="English",
+            languages=("en", "de"),
         ),
         SimpleNamespace(
             id="M1",
@@ -50,6 +51,7 @@ def _model(
             language="de",
             locale="de-DE",
             language_label="Deutsch",
+            languages=("en", "de"),
         ),
     )
     return SimpleNamespace(
@@ -140,6 +142,7 @@ def test_discovery_maps_metadata_and_forwards_language_offline_refresh(monkeypat
     assert target.default_voice == "M1"
     assert target.voice_details[0].gender == "female"
     assert target.voice_details[0].locale == "en-us"
+    assert target.voice_details[0].languages == ("en", "de")
     assert target.metadata["source_revision"] == "catalog-rev-1"
     assert "na" not in target.languages
 
@@ -164,6 +167,33 @@ def test_discovery_does_not_publish_unknown_language_sentinel(monkeypatch) -> No
     target = SupertonicSynthEngineAdapter().discover(CatalogRequest(engine="supertonic"))[0]
     assert target.languages == ()
     assert target.voice_details[0].language == "unknown"
+    assert target.voice_details[0].languages == ()
+
+
+def test_discovery_projects_multilingual_capabilities_and_cleans_unknown_metadata(
+    monkeypatch,
+) -> None:
+    model = _model(languages=("en", "de", "ja", "na"))
+    model.voices = (
+        SimpleNamespace(
+            id="F1",
+            gender=None,
+            language="unknown",
+            locale="unknown",
+            language_label="unknown",
+            languages=("EN-us", "de", "ja", "na", "unknown", "", "de"),
+        ),
+    )
+    _install_catalog(monkeypatch, model)
+
+    target = SupertonicSynthEngineAdapter().discover(CatalogRequest(engine="supertonic"))[0]
+    voice = target.voice_details[0]
+
+    assert voice.languages == ("en-us", "de", "ja")
+    assert voice.language == "en"
+    assert voice.locale == "en"
+    assert voice.language_label == "Multilingual"
+    assert voice.gender == "unknown"
 
 
 def test_resolve_uses_target_and_catalog_default_voice(monkeypatch) -> None:

@@ -72,18 +72,29 @@ def _effective_language(value: str | None) -> str:
 def _target_voice(voice: Any, fallback_language: str) -> TargetVoice:
     voice_language = language_base(getattr(voice, "language", None))
     locale = normalize_locale_tag(getattr(voice, "locale", None))
-    if voice_language == "na":
+    supported_languages = tuple(
+        dict.fromkeys(
+            normalized
+            for raw in (getattr(voice, "languages", ()) or ())
+            if (normalized := normalize_locale_tag(raw))
+            and language_base(normalized) not in {"na", "unknown"}
+        )
+    )
+    if voice_language in {"na", "unknown"}:
         voice_language = ""
-    if language_base(locale) == "na":
+    if language_base(locale) in {"na", "unknown"}:
         locale = ""
+    raw_label = str(getattr(voice, "language_label", "") or "").strip()
+    language_label = "" if raw_label.casefold() in {"na", "unknown"} else raw_label
+    if not language_label and len(supported_languages) > 1:
+        language_label = "Multilingual"
     return TargetVoice(
         id=str(voice.id),
         gender=normalize_gender(getattr(voice, "gender", None)),
         language=voice_language or fallback_language,
         locale=locale or fallback_language,
-        language_label=(
-            str(getattr(voice, "language_label", "") or "").strip() or fallback_language
-        ),
+        language_label=language_label or fallback_language,
+        languages=supported_languages,
     )
 
 

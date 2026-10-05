@@ -13,6 +13,8 @@ from readio.api.events import ReadioEvent
 from readio.api.projects import ProjectService
 from readio.api.speech import SpeechService
 from readio.api.types import (
+    CatalogDiscovery,
+    CatalogListing,
     ConfigurationInitResult,
     Diagnostic,
     LoudnessSummary,
@@ -22,6 +24,7 @@ from readio.api.types import (
     ProjectStatus,
     RenderResult,
     StageStatus,
+    VoiceInfo,
 )
 from readio.audio import RenderSummary
 from readio.cli import _validate_live, build_parser
@@ -1103,3 +1106,48 @@ def test_plan_build_no_progress_and_json_keep_outputs_clean(monkeypatch, capsys)
     captured = capsys.readouterr()
     assert json.loads(captured.out)["scopes"][0]["plan_id"] == "plan-id"
     assert "Loading spaCy model en_core_web_sm…" in captured.err
+
+
+def test_supertonic_voice_cli_lists_semantic_refs_and_count(monkeypatch, capsys):
+    voices = tuple(
+        VoiceInfo(
+            ref=f"supertonic:supertonic-3/{voice_id}",
+            id=voice_id,
+            gender="unknown",
+            language="en",
+            locale="en",
+            language_label="Multilingual",
+            model="supertonic-3",
+            source="supertonicsynth",
+            default=voice_id == "F1",
+            status="ready",
+            experimental=False,
+            runtime_available=True,
+            engine="supertonic",
+        )
+        for voice_id in ("F1", "M1")
+    )
+    listing = CatalogListing(voices, CatalogDiscovery(registry_source="fixture"))
+    query_calls = []
+    catalog = SimpleNamespace(
+        engines=lambda: (SimpleNamespace(id="supertonic"),),
+        normalize_engine=lambda engine: engine,
+        voices_listing=lambda query, **_kwargs: query_calls.append(query) or listing,
+    )
+    monkeypatch.setattr(cli, "_api_for", lambda _args: SimpleNamespace(catalog=catalog))
+
+    args = build_parser().parse_args(["voices", "list", "--engine", "supertonic", "--lang", "en"])
+    assert cli._cmd_voices(args) == 0
+
+    output = capsys.readouterr().out
+    assert "Voices: 2" in output
+    assert "supertonic:supertonic-3/F1" in output
+    assert "supertonic:supertonic-3/M1" in output
+    assert query_calls[0].engine == "supertonic"
+    assert query_calls[0].language == "en"
+    assert cli._normalize_voice_list_filters(
+        engine=None,
+        model="supertonic",
+        available_engines=set(),
+        normalize_engine=lambda engine: engine,
+    ) == ("supertonic", None)

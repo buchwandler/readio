@@ -105,7 +105,6 @@ def _synthesis_progress_details(
     }
 
 
-
 def _synthesis_failure_scope_label(scope_id: str, scope_metadata: Mapping[str, Any]) -> str:
     if scope_metadata.get("scope_kind") != "chapter":
         return scope_id
@@ -576,7 +575,11 @@ def _is_punctuation_only_segment(plan: Any, segment: Any) -> tuple[bool, list[st
         for token in token_annotations
         if isinstance((pos := getattr(token, "pos", None)), str)
     ]
-    if token_indices and len(token_annotations) == len(token_indices) and len(token_pos) == len(token_indices):
+    if (
+        token_indices
+        and len(token_annotations) == len(token_indices)
+        and len(token_pos) == len(token_indices)
+    ):
         return all(pos == "PUNCT" for pos in token_pos), token_pos
 
     text = str(getattr(segment, "text", ""))
@@ -626,6 +629,7 @@ def _validate_renderable_segments(
 def _segment_progress_text(segment: Any) -> str:
     """Return the exact renderer-facing text used by synthesis requests."""
     return str(getattr(segment, "text", ""))
+
 
 def _segment_voice_reference(segment: Any) -> str | None:
     directives = getattr(segment, "directives", None)
@@ -924,7 +928,9 @@ def _render_missing(
     details_by_index: dict[int, Mapping[str, Any]] = {}
     render_total = len(stale)
     if session is None:
-        _emit(on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=render_total))
+        _emit(
+            on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=render_total)
+        )
         engine_started = time.monotonic()
         session_context = adapter.open(selection)
     else:
@@ -976,9 +982,7 @@ def _render_missing(
                 atomic = render_atomic_request(active_session, lowered.request)
             except Exception as error:
                 context = {
-                    **{
-                        key: value for key, value in scope_metadata.items() if value is not None
-                    },
+                    **{key: value for key, value in scope_metadata.items() if value is not None},
                     "scope_id": scope_id,
                     "unit_id": unit.id,
                     "segment_id": item["segment_id"],
@@ -995,11 +999,7 @@ def _render_missing(
                     target_id=selection.target_id,
                     request_id=item["segment_id"],
                     details=context,
-                    code=(
-                        error.code
-                        if isinstance(error, EngineSynthesisError)
-                        else None
-                    ),
+                    code=(error.code if isinstance(error, EngineSynthesisError) else None),
                 ) from error
             result = atomic.result
             if result.id != item["segment_id"]:
@@ -1232,14 +1232,10 @@ def synthesize_project(
     with project_lock(project, operation="synth"):
         plan_scopes = project.load_plan_index().scopes
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
-        document_scopes_by_id = {
-            scope.id: scope for scope in project.document_scopes()
-        }
+        document_scopes_by_id = {scope.id: scope for scope in project.document_scopes()}
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
-        selected_scope_ids = [
-            item.scope_id for item in selection.scopes if item.segment_ids
-        ]
+        selected_scope_ids = [item.scope_id for item in selection.scopes if item.segment_ids]
         scope_total = len(selected_scope_ids)
         scope_metadata_by_id: dict[str, dict[str, Any]] = {}
         for scope_index, scope_id in enumerate(selected_scope_ids, 1):

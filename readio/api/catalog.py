@@ -232,6 +232,7 @@ class CatalogService:
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[VoiceInfo]:
         engine = self.normalize_engine(query.engine) if query.engine else None
+        normalized_query = normalize_locale_tag(query.language) if query.language else None
         try:
             found, raw_discovery = discover_voice_catalog(
                 offline=discovery.offline,
@@ -240,22 +241,27 @@ class CatalogService:
                 engine=engine,
                 language=query.language,
             )
-            entries = tuple(self._voice_info(entry) for entry in found)
+            filtered = tuple(
+                entry
+                for entry in found
+                if (query.gender is None or entry.gender == query.gender)
+                and (query.model is None or entry.target_id == query.model)
+                and (
+                    engine is None
+                    or _public_voice_engine(entry.engine) == _public_voice_engine(engine)
+                )
+                and (
+                    normalized_query is None
+                    or self._catalog_voice_language_matches(normalized_query, entry)
+                )
+            )
+            entries = tuple(self._voice_info(entry) for entry in filtered)
         except ReadioError:
             raise
         except Exception as error:
             raise self._discovery_error(error, "catalog.voices_failed") from error
 
-        normalized_query = normalize_locale_tag(query.language) if query.language else None
-        filtered = tuple(
-            item
-            for item in entries
-            if (query.gender is None or item.gender == query.gender)
-            and (query.model is None or item.target_id == query.model)
-            and (engine is None or item.engine == _public_voice_engine(engine))
-            and (normalized_query is None or self._language_matches(normalized_query, item))
-        )
-        return CatalogListing(filtered, self._discovery_metadata(raw_discovery, discovery))
+        return CatalogListing(entries, self._discovery_metadata(raw_discovery, discovery))
 
     def voice_prompts(
         self,
@@ -607,6 +613,15 @@ class CatalogService:
             phoneme_encoding=entry.phoneme_encoding,
             data_version=entry.data_version,
         )
+
+    def _catalog_voice_language_matches(
+        self,
+        requested: str,
+        voice: voices_internal.VoiceCatalogEntry,
+    ) -> bool:
+        if voice.languages:
+            return any(language_tags_match(requested, available) for available in voice.languages)
+        return language_tags_match(requested, voice.locale or voice.language)
 
     def _language_matches(self, requested: str, voice: VoiceInfo) -> bool:
         return language_tags_match(requested, voice.locale or voice.language)

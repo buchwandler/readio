@@ -13,9 +13,11 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class TargetVoice:
-    """Typed descriptive metadata for one voice of a synthesis target.
+    """Typed descriptive metadata and synthesis-language capabilities for a voice.
 
     Adapters populate canonical Readio values; generic layers only project them.
+    ``languages`` describes this voice's synthesis-language capabilities,
+    separately from its singular descriptive language and locale.
     """
 
     id: str
@@ -23,6 +25,7 @@ class TargetVoice:
     language: str = "unknown"
     locale: str = "unknown"
     language_label: str = "unknown"
+    languages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

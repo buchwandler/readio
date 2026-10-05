@@ -273,13 +273,15 @@ def test_plan_progress_reports_typed_phases_and_scope_based_eta() -> None:
     assert "ETA" not in stream.getvalue().splitlines()[-1]
 
 
-
 @pytest.mark.parametrize("tty", [False, True])
-def test_synthesis_progress_shows_full_text_chapter_transitions_and_segment_counts(tty: bool) -> None:
+def test_synthesis_progress_shows_full_text_chapter_transitions_and_segment_counts(
+    tty: bool,
+) -> None:
     stream = io.StringIO()
     progress = TerminalProgress(stream=stream, enabled=True, tty=tty, clock=Clock())
     long_text = (
-        "Synthesis progress must keep every renderer character and exact whitespace visible.\n\t" * 3
+        "Synthesis progress must keep every renderer character and exact whitespace visible.\n\t"
+        * 3
     ) + "FULL_TEXT_TAIL_SENTINEL"
 
     def started(scope_id: str, segment_id: str, completed: int, details: dict) -> ReadioEvent:

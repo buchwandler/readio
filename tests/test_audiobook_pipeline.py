@@ -99,7 +99,10 @@ def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(tmp_path, m
     cached_events = []
     cached = synthesize_project(project, cfg, request=request, on_event=cached_events.append)
     assert not any(event.kind == "segment_started" for event in cached_events)
-    assert next(event for event in cached_events if event.kind == "cache_scanned").details["rendered"] == 0
+    assert (
+        next(event for event in cached_events if event.kind == "cache_scanned").details["rendered"]
+        == 0
+    )
     assert cached["rendered"] == 0
     assert cached["reused"] == len(trace["segments"])
     assert adapter.open_calls == 1
