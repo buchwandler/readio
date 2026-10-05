@@ -889,7 +889,19 @@ def test_fresh_resolution_preserves_strict_incomplete_engine_errors(
     app = Readio(ReadioConfig())
     adapter = _registry.get(engine)
     assert adapter is not None
-    monkeypatch.setattr(adapter, "compatible_api", lambda: False)
+    from readio.engines.api_probe import EngineApiProbe
+
+    monkeypatch.setattr(
+        adapter,
+        "probe_api",
+        lambda: EngineApiProbe(
+            engine=engine,
+            package=adapter.package_name,
+            compatible=False,
+            status="api_incompatible",
+            missing_symbols=("test-only-mismatch",),
+        ),
+    )
     source = tmp_path / f"{engine}.txt"
     source.write_text("Incomplete selections stay invalid.", encoding="utf-8")
     project = app.projects.create(source, output=tmp_path / f"{engine}.readio")

@@ -1049,14 +1049,37 @@ class TemplateValidationResult:
         return cast(dict[str, JsonValue], json_value(self))
 
 
+EngineDiagnosticStatus = Literal[
+    "adapter_unavailable",
+    "package_missing",
+    "api_incompatible",
+    "api_version_incompatible",
+    "api_probe_failed",
+    "ready",
+]
+
+
 @dataclass(frozen=True, slots=True)
 class EngineDiagnostic:
     id: str
     adapter_available: bool
     package_available: bool
     version: str | None
-    status: Literal["ready", "missing_dependency", "unavailable"]
+    status: EngineDiagnosticStatus
     missing_dependency: str | None = None
+    module_version: str | None = None
+    module_path: str | None = None
+    request_api_version: int | None = None
+    expected_request_api_version: int | None = None
+    contract_source: Literal["explicit", "legacy_symbols"] | None = None
+    api_compatible: bool | None = None
+    missing_symbols: tuple[str, ...] = ()
+    missing_methods: tuple[str, ...] = ()
+    failed_stage: str | None = None
+    failed_symbol: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))

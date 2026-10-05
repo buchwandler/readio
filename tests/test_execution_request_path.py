@@ -10,6 +10,7 @@ from audiocompose import Tempo
 from readio.audio import RenderProgress, RenderSummary
 from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
 from readio.engines.selection import EngineRequest
@@ -44,6 +45,14 @@ class _Adapter:
     def __init__(self) -> None:
         self.session = _Session()
         self.open_selections = []
+
+    def probe_api(self):
+        return EngineApiProbe(
+            engine=self.id,
+            package="request-fixture",
+            compatible=True,
+            status="ready",
+        )
 
     def version(self):
         return "fixture-1"

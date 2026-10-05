@@ -81,7 +81,7 @@ def test_reader_policy_overrides_are_in_planning_and_render_target(monkeypatch):
 
     # Isolate policy resolution from the optional, locally installed spaCy model.
     class FakePool(LinguisticResourcePool):
-        def analyze(self, text, run, config):
+        def analyze(self, text, run, config, **_kwargs):
             return LinguisticAnalysis(
                 language=run.language,
                 text=text,

@@ -8,6 +8,8 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from .api_probe import EngineApiProbe
+
 if TYPE_CHECKING:
     from .catalog import CatalogRequest, SynthesisTarget
     from .selection import EngineRequest
@@ -179,6 +181,15 @@ class EngineAdapter(Protocol):
     """Discovery, target resolution, and session opening for one synthesis engine."""
 
     id: str
+    package_name: str
+
+    def probe_api(self) -> EngineApiProbe:
+        """Return the structured public API compatibility diagnosis."""
+        ...
+
+    def compatible_api(self) -> bool:
+        """Return whether the public API is compatible (legacy wrapper)."""
+        ...
 
     def version(self) -> str | None:
         """Return the installed engine package version, or None."""

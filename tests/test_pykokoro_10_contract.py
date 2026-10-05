@@ -41,6 +41,9 @@ def test_pykokoro_adapter_accepts_the_request_centric_api(monkeypatch):
         def synthesize(self, request):
             return None
 
+        def close(self):
+            return None
+
     request_api.KokoroSynthesizer = _Synthesizer
     monkeypatch.setitem(sys.modules, "pykokoro", request_api)
 

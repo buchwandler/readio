@@ -20,6 +20,7 @@ from ..errors import (
     SpeechRequestTooLongError,
     UnsupportedSynthesisFeatureError,
 )
+from .api_probe import SUPPORTED_REQUEST_API_VERSION, EngineApiProbe, probe_public_api
 from .base import (
     EngineCapabilities,
     EngineSelection,
@@ -327,10 +328,11 @@ class SupertonicSynthEngineAdapter:
     def version(self) -> str | None:
         return distribution_version(self.package_name)
 
-    def compatible_api(self) -> bool:
-        try:
-            module = _module()
-            required = (
+    def probe_api(self) -> EngineApiProbe:
+        return probe_public_api(
+            engine=self.id,
+            package=self.package_name,
+            required_symbols=(
                 "SupertonicRuntime",
                 "SynthesisRequest",
                 "GenerationConfig",
@@ -341,28 +343,16 @@ class SupertonicSynthEngineAdapter:
                 "DiscoveredModel",
                 "discover_models",
                 "runtime_identity",
-            )
-            if not all(hasattr(module, name) for name in required):
-                return False
-            runtime = module.SupertonicRuntime
-            return (
-                all(
-                    callable(getattr(runtime, name, None))
-                    for name in ("from_pretrained", "measure_request", "synthesize", "close")
-                )
-                and callable(module.discover_models)
-                and callable(module.runtime_identity)
-            )
-        except (
-            ImportError,
-            SyntaxError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ):
-            return False
+            ),
+            required_methods={
+                "SupertonicRuntime": ("from_pretrained", "measure_request", "synthesize", "close"),
+                "__module__": ("discover_models", "runtime_identity"),
+            },
+            expected_api_version=SUPPORTED_REQUEST_API_VERSION,
+        )
+
+    def compatible_api(self) -> bool:
+        return self.probe_api().compatible
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(

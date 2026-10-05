@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from .api_probe import EngineApiProbe
 from .base import EngineAdapter
 
 logger = logging.getLogger(__name__)
@@ -179,8 +180,7 @@ class EngineRegistry:
         yield from self._adapters.values()
 
     def status(self) -> dict[str, dict[str, Any]]:
-        """Return installed package and adapter status for known engines."""
-
+        """Return installed package and structured API-probe status for known engines."""
         distributions = {
             "kokoro": "pykokoro",
             "piper": "pipersynth",
@@ -197,45 +197,82 @@ class EngineRegistry:
             except (ImportError, ValueError):
                 adapter = None
             package_name = getattr(adapter, "package_name", distributions.get(canonical, canonical))
-            adapter_version = getattr(adapter, "version", None)
-            package_version = adapter_version() if callable(adapter_version) else None
-            if package_version is None:
+            probe = None
+            if adapter is not None:
+                probe_method = getattr(adapter, "probe_api", None)
+                if callable(probe_method):
+                    try:
+                        probe = probe_method()
+                    except Exception as exc:
+                        logger.debug(
+                            "Engine %s API probe raised unexpectedly", canonical, exc_info=True
+                        )
+                        probe = EngineApiProbe(
+                            engine=canonical,
+                            package=package_name,
+                            compatible=False,
+                            status="api_probe_failed",
+                            failed_stage="adapter_probe",
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                else:
+                    probe = EngineApiProbe(
+                        engine=canonical,
+                        package=package_name,
+                        compatible=False,
+                        status="api_probe_failed",
+                        failed_stage="adapter_probe",
+                        error_type="AttributeError",
+                        error_message="Engine adapter does not implement probe_api().",
+                    )
+            if probe is not None:
+                package_version = probe.distribution_version
+                package_available = probe.status != "package_missing"
+                status = probe.status
+                api_compatible = probe.compatible
+                module_version = probe.module_version
+                module_path = probe.module_path
+                request_api_version = probe.api_version
+                expected_request_api_version = probe.expected_api_version
+                contract_source = probe.contract_source
+                missing_symbols = probe.missing_symbols
+                missing_methods = probe.missing_methods
+                failed_stage = probe.failed_stage
+                failed_symbol = probe.failed_symbol
+                error_type = probe.error_type
+                error_message = probe.error_message
+                warnings = probe.warnings
+            else:
                 try:
                     package_version = version(package_name)
                 except PackageNotFoundError:
                     package_version = None
-            compatible = None
-            if adapter is not None and package_version is not None:
-                compatibility_check = getattr(adapter, "compatible_api", None)
-                if compatibility_check is not None:
-                    try:
-                        compatible = compatibility_check()
-                    except (
-                        ImportError,
-                        SyntaxError,
-                        OSError,
-                        RuntimeError,
-                        AttributeError,
-                        TypeError,
-                        ValueError,
-                    ) as exc:
-                        logger.debug("Engine %s API compatibility check failed: %s", canonical, exc)
-                        compatible = False
-            status = (
-                "adapter_unavailable"
-                if adapter is None
-                else "package_missing"
-                if package_version is None
-                else "api_incompatible"
-                if compatible is False
-                else "ready"
-            )
+                package_available = package_version is not None
+                status = "adapter_unavailable"
+                api_compatible = None
+                module_version = module_path = None
+                request_api_version = expected_request_api_version = contract_source = None
+                missing_symbols = missing_methods = warnings = ()
+                failed_stage = failed_symbol = error_type = error_message = None
             result[canonical] = {
                 "adapter": adapter is not None,
-                "package": package_version is not None,
+                "package": package_available,
                 "version": package_version,
-                "api_compatible": compatible,
+                "module_version": module_version,
+                "module_path": module_path,
+                "request_api_version": request_api_version,
+                "expected_request_api_version": expected_request_api_version,
+                "contract_source": contract_source,
+                "api_compatible": api_compatible,
                 "status": status,
+                "missing_symbols": missing_symbols,
+                "missing_methods": missing_methods,
+                "failed_stage": failed_stage,
+                "failed_symbol": failed_symbol,
+                "error_type": error_type,
+                "error_message": error_message,
+                "warnings": warnings,
             }
         return result
 

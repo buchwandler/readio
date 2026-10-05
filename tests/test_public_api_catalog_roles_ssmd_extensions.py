@@ -34,6 +34,7 @@ from dataclasses import replace
 from pathlib import Path
 import numpy as np
 from readio.engines import RenderedSpeech
+from readio.api import EngineApiProbe
 from readio.api import (
     EngineCapabilities, EngineSelection, InputRequest, ModelQuery, OutputRequest,
     PlanRequest, Readio, SynthesisRequest, TargetQuery, VoiceQuery, default_config,
@@ -55,6 +56,13 @@ class Session:
 
 class Adapter:
     id = ENGINE_ID
+    def probe_api(self):
+        return EngineApiProbe(
+            engine=self.id,
+            package="api-extension-fixture",
+            compatible=True,
+            status="ready",
+        )
     def __init__(self):
         self.discover_calls = 0
         self.open_calls = 0

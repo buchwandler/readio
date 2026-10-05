@@ -31,6 +31,7 @@ from .document import (
     InputFormatRequest,
     canonicalize_document,
 )
+from .engines.api_probe import EngineApiProbe
 from .errors import InputError, RenderError
 from .formats import (
     AudioFormat,
@@ -91,6 +92,119 @@ class PlanDiagnostic:
         if self.line is not None:
             d["line"] = self.line
         return d
+
+
+_ENGINE_DISPLAY_NAMES = {
+    "kokoro": "PyKokoro",
+    "piper": "PiperSynth",
+    "pocket": "PocketSynth",
+    "kitten": "KittenSynth",
+    "supertonic": "SupertonicSynth",
+}
+_ENGINE_EXTRA_NAMES = {
+    "kokoro": "kokoro",
+    "piper": "piper",
+    "pocket": "pocket",
+    "kitten": "kitten",
+    "supertonic": "supertonic",
+}
+
+
+def _engine_api_probe_diagnostics(probe: EngineApiProbe) -> list[PlanDiagnostic]:
+    diagnostics: list[PlanDiagnostic] = []
+    package_version = probe.distribution_version or "(unknown version)"
+    if (
+        probe.distribution_version is not None
+        and probe.module_version is not None
+        and probe.distribution_version != probe.module_version
+    ):
+        diagnostics.append(
+            PlanDiagnostic(
+                code="engine_module_version_mismatch",
+                severity="warning",
+                message=(
+                    f"{probe.package} distribution metadata reports {probe.distribution_version}, "
+                    f"but the imported module reports {probe.module_version} from "
+                    f"{probe.module_path or '(unknown path)'}."
+                ),
+                field="synthesis.engine",
+            )
+        )
+    for warning in probe.warnings:
+        if "Imported module version differs from distribution metadata." not in warning:
+            diagnostics.append(
+                PlanDiagnostic(
+                    code="engine_api_probe_warning",
+                    severity="warning",
+                    message=f"{probe.package} API probe warning: {warning}",
+                    field="synthesis.engine",
+                )
+            )
+
+    engine_name = _ENGINE_DISPLAY_NAMES.get(probe.engine, probe.engine)
+    if probe.status == "package_missing":
+        extra = _ENGINE_EXTRA_NAMES.get(probe.engine)
+        install = f" Install it with `pip install readio[{extra}]`." if extra else ""
+        diagnostics.append(
+            PlanDiagnostic(
+                code="engine_package_missing",
+                severity="error",
+                message=f"{engine_name} is not installed.{install}",
+                field="synthesis.engine",
+            )
+        )
+    elif probe.status == "api_incompatible":
+        missing: list[str] = []
+        if probe.missing_symbols:
+            missing.append("missing public symbols " + ", ".join(probe.missing_symbols))
+        if probe.missing_methods:
+            missing.append(
+                "missing or non-callable public methods " + ", ".join(probe.missing_methods)
+            )
+        details = "; ".join(missing) or "required public APIs are unavailable"
+        diagnostics.append(
+            PlanDiagnostic(
+                code="engine_api_incompatible",
+                severity="error",
+                message=(
+                    f"{probe.package} {package_version} is incompatible with this Readio adapter: "
+                    f"{details}."
+                ),
+                field="synthesis.engine",
+            )
+        )
+    elif probe.status == "api_version_incompatible":
+        diagnostics.append(
+            PlanDiagnostic(
+                code="engine_api_version_incompatible",
+                severity="error",
+                message=(
+                    f"{probe.package} {package_version} declares request API version "
+                    f"{probe.api_version}, but this Readio release supports version "
+                    f"{probe.expected_api_version}."
+                ),
+                field="synthesis.engine",
+            )
+        )
+    elif probe.status == "api_probe_failed":
+        context = f" during {probe.failed_stage.replace('_', ' ')}" if probe.failed_stage else ""
+        if probe.failed_symbol:
+            context += f" while resolving {probe.failed_symbol}"
+        error = (
+            ": ".join(item for item in (probe.error_type, probe.error_message) if item)
+            or "unknown probe error"
+        )
+        diagnostics.append(
+            PlanDiagnostic(
+                code="engine_api_probe_failed",
+                severity="error",
+                message=(
+                    f"{probe.package} {package_version} request API probe failed{context}: {error}."
+                ),
+                field="synthesis.engine",
+            )
+        )
+    return diagnostics
 
 
 # Diagnostic code constants
@@ -1754,42 +1868,34 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     except (ImportError, ValueError) as exc:
         diagnostics.append(
             PlanDiagnostic(
-                code="engine_unavailable",
+                code="engine_adapter_unavailable",
                 severity="error",
                 message=str(exc),
                 field="synthesis.engine",
             )
         )
     if adapter is not None:
-        compatibility_check = getattr(adapter, "compatible_api", None)
-        if compatibility_check is not None:
-            try:
-                adapter_api_compatible = bool(compatibility_check())
-            except (
-                ImportError,
-                SyntaxError,
-                OSError,
-                RuntimeError,
-                AttributeError,
-                TypeError,
-                ValueError,
-            ):
-                adapter_api_compatible = False
-        if not adapter_api_compatible:
-            package = getattr(adapter, "package_name", engine_id)
-            version = adapter.version()
-            diagnostics.append(
-                PlanDiagnostic(
-                    code="engine_api_incompatible",
-                    severity="error",
-                    message=(
-                        f"{package} {version or '(not installed)'} does not expose the "
-                        "request API required by this Readio engine adapter."
-                    ),
-                    field="synthesis.engine",
-                )
+        package_name = getattr(adapter, "package_name", engine_id)
+        probe_method = getattr(adapter, "probe_api", None)
+        try:
+            if not callable(probe_method):
+                raise TypeError("Engine adapter does not implement probe_api().")
+            api_probe = probe_method()
+            if not isinstance(api_probe, EngineApiProbe):
+                raise TypeError("Engine adapter probe_api() did not return EngineApiProbe.")
+        except Exception as exc:
+            logger.debug("Engine %s API probe raised unexpectedly", engine_id, exc_info=True)
+            api_probe = EngineApiProbe(
+                engine=engine_id,
+                package=package_name,
+                compatible=False,
+                status="api_probe_failed",
+                failed_stage="adapter_probe",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
             )
-
+        adapter_api_compatible = api_probe.compatible
+        diagnostics.extend(_engine_api_probe_diagnostics(api_probe))
     ssmd_provider = (
         adapter.capabilities().voice_binding_namespace or ssmd_namespace_for_engine(engine_id)
         if adapter is not None

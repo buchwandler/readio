@@ -17,6 +17,7 @@ from ..errors import (
     InvalidEngineOptionError,
     InvalidEngineVoiceError,
 )
+from .api_probe import SUPPORTED_REQUEST_API_VERSION, EngineApiProbe, probe_public_api
 from .base import (
     EngineCapabilities,
     EngineSelection,
@@ -218,38 +219,26 @@ class KittenSynthEngineAdapter:
     def version(self) -> str | None:
         return distribution_version(self.package_name)
 
-    def compatible_api(self) -> bool:
-        try:
-            import kittensynth
-
-            required = (
+    def probe_api(self) -> EngineApiProbe:
+        return probe_public_api(
+            engine=self.id,
+            package=self.package_name,
+            required_symbols=(
                 "KittenVoice",
                 "SynthesisConfig",
                 "SynthesisResult",
                 "discover_models",
                 "runtime_identity",
-            )
-            if not all(hasattr(kittensynth, name) for name in required):
-                return False
-            voice_type = kittensynth.KittenVoice
-            return (
-                all(
-                    callable(getattr(voice_type, name, None))
-                    for name in ("synthesize_prepared", "from_pretrained", "from_local", "close")
-                )
-                and callable(kittensynth.discover_models)
-                and callable(kittensynth.runtime_identity)
-            )
-        except (
-            ImportError,
-            SyntaxError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ):
-            return False
+            ),
+            required_methods={
+                "KittenVoice": ("synthesize_prepared", "from_pretrained", "from_local", "close"),
+                "__module__": ("discover_models", "runtime_identity"),
+            },
+            expected_api_version=SUPPORTED_REQUEST_API_VERSION,
+        )
+
+    def compatible_api(self) -> bool:
+        return self.probe_api().compatible
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(

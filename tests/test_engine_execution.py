@@ -13,6 +13,7 @@ import numpy as np
 
 from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
 from readio.execution import execute_render_v2
@@ -146,6 +147,14 @@ def test_fake_engine_bounded_vertical_path_resolves_once(tmp_path, monkeypatch):
     class FakeAdapter:
         id = "fake"
 
+        def probe_api(self):
+            return EngineApiProbe(
+                engine=self.id,
+                package="fake-engine",
+                compatible=True,
+                status="ready",
+            )
+
         def __init__(self):
             self.resolve_calls = 0
             self.open_calls = 0
@@ -258,6 +267,14 @@ def test_ssmd_voice_resolution_uses_selected_adapter_provider(monkeypatch) -> No
 
     class FakePiperAdapter:
         id = "fake-piper"
+
+        def probe_api(self):
+            return EngineApiProbe(
+                engine=self.id,
+                package="fake-piper",
+                compatible=True,
+                status="ready",
+            )
 
         def capabilities(self):
             return EngineCapabilities(id=self.id, voice_binding_namespace="piper")

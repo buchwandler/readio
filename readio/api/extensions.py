@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ..engines.api_probe import EngineApiProbe
 from ..engines.base import (
     EngineAdapter,
     EngineCapabilities,
@@ -24,6 +25,7 @@ from . import errors as api_errors
 _ENGINE_ID = re.compile(r"^[a-z][a-z0-9_-]*$")
 _REQUIRED_ADAPTER_METHODS = (
     "version",
+    "probe_api",
     "capabilities",
     "discover",
     "resolve",
@@ -96,6 +98,7 @@ __all__ = [
     "CatalogRequest",
     "CatalogResult",
     "EngineAdapter",
+    "EngineApiProbe",
     "EngineCapabilities",
     "EngineSelection",
     "EngineSession",

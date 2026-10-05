@@ -98,6 +98,36 @@ class _Runtime:
         self.close_calls += 1
 
 
+class _PublicRuntime:
+    def __init__(self):
+        self.sample_rate = 24000
+        self.measure_calls = []
+        self.synthesis_calls = []
+        self.prepared_sources = []
+        self.close_calls = 0
+
+    def measure_request(self, request):
+        self.measure_calls.append(request)
+        return SimpleNamespace(fits=True, amount=len(request.text), maximum=192)
+
+    def prepare_voice(self, source):
+        self.prepared_sources.append(source)
+        return f"prepared:{source}"
+
+    def synthesize(self, request, *, voice, config, voice_level):
+        self.synthesis_calls.append((request, voice, config, voice_level))
+        return SimpleNamespace(
+            id=request.id,
+            audio=np.ones(2, dtype=np.float32),
+            sample_rate=self.sample_rate,
+            warnings=(),
+            metadata={"token_count": len(request.text)},
+        )
+
+    def close(self):
+        self.close_calls += 1
+
+
 def _request(*, language="en-us", voice="alba", options=None):
     return EngineRequest(
         engine="pocket",
@@ -113,6 +143,24 @@ def _install_fakes(monkeypatch, runtime=None):
     _AssetManager.instances = []
     _AssetManager.resolve_calls = []
     monkeypatch.setattr(pocketsynth, "BundleAssetManager", _AssetManager)
+
+    def discover_bundles(
+        *, language=None, offline=False, refresh=False, cache_dir=None, catalog_path=None
+    ):
+        manager = _AssetManager(
+            cache_dir=cache_dir,
+            catalog_path=catalog_path,
+            offline=offline,
+        )
+        return manager.list_bundles(language=language, refresh=refresh)
+
+    monkeypatch.setattr(pocketsynth, "discover_bundles", discover_bundles, raising=False)
+    monkeypatch.setattr(
+        pocketsynth,
+        "runtime_identity",
+        lambda: {"request_api_version": "1", "runtime_revision": "test-runtime"},
+        raising=False,
+    )
     runtime = runtime or _Runtime()
     monkeypatch.setattr(
         pocketsynth.PocketRuntime,
@@ -137,6 +185,86 @@ def test_pocket_discovery_maps_bundle_catalog(monkeypatch):
     assert ssmd_provider_for_engine("pocket") == "pocket"
 
     assert targets[0].voice_details == ()
+
+
+def test_pocket_discovery_uses_normalized_public_bundles(monkeypatch):
+    pocketsynth, _runtime = _install_fakes(monkeypatch)
+    bundle = SimpleNamespace(
+        id="normalized-pocket",
+        ref="pocket:normalized-pocket",
+        display_name="Normalized Pocket bundle",
+        aliases=("normalized-alias",),
+        language="en-US",
+        sample_rate=22050,
+        precisions=("int8", "fp32"),
+        predefined_voices=("ava",),
+        default_voice="ava",
+        source_revision="public-revision",
+        max_tokens=96,
+        runtime_available=True,
+        voice_details=(
+            SimpleNamespace(
+                id="ava",
+                gender="female",
+                language="en",
+                locale="en-US",
+                language_label="English",
+            ),
+        ),
+        metadata={"catalog_source": "normalized"},
+    )
+    calls = []
+
+    def discover_bundles(**kwargs):
+        calls.append(kwargs)
+        return (bundle,)
+
+    def fail_list_bundles(*args, **kwargs):
+        raise AssertionError("new Pocket discovery must not call BundleAssetManager.list_bundles")
+
+    monkeypatch.setattr(pocketsynth, "discover_bundles", discover_bundles)
+    monkeypatch.setattr(_AssetManager, "list_bundles", fail_list_bundles)
+
+    adapter = PocketSynthEngineAdapter()
+    targets = adapter.discover(
+        CatalogRequest(engine="pocket", language="en-us", offline=True, refresh=True)
+    )
+
+    assert calls[0] == {
+        "language": "en",
+        "offline": True,
+        "refresh": True,
+        "cache_dir": None,
+        "catalog_path": None,
+    }
+    assert len(targets) == 1
+    target = targets[0]
+    assert target.id == "normalized-pocket"
+    assert target.display_name == "Normalized Pocket bundle"
+    assert target.aliases == ("normalized-alias",)
+    assert target.languages == ("en-us",)
+    assert target.sample_rate == 22050
+    assert target.voices == ("ava",)
+    assert target.default_voice == "ava"
+    assert target.qualities == ("int8", "fp32")
+    assert target.runtime_available
+    assert target.metadata["source_revision"] == "public-revision"
+    assert target.metadata["max_token_per_chunk"] == 96
+    assert target.voice_details[0] == TargetVoice(
+        id="ava",
+        gender="female",
+        language="en",
+        locale="en-us",
+        language_label="English",
+    )
+
+    selection, _ = adapter.resolve(_request(voice="ava"))
+    selection = replace(selection, target_id="normalized-pocket")
+    assert adapter.validate_selection(selection) == ()
+    metadata = adapter.target_metadata(selection)
+    assert metadata["source_revision"] == "public-revision"
+    assert metadata["max_token_per_chunk"] == 96
+    assert _AssetManager.instances == []
 
 
 def test_pocket_discovery_includes_generic_language_but_excludes_other_region(monkeypatch):
@@ -400,6 +528,41 @@ def test_pocket_session_reuses_prepared_voices_and_uses_one_strict_call_per_requ
     assert _AssetManager.resolve_calls[0][1]["precision"] == "fp32"
 
 
+def test_pocket_public_measurement_uses_shared_native_request_without_runtime_internals(
+    monkeypatch,
+):
+    pocketsynth, runtime = _install_fakes(monkeypatch, _PublicRuntime())
+    adapter = PocketSynthEngineAdapter()
+    selection, _ = adapter.resolve(_request())
+    request = SpeechRequest(
+        id="public-measure",
+        text="Hello Pocket",
+        language="en-us",
+        voice="alba",
+    )
+
+    with adapter.open(selection) as session:
+        measured = session.measure(request)
+        assert len(runtime.measure_calls) == 1
+        assert runtime.synthesis_calls == []
+        rendered = session.synthesize(request)
+
+    assert measured.fits is True
+    assert measured.amount == len(request.text)
+    assert measured.maximum == 192
+    assert measured.unit == "model_tokens"
+    assert measured.source == "pocketsynth.measure_request"
+    assert len(runtime.measure_calls) == 1
+    measured_request = runtime.measure_calls[0]
+    synthesized_request = runtime.synthesis_calls[0][0]
+    assert isinstance(measured_request, pocketsynth.SynthesisRequest)
+    assert measured_request == synthesized_request
+    assert not hasattr(runtime, "frontend")
+    assert not hasattr(runtime, "metadata")
+    assert rendered.metadata["token_count"] == len(request.text)
+    assert runtime.close_calls == 1
+
+
 def test_pocket_reference_voice_is_content_identified_and_cached(monkeypatch, tmp_path):
     _install_fakes(monkeypatch)
     adapter = PocketSynthEngineAdapter()
@@ -627,3 +790,20 @@ def test_pocket_extra_uses_a_published_runtime_release():
 
     assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.3,<0.3"]
     assert any("pocketsynth[cpu]>=0.2.3,<0.3" in item for item in extras["all"])
+
+
+def test_pocket_canonical_identity_uses_public_runtime_identity(monkeypatch):
+    pocketsynth, _runtime = _install_fakes(monkeypatch)
+    runtime_identity = {
+        "engine_version": "0.2.4",
+        "runtime_revision": "onnxvoice-rev",
+        "request_api_version": "1",
+        "bundle_revision": None,
+    }
+    monkeypatch.setattr(pocketsynth, "runtime_identity", lambda: dict(runtime_identity))
+    selection, _ = PocketSynthEngineAdapter().resolve(_request())
+
+    identity = PocketSynthEngineAdapter().canonical_synthesis_identity(selection)
+
+    assert identity["engine_identity"] == runtime_identity
+    assert identity["target_id"] == selection.target_id

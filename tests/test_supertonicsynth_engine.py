@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -99,7 +100,7 @@ def _selection(**changes: Any) -> EngineSelection:
 def test_adapter_uses_released_public_api_without_opening_model() -> None:
     adapter = SupertonicSynthEngineAdapter()
     assert adapter.compatible_api()
-    assert adapter.version() == "0.1.2"
+    assert adapter.version() == importlib.metadata.version("supertonicsynth")
     assert callable(supertonicsynth.discover_models)
     assert callable(supertonicsynth.SupertonicRuntime.synthesize)
 
@@ -481,5 +482,5 @@ def test_registry_status_and_alias_are_available() -> None:
     assert isinstance(adapter, SupertonicSynthEngineAdapter)
     status = registry.status()["supertonic"]
     assert status["package"] is True
-    assert status["version"] == "0.1.2"
+    assert status["version"] == adapter.version()
     assert status["status"] == "ready"

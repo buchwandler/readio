@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from readio.config import LanguageSettings, ReaderSettings, ReadioConfig, normalize_language_key
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.engines.registry import _registry
 from readio.plan import (
@@ -53,6 +54,14 @@ class _PiperTargetAdapter:
         self.open_calls = []
         self.close_calls = []
         self.requests = []
+
+    def probe_api(self):
+        return EngineApiProbe(
+            engine=self.id,
+            package=f"{self.id}-fixture",
+            compatible=True,
+            status="ready",
+        )
 
     def version(self):
         return "fixture-piper"

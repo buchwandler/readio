@@ -44,6 +44,31 @@ jobs:
       - name: Run test suite
         run: python -m pytest -q
 
+  engine-probe-python314:
+    name: Engine API probes without optional engines (Ubuntu, Python 3.14)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install Readio and test tools without optional synthesis engines
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Verify dependency resolution and absent optional engines
+        run: |
+          python -m pip check
+          python -c "import importlib.util; assert all(importlib.util.find_spec(name) is None for name in ('pykokoro', 'pipersynth', 'pocketsynth', 'kittensynth', 'supertonicsynth'))"
+      - name: Test engine API probes without model downloads
+        run: >-
+          python -m pytest -q
+          tests/test_engine_api_probe.py
+          tests/test_engine_registry.py
+          tests/test_plan_no_tts_load.py
+
   ssmdconvert-minimum:
     name: ssmdconvert 0.1.2 + utterplan 0.3.4 public API contract
     runs-on: ubuntu-latest

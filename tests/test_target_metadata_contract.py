@@ -153,7 +153,7 @@ def test_pocket_target_metadata_contract(monkeypatch: pytest.MonkeyPatch) -> Non
         def list_bundles(self, **kwargs: Any) -> list[SimpleNamespace]:
             return [bundle]
 
-    monkeypatch.setattr(pocketsynth, "BundleAssetManager", FakeManager)
+    monkeypatch.setattr(pocketsynth, "discover_bundles", lambda **_kwargs: [bundle])
     targets = PocketSynthEngineAdapter().discover(CatalogRequest(engine="pocket"))
     assert len(targets) == 1
     assert_target_contract(targets[0])

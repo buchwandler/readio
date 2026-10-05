@@ -3,6 +3,7 @@ from __future__ import annotations
 from readio.config import ReaderSettings, ReadioConfig
 from readio.document import InputDocument
 from readio.engines import EngineCapabilities, EngineSelection
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.registry import _registry
 from readio.plan import (
     InputRequest,
@@ -15,6 +16,14 @@ from readio.plan import (
 
 class _FixtureAdapter:
     id = "fixture"
+
+    def probe_api(self):
+        return EngineApiProbe(
+            engine=self.id,
+            package="fixture-engine",
+            compatible=True,
+            status="ready",
+        )
 
     def version(self):
         return "1.0"

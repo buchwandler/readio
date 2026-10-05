@@ -219,7 +219,7 @@ readio -v speak "Hello"
 readio -vv render episode.ssmd -o episode.mp3
 ```
 
-The option is global and may appear before or after a command. Logs are written only to stderr. Human results and JSON remain on stdout, so `readio -v doctor --json` still emits valid JSON. `--progress` and `--no-progress` remain independent; verbose mode makes progress line-oriented on a TTY. Review paths, model names, and voice identifiers before sharing diagnostics. Complete document text, raw audio, Spotify credentials, and authorization responses are not logged.
+The option is global and may appear before or after a command. Logs are written only to stderr. Human results and JSON remain on stdout, so `readio -v doctor --json` still emits valid JSON. `--progress` and `--no-progress` remain independent; verbose mode makes progress line-oriented on a TTY. At `-vv`, engine API checks emit one compact structured event and include captured probe tracebacks at DEBUG; ordinary doctor output never includes stack traces. Review paths, model names, and voice identifiers before sharing diagnostics. Complete document text, raw audio, Spotify credentials, and authorization responses are not logged.
 Playback-only options are `--queue-size` and `--device`. Audio rendering is streamed to an atomic output file through a bounded audio path rather than accumulated as one in-memory waveform.
 
 ## Configuration
@@ -311,7 +311,7 @@ readio doctor
 ```
 
 The local doctor is human-readable by default and supports `readio doctor --json`. It reports configuration, directories, dependencies, format availability, and the upstream executable/version probe without authentication or token access. Use `readio spotify doctor` for the explicit external integration check.
-If an engine reports `request API compatible: no`, run `readio doctor --json` to inspect the installed package version and adapter status. The runtime does not fall back to a legacy pipeline when the published API is incompatible.
+Use `readio doctor --json` to inspect each engine's structured API status (`adapter_unavailable`, `package_missing`, `api_incompatible`, `api_version_incompatible`, `api_probe_failed`, or `ready`), imported module version/path, missing public names, and captured error details. A transitive or lazy-import failure is reported separately from a genuinely missing symbol. Probing does not download models or run inference, and Readio does not fall back to a legacy pipeline when the published API is incompatible.
 
 Run the test suite and lint checks from a development checkout:
 

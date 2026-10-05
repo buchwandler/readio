@@ -22,7 +22,7 @@ _ENGINE_APIS = {
 
 
 @pytest.mark.parametrize("engine", sorted(_ENGINE_APIS))
-def test_released_engine_package_exposes_readio_request_api(engine: str) -> None:
+def test_released_engine_package_reports_structured_readio_api_probe(engine: str) -> None:
     selected_engine = os.environ.get("READIO_TEST_ENGINE")
     if selected_engine and selected_engine != engine:
         pytest.skip(f"compatibility job selected {selected_engine}")
@@ -41,6 +41,14 @@ def test_released_engine_package_exposes_readio_request_api(engine: str) -> None
     assert installed_release == expected_release, (
         f"expected {distribution} release family {expected_release}, got {version}"
     )
-    assert adapter_type().compatible_api(), (
-        f"{distribution} {version} does not expose Readio's strict request API"
+    probe = adapter_type().probe_api()
+    assert probe.compatible, (
+        f"{distribution} {version} API probe failed: status={probe.status}, "
+        f"missing_symbols={probe.missing_symbols}, missing_methods={probe.missing_methods}, "
+        f"failed_stage={probe.failed_stage}, failed_symbol={probe.failed_symbol}, "
+        f"error={probe.error_type}: {probe.error_message}"
     )
+    assert probe.status == "ready"
+    assert probe.distribution_version == version
+    assert probe.expected_api_version == 1
+    assert probe.contract_source in {"explicit", "legacy_symbols"}

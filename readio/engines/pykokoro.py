@@ -23,6 +23,7 @@ from ..errors import (
     UnsupportedSynthesisFeatureError,
 )
 from ..models import ModelDiscoveryError
+from .api_probe import SUPPORTED_REQUEST_API_VERSION, EngineApiProbe, probe_public_api
 from .base import (
     EngineCapabilities,
     EngineSelection,
@@ -428,11 +429,11 @@ class PyKokoroEngineAdapter:
     def version(self) -> str | None:
         return distribution_version(self.package_name)
 
-    def compatible_api(self) -> bool:
-        try:
-            import pykokoro
-
-            required = (
+    def probe_api(self) -> EngineApiProbe:
+        return probe_public_api(
+            engine=self.id,
+            package=self.package_name,
+            required_symbols=(
                 "KokoroSynthesizer",
                 "SynthesisConfig",
                 "SynthesisRequest",
@@ -441,23 +442,15 @@ class PyKokoroEngineAdapter:
                 "VoiceLevelConfig",
                 "SynthesisInputTooLongError",
                 "ShortSentenceConfig",
-            )
-            if not all(hasattr(pykokoro, name) for name in required):
-                return False
-            synthesizer = pykokoro.KokoroSynthesizer
-            return callable(getattr(synthesizer, "prepare", None)) and callable(
-                getattr(synthesizer, "synthesize", None)
-            )
-        except (
-            ImportError,
-            SyntaxError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ):
-            return False
+            ),
+            required_methods={
+                "KokoroSynthesizer": ("prepare", "synthesize", "close"),
+            },
+            expected_api_version=SUPPORTED_REQUEST_API_VERSION,
+        )
+
+    def compatible_api(self) -> bool:
+        return self.probe_api().compatible
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(

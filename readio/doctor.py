@@ -53,10 +53,29 @@ def run_doctor() -> str:
                 f"  {engine_id}:",
                 f"    adapter: {'yes' if status['adapter'] else 'no'}",
                 f"    package: {package}",
+                f"    module version: {status.get('module_version') or 'unknown'}",
+                f"    module path: {status.get('module_path') or 'unknown'}",
+                f"    request API: {status.get('request_api_version') if status.get('request_api_version') is not None else 'unknown'}",
+                f"    expected request API: {status.get('expected_request_api_version') if status.get('expected_request_api_version') is not None else 'unknown'}",
+                f"    contract: {status.get('contract_source') or 'unknown'}",
                 f"    request API compatible: {api_report}",
-                f"    status: {status['status']}",
             ]
         )
+        missing = [*status.get("missing_symbols", ()), *status.get("missing_methods", ())]
+        if missing:
+            lines.append(f"    missing API: {', '.join(missing)}")
+        if status.get("failed_stage"):
+            lines.append(f"    probe stage: {status['failed_stage']}")
+        if status.get("failed_symbol"):
+            lines.append(f"    failed symbol: {status['failed_symbol']}")
+        if status.get("error_type") or status.get("error_message"):
+            error = ": ".join(
+                value for value in (status.get("error_type"), status.get("error_message")) if value
+            )
+            lines.append(f"    error: {error}")
+        for warning in status.get("warnings", ()):
+            lines.append(f"    warning: {warning}")
+        lines.append(f"    status: {status['status']}")
     lines.append("")
 
     dependencies = {

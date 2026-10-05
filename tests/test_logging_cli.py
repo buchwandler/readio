@@ -66,6 +66,31 @@ def test_debug_logging_includes_engine_namespaces():
     assert "DEBUG kittensynth.systems.kitten timing output durations" in stream.getvalue()
 
 
+def test_vv_logging_includes_structured_engine_api_probe_event(monkeypatch):
+    from types import ModuleType
+
+    from readio.engines import api_probe
+
+    module = ModuleType("fake_engine")
+    module.__version__ = "1.0"
+    module.__file__ = "/fake/engine/__init__.py"
+    monkeypatch.setattr(api_probe.importlib.metadata, "version", lambda _package: "1.0")
+    monkeypatch.setattr(api_probe.importlib, "import_module", lambda _package: module)
+    stream = io.StringIO()
+
+    configure_logging(2, stream=stream)
+    api_probe.probe_public_api(
+        engine="fake",
+        package="fake_engine",
+        required_symbols=(),
+        required_methods={},
+    )
+
+    output = stream.getvalue()
+    assert "DEBUG readio.engines.api_probe engine.api_probe" in output
+    assert '"status":"ready"' in output
+
+
 def test_repeated_configuration_does_not_duplicate_records():
     stream = io.StringIO()
     configure_logging(1, stream=stream)

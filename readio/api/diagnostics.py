@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from .. import __version__
 from .. import config as config_internal
+from ..engines.registry import engine_status
 from ..errors import ReadioError
 from . import errors as api_errors
 from .types import (
@@ -18,6 +19,14 @@ from .types import (
     EngineDiagnostic,
     PathDiagnostic,
 )
+
+_ENGINE_DISTRIBUTIONS = {
+    "kokoro": "pykokoro",
+    "piper": "pipersynth",
+    "pocket": "pocketsynth",
+    "kitten": "kittensynth",
+    "supertonic": "supertonicsynth",
+}
 
 if TYPE_CHECKING:
     from .app import Readio
@@ -77,22 +86,33 @@ class DiagnosticsService:
     def engines(self) -> tuple[EngineDiagnostic, ...]:
         try:
             result = []
-            for engine in self._app.catalog.engines():
-                status = (
-                    "ready"
-                    if engine.runnable
-                    else "missing_dependency"
-                    if not engine.installed
-                    else "unavailable"
-                )
+            for engine_id, status in engine_status().items():
+                package_available = bool(status["package"])
                 result.append(
                     EngineDiagnostic(
-                        id=engine.id,
-                        adapter_available=engine.registered,
-                        package_available=engine.installed,
-                        version=engine.version,
-                        status=status,
-                        missing_dependency=engine.missing_dependency,
+                        id=engine_id,
+                        adapter_available=bool(status["adapter"]),
+                        package_available=package_available,
+                        version=status["version"],
+                        status=status["status"],
+                        missing_dependency=(
+                            None
+                            if package_available
+                            else _ENGINE_DISTRIBUTIONS.get(engine_id, engine_id)
+                        ),
+                        module_version=status["module_version"],
+                        module_path=status["module_path"],
+                        request_api_version=status["request_api_version"],
+                        expected_request_api_version=status["expected_request_api_version"],
+                        contract_source=status["contract_source"],
+                        api_compatible=status["api_compatible"],
+                        missing_symbols=tuple(status["missing_symbols"]),
+                        missing_methods=tuple(status["missing_methods"]),
+                        failed_stage=status["failed_stage"],
+                        failed_symbol=status["failed_symbol"],
+                        error_type=status["error_type"],
+                        error_message=status["error_message"],
+                        warnings=tuple(status["warnings"]),
                     )
                 )
             return tuple(result)

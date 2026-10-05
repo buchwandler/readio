@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 import numpy as np
 
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.base import EngineCapabilities, EngineSelection, RenderedSpeech
 from readio.plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 
@@ -25,6 +26,14 @@ class Adapter:
 
     def version(self):
         return "fake-1"
+
+    def probe_api(self):
+        return EngineApiProbe(
+            engine=self.id,
+            package="fake-engine",
+            compatible=True,
+            status="ready",
+        )
 
     def capabilities(self):
         return EngineCapabilities(

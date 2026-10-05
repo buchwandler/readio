@@ -358,7 +358,7 @@ def test_semantic_plan_compiles_when_engine_runtime_is_unavailable(monkeypatch) 
     assert resolved.semantic is not None
     assert resolved.plan.semantic_plan.plan_id == resolved.semantic.plan_id
     assert resolved.plan.render is None
-    assert any(item.code == "engine_unavailable" for item in resolved.plan.diagnostics)
+    assert any(item.code == "engine_adapter_unavailable" for item in resolved.plan.diagnostics)
 
     assert any(item.code == "voice_source_unsupported" for item in resolved.plan.diagnostics)
 
@@ -367,6 +367,7 @@ def test_semantic_plan_compiles_but_skips_incompatible_engine_api(monkeypatch) -
     from readio.config import ReaderSettings, ReadioConfig
     from readio.document import document_from_text
     from readio.engines import registry
+    from readio.engines.api_probe import EngineApiProbe
     from readio.engines.base import EngineCapabilities
     from readio.plan import (
         InputRequest,
@@ -380,8 +381,19 @@ def test_semantic_plan_compiles_but_skips_incompatible_engine_api(monkeypatch) -
         id = "incompatible"
         package_name = "test-engine"
 
-        def compatible_api(self):
-            return False
+        probe_calls = 0
+
+        def probe_api(self):
+            self.probe_calls += 1
+            return EngineApiProbe(
+                engine=self.id,
+                package=self.package_name,
+                compatible=False,
+                status="api_incompatible",
+                distribution_version="0.1.0",
+                expected_api_version=1,
+                missing_symbols=("SynthesisRequest",),
+            )
 
         def version(self):
             return "0.1.0"
@@ -392,7 +404,8 @@ def test_semantic_plan_compiles_but_skips_incompatible_engine_api(monkeypatch) -
         def resolve(self, _request):
             raise AssertionError("incompatible adapter must not resolve requests")
 
-    monkeypatch.setattr(registry, "get_engine", lambda _engine: IncompatibleAdapter())
+    adapter = IncompatibleAdapter()
+    monkeypatch.setattr(registry, "get_engine", lambda _engine: adapter)
     request = PlanRequest(
         operation="render",
         input=InputRequest(document=document_from_text("Plan with an incompatible engine.")),
@@ -409,6 +422,73 @@ def test_semantic_plan_compiles_but_skips_incompatible_engine_api(monkeypatch) -
     assert resolved.plan.render is None
     assert not resolved.plan.ok
     assert any(item.code == "engine_api_incompatible" for item in resolved.plan.diagnostics)
+    assert adapter.probe_calls == 1
+    diagnostic = next(
+        item for item in resolved.plan.diagnostics if item.code == "engine_api_incompatible"
+    )
+    assert "missing public symbols SynthesisRequest" in diagnostic.message
+
+
+def test_engine_probe_statuses_map_to_distinct_plan_diagnostics() -> None:
+    from readio.engines.api_probe import EngineApiProbe
+    from readio.plan import _engine_api_probe_diagnostics
+
+    probes = (
+        (
+            EngineApiProbe(
+                engine="kokoro",
+                package="pykokoro",
+                compatible=False,
+                status="package_missing",
+            ),
+            "engine_package_missing",
+        ),
+        (
+            EngineApiProbe(
+                engine="supertonic",
+                package="supertonicsynth",
+                compatible=False,
+                status="api_version_incompatible",
+                distribution_version="0.2.0",
+                api_version=2,
+                expected_api_version=1,
+            ),
+            "engine_api_version_incompatible",
+        ),
+        (
+            EngineApiProbe(
+                engine="kokoro",
+                package="pykokoro",
+                compatible=False,
+                status="api_probe_failed",
+                distribution_version="0.10.3",
+                failed_stage="symbol_resolution",
+                failed_symbol="KokoroSynthesizer",
+                error_type="ImportError",
+                error_message="missing transitive dependency",
+            ),
+            "engine_api_probe_failed",
+        ),
+    )
+    for probe, code in probes:
+        diagnostics = _engine_api_probe_diagnostics(probe)
+        assert len(diagnostics) == 1
+        assert diagnostics[0].code == code
+
+    mismatch = EngineApiProbe(
+        engine="kokoro",
+        package="pykokoro",
+        compatible=True,
+        status="ready",
+        distribution_version="0.10.4",
+        module_version="0.10.3",
+        module_path="/checkout/pykokoro/__init__.py",
+    )
+    warning = _engine_api_probe_diagnostics(mismatch)
+    assert len(warning) == 1
+    assert warning[0].code == "engine_module_version_mismatch"
+    assert warning[0].severity == "warning"
+    assert "/checkout/pykokoro/__init__.py" in warning[0].message
 
 
 def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch, tmp_path) -> None:
@@ -417,6 +497,7 @@ def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch
     from readio.config import ReaderSettings, ReadioConfig
     from readio.document import document_from_text
     from readio.engines import registry
+    from readio.engines.api_probe import EngineApiProbe
     from readio.engines.base import EngineCapabilities, EngineSelection
     from readio.plan import (
         InputRequest,
@@ -430,8 +511,15 @@ def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch
         id = "pocket"
         package_name = "pocketsynth"
 
-        def compatible_api(self):
-            return True
+        def probe_api(self):
+            return EngineApiProbe(
+                engine=self.id,
+                package=self.package_name,
+                compatible=True,
+                status="ready",
+                distribution_version="0.1.0",
+                expected_api_version=1,
+            )
 
         def version(self):
             return "0.1.0"

@@ -18,6 +18,21 @@ def _mock_pipersynth():
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
+        def list_voices(self, **kwargs):
+            return ()
+
+        def get_voice_metadata(self, *args, **kwargs):
+            return None
+
+        def from_pretrained(self, *args, **kwargs):
+            return self
+
+        def synthesize(self, *args, **kwargs):
+            return None
+
+        def close(self):
+            return None
+
     module = ModuleType("pipersynth")
     for name in (
         "SynthesisRequest",
@@ -218,6 +233,13 @@ def test_piper_api_compatibility_accepts_published_surface(monkeypatch) -> None:
 
     class _PublishedVoice:
         def synthesize(self, request, *, config=None):
+            return None
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return cls()
+
+        def close(self):
             return None
 
     monkeypatch.setattr(pipersynth, "PiperVoice", _PublishedVoice)

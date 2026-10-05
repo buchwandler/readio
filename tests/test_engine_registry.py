@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.registry import (
     CANONICAL_ENGINE_IDS,
     ENGINE_ALIASES,
@@ -195,6 +196,44 @@ class TestEngineRegistryClass:
         status = registry.status()
         # Known optional engines remain visible when their packages are absent.
         assert {"kokoro", "piper", "pocket", "supertonic", "kitten"}.issubset(status)
+
+    def test_status_reuses_one_structured_probe_result(self, monkeypatch) -> None:
+        registry = EngineRegistry()
+        probe_calls = 0
+
+        class Adapter:
+            id = "piper"
+            package_name = "pipersynth"
+
+            def probe_api(self):
+                nonlocal probe_calls
+                probe_calls += 1
+                return EngineApiProbe(
+                    engine=self.id,
+                    package=self.package_name,
+                    compatible=False,
+                    status="api_incompatible",
+                    distribution_version="0.2.1",
+                    module_version="0.2.0",
+                    module_path="/tmp/pipersynth/__init__.py",
+                    expected_api_version=1,
+                    missing_methods=("PiperVoice.close",),
+                )
+
+        adapter = Adapter()
+        registry.register(adapter)
+        monkeypatch.setattr(registry, "get", lambda engine: adapter if engine == "piper" else None)
+
+        status = registry.status()["piper"]
+
+        assert probe_calls == 1
+        assert status["adapter"] is True
+        assert status["package"] is True
+        assert status["version"] == "0.2.1"
+        assert status["module_version"] == "0.2.0"
+        assert status["api_compatible"] is False
+        assert status["status"] == "api_incompatible"
+        assert status["missing_methods"] == ("PiperVoice.close",)
 
     def test_iter_adapters_yields_all(self) -> None:
         registry = EngineRegistry()

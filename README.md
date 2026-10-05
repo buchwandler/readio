@@ -424,7 +424,7 @@ Readio invokes `save-to-spotify --json`, reports its detected version in diagnos
 readio doctor
 ```
 
-Doctor is offline/local by default and supports `readio doctor --json`. It reports Readio configuration, directories, TTS/SSMD dependencies, audio formats, and the upstream `save-to-spotify` path/version probe. It does not authenticate, inspect credentials, or perform Spotify network operations; use `readio spotify doctor` for the explicit external integration check.
+Doctor is offline/local by default and supports `readio doctor --json`. It reports Readio configuration, directories, TTS/SSMD dependencies, audio formats, and the upstream `save-to-spotify` path/version probe. For synthesis engines it reports the package/module versions and path, request API contract, missing public symbols or methods, and the stage and cause of probe failures. Probing is offline and does not download models or run inference. It does not authenticate, inspect credentials, or perform Spotify network operations; use `readio spotify doctor` for the explicit external integration check.
 
 ## Agent Skill
 

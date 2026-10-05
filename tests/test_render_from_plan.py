@@ -14,6 +14,7 @@ from readio.engines import (
     RenderedSpeech,
     SynthesisTarget,
 )
+from readio.engines.api_probe import EngineApiProbe
 from readio.engines.registry import _registry
 from readio.plan import PlanDiagnostic
 
@@ -38,6 +39,14 @@ class _FakeAdapter:
         self.open_calls = 0
         self.requests = []
         self.selections = []
+
+    def probe_api(self):
+        return EngineApiProbe(
+            engine=self.id,
+            package="render-fixture",
+            compatible=True,
+            status="ready",
+        )
 
     def version(self):
         return "1.0"

@@ -48,7 +48,7 @@ def test_numpy_is_a_direct_dependency() -> None:
 
 def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
-    tests_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[0]
+    tests_job = workflow.split("  engine-probe-python314:", maxsplit=1)[0]
     minimum_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[1]
     assert "ssmdconvert[pdf,docx]==0.1.2" in minimum_job
     assert "utterplan==0.3.4" in minimum_job

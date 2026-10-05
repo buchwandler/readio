@@ -22,6 +22,7 @@ from ..errors import (
     SpeechRequestTooLongError,
     UnsupportedSynthesisFeatureError,
 )
+from .api_probe import SUPPORTED_REQUEST_API_VERSION, EngineApiProbe, probe_public_api
 from .base import (
     EngineCapabilities,
     EngineSelection,
@@ -315,11 +316,11 @@ class PiperSynthEngineAdapter:
     def version(self) -> str | None:
         return distribution_version(self.package_name)
 
-    def compatible_api(self) -> bool:
-        try:
-            import pipersynth
-
-            required = (
+    def probe_api(self) -> EngineApiProbe:
+        return probe_public_api(
+            engine=self.id,
+            package=self.package_name,
+            required_symbols=(
                 "PiperVoice",
                 "VoiceAssetManager",
                 "SynthesisRequest",
@@ -329,22 +330,16 @@ class PiperSynthEngineAdapter:
                 "PronunciationOverride",
                 "VoiceLevelConfig",
                 "SynthesisInputTooLongError",
-            )
-            if not all(hasattr(pipersynth, name) for name in required):
-                return False
-            return callable(getattr(pipersynth.PiperVoice, "synthesize", None)) and callable(
-                getattr(pipersynth, "VoiceAssetManager", None)
-            )
-        except (
-            ImportError,
-            SyntaxError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ):
-            return False
+            ),
+            required_methods={
+                "PiperVoice": ("from_pretrained", "synthesize", "close"),
+                "VoiceAssetManager": ("list_voices", "get_voice_metadata"),
+            },
+            expected_api_version=SUPPORTED_REQUEST_API_VERSION,
+        )
+
+    def compatible_api(self) -> bool:
+        return self.probe_api().compatible
 
     def capabilities(self) -> EngineCapabilities:
         return EngineCapabilities(
