@@ -151,3 +151,61 @@ def test_composition_phase_callbacks_are_progress_events() -> None:
             message="Preparing composition",
         )
     ]
+
+
+
+def test_public_synthesis_forwarding_preserves_complete_text() -> None:
+    from readio.stages.synthesis import SynthesisEvent
+
+    service = object.__new__(ProjectService)
+    events: list[ReadioEvent] = []
+    long_text = (
+        "A renderer segment beyond 120 characters whose complete public event text must remain verbatim. " * 2
+    ) + "FULL_TEXT_TAIL_SENTINEL"
+    details = {
+        "scope_kind": "chapter",
+        "scope_title": "The Long Night",
+        "scope_number": 17,
+        "scope_index": 2,
+        "scope_total": 3,
+        "scope_completed": 0,
+        "scope_render_total": 42,
+        "global_completed": 56,
+        "global_total": 210,
+    }
+    for kind, completed in (("segment_started", 56), ("segment_finished", 57)):
+        service._forward_synthesis_event(
+            events.append,
+            "projects.synthesize",
+            SynthesisEvent(
+                kind=kind,
+                scope_id="chapter-0005",
+                unit_id="unit-0052",
+                segment_id="seg-000057",
+                completed=completed,
+                total=210,
+                details={
+                    **details,
+                    "scope_completed": completed - 56,
+                    "global_completed": completed,
+                },
+                text=long_text,
+            ),
+        )
+
+    assert [event.progress_kind for event in events] == ["segment.started", "segment.completed"]
+    for event in events:
+        assert event.details["text"] == long_text
+        assert event.details["text"].endswith("FULL_TEXT_TAIL_SENTINEL")
+        assert event.scope_id == "chapter-0005"
+        assert event.unit_id == "unit-0052"
+        assert event.segment_id == "seg-000057"
+        assert event.details["scope_kind"] == "chapter"
+        assert event.details["scope_title"] == "The Long Night"
+        assert event.details["scope_number"] == 17
+        assert event.details["scope_index"] == 2
+        assert event.details["scope_total"] == 3
+        assert event.details["scope_completed"] == (0 if event.progress_kind == "segment.started" else 1)
+        assert event.details["scope_render_total"] == 42
+        assert event.details["global_completed"] == event.completed
+        assert event.details["global_total"] == 210

@@ -352,6 +352,8 @@ Pass an `on_event` callback to long-running operations or to `Readio(on_event=..
 
 `EventKind`, `EventStage`, and `ProgressKind` are public `Literal` vocabularies. Event kinds distinguish operation/stage lifecycle from `progress`; stages identify plan, synthesis, composition, export, output, readiness, render, or upload. Progress subtypes identify phase, unit, segment, or item transitions. Consumers should branch on these fields rather than human-readable `message` text.
 
+For project synthesis, `segment.started` and `segment.completed` events carry stable scope/unit/segment IDs and operation-global `completed`/`total` counts for segments that actually need rendering (reused cache entries are excluded). Their `details["text"]` is the exact, complete renderer text, including whitespace; it is never normalized or truncated. Details also include typed scope metadata (`scope_kind`, `scope_title`, `scope_number`, `scope_index`, `scope_total`) and scope-local/global render counters (`scope_completed`, `scope_render_total`, `global_completed`, `global_total`). The source chapter number is distinct from its selected-operation index when they differ. These event values are suitable for complete progress display and diagnostics; do not infer semantics from terminal formatting.
+
 Public request and result objects are typed and immutable where applicable. Results intended for persistence or JSON output provide `to_dict()`. These mappings convert `Path` objects to strings and nested tuples to JSON arrays; for example, `json.dumps(result.to_dict())`. Do not serialize runtime resources such as an `AudioSink`.
 
 ## Stability and ownership

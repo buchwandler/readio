@@ -847,6 +847,15 @@ class ProjectService:
                 "targets",
                 "voice_bindings",
                 "segment_ids",
+                "scope_kind",
+                "scope_title",
+                "scope_number",
+                "scope_index",
+                "scope_total",
+                "scope_completed",
+                "scope_render_total",
+                "global_completed",
+                "global_total",
             },
         )
         text = getattr(event, "text", None)

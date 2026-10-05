@@ -349,7 +349,7 @@ def _multilingual_project(tmp_path):
     source = tmp_path / "languages.ssmd.md"
     source.write_text(
         '---\nssmd_version: "0.9"\nlanguage: en-US\n---\n'
-        '[Guten Tag]{lang="de-DE"}. English sentence.\n',
+        '[Guten Tag]{lang="de-DE"} English sentence\n',
         encoding="utf-8",
     )
     return init_project(source, tmp_path / "languages.readio")
@@ -368,9 +368,18 @@ def test_semantic_languages_select_language_profiles_before_each_route(tmp_path,
         output=OutputRequest(mode="file", requested_format="wav", force=True),
     )
 
-    result = synthesize_project(project, cfg, request=request)
+    events = []
+    result = synthesize_project(project, cfg, request=request, on_event=events.append)
 
+    started = [event for event in events if event.kind == "segment_started"]
+    finished = [event for event in events if event.kind == "segment_finished"]
     assert result["rendered"] >= 2
+    assert [(event.completed, event.total) for event in started] == [
+        (index, result["rendered"]) for index in range(result["rendered"])
+    ]
+    assert [(event.completed, event.total) for event in finished] == [
+        (index, result["rendered"]) for index in range(1, result["rendered"] + 1)
+    ]
     assert adapter.resolve_calls[0] == ("de-de", "model-de")
     assert ("en-us", "model-en") in adapter.resolve_calls
     assert set(adapter.open_calls) == {"model-en", "model-de"}

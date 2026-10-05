@@ -140,7 +140,7 @@ Attached audiobook schema-v4 projects keep the public project root at the `.ssmd
 
 ## Synthesis observability
 
-`readio synth` resolves and reports the project, source, plan, profile, engine/model/voice, cache reuse, and unit progress before loading an engine. `readio preview` uses the same progress events. Progress and logs use stderr; `--json` keeps stdout as one final JSON object containing `scope`, `plan_id`, `profile`, `selection`, and `cache`.
+`readio synth` resolves and reports the project, source, plan, profile, engine/model/voice, and cache reuse before loading an engine. Its progress counts stale renderer segments globally, includes stable unit/segment IDs and complete renderer text, and shows chapter/scope headings when the active scope changes. Public progress events retain exact text and chapter metadata. `readio preview` uses the same progress events. Progress and logs use stderr; `--json` keeps stdout as one final JSON object containing `scope`, `plan_id`, `profile`, `selection`, and `cache`.
 
 Use `--no-progress` for quiet automation or `--progress` to force progress. Repeat the global verbosity flag (`-v` or `-vv`) for INFO or bounded engine/runtime diagnostics. Diagnostics identify decisions, paths, counts, timings, and cache keys; raw tensors, waveforms, and embeddings are never dumped.
 

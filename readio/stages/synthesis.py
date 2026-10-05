@@ -7,6 +7,7 @@ import os
 import secrets
 import shutil
 import time
+import unicodedata
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
@@ -18,6 +19,7 @@ from ..audioio import probe_audio, write_pcm16_wav
 from ..config import normalize_language_key
 from ..engines.base import EngineSelection
 from ..engines.registry import get_engine
+from ..errors import EngineBackendError, EngineSynthesisError, InvalidRendererSegmentError
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
 from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
 from ..project_settings import (
@@ -75,6 +77,51 @@ class SynthesisProfile:
             "profile_id": self.profile_id,
             **dict(self.payload),
         }
+
+
+@dataclass(slots=True)
+class RenderProgressState:
+    """Mutable operation-global counters shared across route-grouped scopes."""
+
+    completed: int = 0
+    total: int = 0
+    scope_completed: dict[str, int] = field(default_factory=dict)
+    scope_totals: dict[str, int] = field(default_factory=dict)
+
+
+def _synthesis_progress_details(
+    progress: RenderProgressState,
+    *,
+    scope_id: str,
+    scope_metadata: Mapping[str, Any],
+    scope_completed: int,
+) -> dict[str, Any]:
+    return {
+        **{key: value for key, value in scope_metadata.items() if value is not None},
+        "scope_completed": scope_completed,
+        "scope_render_total": progress.scope_totals.get(scope_id, 0),
+        "global_completed": progress.completed,
+        "global_total": progress.total,
+    }
+
+
+
+def _synthesis_failure_scope_label(scope_id: str, scope_metadata: Mapping[str, Any]) -> str:
+    if scope_metadata.get("scope_kind") != "chapter":
+        return scope_id
+
+    parts: list[str] = []
+    scope_index = scope_metadata.get("scope_index")
+    scope_total = scope_metadata.get("scope_total")
+    scope_number = scope_metadata.get("scope_number")
+    title = scope_metadata.get("scope_title")
+    if isinstance(scope_index, int) and isinstance(scope_total, int):
+        parts.append(f"Chapter {scope_index}/{scope_total} selected")
+    if isinstance(scope_number, int) and scope_number != scope_index:
+        parts.append(f"source chapter {scope_number}")
+    if isinstance(title, str) and title:
+        parts.append(f"“{title}”")
+    return " · ".join(parts) or scope_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -512,19 +559,73 @@ def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEve
         on_event(event)
 
 
-def _unit_preview(plan: Any, unit: Any) -> str | None:
-    texts = getattr(plan, "texts", {})
-    spoken = texts.get("spoken", "") if isinstance(texts, Mapping) else getattr(texts, "spoken", "")
-    start = int(getattr(unit, "spoken_start", 0))
-    end = int(getattr(unit, "spoken_end", start))
-    text = " ".join(str(spoken[start:end]).split())
-    return text[:117] + "..." if len(text) > 120 else text
+def _is_punctuation_only_segment(plan: Any, segment: Any) -> tuple[bool, list[str]]:
+    directives = getattr(segment, "directives", None)
+    if getattr(directives, "audio", None) is not None:
+        return False, []
+
+    token_indices = tuple(getattr(segment, "token_indices", ()) or ())
+    tokens = getattr(plan, "tokens", ())
+    token_annotations = [
+        tokens[index]
+        for index in token_indices
+        if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(tokens)
+    ]
+    token_pos = [
+        str(pos)
+        for token in token_annotations
+        if isinstance((pos := getattr(token, "pos", None)), str)
+    ]
+    if token_indices and len(token_annotations) == len(token_indices) and len(token_pos) == len(token_indices):
+        return all(pos == "PUNCT" for pos in token_pos), token_pos
+
+    text = str(getattr(segment, "text", ""))
+    has_punctuation = False
+    for character in text:
+        if character.isspace():
+            continue
+        if not unicodedata.category(character).startswith("P"):
+            return False, token_pos
+        has_punctuation = True
+    return has_punctuation, token_pos
 
 
-def _segment_preview(segment: Any) -> str:
-    text = " ".join(str(getattr(segment, "text", "")).split())
-    return text[:117] + "..." if len(text) > 120 else text
+def _validate_renderable_segments(
+    plan: Any,
+    *,
+    scope: Any,
+    selected_segment_ids: set[str],
+) -> None:
+    units_by_segment: dict[str, Any] = {}
+    for unit in getattr(plan, "units", ()):
+        for segment_id in getattr(unit, "segment_ids", ()):
+            units_by_segment.setdefault(str(segment_id), unit)
 
+    for segment_index, segment in enumerate(getattr(plan, "segments", ())):
+        segment_id = str(getattr(segment, "id", ""))
+        if segment_id not in selected_segment_ids:
+            continue
+        invalid, token_pos = _is_punctuation_only_segment(plan, segment)
+        if not invalid:
+            continue
+        unit = units_by_segment.get(segment_id)
+        text = str(getattr(segment, "text", ""))
+        raise InvalidRendererSegmentError(
+            scope_id=scope.id,
+            unit_id=str(getattr(unit, "id", "unknown")),
+            segment_id=segment_id,
+            segment_index=segment_index,
+            text=text,
+            token_pos=token_pos,
+            plan_id=getattr(plan, "plan_id", None),
+            scope_title=getattr(scope, "title", None),
+            scope_number=getattr(scope, "source_number", None),
+        )
+
+
+def _segment_progress_text(segment: Any) -> str:
+    """Return the exact renderer-facing text used by synthesis requests."""
+    return str(getattr(segment, "text", ""))
 
 def _segment_voice_reference(segment: Any) -> str | None:
     directives = getattr(segment, "directives", None)
@@ -814,14 +915,16 @@ def _render_missing(
     *,
     on_event: Callable[[SynthesisEvent], None] | None = None,
     session: Any | None = None,
+    progress: RenderProgressState,
+    scope_metadata: Mapping[str, Any],
     scope_id: str = "document",
 ) -> dict[int, Mapping[str, Any]]:
     if not stale:
         return {}
     details_by_index: dict[int, Mapping[str, Any]] = {}
-    total = len(stale)
+    render_total = len(stale)
     if session is None:
-        _emit(on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=total))
+        _emit(on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=render_total))
         engine_started = time.monotonic()
         session_context = adapter.open(selection)
     else:
@@ -836,11 +939,11 @@ def _render_missing(
                 SynthesisEvent(
                     "engine_open_finished",
                     scope_id=scope_id,
-                    total=total,
+                    total=render_total,
                     details={"elapsed_ms": round((time.monotonic() - engine_started) * 1000, 3)},
                 ),
             )
-        for completed, item in enumerate(stale, 1):
+        for item in stale:
             segment = item["segment"]
             unit = item["unit"]
             _emit(
@@ -852,15 +955,52 @@ def _render_missing(
                     unit_index=int(unit.index),
                     segment_id=item["segment_id"],
                     segment_index=item["segment_index"],
-                    completed=completed - 1,
-                    total=total,
-                    text=_segment_preview(segment),
-                    details={"segment_ids": [item["segment_id"]]},
+                    completed=progress.completed,
+                    total=progress.total,
+                    text=_segment_progress_text(segment),
+                    details={
+                        "segment_ids": [item["segment_id"]],
+                        **_synthesis_progress_details(
+                            progress,
+                            scope_id=scope_id,
+                            scope_metadata=scope_metadata,
+                            scope_completed=progress.scope_completed.get(scope_id, 0),
+                        ),
+                    },
                 ),
             )
             render_started = time.monotonic()
             lowered = lower_segment(plan, segment, selection, capabilities)
-            atomic = render_atomic_request(active_session, lowered.request)
+            segment_text = _segment_progress_text(segment)
+            try:
+                atomic = render_atomic_request(active_session, lowered.request)
+            except Exception as error:
+                context = {
+                    **{
+                        key: value for key, value in scope_metadata.items() if value is not None
+                    },
+                    "scope_id": scope_id,
+                    "unit_id": unit.id,
+                    "segment_id": item["segment_id"],
+                    "segment_index": item["segment_index"],
+                    "text": segment_text,
+                    "engine": selection.engine,
+                    "target_id": selection.target_id,
+                }
+                raise EngineBackendError(
+                    f"readio: synthesis failed in "
+                    f"{_synthesis_failure_scope_label(scope_id, scope_metadata)} "
+                    f"({unit.id}, {item['segment_id']}, text={segment_text!r}): {error}",
+                    engine=selection.engine,
+                    target_id=selection.target_id,
+                    request_id=item["segment_id"],
+                    details=context,
+                    code=(
+                        error.code
+                        if isinstance(error, EngineSynthesisError)
+                        else None
+                    ),
+                ) from error
             result = atomic.result
             if result.id != item["segment_id"]:
                 raise ValueError(
@@ -877,6 +1017,9 @@ def _render_missing(
                         diagnostic.to_dict() for diagnostic in lowered.diagnostics
                     ]
                 details_by_index[item["segment_index"]] = details
+                progress.completed += 1
+                scope_completed = progress.scope_completed.get(scope_id, 0) + 1
+                progress.scope_completed[scope_id] = scope_completed
                 _emit(
                     on_event,
                     SynthesisEvent(
@@ -886,11 +1029,17 @@ def _render_missing(
                         unit_index=int(unit.index),
                         segment_id=item["segment_id"],
                         segment_index=item["segment_index"],
-                        completed=completed,
-                        total=total,
-                        text=_segment_preview(segment),
+                        completed=progress.completed,
+                        total=progress.total,
+                        text=_segment_progress_text(segment),
                         details={
                             **details,
+                            **_synthesis_progress_details(
+                                progress,
+                                scope_id=scope_id,
+                                scope_metadata=scope_metadata,
+                                scope_completed=scope_completed,
+                            ),
                             "render_ms": round((time.monotonic() - render_started) * 1000, 3),
                         },
                     ),
@@ -914,6 +1063,11 @@ def _render_all_missing(
     if not total:
         return {}, None
 
+    progress = RenderProgressState(
+        completed=0,
+        total=total,
+        scope_totals={scope_work["scope"].id: len(scope_work["stale"]) for scope_work in work},
+    )
     details: dict[tuple[str, int], Mapping[str, Any]] = {}
     total_open_ms = 0.0
     for route_key, selection in route.selections.items():
@@ -967,6 +1121,8 @@ def _render_all_missing(
                     profile,
                     on_event=on_event,
                     session=session,
+                    progress=progress,
+                    scope_metadata=scope_work["scope_metadata"],
                     scope_id=scope_id,
                 )
                 details.update({(scope_id, index): value for index, value in rendered.items()})
@@ -1076,8 +1232,32 @@ def synthesize_project(
     with project_lock(project, operation="synth"):
         plan_scopes = project.load_plan_index().scopes
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
+        document_scopes_by_id = {
+            scope.id: scope for scope in project.document_scopes()
+        }
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
+        selected_scope_ids = [
+            item.scope_id for item in selection.scopes if item.segment_ids
+        ]
+        scope_total = len(selected_scope_ids)
+        scope_metadata_by_id: dict[str, dict[str, Any]] = {}
+        for scope_index, scope_id in enumerate(selected_scope_ids, 1):
+            document_scope = document_scopes_by_id.get(scope_id)
+            if document_scope is not None:
+                scope_metadata_by_id[scope_id] = {
+                    "scope_kind": document_scope.kind,
+                    "scope_title": document_scope.title,
+                    "scope_number": document_scope.source_number,
+                    "scope_index": scope_index,
+                    "scope_total": scope_total,
+                }
+        for scope, plan in scoped_plans:
+            _validate_renderable_segments(
+                plan,
+                scope=document_scopes_by_id.get(scope.id, scope),
+                selected_segment_ids=set(selected_by_scope[scope.id].segment_ids),
+            )
         saved_synthesis = project_settings_from_manifest(
             project.manifest, project.state_root
         ).synthesis
@@ -1122,6 +1302,7 @@ def synthesize_project(
             selected_segment_ids = set(scoped_selection.segment_ids)
             scope_work = {
                 "scope": scope,
+                "scope_metadata": scope_metadata_by_id.get(scope.id, {}),
                 "plan": plan,
                 "selection": scoped_selection,
                 "selected_units": selected_units,

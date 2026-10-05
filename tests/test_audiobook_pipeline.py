@@ -27,6 +27,54 @@ def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(tmp_path, m
 
     result = synthesize_project(project, cfg, request=request, on_event=events.append)
 
+    started = [event for event in events if event.kind == "segment_started"]
+    finished = [event for event in events if event.kind == "segment_finished"]
+    assert len(started) == len(finished) == result["rendered"]
+    assert [(event.completed, event.total) for event in started] == [
+        (index, result["rendered"]) for index in range(result["rendered"])
+    ]
+    assert [(event.completed, event.total) for event in finished] == [
+        (index, result["rendered"]) for index in range(1, result["rendered"] + 1)
+    ]
+    document_scopes = project.document_scopes()
+    first_scope = document_scopes[0]
+    first_started = next(event for event in started if event.scope_id == first_scope.id)
+    first_details = first_started.details
+    assert first_details["scope_kind"] == first_scope.kind == "chapter"
+    assert first_details["scope_title"] == first_scope.title
+    assert first_details["scope_number"] == first_scope.source_number
+    assert first_details["scope_index"] == 1
+    assert first_details["scope_total"] == len(document_scopes)
+    assert first_details["scope_number"] != first_details["scope_index"]
+    assert first_details["scope_completed"] == 0
+    assert first_details["scope_render_total"] == sum(
+        event.scope_id == first_scope.id for event in finished
+    )
+    assert first_details["global_completed"] == first_started.completed
+    assert first_details["global_total"] == result["rendered"]
+
+    scopes_by_id = {scope.id: scope for scope in document_scopes}
+    scope_index_by_id = {scope.id: index for index, scope in enumerate(document_scopes, 1)}
+    completed_by_scope: dict[str, int] = {}
+    for event in events:
+        if event.kind not in {"segment_started", "segment_finished"}:
+            continue
+        scope = scopes_by_id[event.scope_id]
+        details = event.details
+        assert details["scope_kind"] == scope.kind
+        assert details["scope_title"] == scope.title
+        assert details["scope_number"] == scope.source_number
+        assert details["scope_index"] == scope_index_by_id[scope.id]
+        assert details["scope_total"] == len(document_scopes)
+        assert details["scope_render_total"] == sum(item.scope_id == scope.id for item in finished)
+        assert details["global_completed"] == event.completed
+        assert details["global_total"] == result["rendered"]
+        if event.kind == "segment_started":
+            assert details["scope_completed"] == completed_by_scope.get(scope.id, 0)
+        else:
+            completed_by_scope[scope.id] = completed_by_scope.get(scope.id, 0) + 1
+            assert details["scope_completed"] == completed_by_scope[scope.id]
+
     assert adapter.open_calls == 1
     assert result["rendered"] < result["reused"] + result["rendered"]
     cache_event = next(event for event in events if event.kind == "cache_scanned")
@@ -48,7 +96,10 @@ def test_multiscope_synthesis_opens_once_and_reuses_identical_speech(tmp_path, m
         assert item["path"].startswith(f"synthesis/segments/{item['scope_id']}/")
         assert (project.state_root / item["path"]).is_file()
 
-    cached = synthesize_project(project, cfg, request=request)
+    cached_events = []
+    cached = synthesize_project(project, cfg, request=request, on_event=cached_events.append)
+    assert not any(event.kind == "segment_started" for event in cached_events)
+    assert next(event for event in cached_events if event.kind == "cache_scanned").details["rendered"] == 0
     assert cached["rendered"] == 0
     assert cached["reused"] == len(trace["segments"])
     assert adapter.open_calls == 1

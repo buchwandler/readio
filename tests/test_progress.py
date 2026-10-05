@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from readio.api import ReadioEvent
 from readio.audio import RenderSummary
 from readio.progress import TerminalProgress, format_duration
@@ -269,3 +271,106 @@ def test_plan_progress_reports_typed_phases_and_scope_based_eta() -> None:
     )
     assert "Planning 100%  2/2 scopes  elapsed 00:04" in stream.getvalue()
     assert "ETA" not in stream.getvalue().splitlines()[-1]
+
+
+
+@pytest.mark.parametrize("tty", [False, True])
+def test_synthesis_progress_shows_full_text_chapter_transitions_and_segment_counts(tty: bool) -> None:
+    stream = io.StringIO()
+    progress = TerminalProgress(stream=stream, enabled=True, tty=tty, clock=Clock())
+    long_text = (
+        "Synthesis progress must keep every renderer character and exact whitespace visible.\n\t" * 3
+    ) + "FULL_TEXT_TAIL_SENTINEL"
+
+    def started(scope_id: str, segment_id: str, completed: int, details: dict) -> ReadioEvent:
+        return ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="segment.started",
+            completed=completed,
+            total=210,
+            scope_id=scope_id,
+            unit_id="unit-0052",
+            segment_id=segment_id,
+            details=details,
+        )
+
+    first_details = {
+        "text": long_text,
+        "scope_kind": "chapter",
+        "scope_title": "The Long Night",
+        "scope_number": 17,
+        "scope_index": 2,
+        "scope_total": 3,
+    }
+    progress.public_event(started("chapter-0017", "seg-000057", 56, first_details))
+    progress.public_event(
+        started(
+            "chapter-0017",
+            "seg-000058",
+            57,
+            {**first_details, "text": "The next complete segment."},
+        )
+    )
+    progress.public_event(
+        started(
+            "chapter-0018",
+            "seg-000059",
+            58,
+            {
+                "text": "Another chapter.",
+                "scope_kind": "chapter",
+                "scope_title": "The Return",
+                "scope_number": 3,
+                "scope_index": 3,
+                "scope_total": 3,
+            },
+        )
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="segment.completed",
+            completed=57,
+            total=210,
+        )
+    )
+
+    output = stream.getvalue()
+    first_heading = "Chapter 2/3 selected · source chapter 17 · The Long Night · chapter-0017"
+    second_heading = "Chapter 3/3 · The Return · chapter-0018"
+    assert output.count(first_heading) == 1
+    assert output.count(second_heading) == 1
+    assert repr(long_text) in output
+    assert "FULL_TEXT_TAIL_SENTINEL" in output
+    assert "[57/210 segments] unit-0052 · seg-000057" in output
+    assert "[58/210 segments] unit-0052 · seg-000058" in output
+    assert "[59/210 segments] unit-0052 · seg-000059" in output
+    assert "57/210 segments" in output
+    assert "57/210 units" not in output
+
+
+def test_single_document_synthesis_does_not_print_redundant_scope_heading() -> None:
+    stream = io.StringIO()
+    progress = TerminalProgress(stream=stream, enabled=True, tty=False, clock=Clock())
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="segment.started",
+            completed=0,
+            total=1,
+            scope_id="document",
+            unit_id="unit-0001",
+            segment_id="seg-000001",
+            details={"scope_kind": "document", "text": "A sentence."},
+        )
+    )
+
+    output = stream.getvalue()
+    assert "Document ·" not in output
+    assert "[1/1 segments] unit-0001 · seg-000001 'A sentence.'" in output

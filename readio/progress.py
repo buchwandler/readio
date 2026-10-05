@@ -48,6 +48,7 @@ class TerminalProgress:
         self._last_logged_percent: int | None = None
         self._last_logged_completed = -1
         self._latest_completed = 0
+        self._synthesis_scope_id: str | None = None
         self._composition_started_at: float | None = None
         self._composition_last_update_at: float | None = None
         self._composition_last_logged_percent: int | None = None
@@ -131,17 +132,19 @@ class TerminalProgress:
         sample_count: int,
         sample_rate: int,
         elapsed: float,
+        *,
+        noun: str = "units",
     ) -> str:
         if total_units is None:
             text = (
-                f"Rendering live input  {completed_units} units  elapsed {format_duration(elapsed)}"
+                f"Rendering live input  {completed_units} {noun}  elapsed {format_duration(elapsed)}"
             )
         else:
             total = max(0, total_units)
             completed = min(completed_units, total) if total else 0
             percent = 100 if total == 0 else min(100, round(completed * 100 / total))
             text = (
-                f"Rendering {percent:3d}%  {completed}/{total} units"
+                f"Rendering {percent:3d}%  {completed}/{total} {noun}"
                 f"  elapsed {format_duration(elapsed)}"
             )
             if completed > 0 and completed < total and elapsed >= 1.0:
@@ -159,6 +162,8 @@ class TerminalProgress:
         sample_count: int,
         sample_rate: int,
         now: float,
+        *,
+        noun: str = "units",
     ) -> None:
         if not self._enabled:
             return
@@ -169,7 +174,12 @@ class TerminalProgress:
             return
         elapsed = self._elapsed(now)
         text = self._render_text_values(
-            completed_units, total_units, sample_count, sample_rate, elapsed
+            completed_units,
+            total_units,
+            sample_count,
+            sample_rate,
+            elapsed,
+            noun=noun,
         )
         if self._tty:
             self._write(text, inplace=True)
@@ -199,6 +209,12 @@ class TerminalProgress:
                 self._plan_last_update_at = None
                 self.phase(event.message or "Planning")
                 return
+            if event.stage == "synthesis":
+                self._synthesis_scope_id = None
+                self._started_at = self._clock()
+                self._last_update_at = None
+                self._last_logged_percent = None
+                self._latest_completed = 0
             if event.stage == "composition":
                 self._composition_started_at = self._clock()
                 self._composition_last_update_at = None
@@ -325,26 +341,76 @@ class TerminalProgress:
         self._plan_last_logged_percent = percent
         self._plan_last_update_at = now
 
+    def _synthesis_scope_heading(self, event: ReadioEvent) -> str | None:
+        scope_id = event.scope_id
+        if scope_id is None:
+            return None
+        details = event.details
+        scope_kind = details.get("scope_kind")
+        scope_title = details.get("scope_title")
+        if scope_kind == "chapter":
+            parts: list[str] = []
+            scope_index = details.get("scope_index")
+            scope_total = details.get("scope_total")
+            scope_number = details.get("scope_number")
+            if (
+                isinstance(scope_index, int)
+                and not isinstance(scope_index, bool)
+                and isinstance(scope_total, int)
+                and not isinstance(scope_total, bool)
+            ):
+                chapter = f"Chapter {scope_index}/{scope_total}"
+                if (
+                    isinstance(scope_number, int)
+                    and not isinstance(scope_number, bool)
+                    and scope_number != scope_index
+                ):
+                    chapter += " selected"
+                    parts.append(f"source chapter {scope_number}")
+                parts.insert(0, chapter)
+            elif isinstance(scope_number, int) and not isinstance(scope_number, bool):
+                parts.append(f"source chapter {scope_number}")
+            if isinstance(scope_title, str) and scope_title:
+                parts.append(scope_title)
+            parts.append(scope_id)
+            return " · ".join(parts)
+        if scope_kind == "document":
+            return f"Document · {scope_title}" if isinstance(scope_title, str) and scope_title else None
+        if isinstance(scope_title, str) and scope_title:
+            label = scope_kind.title() if isinstance(scope_kind, str) else "Scope"
+            return f"{label} · {scope_title} · {scope_id}"
+        return None
+
     def _synthesis_public_event(self, event: ReadioEvent) -> None:
         if event.progress_kind == "phase":
             if event.message:
                 self._finish_line()
                 self._write(event.message, newline=True)
         elif event.progress_kind in {"unit.started", "segment.started"}:
+            if event.scope_id != self._synthesis_scope_id:
+                self._finish_line()
+                if (heading := self._synthesis_scope_heading(event)) is not None:
+                    self._write(heading, newline=True)
+                self._synthesis_scope_id = event.scope_id
+
             details = event.details
-            text = details.get("text", "")
-            segment_ids = details.get("segment_ids", ())
-            preview = text if isinstance(text, str) else ""
-            labels = (
-                ",".join(str(item) for item in segment_ids)
-                if isinstance(segment_ids, (tuple, list))
-                else ""
-            )
+            raw_text = details.get("text", "")
+            segment_text = raw_text if isinstance(raw_text, str) else ""
+            is_segment = event.progress_kind == "segment.started"
+            noun = "segments" if is_segment else "units"
             index = (event.completed or 0) + 1
-            total = event.total or 0
+            total = event.total
+            counter = f"[{index}/{total} {noun}]" if total is not None else f"[{index} {noun}]"
+            labels = [event.unit_id or "-"]
+            if event.segment_id is not None:
+                labels.append(event.segment_id)
+            else:
+                segment_ids = details.get("segment_ids", ())
+                if isinstance(segment_ids, (tuple, list)) and segment_ids:
+                    labels.extend(str(item) for item in segment_ids)
             self._finish_line()
             self._write(
-                f"[{index}/{total}] {event.unit_id or '-'} {labels} {preview!r}",
+                f"{counter} {' · '.join(labels)} {segment_text!r}",
                 newline=True,
             )
         elif event.progress_kind in {"unit.completed", "segment.completed"}:
@@ -354,6 +420,7 @@ class TerminalProgress:
                 event.sample_count or 0,
                 event.sample_rate or 0,
                 self._clock(),
+                noun="segments" if event.progress_kind == "segment.completed" else "units",
             )
 
     def _composition_public_event(self, event: ReadioEvent) -> None:

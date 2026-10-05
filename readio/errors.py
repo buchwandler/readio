@@ -29,6 +29,48 @@ class InputError(ReadioError):
     code = "input.error"
 
 
+class InvalidRendererSegmentError(ReadioError):
+    """A semantic renderer segment cannot produce meaningful speech."""
+
+    code = "synthesis.invalid_renderer_segment"
+
+    def __init__(
+        self,
+        *,
+        scope_id: str,
+        unit_id: str,
+        segment_id: str,
+        segment_index: int,
+        text: str,
+        token_pos: list[str],
+        plan_id: str | None = None,
+        scope_title: str | None = None,
+        scope_number: int | None = None,
+    ) -> None:
+        context: dict[str, JsonValue] = {
+            "scope_id": scope_id,
+            "unit_id": unit_id,
+            "segment_id": segment_id,
+            "segment_index": segment_index,
+            "text": text,
+            "token_pos": token_pos,
+            "reason": "punctuation_only_renderer_segment",
+        }
+        for key, value in (
+            ("plan_id", plan_id),
+            ("scope_title", scope_title),
+            ("scope_number", scope_number),
+        ):
+            if value is not None:
+                context[key] = value
+        message = (
+            f"readio: invalid renderer segment in {scope_id}, unit {unit_id}, {segment_id}: "
+            f"speech text is punctuation-only {text!r}. Re-plan the project with a corrected "
+            "UtterPlan version before synthesis."
+        )
+        super().__init__(message, details=context)
+
+
 class EngineSynthesisError(ReadioError):
     code = "synthesis.engine_error"
 
