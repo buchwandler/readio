@@ -260,6 +260,20 @@ def _language_matches_entry(requested: str, entry: VoiceCatalogEntry) -> bool:
     return locale.partition("-")[0] == base or language.partition("-")[0] == base
 
 
+def _resolved_language_for_entry(
+    requested: str | None,
+    entry: VoiceCatalogEntry,
+) -> str | None:
+    """Preserve explicit compatible requests; otherwise inherit catalog metadata."""
+    if requested is not None:
+        return normalize_language_key(requested)
+    for candidate in (entry.locale, entry.language, *entry.languages):
+        normalized = normalize_locale(candidate)
+        if normalized and normalized not in {"unknown", "na"}:
+            return normalized
+    return None
+
+
 def filter_voice_catalog(
     entries: tuple[VoiceCatalogEntry, ...],
     *,
@@ -399,7 +413,7 @@ def resolve_voice_reference(
     return VoiceResolution(
         requested=voice,
         ref=entry.ref,
-        language=(normalize_locale(entry.locale) if entry.locale != "unknown" else None),
+        language=_resolved_language_for_entry(language, entry),
         target_id=entry.target_id,
         source=entry.source,
         engine=entry.engine,

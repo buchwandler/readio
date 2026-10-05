@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from readio.engines.catalog import CatalogResult, SynthesisTarget
+from readio.engines.catalog import CatalogResult, SynthesisTarget, TargetVoice
 from readio.models import ModelDiscoveryError
 from readio.voices import resolve_voice_reference
 
@@ -186,3 +186,42 @@ def test_piper_semantic_reference_keeps_the_public_british_locale(monkeypatch) -
     assert resolved.voice == "en_GB-alba-medium"
     assert resolved.catalog_entry.locale == "en-gb"
     assert "en-gb-x-rp" not in str(resolved.catalog_entry.to_dict())
+
+
+def test_pocket_base_language_capability_accepts_regional_request_and_preserves_it(
+    monkeypatch,
+) -> None:
+    discover(
+        monkeypatch,
+        (
+            SynthesisTarget(
+                engine="pocket",
+                id="english_2026-04",
+                display_name="English Pocket",
+                languages=("en",),
+                voices=("alba",),
+                voice_details=(
+                    TargetVoice(
+                        id="alba",
+                        gender="unknown",
+                        language="en",
+                        locale="en",
+                        language_label="English",
+                        languages=("en",),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    resolved = resolve_voice_reference(
+        "pocket:english_2026-04/alba",
+        language="en-US",
+        model=None,
+        source=None,
+    )
+
+    assert resolved is not None
+    assert resolved.language == "en-us"
+    assert resolved.catalog_entry.locale == "en"
+    assert resolved.catalog_entry.languages == ("en",)

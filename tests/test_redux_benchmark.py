@@ -332,6 +332,115 @@ def test_run_case_executes_explicit_public_api_pipeline(tmp_path: Path) -> None:
     assert result.wav_sha256 is not None
 
 
+def test_pocket_voice_benchmark_preflight_preserves_regional_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from readio.engines.catalog import CatalogResult, SynthesisTarget, TargetVoice
+    from readio.voices import resolve_voice_reference
+
+    target = SynthesisTarget(
+        engine="pocket",
+        id="english_2026-04",
+        display_name="English Pocket",
+        languages=("en",),
+        voices=("alba",),
+        voice_details=(
+            TargetVoice(
+                id="alba",
+                gender="unknown",
+                language="en",
+                locale="en",
+                language_label="English",
+                languages=("en",),
+            ),
+        ),
+    )
+    import readio.voices as voices_module
+
+    monkeypatch.setattr(
+        voices_module,
+        "discover_targets",
+        lambda **_kwargs: CatalogResult(targets=(target,)),
+    )
+    requests: list[str] = []
+
+    class Projects:
+        def create(self, _source: Path, *, output: Path) -> SimpleNamespace:
+            return SimpleNamespace(project_id="pocket-project", root=output)
+
+        def resolve_synthesis(
+            self, _project: object, request: Any, *, use_saved_settings: bool
+        ) -> SimpleNamespace:
+            assert use_saved_settings is False
+            requests.append(request.language)
+            resolution = resolve_voice_reference(
+                request.voice,
+                language=request.language,
+                model=request.model,
+                source=None,
+                engine=request.engine,
+            )
+            assert resolution is not None
+            return SimpleNamespace(
+                engine=resolution.engine,
+                model=resolution.target_id,
+                language=resolution.language,
+                voice=resolution.voice,
+            )
+
+        def plan(self, _project: object) -> SimpleNamespace:
+            return SimpleNamespace(scopes=(SimpleNamespace(plan_id="plan", units=1),))
+
+        def synthesize(
+            self, _project: object, _request: object, *, activate: bool
+        ) -> SimpleNamespace:
+            assert activate is True
+            return SimpleNamespace(
+                profile_id="profile",
+                selected_units=1,
+                rendered=1,
+                reused=0,
+                activated=True,
+            )
+
+        def compose(self, _project: object, _options: Any) -> SimpleNamespace:
+            wav = tmp_path / "pocket-master.wav"
+            sf.write(wav, np.full(160, 0.1, dtype=np.float32), 16_000)
+            return SimpleNamespace(
+                composition_id="composition",
+                master_path=wav,
+                frames=160,
+                items=1,
+                loudness=None,
+            )
+
+    class Catalog:
+        def resolve_voice(self, voice: str, *, engine: str) -> Any:
+            return resolve_voice_reference(
+                voice,
+                language=None,
+                model=None,
+                source=None,
+                engine=engine,
+            )
+
+    result = run_case(
+        app=SimpleNamespace(projects=Projects(), catalog=Catalog()),
+        case=default_case(),
+        language="en-US",
+        engine="pocket",
+        model="english_2026-04",
+        voice="pocket:english_2026-04/alba",
+        project_dir=tmp_path / "pocket-project.readio",
+        source_path=tmp_path / "pocket-source.txt",
+        redux=_FakeRedux(),  # type: ignore[arg-type]
+    )
+
+    assert result.status == "pass"
+    assert result.resolved_language == "en-us"
+    assert requests == ["en-US"]
+
+
 def test_run_case_records_preflight_failure_without_running_later_stages(tmp_path: Path) -> None:
     app, calls = _fake_readio(tmp_path, resolved_engine="piper")
     result = run_case(

@@ -184,7 +184,24 @@ def test_pocket_discovery_maps_bundle_catalog(monkeypatch):
     assert engine_for_ssmd_provider("pocket") == "pocket"
     assert ssmd_provider_for_engine("pocket") == "pocket"
 
-    assert targets[0].voice_details == ()
+    assert targets[0].voice_details == (
+        TargetVoice(
+            id="alba",
+            gender="unknown",
+            language="en",
+            locale="en",
+            language_label="en",
+            languages=("en",),
+        ),
+        TargetVoice(
+            id="bella",
+            gender="unknown",
+            language="en",
+            locale="en",
+            language_label="en",
+            languages=("en",),
+        ),
+    )
 
 
 def test_pocket_discovery_uses_normalized_public_bundles(monkeypatch):
@@ -197,7 +214,7 @@ def test_pocket_discovery_uses_normalized_public_bundles(monkeypatch):
         language="en-US",
         sample_rate=22050,
         precisions=("int8", "fp32"),
-        predefined_voices=("ava",),
+        predefined_voices=("ava", "no-details"),
         default_voice="ava",
         source_revision="public-revision",
         max_tokens=96,
@@ -244,18 +261,29 @@ def test_pocket_discovery_uses_normalized_public_bundles(monkeypatch):
     assert target.aliases == ("normalized-alias",)
     assert target.languages == ("en-us",)
     assert target.sample_rate == 22050
-    assert target.voices == ("ava",)
+    assert target.voices == ("ava", "no-details")
     assert target.default_voice == "ava"
     assert target.qualities == ("int8", "fp32")
     assert target.runtime_available
     assert target.metadata["source_revision"] == "public-revision"
     assert target.metadata["max_token_per_chunk"] == 96
-    assert target.voice_details[0] == TargetVoice(
-        id="ava",
-        gender="female",
-        language="en",
-        locale="en-us",
-        language_label="English",
+    assert target.voice_details == (
+        TargetVoice(
+            id="ava",
+            gender="female",
+            language="en",
+            locale="en-us",
+            language_label="English",
+            languages=("en-us",),
+        ),
+        TargetVoice(
+            id="no-details",
+            gender="unknown",
+            language="en",
+            locale="en-us",
+            language_label="en-us",
+            languages=("en-us",),
+        ),
     )
 
     selection, _ = adapter.resolve(_request(voice="ava"))
@@ -332,6 +360,7 @@ def test_pocket_discovery_normalizes_bundle_and_voice_details(monkeypatch):
             language="en",
             locale="en",
             language_label="English",
+            languages=("en-us",),
         ),
         TargetVoice(
             id="bella",
@@ -339,7 +368,65 @@ def test_pocket_discovery_normalizes_bundle_and_voice_details(monkeypatch):
             language="en",
             locale="en-gb",
             language_label="en-gb",
+            languages=("en-us",),
         ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("bundle_language", "regional_request"),
+    (("de", "de-de"), ("fr", "fr-fr"), ("it", "it-it"), ("pt", "pt-br"), ("es", "es-mx")),
+)
+@pytest.mark.parametrize("discovery_path", ("fallback", "public"))
+def test_pocket_projects_bundle_language_capability_to_every_predefined_voice(
+    monkeypatch, bundle_language, regional_request, discovery_path
+):
+    pocketsynth, _runtime = _install_fakes(monkeypatch)
+    voices = ("voice-a", "voice-b")
+    if discovery_path == "public":
+        bundle = SimpleNamespace(
+            id=f"{bundle_language}-public",
+            ref=f"pocket:{bundle_language}-public",
+            display_name="Public bundle",
+            aliases=(),
+            language=bundle_language,
+            sample_rate=24000,
+            precisions=("int8",),
+            predefined_voices=voices,
+            default_voice=voices[0],
+            voice_details=(),
+        )
+        monkeypatch.setattr(pocketsynth, "discover_bundles", lambda **kwargs: (bundle,))
+    else:
+        bundle = SimpleNamespace(
+            id=f"{bundle_language}-fallback",
+            aliases=(),
+            sample_rate=24000,
+            voices=voices,
+            metadata={
+                "language": bundle_language,
+                "predefined_voice_names": list(voices),
+                "profiles": {"int8": {}},
+            },
+        )
+        monkeypatch.setattr(_AssetManager, "bundles", (bundle,))
+
+    targets = PocketSynthEngineAdapter().discover(
+        CatalogRequest(engine="pocket", language=regional_request)
+    )
+
+    assert len(targets) == 1
+    assert targets[0].languages == (bundle_language,)
+    assert targets[0].voice_details == tuple(
+        TargetVoice(
+            id=voice,
+            gender="unknown",
+            language=bundle_language,
+            locale=bundle_language,
+            language_label=bundle_language,
+            languages=(bundle_language,),
+        )
+        for voice in voices
     )
 
 

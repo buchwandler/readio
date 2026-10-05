@@ -73,6 +73,36 @@ def _bundle_value(bundle: Any, name: str, default: Any = None) -> Any:
     return getattr(bundle, name, default)
 
 
+def _pocket_target_voice(
+    voice_id: str,
+    *,
+    detail: Any | None,
+    bundle_language: str,
+    languages: tuple[str, ...],
+) -> TargetVoice:
+    """Project descriptive voice metadata and authoritative bundle capability."""
+    detail_language = normalize_locale_tag(_bundle_value(detail, "language")) if detail else ""
+    detail_locale = normalize_locale_tag(_bundle_value(detail, "locale")) if detail else ""
+    locale = detail_locale or detail_language or bundle_language
+    voice_language = language_base(detail_language or locale or bundle_language)
+    raw_label = _bundle_value(detail, "language_label") if detail else None
+    language_label = raw_label.strip() if isinstance(raw_label, str) else ""
+    if (
+        not language_label
+        or language_label.lower() in {"unknown", "na"}
+        or (len(language_label) == 2 and language_label.isalpha() and language_label.isupper())
+    ):
+        language_label = locale or voice_language or "unknown"
+    return TargetVoice(
+        id=voice_id,
+        gender=normalize_gender(_bundle_value(detail, "gender") if detail else None),
+        language=voice_language or "unknown",
+        locale=locale or "unknown",
+        language_label=language_label,
+        languages=languages,
+    )
+
+
 def _discovered_bundle_fields(
     bundle: Any,
 ) -> tuple[
@@ -113,16 +143,19 @@ def _discovered_bundle_fields(
         }
     )
     raw_voice_details = _bundle_value(bundle, "voice_details", ()) or ()
-    voice_details = tuple(
-        TargetVoice(
-            id=str(_bundle_value(detail, "id", "")),
-            gender=normalize_gender(_bundle_value(detail, "gender")),
-            language=language_base(_bundle_value(detail, "language")) or "unknown",
-            locale=normalize_locale_tag(_bundle_value(detail, "locale")),
-            language_label=str(_bundle_value(detail, "language_label", "unknown")),
-        )
+    details_by_id = {
+        str(_bundle_value(detail, "id")): detail
         for detail in raw_voice_details
         if _bundle_value(detail, "id")
+    }
+    voice_details = tuple(
+        _pocket_target_voice(
+            voice_id,
+            detail=details_by_id.get(voice_id),
+            bundle_language=language,
+            languages=languages,
+        )
+        for voice_id in voices
     )
     return (
         bundle_id,
@@ -162,40 +195,26 @@ def _bundle_fields(
         tuple(sorted(str(name) for name in profiles)) if isinstance(profiles, Mapping) else ()
     )
     raw_voice_details = metadata.get("voice_details")
-    voice_details: list[TargetVoice] = []
-    if isinstance(raw_voice_details, (list, tuple)):
-        for detail in raw_voice_details:
-            if not isinstance(detail, Mapping):
-                continue
-            voice_id = detail.get("id")
-            if not isinstance(voice_id, str) or not voice_id:
-                continue
-            locale = normalize_locale_tag(
-                detail.get("locale") or detail.get("language") or language
-            )
-            voice_language = language_base(detail.get("language") or locale)
-            language_label = detail.get("language_label")
-            if (
-                not isinstance(language_label, str)
-                or not language_label.strip()
-                or (
-                    len(language_label.strip()) == 2
-                    and language_label.strip().isalpha()
-                    and language_label.strip().isupper()
-                )
-            ):
-                language_label = locale or voice_language or "unknown"
-            else:
-                language_label = language_label.strip()
-            voice_details.append(
-                TargetVoice(
-                    id=voice_id,
-                    gender=normalize_gender(detail.get("gender")),
-                    language=voice_language,
-                    locale=locale,
-                    language_label=language_label,
-                )
-            )
+    details_by_id = (
+        {
+            str(detail["id"]): detail
+            for detail in raw_voice_details
+            if isinstance(detail, Mapping)
+            and isinstance(detail.get("id"), str)
+            and detail.get("id")
+        }
+        if isinstance(raw_voice_details, (list, tuple))
+        else {}
+    )
+    voice_details = tuple(
+        _pocket_target_voice(
+            voice_id,
+            detail=details_by_id.get(voice_id),
+            bundle_language=language,
+            languages=languages,
+        )
+        for voice_id in voices
+    )
     sample_rate = getattr(bundle, "sample_rate", None)
     normalized_metadata = {
         **dict(metadata),

@@ -203,3 +203,45 @@ def test_multilingual_capabilities_do_not_match_distinct_specific_locales() -> N
     )
 
     assert filter_voice_catalog((entry,), language="en-US") == ()
+
+
+def test_base_language_capabilities_match_regional_tags_without_promoting_fallbacks() -> None:
+    def entry(available: str, capabilities: tuple[str, ...]) -> VoiceCatalogEntry:
+        return VoiceCatalogEntry(
+            ref=f"pocket:{available}/voice",
+            id="voice",
+            gender="unknown",
+            language=available,
+            locale=available,
+            language_label=available,
+            model=available,
+            source="pocket",
+            default=True,
+            status="ready",
+            experimental=False,
+            runtime_available=True,
+            engine="pocket",
+            languages=capabilities,
+        )
+
+    cases = (
+        ("en-us", "en", True),
+        ("en-gb", "en", True),
+        ("de-de", "de", True),
+        ("fr-fr", "fr", True),
+        ("es-mx", "es", True),
+        ("pt-br", "pt", True),
+        ("it-it", "it", True),
+        ("de-de", "en", False),
+        ("en-us", "de", False),
+    )
+    for requested, capability, compatible in cases:
+        assert (
+            bool(filter_voice_catalog((entry(capability, (capability,)),), language=requested))
+            is compatible
+        )
+
+    generic = entry("en", ("en",))
+    fallback_only = entry("en", ())
+    assert filter_voice_catalog((generic,), language="en-us") == (generic,)
+    assert filter_voice_catalog((fallback_only,), language="en-us") == ()
