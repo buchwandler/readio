@@ -32,6 +32,7 @@ kitten = ['kittensynth[cpu]>=0.1.1,<0.2']
 supertonic = ['supertonicsynth[cpu]>=0.1.2,<0.2']
 spacy = ['utterplan[spacy]>=0.3.4,<0.4']
 documents = ["ssmdconvert[pdf,docx]>=0.1.2,<0.2"]
+benchmark = ["moondream>=2.4"]
 all = [
   'pykokoro>=0.10.2,<0.11',
   'pipersynth>=0.2.1,<0.3',
@@ -65,3 +66,6 @@ exclude = ["01_todo.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "e2e: tests requiring real model execution and external model assets",
+]

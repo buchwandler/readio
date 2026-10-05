@@ -1,0 +1,43 @@
+name: Audio E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  redux-e2e:
+    name: Readio Redux E2E (Ubuntu, Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PortAudio
+        run: sudo apt-get update && sudo apt-get install --yes libportaudio2 portaudio19-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Kokoro and benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[kokoro,benchmark]"
+          python -m pip check
+
+      - name: Run the fixed single-voice benchmark
+        run: >-
+          python -m benchmarks.redux.benchmark_e2e
+          --work-dir benchmark-output/audio-e2e
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readio-redux-e2e
+          path: benchmark-output/audio-e2e/**
+          if-no-files-found: warn
+          retention-days: 7
