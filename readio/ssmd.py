@@ -9,6 +9,8 @@ from typing import Any
 
 import ssmd as ssmd_api
 
+SSMD_SEMANTICS_VERSION = str(ssmd_api.__version__)
+
 from . import config as config_internal
 from .config import ReadioConfig
 from .engines.registry import normalize_engine_id

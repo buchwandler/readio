@@ -218,6 +218,9 @@ def test_wrong_semantic_plan_format_is_stale_with_actionable_reason(tmp_path):
 
     index["scopes"][0]["plan_id"] = plan.plan_id
     index["scopes"][0]["sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+    from readio.stages.planning import semantic_planner_fingerprint
+
+    index["scopes"][0]["semantic_planner_fingerprint"] = semantic_planner_fingerprint(plan.config)
     project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
 
     from readio.stages.planning import semantic_status
@@ -365,3 +368,64 @@ def test_planning_progress_does_not_change_plan_artifacts(tmp_path):
     assert first_scope.compiled.plan.units == second_scope.compiled.plan.units
     assert artifact_path.read_bytes() == artifact_before
     assert project.paths["plan_index"].read_bytes() == index_before
+
+
+def test_semantic_planner_fingerprint_participates_in_plan_freshness(tmp_path, monkeypatch):
+    source = tmp_path / "fingerprinted.txt"
+    source.write_text("A semantic plan.", encoding="utf-8")
+    project = init_project(source, tmp_path / "fingerprinted.readio")
+    config = ReadioConfig(reader=ReaderSettings(spacy="off"))
+
+    plan_project(project, config)
+    scope = project.load_plan_index().scopes[0]
+    assert scope.semantic_planner_fingerprint is not None
+    assert semantic_status(project)[-1]["state"] == "current"
+
+    from readio.stages import planning as planning_stage
+
+    monkeypatch.setattr(
+        planning_stage,
+        "semantic_planner_fingerprint",
+        lambda _config: f"sha256:{'f' * 64}",
+    )
+    status = semantic_status(project)[-1]
+    assert status["state"] == "stale"
+    assert status["reason"] == "plan.stale.planner_version_changed"
+    public_status = Readio(config).projects.status(project.root)
+    assert public_status.next_actions[0].command == "readio plan build ."
+    assert status["scope_id"] == scope.id
+
+
+def test_nonrenderable_stored_plan_status_recommends_rebuild(tmp_path):
+    import hashlib
+
+    config = ReadioConfig(reader=ReaderSettings(spacy="off"))
+    source = tmp_path / "old-plan.txt"
+    source.write_text("A sentence to plan.", encoding="utf-8")
+    project = init_project(source, tmp_path / "old-plan.readio")
+    plan_project(project, config)
+    scope = project.load_plan_index().scopes[0]
+    plan = load_scope_plan(project, scope)
+    first = plan.segments[0]
+    spoken = list(plan.texts.spoken)
+    punctuation = "." * (first.spoken_end - first.spoken_start)
+    spoken[first.spoken_start : first.spoken_end] = punctuation
+    invalid_plan = replace(
+        plan,
+        texts=replace(plan.texts, spoken="".join(spoken)),
+        segments=(replace(first, text=punctuation), *plan.segments[1:]),
+    ).with_identity()
+    artifact_path = project.state_root / "plan" / scope.path
+    artifact_path.write_text(invalid_plan.to_json(), encoding="utf-8")
+    index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
+    index["scopes"][0]["plan_id"] = invalid_plan.plan_id
+    index["scopes"][0]["sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
+
+    status = Readio(config).projects.status(project.root)
+    plan_status = status.stage("plan")
+    assert plan_status.state == "invalid"
+    assert plan_status.reason == "plan.invalid.not_renderable"
+    assert plan_status.details["validation_code"] == "segment.not_renderable"
+    assert plan_status.details["action"] == "readio plan build ."
+    assert status.next_actions[0].command == "readio plan build ."

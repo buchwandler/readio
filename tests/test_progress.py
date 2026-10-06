@@ -376,3 +376,61 @@ def test_single_document_synthesis_does_not_print_redundant_scope_heading() -> N
     output = stream.getvalue()
     assert "Document ·" not in output
     assert "[1/1 segments] unit-0001 · seg-000001 'A sentence.'" in output
+
+
+def test_synthesis_preflight_progress_is_separate_from_audio_rendering() -> None:
+    stream = io.StringIO()
+    progress = TerminalProgress(stream=stream, enabled=True, tty=False, clock=Clock())
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="phase",
+            message="Preflighting synthesis targets",
+            completed=0,
+            total=2,
+            details={"phase": "synthesis_preflight"},
+        )
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="item.completed",
+            completed=1,
+            total=2,
+            details={"phase": "synthesis_preflight"},
+        )
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="phase",
+            message="Synthesis preflight complete",
+            completed=2,
+            total=2,
+            details={"phase": "synthesis_preflight"},
+        )
+    )
+    progress.public_event(
+        ReadioEvent(
+            kind="progress",
+            operation="projects.synthesize",
+            stage="synthesis",
+            progress_kind="segment.completed",
+            completed=1,
+            total=1,
+            sample_count=24000,
+            sample_rate=24000,
+        )
+    )
+
+    output = stream.getvalue()
+    assert "Preflighting synthesis targets" in output
+    assert "Synthesis preflight  50%  1/2 segments checked" in output
+    assert "Synthesis preflight complete" in output
+    assert output.index("Synthesis preflight complete") < output.index("Rendering 100%")

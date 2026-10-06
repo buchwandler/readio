@@ -42,6 +42,7 @@ BASELINE_IMPORTERS = {
         "readio/planning/semantic.py",
         "readio/rendering/lowering.py",
         "readio/stages/planning.py",
+        "readio/stages/synthesis.py",
     },
 }
 
@@ -108,7 +109,7 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
     print(f"Readio external domain import baseline: {metrics}")
     assert metrics == {
         "domain_packages": 9,
-        "importing_files": 13,
-        "package_file_contacts": 13,
-        "imported_names": 77,
+        "importing_files": 14,
+        "package_file_contacts": 14,
+        "imported_names": 81,
     }

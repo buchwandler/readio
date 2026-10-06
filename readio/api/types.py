@@ -402,6 +402,15 @@ class StageOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectPlanOptions:
+    renderability: Literal["strict", "repair"] = "strict"
+
+    def __post_init__(self) -> None:
+        if self.renderability not in {"strict", "repair"}:
+            raise ValueError("renderability must be 'strict' or 'repair'")
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectPlanScope:
     scope_id: str
     plan_id: str
@@ -416,6 +425,10 @@ class ProjectPlanScope:
 class ProjectPlanResult:
     project: ProjectRef
     scopes: tuple[ProjectPlanScope, ...]
+    renderability_mode: Literal["strict", "repair"] = "strict"
+    renderability_guaranteed: bool = True
+    repairs: int = 0
+    diagnostics: tuple[Diagnostic, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -1186,6 +1199,7 @@ __all__ = [
     "ProjectCompositionResult",
     "ProjectExportResult",
     "ProjectLike",
+    "ProjectPlanOptions",
     "ProjectPlanResult",
     "ProjectPlanScope",
     "ProjectRef",

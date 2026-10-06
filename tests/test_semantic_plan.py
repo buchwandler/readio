@@ -153,3 +153,11 @@ def test_semantic_compiler_uses_typed_planner_config() -> None:
     assert config["ssmd"]["parse_yaml_header"] is False
     assert config["overlap_mode"] == "strict"
     assert config["language_aliases"] == {"en": "en-us"}
+
+
+def test_renderability_mode_is_forwarded_to_utterplan() -> None:
+    assert PlanningPolicy().to_planner_config().renderability_mode == "strict"
+    assert (
+        PlanningPolicy(renderability_mode="repair").to_planner_config().renderability_mode
+        == "repair"
+    )

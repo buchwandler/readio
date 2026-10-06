@@ -85,7 +85,7 @@ def test_direct_utterplan_preserves_substitution_and_phoneme_directives() -> Non
 
 
 def test_direct_utterplan_maps_language_voice_and_nested_annotations() -> None:
-    _, language = _plan('[Hola mundo]{lang="es"}.')
+    _, language = _plan('[Hola mundo]{lang="es"} Fin.')
     assert [segment["language"] for segment in language["segments"]] == ["es", "en-us"]
     assert language["languages"] == [
         {
@@ -100,12 +100,12 @@ def test_direct_utterplan_maps_language_voice_and_nested_annotations() -> None:
             "language": "en-us",
             "source": "document-default",
             "spoken_start": 10,
-            "spoken_end": 11,
+            "spoken_end": 15,
         },
     ]
     assert [token["language"] for token in language["tokens"]] == ["es", "es", "en-us"]
 
-    _, voice = _plan('[Hello, guest!]{voice="guest"}.')
+    _, voice = _plan('[Hello, guest!]{voice="guest"} ...150ms')
     assert voice["segments"][0]["directives"] == {"voice": {"reference": "guest"}}
     assert voice["segments"][0]["pause_after"]["seconds"] == 0.15
     assert voice["annotations"][0]["kind"] == "voice"

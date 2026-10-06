@@ -75,10 +75,10 @@ def test_readio_keeps_parser_and_private_conversion_imports_outside_its_boundary
 def test_minimum_ssmdconvert_release_contract_when_requested() -> None:
     if os.environ.get("READIO_TEST_SSMD_CONVERT_MINIMUM") != "1":
         pytest.skip("run this assertion in the minimum-release contract job")
-    assert version("ssmdconvert") == "0.1.2"
+    assert version("ssmdconvert") == "0.1.3"
 
 
 def test_minimum_utterplan_release_contract_when_requested() -> None:
     if os.environ.get("READIO_TEST_UTTERPLAN_MINIMUM") != "1":
         pytest.skip("run this assertion in the minimum-release contract job")
-    assert version("utterplan") == "0.3.5"
+    assert version("utterplan") == "0.3.6"

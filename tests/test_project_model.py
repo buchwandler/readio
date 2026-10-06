@@ -68,6 +68,16 @@ def test_plan_index_settings_fingerprint_is_optional_and_round_trips() -> None:
         PlanIndex.from_dict({**value, "project_planning_settings_sha256": 42})
 
 
+def test_plan_scope_semantic_planner_fingerprint_is_optional_and_round_trips() -> None:
+    scope = PlanScope(id="document", kind="document", path="document.utterplan.json")
+    assert PlanScope.from_dict(scope.to_dict()) == scope
+
+    fingerprinted = replace(scope, semantic_planner_fingerprint=f"sha256:{'b' * 64}")
+    assert PlanScope.from_dict(fingerprinted.to_dict()) == fingerprinted
+    with pytest.raises(ProjectFormatError, match="semantic_planner_fingerprint"):
+        PlanScope.from_dict({**scope.to_dict(), "semantic_planner_fingerprint": 42})
+
+
 def test_document_index_rejects_duplicate_scope_ids() -> None:
     scope = DocumentScope(
         id="chapter-0001",

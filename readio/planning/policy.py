@@ -49,6 +49,7 @@ class PlanningPolicy:
     ssmd: SSMDConfig = field(default_factory=SSMDConfig)
     overlap_mode: Literal["snap", "strict"] = "snap"
     diagnostics: bool = True
+    renderability_mode: Literal["strict", "repair"] = "strict"
 
     def to_planner_config(self) -> PlannerConfig:
         """Build UtterPlan's typed planner configuration."""
@@ -72,6 +73,7 @@ class PlanningPolicy:
             overlap_mode=self.overlap_mode,
             language_aliases=dict(self.language_aliases),
             diagnostics=self.diagnostics,
+            renderability_mode=self.renderability_mode,
         )
 
     @classmethod

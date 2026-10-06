@@ -52,6 +52,7 @@ from .types import (
     ProjectCompositionResult,
     ProjectExportResult,
     ProjectLike,
+    ProjectPlanOptions,
     ProjectPlanResult,
     ProjectPlanScope,
     ProjectRef,
@@ -85,6 +86,9 @@ _STATUS_DETAIL_KEYS = frozenset(
         "workspace",
         "profile_id",
         "composition_id",
+        "validation_code",
+        "validation_path",
+        "action",
         "format",
     }
 )
@@ -274,6 +278,7 @@ class ProjectService:
         self,
         project: ProjectLike,
         *,
+        options: ProjectPlanOptions | None = None,
         on_event: EventHandler | None = None,
     ) -> ProjectPlanResult:
         internal = self._load(project)
@@ -282,8 +287,14 @@ class ProjectService:
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="plan"))
         planning_handler = self._planning_handler(handler, operation)
+        options = options or ProjectPlanOptions()
         result = self._call(
-            lambda: plan_project(internal, self._app.config, on_progress=planning_handler)
+            lambda: plan_project(
+                internal,
+                self._app.config,
+                on_progress=planning_handler,
+                renderability_mode=options.renderability,
+            )
         )
         self._notify(
             handler,
@@ -291,7 +302,12 @@ class ProjectService:
                 kind="stage.completed",
                 operation=operation,
                 stage="plan",
-                details={"scope_count": len(result.scopes)},
+                details={
+                    "scope_count": len(result.scopes),
+                    "renderability_mode": result.renderability_mode,
+                    "renderability_guaranteed": result.renderability_guaranteed,
+                    "repairs": result.repairs,
+                },
             ),
         )
         self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
@@ -304,7 +320,39 @@ class ProjectService:
             )
             for planned in result.scopes
         )
-        return ProjectPlanResult(self._ref(internal), scopes)
+        diagnostics = tuple(
+            Diagnostic(
+                code=str(row.get("code", "")),
+                severity=(
+                    "error"
+                    if row.get("severity") == "error"
+                    else "warning"
+                    if row.get("severity") == "warning"
+                    else "info"
+                ),
+                message=str(row.get("message", "")),
+                source_path=(
+                    Path(source_path)
+                    if isinstance((source_path := row.get("source_path")), str)
+                    else None
+                ),
+                line=line if isinstance((line := row.get("line")), int) else None,
+                details={
+                    key: value
+                    for key, value in row.items()
+                    if key not in {"code", "severity", "message", "source_path", "line"}
+                },
+            )
+            for row in result.diagnostics
+        )
+        return ProjectPlanResult(
+            project=self._ref(internal),
+            scopes=scopes,
+            renderability_mode=result.renderability_mode,
+            renderability_guaranteed=result.renderability_guaranteed,
+            repairs=result.repairs,
+            diagnostics=diagnostics,
+        )
 
     def resolve_synthesis(
         self,
@@ -729,6 +777,31 @@ class ProjectService:
                     total=progress.scope_total,
                     details=details,
                 )
+            elif progress.kind in {
+                "renderability.started",
+                "renderability.completed",
+                "renderability.failed",
+            }:
+                phase_status = progress.kind.split(".", maxsplit=1)[1]
+                message = {
+                    "started": "Checking semantic renderability",
+                    "completed": "Semantic renderability checked",
+                    "failed": "Semantic renderability failed",
+                }[phase_status]
+                details: dict[str, JsonValue] = {
+                    "phase": "renderability_preflight",
+                    "event_kind": f"phase.{phase_status}",
+                }
+                details.update(progress.details or {})
+                event = ReadioEvent(
+                    kind="progress",
+                    operation=operation,
+                    stage="plan",
+                    progress_kind="phase",
+                    message=message,
+                    scope_id=progress.scope_id,
+                    details=details,
+                )
             elif progress.planner_event is not None:
                 planner_event = progress.planner_event
                 details = {
@@ -820,6 +893,7 @@ class ProjectService:
             "unit_finished": "unit.completed",
             "segment_started": "segment.started",
             "segment_finished": "segment.completed",
+            "preflight_segment_checked": "item.completed",
         }
         progress_kind = cast(ProgressKind, progress_kinds.get(internal_kind, "phase"))
         phase_messages = {
@@ -831,6 +905,10 @@ class ProjectService:
             "prepare_finished": "Synthesis prepared",
             "activation_started": "Activating synthesis",
             "activation_finished": "Synthesis activated",
+            "preflight_started": "Preflighting synthesis targets",
+            "preflight_measurement_started": "Checking known target request limits",
+            "preflight_completed": "Synthesis preflight complete",
+            "preflight_failed": "Synthesis preflight failed",
         }
         details = getattr(event, "details", {}) or {}
         safe = self._safe_details(
@@ -856,6 +934,20 @@ class ProjectService:
                 "scope_render_total",
                 "global_completed",
                 "global_total",
+                "phase",
+                "issues",
+                "rendered_new_segments",
+                "synthesis_requests",
+                "audio_artifacts_written",
+                "reason",
+                "field",
+                "source_start",
+                "source_end",
+                "request_text",
+                "actual",
+                "maximum",
+                "limit_unit",
+                "measurement_source",
             },
         )
         text = getattr(event, "text", None)

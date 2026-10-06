@@ -869,7 +869,7 @@ def test_status_discovers_project_from_nested_directory(tmp_path, monkeypatch, c
     output = capsys.readouterr().out
     assert "Readio project:" in output
     assert str(project.root) in output
-    assert "Next:\n  readio plan\n" in output
+    assert "Next:\n  readio plan build .\n" in output
 
 
 def test_short_sentence_cli_accepts_phrase_and_rejects_auto() -> None:

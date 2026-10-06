@@ -180,7 +180,7 @@ def test_schema_mismatch_is_stale_and_actionable(tmp_path: Path, stored: int) ->
     assert status["reason"] == "plan.artifact.schema_mismatch"
     assert status["stored"] == stored
     assert status["required"] == 3
-    assert status["action"] == "run readio plan"
+    assert status["action"] == "readio plan build ."
 
 
 def test_linguistic_annotation_changes_only_affected_unit_hash() -> None:

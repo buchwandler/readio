@@ -363,6 +363,27 @@ def project_planning_settings_fingerprint(synthesis_settings: Any) -> str | None
     return f"sha256:{digest}"
 
 
+def semantic_planner_fingerprint(
+    planning_config: Mapping[str, Any],
+    *,
+    utterplan_schema_version: int,
+    utterplan_version: str,
+    ssmd_version: str,
+    ssmdconvert_version: str,
+) -> str:
+    """Fingerprint only inputs that can change persisted semantic plan meaning."""
+    payload = {
+        "schema": "readio.semantic-planner.v2",
+        "utterplan_schema": utterplan_schema_version,
+        "utterplan_version": utterplan_version,
+        "ssmd_semantics": ssmd_version,
+        "ssmdconvert_version": ssmdconvert_version,
+        "planning_config": _plain_json(planning_config),
+    }
+    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
+    return f"sha256:{digest}"
+
+
 def project_planning_config(cfg: Any, synthesis_settings: Any) -> Any:
     """Apply saved planning-related synthesis preferences over global config."""
     if synthesis_settings is None:
@@ -484,6 +505,7 @@ __all__ = [
     "project_voice_binding_namespaces",
     "project_voice_namespace",
     "resolve_project_voice_namespace",
+    "semantic_planner_fingerprint",
     "synthesis_request_fingerprint",
     "with_project_role_binding",
     "with_project_settings",

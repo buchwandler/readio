@@ -31,6 +31,17 @@ from .synthesis import synthesize_project
 
 _STAGE_REASON_MESSAGES = {
     "plan.stale.document_format_mismatch": "Plan semantic format does not match the project document.",
+    "plan.invalid.not_renderable": (
+        "Stored semantic plan is invalid under the current renderer contract. "
+        "Rebuild with: readio plan build ."
+    ),
+    "plan.stale.planner_version_changed": (
+        "The semantic planner contract changed. Rebuild with: readio plan build ."
+    ),
+    "plan.artifact.schema_mismatch": (
+        "Stored plan schema is unsupported. Rebuild with: readio plan build ."
+    ),
+    "plan.artifact.invalid": "Stored semantic plan artifact is invalid. Rebuild with: readio plan build .",
     "plan.stale.project_settings_changed": (
         "The semantic plan was built with different project planning settings."
     ),
@@ -538,7 +549,7 @@ def project_status(project: Project) -> dict[str, Any]:
             }
         )
     commands = {
-        "plan": "readio plan",
+        "plan": "readio plan build .",
         "synthesis": "readio synth",
         "composition": "readio compose",
         "output": "readio export --format mp3",

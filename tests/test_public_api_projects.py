@@ -23,6 +23,8 @@ from readio.api import (
     ProjectError,
     ProjectFormatError,
     ProjectNotFoundError,
+    ProjectPlanOptions,
+    ProjectPlanRenderabilityError,
     ProjectPlanResult,
     ProjectRef,
     ProjectStatus,
@@ -57,12 +59,52 @@ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
         result = app.projects.plan(project)
 
     assert isinstance(result, ProjectPlanResult)
+    assert result.renderability_mode == "strict"
+    assert result.renderability_guaranteed is True
+    assert result.repairs == 0
     assert result.scopes
     assert json.loads(json.dumps(result.to_dict()))["project"]["project_id"] == project.project_id
     status = app.projects.status(project)
     assert isinstance(status, ProjectStatus)
     assert status.stage("plan").state == "current"
     assert json.loads(json.dumps(status.to_dict()))["stages"]
+
+
+def test_project_plan_options_and_renderability_errors_are_public(tmp_path: Path) -> None:
+    config = ReadioConfig(reader=ReaderSettings(spacy="off", unit="paragraph"))
+    original_reader = config.reader
+    app = Readio(config)
+    source = tmp_path / "source.txt"
+    source.write_text("First sentence.\n\n.\n\nSecond sentence.", encoding="utf-8")
+    project = app.projects.create(source, output=tmp_path / "source.readio")
+    events = []
+
+    with pytest.raises(ProjectPlanRenderabilityError) as caught:
+        app.projects.plan(project, on_event=events.append)
+
+    error = caught.value
+    assert error.code == "planning.not_renderable"
+    assert error.details["issues"] == list(error.issues)
+    assert error.issues[0]["source_path"]
+    assert error.issues[0]["line"] is not None
+    assert any(
+        event.progress_kind == "phase" and event.details.get("phase") == "renderability_preflight"
+        for event in events
+    )
+
+    result = app.projects.plan(
+        project,
+        options=ProjectPlanOptions(renderability="repair"),
+    )
+    assert result.renderability_mode == "repair"
+    assert result.renderability_guaranteed is True
+    assert result.repairs > 0
+    repaired = next(
+        item for item in result.diagnostics if item.code == "planning.renderability.repaired"
+    )
+    assert repaired.details["scope_id"]
+    assert repaired.source_path is not None
+    assert config.reader is original_reader
 
 
 def test_project_compose_returns_typed_mastering_diagnostics(tmp_path: Path, monkeypatch) -> None:

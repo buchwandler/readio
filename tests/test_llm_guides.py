@@ -154,9 +154,9 @@ def test_compatibility_and_shared_sections_do_not_drift():
         )
         assert "do not generate them in new documents" in target
         assert "- volume: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`" in target
-        assert "Readio with SSMD 0.9 and Utterplan >=0.3.5,<0.4 support" in target
-        assert "SSMD >=0.9.0,<0.10" in target
-        assert "Utterplan >=0.3.5,<0.4" in target
+        assert "Readio with SSMD 0.9.3 and Utterplan >=0.3.6,<0.4 support" in target
+        assert "SSMD >=0.9.3,<0.10" in target
+        assert "Utterplan >=0.3.6,<0.4" in target
         assert "PyKokoro with Utterplan schema-v3 support" in target
     for heading in SHARED_SECTIONS:
         assert len({section(text, heading) for text in texts}) == 1, heading

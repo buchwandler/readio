@@ -932,10 +932,13 @@ def _cmd_plan_build(args: argparse.Namespace) -> int:
     project_path = _plan_project_path(args)
     progress = _build_progress(args)
     with progress:
-        result = app.projects.plan(
-            project_path,
-            on_event=_api_progress_handler(progress),
-        )
+        plan_options: dict[str, Any] = {"on_event": _api_progress_handler(progress)}
+        renderability_mode = getattr(args, "renderability", "strict")
+        if renderability_mode != "strict":
+            plan_options["options"] = public_api.ProjectPlanOptions(
+                renderability=renderability_mode
+            )
+        result = app.projects.plan(project_path, **plan_options)
     scope_rows = [item.to_dict() for item in result.scopes]
     payload = {
         "ok": True,
@@ -944,7 +947,13 @@ def _cmd_plan_build(args: argparse.Namespace) -> int:
     }
     if getattr(args, "json", False):
         print(json.dumps(payload, ensure_ascii=False))
-    elif len(scope_rows) == 1:
+    else:
+        _print_project_plan_result(result, scope_rows)
+    return 0
+
+
+def _print_project_plan_result(result: Any, scope_rows: list[dict[str, Any]]) -> None:
+    if len(scope_rows) == 1:
         item = result.scopes[0]
         print(f"Semantic plan: {item.plan_id}")
         print(f"Units: {item.units or 0}")
@@ -952,7 +961,27 @@ def _cmd_plan_build(args: argparse.Namespace) -> int:
         print(f"Semantic plans: {len(scope_rows)} scopes")
         for item in result.scopes:
             print(f"{item.scope_id}: {item.plan_id} ({item.units or 0} units)")
-    return 0
+
+    mode = getattr(result, "renderability_mode", "strict")
+    guaranteed = getattr(result, "renderability_guaranteed", True)
+    repairs = getattr(result, "repairs", 0)
+    label = "guaranteed" if guaranteed else "not guaranteed"
+    print(f"Renderability: {label} ({mode})")
+    print(f"Repairs: {repairs}")
+    for diagnostic in getattr(result, "diagnostics", ()):
+        if getattr(diagnostic, "code", None) != "planning.renderability.repaired":
+            continue
+        details = getattr(diagnostic, "details", {})
+        scope_id = details.get("scope_id", "document")
+        source_path = getattr(diagnostic, "source_path", None) or details.get("source_path")
+        line = getattr(diagnostic, "line", None) or details.get("line")
+        column = details.get("column")
+        location = str(source_path) if source_path is not None else ""
+        if line is not None:
+            location += f":{line}"
+            if column is not None:
+                location += f":{column}"
+        print(f"{scope_id}: {location} {diagnostic.message}".rstrip())
 
 
 def _cmd_plan_roles(args: argparse.Namespace) -> int:
@@ -2063,6 +2092,12 @@ def build_parser() -> argparse.ArgumentParser:
     plan_build = plan_sub.add_parser("build", help="build semantic plans for a project")
     plan_build.add_argument("project_pos", nargs="?", type=Path)
     plan_build.add_argument("--project", dest="project_option", type=Path)
+    plan_build.add_argument(
+        "--renderability",
+        choices=("strict", "repair"),
+        default="strict",
+        help="semantic renderability policy (default: strict)",
+    )
     _add_progress_option(plan_build, default=argparse.SUPPRESS)
     plan_build.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     plan_build.set_defaults(func=_cmd_plan_build)
@@ -2573,7 +2608,109 @@ def _error_payload(exc: Exception) -> dict[str, object]:
         payload.update(exc.details)
         if exc.source_path is not None:
             payload["source"] = str(exc.source_path)
+    if isinstance(
+        exc, (public_api.ProjectPlanRenderabilityError, public_api.SynthesisPreflightError)
+    ):
+        payload["details"] = exc.details
     return payload
+
+
+def _format_project_plan_renderability_error(
+    error: public_api.ProjectPlanRenderabilityError,
+) -> str:
+    lines = [str(error), ""]
+    for issue in error.issues:
+        scope_id = issue.get("scope_id", "document")
+        title = issue.get("scope_title")
+        scope_label = f"{scope_id} · {title}" if isinstance(title, str) and title else str(scope_id)
+        lines.append(scope_label)
+        source_path = issue.get("source_path")
+        line = issue.get("line")
+        column = issue.get("column")
+        location = str(source_path) if source_path is not None else "<source>"
+        if isinstance(line, int):
+            location += f":{line}"
+            if isinstance(column, int):
+                location += f":{column}"
+        lines.append(location)
+        excerpt = issue.get("source_excerpt")
+        if isinstance(excerpt, str):
+            line_label = f"{line:>4}" if isinstance(line, int) else "    "
+            lines.append(f"{line_label} | {excerpt}")
+            if isinstance(column, int):
+                text = issue.get("text")
+                width = max(1, len(text)) if isinstance(text, str) else 1
+                lines.append(f"     | {' ' * max(0, column - 1)}{'^' * width}")
+        segment_id = issue.get("segment_id", "segment")
+        reason = issue.get("reason", "unrenderable")
+        text = issue.get("text", "")
+        lines.append(f"  {segment_id} · {reason} · {text!r}")
+        lines.append("")
+    lines.extend(
+        (
+            "No semantic plan artifacts were replaced.",
+            "",
+            "Fix the source, or retry safe automatic repair:",
+            f"  {error.repair_command}",
+        )
+    )
+    return "\n".join(lines)
+
+
+def _format_synthesis_preflight_error(
+    error: public_api.SynthesisPreflightError,
+) -> str:
+    lines = [str(error), ""]
+    for issue in error.issues:
+        scope_id = issue.get("scope_id", "document")
+        title = issue.get("scope_title")
+        scope_label = f"{scope_id} · {title}" if isinstance(title, str) and title else str(scope_id)
+        target_parts = [
+            str(issue.get("engine") or "unknown engine"),
+            str(issue.get("target_id") or "unknown target"),
+        ]
+        voice = issue.get("voice")
+        if isinstance(voice, str) and voice:
+            target_parts.append(f"voice {voice}")
+        lines.append(f"{scope_label} · target {' · '.join(target_parts)}")
+
+        source_path = issue.get("source_path")
+        source_start = issue.get("source_start")
+        source_end = issue.get("source_end")
+        location = str(source_path) if source_path is not None else "<source>"
+        if isinstance(source_start, int) and isinstance(source_end, int):
+            location += f" [{source_start}:{source_end}]"
+        lines.append(location)
+        lines.append(
+            f"  {issue.get('segment_id', 'segment')} · {issue.get('reason', 'unrenderable')}"
+        )
+        unit_id = issue.get("unit_id")
+        unit_index = issue.get("unit_index")
+        if unit_id is not None or isinstance(unit_index, int):
+            unit_label = str(unit_id) if unit_id is not None else "unit"
+            if isinstance(unit_index, int):
+                unit_label += f" (index {unit_index})"
+            lines.append(f"  {unit_label}")
+        message = issue.get("message")
+        if isinstance(message, str) and message:
+            lines.append(f"  {message}")
+        request_text = issue.get("request_text", issue.get("text"))
+        if isinstance(request_text, str):
+            lines.append(f"  request: {request_text!r}")
+        actual = issue.get("actual")
+        maximum = issue.get("maximum")
+        limit_unit = issue.get("limit_unit")
+        if (
+            isinstance(actual, (int, float))
+            and not isinstance(actual, bool)
+            and isinstance(maximum, (int, float))
+            and not isinstance(maximum, bool)
+        ):
+            unit = f" {limit_unit}" if isinstance(limit_unit, str) and limit_unit else ""
+            lines.append(f"  known limit: {actual}{unit} (maximum {maximum}{unit})")
+        lines.append("")
+    lines.append("No synthesis requests were sent; no new audio artifacts were written.")
+    return "\n".join(lines)
 
 
 def _log_command_error(args: argparse.Namespace, exc: Exception) -> None:
@@ -2607,6 +2744,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         if getattr(args, "json", False):
             print(json.dumps(_error_payload(exc), ensure_ascii=False))
             raise SystemExit(2)
+        if isinstance(exc, public_api.ProjectPlanRenderabilityError):
+            parser.exit(2, f"readio: {_format_project_plan_renderability_error(exc)}\n")
+        elif isinstance(exc, public_api.SynthesisPreflightError):
+            parser.exit(2, f"readio: {_format_synthesis_preflight_error(exc)}\n")
         source = f" (source: {exc.source_path})" if exc.source_path else ""
         parser.exit(2, f"readio: {exc}{source}\n")
     except (ValueError, KeyError, OSError) as exc:

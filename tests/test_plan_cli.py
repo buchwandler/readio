@@ -13,7 +13,7 @@ from readio.api import ProjectRef, ProjectRoleMutationResult
 from readio.api.projects import ProjectService
 from readio.api.roles import RoleService
 from readio.cli import build_parser
-from readio.config import ReadioConfig
+from readio.config import ReaderSettings, ReadioConfig
 from readio.project import init_project
 from readio.role_targets import VoiceTarget
 
@@ -229,6 +229,55 @@ def test_plan_unbind_uses_typed_mutation_result(tmp_path, monkeypatch, capsys) -
         "effective_target",
         "origin",
     }
+
+
+def test_plan_build_renderability_modes_report_structured_failures(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("First sentence.\n\n.\n\nSecond sentence.", encoding="utf-8")
+    project = init_project(source, tmp_path / "source.readio")
+    config = ReadioConfig(reader=ReaderSettings(spacy="off", unit="paragraph"))
+    monkeypatch.setattr(cli, "_resolved_config", lambda _args: config)
+
+    with pytest.raises(SystemExit) as failure:
+        cli.main(["plan", "build", str(project.root), "--json"])
+    assert failure.value.code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["code"] == "planning.not_renderable"
+    assert payload["details"]["issues"]
+    issue = payload["details"]["issues"][0]
+    assert issue["scope_id"]
+    assert issue["source_path"]
+    assert issue["line"] is not None
+    assert issue["column"] is not None
+
+    with pytest.raises(SystemExit) as failure:
+        cli.main(["plan", "build", str(project.root)])
+    assert failure.value.code == 2
+    human = capsys.readouterr().err
+    assert "No semantic plan artifacts were replaced." in human
+    assert "^" in human
+    assert "readio plan build . --renderability repair" in human
+
+    with pytest.raises(SystemExit) as success:
+        cli.main(["plan", "build", str(project.root), "--renderability", "repair", "--json"])
+    assert success.value.code == 0
+    repaired = json.loads(capsys.readouterr().out)
+    assert repaired["renderability_mode"] == "repair"
+    assert repaired["renderability_guaranteed"] is True
+    assert repaired["repairs"] > 0
+    assert any(
+        item["code"] == "planning.renderability.repaired" for item in repaired["diagnostics"]
+    )
+
+    with pytest.raises(SystemExit) as success:
+        cli.main(["plan", "build", str(project.root), "--renderability", "repair"])
+    assert success.value.code == 0
+    human_repaired = capsys.readouterr().out
+    assert "Renderability: guaranteed (repair)" in human_repaired
+    assert "Repairs: " in human_repaired
+    assert "document: document/" in human_repaired
 
 
 def test_plan_commands_discover_projects_from_nested_cwd(tmp_path, monkeypatch, capsys) -> None:

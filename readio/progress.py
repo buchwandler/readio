@@ -388,6 +388,18 @@ class TerminalProgress:
             if event.message:
                 self._finish_line()
                 self._write(event.message, newline=True)
+        elif (
+            event.progress_kind == "item.completed"
+            and event.details.get("phase") == "synthesis_preflight"
+        ):
+            total = event.total if isinstance(event.total, int) else 0
+            completed = event.completed if isinstance(event.completed, int) else 0
+            percent = 100 if total == 0 else min(100, round(completed * 100 / total))
+            if not self._tty and completed not in {1, total} and percent % 10 != 0:
+                return
+            self._finish_line()
+            text = f"Synthesis preflight {percent:3d}%  {completed}/{total} segments checked"
+            self._write(text, inplace=self._tty, newline=not self._tty)
         elif event.progress_kind in {"unit.started", "segment.started"}:
             if event.scope_id != self._synthesis_scope_id:
                 self._finish_line()
