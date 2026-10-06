@@ -130,12 +130,12 @@ jobs:
           - engine: pocket
             channel: minimum
             package: "pocketsynth[cpu]"
-            specifier: "==0.2.3"
+            specifier: "==0.2.5"
             python-version: "3.10"
           - engine: pocket
             channel: current
             package: "pocketsynth[cpu]"
-            specifier: ">=0.2.3,<0.3"
+            specifier: ">=0.2.5,<0.3"
             python-version: "3.13"
           - engine: supertonic
             channel: minimum
@@ -203,7 +203,7 @@ jobs:
           python -m pip install \
             "pykokoro==0.10.2" \
             "pipersynth==0.2.1" \
-            "pocketsynth[cpu]==0.2.3" \
+            "pocketsynth[cpu]==0.2.5" \
             "supertonicsynth[cpu]==0.1.2" \
             "kittensynth[cpu]==0.1.1"
       - name: Verify dependency resolution
@@ -320,7 +320,7 @@ jobs:
             "pytest>=8" \
             "pykokoro==0.10.2" \
             "pipersynth==0.2.1" \
-            "pocketsynth[cpu]==0.2.3" \
+            "pocketsynth[cpu]==0.2.5" \
             "supertonicsynth[cpu]==0.1.2" \
             "kittensynth[cpu]==0.1.1"
           "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip install dist/*.whl

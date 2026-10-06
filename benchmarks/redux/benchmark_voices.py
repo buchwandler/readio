@@ -33,6 +33,7 @@ from .common import (
     default_case,
     environment_metadata,
     filter_voices,
+    parse_engine_options,
     run_case,
     safe_name,
     sha256_file,
@@ -72,6 +73,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument(
         "--device", help="optional Readio engine device passed through the synthesis request"
+    )
+    parser.add_argument(
+        "--engine-option",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="repeatable engine-specific option; scalar values are coerced conservatively",
     )
     parser.add_argument("--redux-device", default="cpu")
     parser.add_argument("--redux-model", default=DEFAULT_REDUX_MODEL)
@@ -302,6 +310,10 @@ def _failed_voice_result(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        engine_options = parse_engine_options(args.engine_option)
+    except ValueError as error:
+        parser.error(str(error))
     threshold_error = _threshold_error(args)
     if threshold_error:
         parser.error(threshold_error)
@@ -383,6 +395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         project_dir=project_dir,
                         source_path=source_path,
                         engine_device=args.device,
+                        engine_options=engine_options,
                         redux=redux,
                         pass_wer=args.pass_wer,
                         pass_cer=args.pass_cer,

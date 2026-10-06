@@ -44,6 +44,20 @@ master WAV. Artifacts are retained for PASS, REVIEW, and FAIL in this initial
 release; `--keep` is accepted for clarity and future cleanup policy. Do not reuse
 a work directory whose `project.readio` already exists.
 
+Repeated engine settings can be supplied with `--engine-option KEY=VALUE`; the flag is repeatable. `true`/`false`, `null`, and JSON numbers are converted to scalars, while other values remain strings. For example, use `--engine-option temperature=0.3 --engine-option frames_after_eos=5`. Credential-like option names are redacted from benchmark JSON; do not pass secrets as benchmark options.
+
+## Pocket short-tail regression
+
+The Pocket-focused diagnostic uses the exact observed phrase and keeps the existing WER/CER thresholds. Each repetition gets a separate project and WAV; JSON records each attempt, exact normalized terminal completeness, pass/fail totals, median and worst WER/CER, and minimum/median/maximum duration:
+
+```bash
+python -m benchmarks.redux.benchmark_e2e \
+  --case pocket-short-tail --repetitions 20 \
+  --engine pocket --model english_2026-04 --language en \
+  --voice pocket:english_2026-04/alba --json
+```
+
+Defaults for that case select the Pocket engine, model, voice, and 20 repetitions. To isolate an explicit generation override, append repeatable flags such as `--engine-option frames_after_eos=5`. The composed WAV exists before Redux transcription; playback is not used as a success criterion.
 Options include `--device` for a Readio engine device override, `--redux-model`,
 `--pass-wer`, `--pass-cer`, `--fail-wer`, `--fail-cer`, `--strict`, and `--json`.
 PASS exits 0; REVIEW exits 0 unless `--strict`; audio, semantic, or pipeline

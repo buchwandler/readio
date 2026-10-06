@@ -6,7 +6,7 @@ import argparse
 import json
 import math
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,11 +18,14 @@ from .common import (
     DEFAULT_PASS_CER,
     DEFAULT_PASS_WER,
     DEFAULT_REDUX_MODEL,
+    SHORT_TAIL_CASE,
     BenchmarkResult,
     ReduxTranscriber,
     default_case,
     environment_metadata,
+    parse_engine_options,
     run_case,
+    summarize_short_tail,
     to_jsonable,
     write_json,
 )
@@ -37,11 +40,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--language", default=DEFAULT_LANGUAGE)
     parser.add_argument("--engine", default=DEFAULT_ENGINE)
+    parser.add_argument(
+        "--case",
+        choices=("default", "pocket-short-tail"),
+        default="default",
+        help="benchmark case (pocket-short-tail is the observed terminal-truncation regression)",
+    )
+    parser.add_argument(
+        "--repetitions",
+        type=int,
+        default=20,
+        help="attempt count for --case pocket-short-tail (default: 20)",
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--voice", default=DEFAULT_VOICE)
     parser.add_argument(
         "--device",
         help="optional Readio engine device passed through the public synthesis request",
+    )
+    parser.add_argument(
+        "--engine-option",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="repeatable engine-specific option; scalar values are coerced conservatively",
     )
     parser.add_argument(
         "--redux-device", default="cpu", help="Parakeet Redux device (default: cpu)"
@@ -113,6 +135,7 @@ def run_default_e2e(
     model: str = DEFAULT_MODEL,
     voice: str = DEFAULT_VOICE,
     device: str | None = None,
+    engine_options: Mapping[str, object] | None = None,
     redux_device: str = "cpu",
     redux_model: str = DEFAULT_REDUX_MODEL,
     pass_wer: float = DEFAULT_PASS_WER,
@@ -149,6 +172,7 @@ def run_default_e2e(
                 project_dir=work_dir / "project.readio",
                 source_path=work_dir / "source.txt",
                 engine_device=device,
+                engine_options=engine_options,
                 redux=redux,
                 pass_wer=pass_wer,
                 pass_cer=pass_cer,
@@ -167,6 +191,51 @@ def run_default_e2e(
             failure_stage=failure_stage,
             total_seconds=perf_counter() - started,
         )
+
+
+def run_repeated_short_tail(
+    work_dir: Path,
+    *,
+    repetitions: int = 20,
+    language: str = "en",
+    engine: str = "pocket",
+    model: str = "english_2026-04",
+    voice: str = "pocket:english_2026-04/alba",
+    device: str | None = None,
+    engine_options: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Run the exact short-tail regression repeatedly, reusing one Redux model."""
+    if repetitions < 1:
+        raise ValueError("repetitions must be at least 1")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    from readio.api import Readio
+
+    app = Readio()
+    with ReduxTranscriber() as redux:
+        results = [
+            run_case(
+                app=app,
+                case=SHORT_TAIL_CASE,
+                language=language,
+                engine=engine,
+                model=model,
+                voice=voice,
+                project_dir=work_dir / f"run-{ordinal:03d}.readio",
+                source_path=work_dir / f"run-{ordinal:03d}.txt",
+                engine_device=device,
+                engine_options=engine_options,
+                redux=redux,
+            )
+            for ordinal in range(1, repetitions + 1)
+        ]
+    report: dict[str, object] = {
+        "schema": "readio.benchmark.redux.short-tail.v1",
+        "engine": engine,
+        "model": model,
+        "voice": voice,
+        **summarize_short_tail(results),
+    }
+    return report
 
 
 def _human_report(
@@ -237,9 +306,52 @@ def _human_report(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        engine_options = parse_engine_options(args.engine_option)
+    except ValueError as error:
+        parser.error(str(error))
     threshold_error = _threshold_error(args)
     if threshold_error:
         parser.error(threshold_error)
+
+    if args.case == "pocket-short-tail":
+        if args.repetitions < 1:
+            parser.error("--repetitions must be at least 1")
+        engine = "pocket" if args.engine == DEFAULT_ENGINE else args.engine
+        model = "english_2026-04" if args.model == DEFAULT_MODEL else args.model
+        voice = "pocket:english_2026-04/alba" if args.voice == DEFAULT_VOICE else args.voice
+        work_dir = _work_dir(args.work_dir)
+        try:
+            report = run_repeated_short_tail(
+                work_dir,
+                repetitions=args.repetitions,
+                language=args.language,
+                engine=engine,
+                model=model,
+                voice=voice,
+                device=args.device,
+                engine_options=engine_options,
+            )
+        except Exception as error:  # noqa: BLE001 - persist failure of a diagnostic run
+            report = {
+                "schema": "readio.benchmark.redux.short-tail.v1",
+                "case": SHORT_TAIL_CASE.name,
+                "text": SHORT_TAIL_CASE.text,
+                "runs": 0,
+                "pass_count": 0,
+                "fail_count": args.repetitions,
+                "error": f"{type(error).__name__}: {error}",
+            }
+        result_path = work_dir / "result.json"
+        write_json(result_path, report)
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(
+                f"Pocket short-tail benchmark: {report.get('pass_count', 0)}/"
+                f"{report.get('runs', 0)} complete; results: {result_path}"
+            )
+        return 1 if report.get("fail_count", 0) else 0
 
     work_dir = _work_dir(args.work_dir)
     result_path = work_dir / "result.json"
@@ -250,6 +362,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         model=args.model,
         voice=args.voice,
         device=args.device,
+        engine_options=engine_options,
         redux_device=args.redux_device,
         redux_model=args.redux_model,
         pass_wer=args.pass_wer,

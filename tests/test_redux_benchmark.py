@@ -15,6 +15,7 @@ import readio.api as readio_api
 from benchmarks.redux import benchmark_e2e, benchmark_voices
 from benchmarks.redux.common import (
     DEFAULT_TEXT,
+    SHORT_TAIL_CASE,
     BenchmarkCase,
     BenchmarkError,
     BenchmarkResult,
@@ -31,9 +32,11 @@ from benchmarks.redux.common import (
     inspect_wav,
     normalize_text,
     numeric_summary,
+    parse_engine_options,
     run_case,
     safe_name,
     sha256_file,
+    summarize_short_tail,
     to_jsonable,
     verify,
     voice_wav_name,
@@ -47,6 +50,97 @@ def test_default_case_uses_fixed_source_as_reference() -> None:
     assert case.text == DEFAULT_TEXT
     assert case.reference_text == DEFAULT_TEXT
     assert BenchmarkCase("spoken", "Dr. Smith", "Doctor Smith").reference_text == "Doctor Smith"
+
+
+def test_engine_option_parser_coerces_scalar_values_conservatively() -> None:
+    assert parse_engine_options(
+        ["enabled=true", "disabled=false", "missing=null", "count=4", "ratio=0.3", "label=warm"]
+    ) == {
+        "enabled": True,
+        "disabled": False,
+        "missing": None,
+        "count": 4,
+        "ratio": 0.3,
+        "label": "warm",
+    }
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        parse_engine_options(["missing-separator"])
+
+
+def test_benchmark_clis_accept_repeatable_engine_options() -> None:
+    for module in (benchmark_e2e, benchmark_voices):
+        args = module.build_parser().parse_args(
+            ["--engine-option", "temperature=0.3", "--engine-option", "frames_after_eos=0"]
+        )
+        assert parse_engine_options(args.engine_option) == {
+            "temperature": 0.3,
+            "frames_after_eos": 0,
+        }
+
+
+def test_short_tail_summary_requires_exact_terminal_transcript_and_reports_metrics() -> None:
+    results = (
+        BenchmarkResult(
+            status="pass",
+            case=SHORT_TAIL_CASE.name,
+            total_seconds=1.0,
+            verification=verify(
+                expected=SHORT_TAIL_CASE.reference_text,
+                transcript=SHORT_TAIL_CASE.reference_text,
+            ),
+        ),
+        BenchmarkResult(
+            status="fail",
+            case=SHORT_TAIL_CASE.name,
+            total_seconds=2.0,
+            verification=verify(
+                expected=SHORT_TAIL_CASE.reference_text, transcript="Hello, how are"
+            ),
+        ),
+    )
+
+    report = summarize_short_tail(results)
+
+    assert SHORT_TAIL_CASE.text == "Hello, how are you?"
+    assert (report["runs"], report["pass_count"], report["fail_count"]) == (2, 1, 1)
+    assert report["attempts"][0]["terminal_complete"] is True
+    assert report["attempts"][1]["terminal_complete"] is False
+    assert report["wer"] == {"median": pytest.approx(1 / 8), "worst": pytest.approx(1 / 4)}
+    assert report["duration_seconds"] == {"min": 1.0, "median": 1.5, "max": 2.0}
+
+
+def test_repeated_short_tail_runner_executes_selected_phrase_each_time(tmp_path: Path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(readio_api, "Readio", lambda: object())
+
+    class ReusedRedux:
+        def __enter__(self):
+            return _FakeRedux()
+
+        def __exit__(self, *_args):
+            return None
+
+    def fake_run_case(**kwargs):
+        calls.append(kwargs)
+        return BenchmarkResult(
+            status="pass",
+            case=kwargs["case"].name,
+            total_seconds=1.0,
+            verification=verify(
+                expected=kwargs["case"].reference_text,
+                transcript=kwargs["case"].reference_text,
+            ),
+        )
+
+    monkeypatch.setattr(benchmark_e2e, "ReduxTranscriber", lambda: ReusedRedux())
+    monkeypatch.setattr(benchmark_e2e, "run_case", fake_run_case)
+
+    report = benchmark_e2e.run_repeated_short_tail(tmp_path, repetitions=3)
+
+    assert report["runs"] == 3
+    assert report["pass_count"] == 3
+    assert [call["case"].text for call in calls] == ["Hello, how are you?"] * 3
+    assert len({call["project_dir"] for call in calls}) == 3
 
 
 def test_normalize_text_handles_nfkc_case_punctuation_apostrophes_and_spacing() -> None:
@@ -238,6 +332,8 @@ def _fake_readio(tmp_path: Path, *, resolved_engine: str = "kokoro") -> tuple[ob
             assert request.engine == "kokoro"
             assert request.model == "v1.0"
             assert request.voice == "kokoro:v1.0/af_sarah"
+            if hasattr(self, "expected_engine_options"):
+                assert request.engine_options == self.expected_engine_options
             return SimpleNamespace(
                 engine=resolved_engine,
                 model="v1.0",
@@ -330,6 +426,37 @@ def test_run_case_executes_explicit_public_api_pipeline(tmp_path: Path) -> None:
     assert result.redux_load_seconds == 0.25
     assert result.input_sha256 is not None
     assert result.wav_sha256 is not None
+
+
+def test_run_case_merges_engine_device_and_redacts_credentials_from_result(tmp_path: Path) -> None:
+    app, _calls = _fake_readio(tmp_path)
+    expected_options = {
+        "temperature": 0.3,
+        "api_token": "secret-value",
+        "device": "cuda",
+    }
+    app.projects.expected_engine_options = expected_options
+
+    result = run_case(
+        app=app,
+        case=default_case(),
+        language="en-us",
+        engine="kokoro",
+        model="v1.0",
+        voice="kokoro:v1.0/af_sarah",
+        project_dir=tmp_path / "project.readio",
+        source_path=tmp_path / "source.txt",
+        engine_device="cuda",
+        engine_options={"temperature": 0.3, "api_token": "secret-value", "device": "ignored"},
+        redux=_FakeRedux(),  # type: ignore[arg-type]
+    )
+
+    assert result.engine_options == {
+        "temperature": 0.3,
+        "api_token": "<redacted>",
+        "device": "cuda",
+    }
+    assert "secret-value" not in json.dumps(result.to_dict())
 
 
 def test_pocket_voice_benchmark_preflight_preserves_regional_language(

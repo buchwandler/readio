@@ -63,6 +63,103 @@ def default_case() -> BenchmarkCase:
     return BenchmarkCase(name="redux-e2e-fixed-english", text=DEFAULT_TEXT)
 
 
+SHORT_TAIL_CASE = BenchmarkCase(
+    name="pocket-short-tail",
+    text="Hello, how are you?",
+    expected_text="Hello, how are you?",
+)
+
+
+def summarize_short_tail(results: Sequence[BenchmarkResult]) -> dict[str, Any]:
+    """Summarize repeated exact short-tail attempts without relaxing pass thresholds."""
+    attempts: list[dict[str, Any]] = []
+    wers: list[float] = []
+    cers: list[float] = []
+    durations: list[float] = []
+    pass_count = 0
+    for ordinal, result in enumerate(results, start=1):
+        verification = result.verification
+        terminal_complete = verification is not None and normalize_text(
+            verification.transcript
+        ) == normalize_text(SHORT_TAIL_CASE.reference_text)
+        passed = result.status == "pass" and terminal_complete
+        pass_count += int(passed)
+        if verification is not None:
+            wers.append(verification.wer)
+            cers.append(verification.cer)
+        durations.append(result.total_seconds)
+        attempts.append(
+            {
+                "run": ordinal,
+                **result.to_dict(),
+                "terminal_complete": terminal_complete,
+                "accepted": passed,
+            }
+        )
+    wer_summary = numeric_summary(wers) or {}
+    cer_summary = numeric_summary(cers) or {}
+    duration_summary = numeric_summary(durations) or {}
+    return {
+        "case": SHORT_TAIL_CASE.name,
+        "text": SHORT_TAIL_CASE.text,
+        "runs": len(results),
+        "pass_count": pass_count,
+        "fail_count": len(results) - pass_count,
+        "wer": {"median": wer_summary.get("median"), "worst": max(wers, default=None)},
+        "cer": {"median": cer_summary.get("median"), "worst": max(cers, default=None)},
+        "duration_seconds": {key: duration_summary.get(key) for key in ("min", "median", "max")},
+        "attempts": attempts,
+    }
+
+
+def parse_engine_options(values: Sequence[str] | None) -> dict[str, Any]:
+    """Parse repeatable KEY=VALUE options using conservative scalar coercion."""
+    options: dict[str, Any] = {}
+    for item in values or ():
+        key, separator, raw_value = item.partition("=")
+        if not separator or not key.strip():
+            raise ValueError(f"engine option must be KEY=VALUE, got {item!r}")
+        key = key.strip()
+        value: Any = raw_value
+        lowered = raw_value.casefold()
+        if lowered == "true":
+            value = True
+        elif lowered == "false":
+            value = False
+        elif lowered == "null":
+            value = None
+        else:
+            try:
+                number = json.loads(raw_value)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            else:
+                if isinstance(number, (int, float)) and not isinstance(number, bool):
+                    value = number
+        options[key] = value
+    return options
+
+
+def _safe_engine_options(options: Mapping[str, Any]) -> dict[str, Any]:
+    """Redact option values whose names indicate credentials before JSON output."""
+    secret_markers = (
+        "api_key",
+        "apikey",
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "auth",
+        "access_key",
+        "private_key",
+        "bearer",
+    )
+    return {
+        key: "<redacted>" if any(marker in key.casefold() for marker in secret_markers) else value
+        for key, value in options.items()
+    }
+
+
 @dataclass(frozen=True)
 class TranscriptWord:
     text: str
@@ -135,6 +232,7 @@ class BenchmarkResult:
     language: str = ""
     engine: str = ""
     model: str = ""
+    engine_options: Mapping[str, Any] = field(default_factory=dict)
     voice: str = ""
     voice_ref: str | None = None
     resolved_language: str | None = None
@@ -590,6 +688,7 @@ def run_case(
     redux: Transcriber,
     source_path: Path | None = None,
     engine_device: str | None = None,
+    engine_options: Mapping[str, Any] | None = None,
     pass_wer: float = DEFAULT_PASS_WER,
     pass_cer: float = DEFAULT_PASS_CER,
     fail_wer: float = DEFAULT_FAIL_WER,
@@ -602,11 +701,15 @@ def run_case(
     """
     started = perf_counter()
     timings: dict[str, float] = {}
+    resolved_engine_options = dict(engine_options or {})
+    if engine_device is not None:
+        resolved_engine_options["device"] = engine_device
     failure_stage = "configuration"
     values: dict[str, Any] = {
         "case": case.name,
         "language": language,
         "engine": engine,
+        "engine_options": _safe_engine_options(resolved_engine_options),
         "model": model,
         "voice": voice,
         "redux_model": getattr(redux, "model", DEFAULT_REDUX_MODEL),
@@ -651,7 +754,7 @@ def run_case(
             voice_entry = _field(voice_resolution, "catalog_entry")
             resolved_ref = _field(voice_resolution, "ref") or _field(voice_entry, "ref") or voice
             resolved_voice = _field(voice_resolution, "voice") or _field(voice_entry, "id")
-            engine_options = {"device": engine_device} if engine_device is not None else {}
+            engine_options = resolved_engine_options
             request = SynthesisRequest(
                 language=language,
                 engine=engine,

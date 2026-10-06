@@ -560,6 +560,51 @@ def test_pocket_generation_options_validate_before_catalog_or_runtime(monkeypatc
     assert runtime.close_calls == 0
 
 
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    (
+        (None, {}),
+        ({"temperature": 0.3}, {"temperature": 0.3}),
+        ({"temperature": 0.0}, {"temperature": 0.0}),
+        ({"frames_after_eos": 0}, {"frames_after_eos": 0}),
+        (
+            {
+                "temperature": 0.3,
+                "lsd_steps": 4,
+                "max_frames": 120,
+                "frames_after_eos": 0,
+            },
+            {
+                "temperature": 0.3,
+                "lsd_steps": 4,
+                "max_frames": 120,
+                "frames_after_eos": 0,
+            },
+        ),
+    ),
+)
+def test_pocket_generation_defaults_and_explicit_overrides_are_symmetric(
+    monkeypatch, options, expected
+):
+    pocketsynth, _runtime = _install_fakes(monkeypatch)
+    generation_config = pocketsynth.GenerationConfig
+    calls = []
+
+    def recording_generation_config(**kwargs):
+        calls.append(kwargs)
+        return generation_config(**kwargs)
+
+    monkeypatch.setattr(pocketsynth, "GenerationConfig", recording_generation_config)
+    adapter = PocketSynthEngineAdapter()
+    selection, _ = adapter.resolve(_request(options=options))
+
+    assert adapter.validate_selection(selection) == ()
+    with adapter.open(selection) as session:
+        assert session._generation is not None
+
+    assert calls == [expected, expected]
+
+
 def test_pocket_session_reuses_prepared_voices_and_uses_one_strict_call_per_request(
     monkeypatch,
 ):
@@ -875,8 +920,8 @@ def test_pocket_extra_uses_a_published_runtime_release():
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     extras = pyproject["project"]["optional-dependencies"]
 
-    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.3,<0.3"]
-    assert any("pocketsynth[cpu]>=0.2.3,<0.3" in item for item in extras["all"])
+    assert extras["pocket"] == ["pocketsynth[cpu]>=0.2.5,<0.3"]
+    assert any("pocketsynth[cpu]>=0.2.5,<0.3" in item for item in extras["all"])
 
 
 def test_pocket_canonical_identity_uses_public_runtime_identity(monkeypatch):

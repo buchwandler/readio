@@ -27,7 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 kokoro = ['pykokoro>=0.10.2,<0.11']
 piper = ['pipersynth>=0.2.1,<0.3']
-pocket = ['pocketsynth[cpu]>=0.2.3,<0.3']
+pocket = ['pocketsynth[cpu]>=0.2.5,<0.3']
 kitten = ['kittensynth[cpu]>=0.1.1,<0.2']
 supertonic = ['supertonicsynth[cpu]>=0.1.2,<0.2']
 spacy = ['utterplan[spacy]>=0.3.6,<0.4']
@@ -36,7 +36,7 @@ benchmark = ["moondream>=2.4"]
 all = [
   'pykokoro>=0.10.2,<0.11',
   'pipersynth>=0.2.1,<0.3',
-  'pocketsynth[cpu]>=0.2.3,<0.3',
+  'pocketsynth[cpu]>=0.2.5,<0.3',
   'kittensynth[cpu]>=0.1.1,<0.2',
   'supertonicsynth[cpu]>=0.1.2,<0.2',
   'utterplan[spacy]>=0.3.6,<0.4',

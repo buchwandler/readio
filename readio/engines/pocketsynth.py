@@ -60,6 +60,20 @@ POCKET_OPTION_NAMES = frozenset(
 _GENERATION_OPTION_NAMES = frozenset({"temperature", "lsd_steps", "max_frames", "frames_after_eos"})
 
 
+def _generation_config(module: Any, options: Mapping[str, Any]) -> Any:
+    """Build Pocket generation configuration from explicit request overrides only."""
+    kwargs: dict[str, Any] = {}
+    if "temperature" in options:
+        kwargs["temperature"] = float(options["temperature"])
+    if "lsd_steps" in options:
+        kwargs["lsd_steps"] = int(options["lsd_steps"])
+    if "max_frames" in options:
+        kwargs["max_frames"] = options["max_frames"]
+    if "frames_after_eos" in options:
+        kwargs["frames_after_eos"] = options["frames_after_eos"]
+    return module.GenerationConfig(**kwargs)
+
+
 class PocketSelectionError(ValueError):
     def __init__(self, code: str, message: str, field: str) -> None:
         super().__init__(message)
@@ -919,12 +933,7 @@ class PocketSynthEngineAdapter:
                 ),
             )
         try:
-            pocketsynth.GenerationConfig(
-                temperature=float(selection.options.get("temperature", 0.7)),
-                lsd_steps=int(selection.options.get("lsd_steps", 1)),
-                max_frames=selection.options.get("max_frames"),
-                frames_after_eos=selection.options.get("frames_after_eos"),
-            )
+            _generation_config(pocketsynth, selection.options)
         except (TypeError, ValueError) as exc:
             return (
                 PlanDiagnostic(
@@ -1104,12 +1113,7 @@ class PocketSynthEngineAdapter:
 
         options = dict(selection.options)
         try:
-            generation = pocketsynth.GenerationConfig(
-                temperature=float(options.get("temperature", 0.7)),
-                lsd_steps=int(options.get("lsd_steps", 1)),
-                max_frames=options.get("max_frames"),
-                frames_after_eos=options.get("frames_after_eos"),
-            )
+            generation = _generation_config(pocketsynth, options)
             voice_level = pocketsynth.VoiceLevelConfig(mode=options.get("voice_level", "off"))
             bundle = _manager(options=options, offline=selection.offline).resolve_bundle(
                 selection.target_id,
