@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = [
   "numpy>=1.23",
-  "utterplan>=0.3.6,<0.4",
+  "utterplan>=0.4.0,<0.5",
   "audiocompose>=0.2.0,<0.3",
   "ssmd>=0.9.3,<0.10",
   "ssmdconvert>=0.1.3,<0.2",
@@ -30,7 +30,7 @@ piper = ['pipersynth>=0.2.1,<0.3']
 pocket = ['pocketsynth[cpu]>=0.2.5,<0.3']
 kitten = ['kittensynth[cpu]>=0.1.1,<0.2']
 supertonic = ['supertonicsynth[cpu]>=0.1.2,<0.2']
-spacy = ['utterplan[spacy]>=0.3.6,<0.4']
+spacy = ['utterplan[spacy]>=0.4.0,<0.5']
 documents = ["ssmdconvert[pdf,docx]>=0.1.3,<0.2"]
 benchmark = ["moondream>=2.4"]
 all = [
@@ -39,7 +39,7 @@ all = [
   'pocketsynth[cpu]>=0.2.5,<0.3',
   'kittensynth[cpu]>=0.1.1,<0.2',
   'supertonicsynth[cpu]>=0.1.2,<0.2',
-  'utterplan[spacy]>=0.3.6,<0.4',
+  'utterplan[spacy]>=0.4.0,<0.5',
 ]
 cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu>=1.17"]

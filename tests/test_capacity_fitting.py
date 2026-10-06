@@ -12,7 +12,7 @@ from readio.engines.base import (
     SpeechWordTiming,
 )
 from readio.errors import EngineBackendError, SpeechRequestTooLongError
-from readio.rendering import render_atomic_request
+from readio.rendering import CapacityContext, RequestBoundary, render_atomic_request
 
 
 class _MeasuredSession:
@@ -140,6 +140,125 @@ def test_capacity_fitting_uses_clause_fallback_before_words():
     assert all("," in child.text for child in session.calls[:-1])
     assert "".join(child.text for child in session.calls) == request.text
     assert all(item.measure.fits is True for item in rendered.requests)
+
+
+def test_planned_capacity_prefers_semantic_clause_and_records_provenance() -> None:
+    text = "Dr. Smith arrived early, while the audience waited quietly."
+    position = text.index(", ") + 2
+    boundary = RequestBoundary(
+        position=position,
+        kind="clause",
+        semantic_boundary_id="semantic-boundary-000004",
+        origin="phrasplit",
+    )
+    capacity = CapacityContext(
+        semantic_boundaries=(boundary,),
+        planned_semantics=True,
+    )
+    session = _MeasuredSession(34)
+
+    rendered = render_atomic_request(session, _request(text), capacity=capacity)
+
+    assert [child.text for child in session.calls] == [text[:position], text[position:]]
+    assert [child.text for child in session.calls] != ["Dr. ", text[4:]]
+    split = rendered.manifest["requests"][0]["split"]
+    assert rendered.manifest["schema"] == "readio.atomic-lowering.v2"
+    assert rendered.manifest["capacity_schema"] == "readio.capacity-fitting.v2"
+    assert split == {
+        "reason": "model_capacity",
+        "boundary_kind": "semantic_clause",
+        "source": "utterplan",
+        "semantic_boundary_id": "semantic-boundary-000004",
+        "origin": "phrasplit",
+    }
+    assert "".join(child.text for child in session.calls) == text
+
+
+def test_planned_capacity_uses_clause_punctuation_when_semantics_are_unavailable() -> None:
+    text = "Dr. Smith arrived early, while the audience waited quietly."
+    position = text.index(", ") + 2
+    session = _MeasuredSession(34)
+
+    rendered = render_atomic_request(
+        session,
+        _request(text),
+        capacity=CapacityContext(planned_semantics=True),
+    )
+
+    assert session.calls[0].text == text[:position]
+    assert rendered.manifest["requests"][0]["split"] == {
+        "reason": "model_capacity",
+        "boundary_kind": "punctuation_clause",
+        "source": "readio.heuristic",
+    }
+
+
+def test_planned_capacity_uses_independent_linguistic_token_ranges() -> None:
+    request = _request("alpha beta gamma")
+    capacity = CapacityContext(
+        linguistic_token_ranges=((0, 5), (6, 10), (11, 16)),
+        planned_semantics=True,
+    )
+    session = _MeasuredSession(10)
+
+    rendered = render_atomic_request(session, request, capacity=capacity)
+
+    assert request.tokens == ()
+    assert [child.text for child in session.calls] == ["alpha ", "beta gamma"]
+    assert rendered.manifest["requests"][0]["split"] == {
+        "reason": "model_capacity",
+        "boundary_kind": "token_edge",
+        "source": "utterplan",
+    }
+    assert "".join(child.text for child in session.calls) == request.text
+
+
+def test_planned_capacity_disables_arbitrary_character_fallback() -> None:
+    request = _request("longword")
+    session = _MeasuredSession(4)
+
+    with pytest.raises(SpeechRequestTooLongError, match="no legal source-text split boundary"):
+        render_atomic_request(
+            session,
+            request,
+            capacity=CapacityContext(planned_semantics=True),
+        )
+
+    assert session.calls == []
+
+
+def test_planned_semantic_boundary_inside_pronunciation_span_is_rejected() -> None:
+    text = "red blue green"
+    boundary = RequestBoundary(
+        position=6,
+        kind="clause",
+        semantic_boundary_id="semantic-boundary-000005",
+        origin="phrasplit",
+    )
+    request = _request(
+        text,
+        pronunciation_overrides=(
+            PronunciationSpan(start=4, end=8, phonemes="bluː", alphabet="ipa"),
+        ),
+    )
+    capacity = CapacityContext(
+        semantic_boundaries=(boundary,),
+        planned_semantics=True,
+    )
+    session = _MeasuredSession(8)
+
+    rendered = render_atomic_request(session, request, capacity=capacity)
+
+    assert [child.text for child in session.calls] == ["red ", "blue ", "green"]
+    override_children = [child for child in session.calls if child.pronunciation_overrides]
+    assert len(override_children) == 1
+    override = override_children[0].pronunciation_overrides[0]
+    assert override_children[0].text[override.start : override.end] == "blue"
+    assert all(
+        item["split"].get("semantic_boundary_id") != boundary.semantic_boundary_id
+        for item in rendered.manifest["requests"]
+    )
+    assert "".join(child.text for child in session.calls) == text
 
 
 def test_capacity_fitting_preserves_leading_trailing_and_repeated_whitespace():

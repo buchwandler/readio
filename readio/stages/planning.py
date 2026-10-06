@@ -23,11 +23,12 @@ from ..jsonutil import JsonValue
 from ..planning import (
     SUPPORTED_UTTERPLAN_SCHEMA_VERSION,
     CompiledSemanticPlan,
+    LegacyPlanArtifactError,
     PlanningPolicy,
     PlanSchemaMismatchError,
     UtterancePlan,
     compile_semantic_plan,
-    load_utterplan_v3,
+    load_current_utterplan,
     serialize_utterplan,
 )
 from ..project import (
@@ -310,11 +311,11 @@ def compile_project_scope(
             )
         )
     relative = (
-        Path("document.utterplan.json")
+        Path("document.utterplan.toml")
         if scope.id == "document" and scope.kind == "document"
-        else Path("chapters") / f"{scope.id}.utterplan.json"
+        else Path("chapters") / f"{scope.id}.utterplan.toml"
     )
-    serialized = resolved.compiled.serialized or resolved.compiled.plan.to_json().encode("utf-8")
+    serialized = resolved.compiled.serialized or serialize_utterplan(resolved.compiled.plan)
     input_path = (
         project.workspace_path(scope.path)
         if project.manifest.schema_version == 4
@@ -564,7 +565,14 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
 def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
     artifact_path = project.state_root / "plan" / scope.path
     try:
-        return load_utterplan_v3(artifact_path)
+        return load_current_utterplan(artifact_path)
+    except LegacyPlanArtifactError as error:
+        raise InvalidStoredPlanError(
+            scope_id=scope.id,
+            scope_path=scope.path,
+            artifact_path=artifact_path,
+            validation_code="legacy_format",
+        ) from error
     except PlanSchemaMismatchError as error:
         raise InvalidStoredPlanError(
             scope_id=scope.id,
@@ -653,7 +661,19 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                     "reason": "plan.artifact.hash_mismatch",
                     "details": {"scope_id": scope.id},
                 }
-            plan = load_utterplan_v3(path)
+            if scope.path.casefold().endswith(".utterplan.json"):
+                return {
+                    "state": "stale",
+                    "reason": "plan.artifact.legacy_format",
+                    "details": {
+                        "scope_id": scope.id,
+                        "stored_format": "json",
+                        "required_format": "toml",
+                        "required_schema": SUPPORTED_UTTERPLAN_SCHEMA_VERSION,
+                        "action": "run readio plan",
+                    },
+                }
+            plan = load_current_utterplan(path)
         except PlanSchemaMismatchError as exc:
             return {
                 "state": "stale",
@@ -900,14 +920,15 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "LegacyPlanArtifactError",
     "PlanSchemaMismatchError",
     "PlannedScope",
     "ProjectPlanningResult",
     "ResolvedSemanticPlanning",
     "compile_project_scope",
+    "load_current_utterplan",
     "load_primary_scope_plan",
     "load_scope_plan",
-    "load_utterplan_v3",
     "plan_document",
     "plan_project",
     "plan_project_scope",

@@ -142,7 +142,7 @@ def render_live(
     from .engines.base import SpeechRequest
     from .engines.registry import get_engine
     from .engines.selection import EngineRequest
-    from .rendering import render_atomic_request
+    from .rendering import CapacityContext, render_atomic_request
 
     config = _config(cfg)
     resolved = synthesis or resolve_synthesis(config)
@@ -204,6 +204,7 @@ def render_live(
                     speaker=selection.speaker,
                     options=dict(selection.options),
                 ),
+                capacity=CapacityContext(planned_semantics=False),
             ).result
             audio = np.asarray(rendered.audio)
             rendered_channels = 1 if audio.ndim == 1 else int(audio.shape[1])

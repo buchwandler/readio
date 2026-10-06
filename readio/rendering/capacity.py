@@ -19,9 +19,32 @@ from ..engines.base import (
 )
 from ..errors import EngineBackendError, SpeechRequestTooLongError
 from ..jsonutil import json_value
+from .lowering import RequestBoundary
 
-LOWERING_SCHEMA = "readio.atomic-lowering.v1"
-CAPACITY_SCHEMA = "readio.capacity-fitting.v1"
+LOWERING_SCHEMA = "readio.atomic-lowering.v2"
+CAPACITY_SCHEMA = "readio.capacity-fitting.v2"
+
+
+@dataclass(frozen=True, slots=True)
+class CapacityContext:
+    """Readio-owned planning hints for request-capacity subdivision."""
+
+    semantic_boundaries: tuple[RequestBoundary, ...] = ()
+    linguistic_token_ranges: tuple[tuple[int, int], ...] = ()
+    protected_ranges: tuple[tuple[int, int], ...] = ()
+    planned_semantics: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CapacityBoundary:
+    """One legal split candidate with priority and provenance."""
+
+    position: int
+    priority: int
+    kind: str
+    source: str
+    semantic_boundary_id: str | None = None
+    origin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +58,7 @@ class AtomicRequest:
     char_end: int
     measure: RequestMeasure | None = None
     render: Mapping[str, Any] = field(default_factory=dict)
+    split: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         measure = self.measure
@@ -72,6 +96,7 @@ class AtomicRequest:
                 else None
             ),
             "render": json_value(self.render),
+            "split": json_value(self.split),
         }
 
 
@@ -98,16 +123,26 @@ class _RenderedChild:
     end: int
     measure: RequestMeasure
     result: RenderedSpeech
+    split: Mapping[str, Any] = field(default_factory=dict)
 
 
 def render_atomic_request(
     session: Any,
     request: SpeechRequest,
     *,
+    capacity: CapacityContext | None = None,
     protected_ranges: Iterable[tuple[int, int]] = (),
 ) -> AtomicRender:
     """Measure, fit, render, and merge one exact Readio speech request."""
-    protected = _collect_protected_ranges(request, protected_ranges)
+    capacity_context = capacity if capacity is not None else CapacityContext()
+    protected = _collect_protected_ranges(
+        request,
+        (
+            *capacity_context.linguistic_token_ranges,
+            *capacity_context.protected_ranges,
+            *protected_ranges,
+        ),
+    )
     measured: dict[tuple[int, int], RequestMeasure] = {}
 
     def child_request(start: int, end: int) -> SpeechRequest:
@@ -143,38 +178,67 @@ def render_atomic_request(
         measured[key] = result
         return result
 
-    def render_range(start: int, end: int) -> list[_RenderedChild]:
+    def render_range(
+        start: int,
+        end: int,
+        split_context: Mapping[str, Any] | None = None,
+    ) -> list[_RenderedChild]:
         candidate = child_request(start, end)
-        capacity = measure_range(start, end)
-        if capacity.fits is not False:
+        capacity_measure = measure_range(start, end)
+        if capacity_measure.fits is not False:
             try:
                 result = session.synthesize(candidate)
             except SpeechRequestTooLongError as exc:
-                capacity = _measure_from_error(exc, candidate, "synthesis.too_long")
-                measured[(start, end)] = capacity
+                capacity_measure = _measure_from_error(exc, candidate, "synthesis.too_long")
+                measured[(start, end)] = capacity_measure
             else:
                 validate_rendered_speech(candidate, result)
-                return [_RenderedChild(candidate, start, end, capacity, result)]
+                return [
+                    _RenderedChild(
+                        candidate,
+                        start,
+                        end,
+                        capacity_measure,
+                        result,
+                        dict(split_context or {}),
+                    )
+                ]
         if request.whole_request_phonemes is not None:
             raise _capacity_error(
                 candidate,
-                capacity,
+                capacity_measure,
                 "whole-request phonemes cannot be subdivided safely",
             )
-        boundaries = _candidate_boundaries(request, start, end, protected)
+        boundaries = _candidate_boundaries(
+            request,
+            start,
+            end,
+            protected,
+            capacity_context,
+        )
         if not boundaries:
-            raise _capacity_error(candidate, capacity, "no legal source-text split boundary")
-        split = _choose_boundary(
+            raise _capacity_error(
+                candidate, capacity_measure, "no legal source-text split boundary"
+            )
+        split_boundary = _choose_boundary(
             request,
             start,
             end,
             boundaries,
-            capacity,
+            capacity_measure,
             measure_range,
         )
-        if split <= start or split >= end:
-            raise _capacity_error(candidate, capacity, "no legal source-text split boundary")
-        return render_range(start, split) + render_range(split, end)
+        split_position = split_boundary.position
+        if split_position <= start or split_position >= end:
+            raise _capacity_error(
+                candidate, capacity_measure, "no legal source-text split boundary"
+            )
+        split_provenance = _split_provenance(split_boundary)
+        return render_range(start, split_position, split_provenance) + render_range(
+            split_position,
+            end,
+            split_provenance,
+        )
 
     children = render_range(0, len(request.text))
     if "".join(child.request.text for child in children) != request.text:
@@ -194,6 +258,7 @@ def render_atomic_request(
                 "warnings": list(child.result.warnings),
                 "metadata": json_value(child.result.metadata),
             },
+            split=child.split,
         )
         for index, child in enumerate(children)
     )
@@ -264,18 +329,53 @@ def _candidate_boundaries(
     start: int,
     end: int,
     protected: tuple[tuple[int, int], ...],
-) -> dict[int, int]:
+    capacity: CapacityContext,
+) -> tuple[CapacityBoundary, ...]:
     text = request.text
-    priorities: dict[int, int] = {}
+    candidates: dict[int, CapacityBoundary] = {}
+    planned = capacity.planned_semantics
 
-    def add(position: int, priority: int) -> None:
+    def add(
+        position: int,
+        priority: int,
+        kind: str,
+        source: str = "readio.heuristic",
+        *,
+        semantic_boundary_id: str | None = None,
+        origin: str | None = None,
+    ) -> None:
         if not start < position < end:
             return
         if any(left < position < right for left, right in protected):
             return
         if not text[start:position].strip() or not text[position:end].strip():
             return
-        priorities[position] = min(priority, priorities.get(position, priority))
+        candidate = CapacityBoundary(
+            position=position,
+            priority=priority,
+            kind=kind,
+            source=source,
+            semantic_boundary_id=semantic_boundary_id,
+            origin=origin,
+        )
+        existing = candidates.get(position)
+        if existing is None or _prefer_candidate(candidate, existing):
+            candidates[position] = candidate
+
+    if planned:
+        semantic_priorities = {"clause": 0, "parenthetical": 1}
+        for boundary in capacity.semantic_boundaries:
+            priority = semantic_priorities.get(boundary.kind)
+            if priority is None:
+                continue
+            add(
+                boundary.position,
+                priority,
+                f"semantic_{boundary.kind}",
+                "utterplan",
+                semantic_boundary_id=boundary.semantic_boundary_id,
+                origin=boundary.origin,
+            )
 
     index = start
     while index < end:
@@ -283,23 +383,24 @@ def _candidate_boundaries(
             position = index + 1
             while position < end and text[position] in "\r\n":
                 position += 1
-            add(position, 0)
+            add(position, 2 if planned else 0, "newline")
             index = position
             continue
         index += 1
 
-    sentence_marks = ".!?。！？"
-    closing = "\"'’”»)]}"
-    index = start
-    while index < end:
-        if text[index] in sentence_marks:
-            position = index + 1
-            while position < end and text[position] in sentence_marks + closing:
-                position += 1
-            while position < end and text[position] in " \t":
-                position += 1
-            add(position, 1)
-        index += 1
+    if not planned:
+        sentence_marks = ".!?。！？"
+        closing = "\"'’”»)]}"
+        index = start
+        while index < end:
+            if text[index] in sentence_marks:
+                position = index + 1
+                while position < end and text[position] in sentence_marks + closing:
+                    position += 1
+                while position < end and text[position] in " \t":
+                    position += 1
+                add(position, 1, "sentence_punctuation")
+            index += 1
 
     clause_marks = ";:,，；：、"
     index = start
@@ -308,12 +409,20 @@ def _candidate_boundaries(
             position = index + 1
             while position < end and text[position] in " \t":
                 position += 1
-            add(position, 2)
+            add(
+                position,
+                3 if planned else 2,
+                "punctuation_clause",
+            )
         index += 1
 
+    token_priority = 4 if planned else 3
+    for token_start, token_end in capacity.linguistic_token_ranges:
+        add(token_start, token_priority, "token_edge", "utterplan")
+        add(token_end, token_priority, "token_edge", "utterplan")
     for token in request.tokens:
-        add(token.start, 3)
-        add(token.end, 3)
+        add(token.start, token_priority, "token_edge", "request.tokens")
+        add(token.end, token_priority, "token_edge", "request.tokens")
 
     index = start
     while index < end:
@@ -321,45 +430,70 @@ def _candidate_boundaries(
             position = index + 1
             while position < end and text[position].isspace():
                 position += 1
-            add(position, 4)
+            add(position, 5 if planned else 4, "whitespace")
             index = position
             continue
         index += 1
 
-    for position in range(start + 1, end):
-        add(position, 5)
-    return priorities
+    if not planned:
+        for position in range(start + 1, end):
+            add(position, 5, "character")
+    return tuple(
+        sorted(
+            candidates.values(),
+            key=lambda candidate: (candidate.priority, candidate.position, candidate.kind),
+        )
+    )
+
+
+def _prefer_candidate(candidate: CapacityBoundary, current: CapacityBoundary) -> bool:
+    if candidate.priority != current.priority:
+        return candidate.priority < current.priority
+    if candidate.source == "utterplan" and current.source != "utterplan":
+        return True
+    if current.source == "utterplan" and candidate.source != "utterplan":
+        return False
+    return (candidate.kind, candidate.semantic_boundary_id or "") < (
+        current.kind,
+        current.semantic_boundary_id or "",
+    )
 
 
 def _choose_boundary(
     request: SpeechRequest,
     start: int,
     end: int,
-    boundaries: Mapping[int, int],
+    boundaries: tuple[CapacityBoundary, ...],
     parent_measure: RequestMeasure,
     measure_range: Any,
-) -> int:
-    groups: dict[int, list[int]] = {}
-    for position, priority in boundaries.items():
-        groups.setdefault(priority, []).append(position)
-    ordered_groups = [sorted(groups[priority]) for priority in sorted(groups)]
+) -> CapacityBoundary:
+    groups: dict[int, list[CapacityBoundary]] = {}
+    for boundary in boundaries:
+        groups.setdefault(boundary.priority, []).append(boundary)
+    ordered_groups = [
+        sorted(groups[priority], key=lambda boundary: boundary.position)
+        for priority in sorted(groups)
+    ]
     fallback = min(
         ordered_groups[0],
-        key=lambda position: (abs(position - (start + end) / 2), position),
+        key=lambda boundary: (
+            abs(boundary.position - (start + end) / 2),
+            boundary.position,
+        ),
     )
     if parent_measure.fits is None:
         return fallback
 
-    for positions in ordered_groups:
+    for boundaries_at_priority in ordered_groups:
         low = 0
-        high = len(positions) - 1
+        high = len(boundaries_at_priority) - 1
         while low <= high:
             middle = (low + high) // 2
-            position = positions[middle]
-            left = measure_range(start, position)
-            right = measure_range(position, end)
+            boundary = boundaries_at_priority[middle]
+            left = measure_range(start, boundary.position)
+            right = measure_range(boundary.position, end)
             if left.fits is True and right.fits is True:
-                return position
+                return boundary
             if left.fits is None or right.fits is None:
                 break
             if left.fits is False and right.fits is True:
@@ -369,6 +503,19 @@ def _choose_boundary(
             else:
                 break
     return fallback
+
+
+def _split_provenance(boundary: CapacityBoundary) -> dict[str, Any]:
+    provenance: dict[str, Any] = {
+        "reason": "model_capacity",
+        "boundary_kind": boundary.kind,
+        "source": boundary.source,
+    }
+    if boundary.semantic_boundary_id is not None:
+        provenance["semantic_boundary_id"] = boundary.semantic_boundary_id
+    if boundary.origin is not None:
+        provenance["origin"] = boundary.origin
+    return provenance
 
 
 def _measure_from_error(
@@ -477,5 +624,7 @@ __all__ = [
     "LOWERING_SCHEMA",
     "AtomicRender",
     "AtomicRequest",
+    "CapacityBoundary",
+    "CapacityContext",
     "render_atomic_request",
 ]

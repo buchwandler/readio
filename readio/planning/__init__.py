@@ -6,10 +6,11 @@ from engine-specific planner configurations.
 
 from .compiler import (
     CompiledSemanticPlan,
+    LegacyPlanArtifactError,
     PlanSchemaMismatchError,
     UtterancePlan,
     compile_semantic_plan,
-    load_utterplan_v3,
+    load_current_utterplan,
     serialize_utterplan,
 )
 from .policy import PlanningPolicy
@@ -18,11 +19,12 @@ from .semantic import SUPPORTED_UTTERPLAN_SCHEMA_VERSION, SemanticPlanningServic
 __all__ = [
     "SUPPORTED_UTTERPLAN_SCHEMA_VERSION",
     "CompiledSemanticPlan",
+    "LegacyPlanArtifactError",
     "PlanSchemaMismatchError",
     "PlanningPolicy",
     "SemanticPlanningService",
     "UtterancePlan",
     "compile_semantic_plan",
-    "load_utterplan_v3",
+    "load_current_utterplan",
     "serialize_utterplan",
 ]

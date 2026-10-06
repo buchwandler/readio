@@ -206,13 +206,13 @@ def test_wrong_semantic_plan_format_is_stale_with_actionable_reason(tmp_path):
     source.write_text("Hello.", encoding="utf-8")
     project = init_project(source, tmp_path / "episode.readio")
     plan_project(project, ReadioConfig())
-    plan_path = project.root / "plan" / "document.utterplan.json"
+    plan_path = project.root / "plan" / "document.utterplan.toml"
     from utterplan import UtterancePlan
 
     plan = UtterancePlan.load(plan_path)
     plan.config["document_format"] = "plain"
     plan = plan.with_identity()
-    plan_path.write_text(plan.to_json(), encoding="utf-8")
+    plan_path.write_text(plan.to_toml(), encoding="utf-8")
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
     import hashlib
 
@@ -274,7 +274,7 @@ def test_project_planning_plans_all_document_scopes_and_tracks_input_hashes(tmp_
     assert [item.id for item in initial] == ["chapter-0002", "chapter-0003"]
     assert all(item.document_sha256 for item in initial)
     assert all(item.plan_id for item in initial)
-    assert all(load_scope_plan(project, item).schema_version == 3 for item in initial)
+    assert all(load_scope_plan(project, item).schema_version == 4 for item in initial)
 
     project.path("document/chapters/chapter-0003.md").write_text(
         "# Chapter Three\n\nUpdated text.", encoding="utf-8"
@@ -416,7 +416,7 @@ def test_nonrenderable_stored_plan_status_recommends_rebuild(tmp_path):
         segments=(replace(first, text=punctuation), *plan.segments[1:]),
     ).with_identity()
     artifact_path = project.state_root / "plan" / scope.path
-    artifact_path.write_text(invalid_plan.to_json(), encoding="utf-8")
+    artifact_path.write_text(invalid_plan.to_toml(), encoding="utf-8")
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
     index["scopes"][0]["plan_id"] = invalid_plan.plan_id
     index["scopes"][0]["sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
@@ -429,3 +429,45 @@ def test_nonrenderable_stored_plan_status_recommends_rebuild(tmp_path):
     assert plan_status.details["validation_code"] == "segment.not_renderable"
     assert plan_status.details["action"] == "readio plan build ."
     assert status.next_actions[0].command == "readio plan build ."
+
+
+def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
+    import hashlib
+
+    from readio.stages.planning import load_scope_plan
+
+    config = ReadioConfig(reader=ReaderSettings(spacy="off"))
+    source = tmp_path / "old-project.txt"
+    source.write_text("A sentence that needs a fresh plan.", encoding="utf-8")
+    project = init_project(source, tmp_path / "old-project.readio")
+    plan_project(project, config)
+
+    legacy_path = project.state_root / "plan" / "document.utterplan.json"
+    legacy_bytes = b'{"format":"utterplan","schema_version":3}'
+    legacy_path.write_bytes(legacy_bytes)
+    index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
+    index["scopes"][0]["path"] = "document.utterplan.json"
+    index["scopes"][0]["sha256"] = hashlib.sha256(legacy_bytes).hexdigest()
+    project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
+
+    row = semantic_status(project)[-1]
+    assert row["state"] == "stale"
+    assert row["reason"] == "plan.artifact.legacy_format"
+    assert row["stored_format"] == "json"
+    assert row["required_format"] == "toml"
+    assert row["required_schema"] == 4
+    assert row["action"] == "run readio plan"
+    assert Readio(config).projects.status(project.root).next_actions[0].command == (
+        "readio plan build ."
+    )
+
+    plan_project(project, config)
+
+    scope = project.load_plan_index().scopes[0]
+    artifact_path = project.state_root / "plan" / scope.path
+    assert scope.path == "document.utterplan.toml"
+    assert artifact_path.is_file()
+    assert hashlib.sha256(artifact_path.read_bytes()).hexdigest() == scope.sha256
+    assert load_scope_plan(project, scope).schema_version == 4
+    assert legacy_path.read_bytes() == legacy_bytes
+    assert semantic_status(project)[-1]["state"] == "current"

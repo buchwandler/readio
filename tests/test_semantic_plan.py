@@ -113,22 +113,24 @@ class TestSemanticPlanIdentityAcousticInvariant:
     """
 
     def test_planner_is_called_once_and_plan_identity_is_canonical(self, monkeypatch) -> None:
-        from utterplan import UtterancePlanner as UpstreamPlanner
-
         import readio.planning.semantic as semantic_module
 
+        upstream_compile_document = semantic_module.compile_document
         calls = []
 
-        class CountingPlanner(UpstreamPlanner):
-            def plan(self, text, **kwargs):
-                calls.append((text, kwargs))
-                return super().plan(text)
+        def counting_compile_document(text, **kwargs):
+            calls.append((text, kwargs))
+            return upstream_compile_document(text, **kwargs)
 
-        monkeypatch.setattr(semantic_module, "UtterancePlanner", CountingPlanner)
+        monkeypatch.setattr(semantic_module, "compile_document", counting_compile_document)
         result = compile_semantic_plan(_make_document("Hello world."), planning=_make_policy())
 
         assert len(calls) == 1
-        assert calls[0] == ("Hello world.", {})
+        text, kwargs = calls[0]
+        assert text == "Hello world."
+        assert kwargs["input_format"] == "plain"
+        assert kwargs["trace"] is False
+        assert kwargs["on_progress"] is None
         assert result.plan_id == result.plan.plan_id
 
     def test_document_planning_defaults_to_spokenform(self) -> None:

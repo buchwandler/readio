@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from utterplan import AnnotationSpan, PlannerConfig, UtterancePlanner
+from utterplan import AnnotationSpan, PauseConfig, PlannerConfig, SemanticBoundary, UtterancePlanner
 
 from readio.engines.base import (
     EngineCapabilities,
@@ -13,13 +13,19 @@ from readio.engines.base import (
 from readio.rendering.lowering import LoweringError, lower_segment
 
 
-def _plan(text: str, *, document_format: str = "plain"):
+def _plan(
+    text: str,
+    *,
+    document_format: str = "plain",
+    pause_enabled: bool = True,
+):
     return UtterancePlanner(
         PlannerConfig(
             language="en-us",
             document_format=document_format,
             text_preparation="identity",
             unit="sentence",
+            pauses=PauseConfig(enabled=pause_enabled),
         )
     ).plan(text)
 
@@ -60,6 +66,51 @@ def test_lower_segment_preserves_text_and_rebases_tokens() -> None:
     for token in lowered.request.tokens:
         assert segment.text[token.start : token.end] == token.text
         assert 0 <= token.start <= token.end <= len(segment.text)
+
+
+@pytest.mark.parametrize("kind", ["clause", "parenthetical"])
+def test_lower_segment_rebases_semantic_boundaries_without_pause_dependency(kind: str) -> None:
+    plan = _plan("I wanted to go, but it was raining.", pause_enabled=False)
+    segment = plan.segments[0]
+    position = segment.spoken_start + len("I wanted to go, ")
+    boundary = SemanticBoundary(
+        id="semantic-boundary-000000",
+        position=position,
+        kind=kind,
+        origin="phrasplit",
+    )
+    plan = replace(plan, semantic_boundaries=(boundary,))
+
+    lowered = lower_segment(plan, segment, _target(), _capabilities())
+
+    assert segment.pause_before.seconds == 0
+    assert segment.pause_after.seconds == 0
+    assert lowered.semantic_boundaries[0].position == len("I wanted to go, ")
+    assert lowered.semantic_boundaries[0].kind == kind
+    assert lowered.semantic_boundaries[0].semantic_boundary_id == boundary.id
+    assert lowered.semantic_boundaries[0].origin == "phrasplit"
+    left, right = (
+        segment.text[: lowered.semantic_boundaries[0].position],
+        segment.text[lowered.semantic_boundaries[0].position :],
+    )
+    assert left == "I wanted to go, "
+    assert right == "but it was raining."
+    assert left + right == segment.text
+
+
+def test_lower_segment_ignores_unknown_future_semantic_kind() -> None:
+    plan = _plan("A future boundary should not affect lowering.")
+    segment = plan.segments[0]
+    boundary = SemanticBoundary(
+        id="semantic-boundary-000000",
+        position=segment.spoken_start + 2,
+        kind="vendor_future_kind",
+    )
+    plan = replace(plan, semantic_boundaries=(boundary,))
+
+    lowered = lower_segment(plan, segment, _target(), _capabilities())
+
+    assert lowered.semantic_boundaries == ()
 
 
 def test_lower_segment_rebases_pronunciation_annotations() -> None:
@@ -129,6 +180,11 @@ def test_lower_segment_reports_unsupported_linguistic_tokens() -> None:
     lowered = lower_segment(plan, plan.segments[0], _target(), capabilities)
 
     assert lowered.request.tokens == ()
+    assert lowered.capacity_token_ranges
+    assert all(
+        0 <= start < end <= len(lowered.request.text)
+        for start, end in lowered.capacity_token_ranges
+    )
     assert lowered.diagnostics[0].code == "render.linguistic_tokens_unsupported"
 
 

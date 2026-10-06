@@ -117,7 +117,7 @@ def iter_synthesized_segments(
     if default_target is None:
         raise RenderError("resolved v2 plan has no default render target")
     role_targets = {binding.role: binding.target for binding in plan.render.role_bindings}
-    from .rendering import LoweringError, lower_segment, render_atomic_request
+    from .rendering import CapacityContext, LoweringError, lower_segment, render_atomic_request
     from .stages.composition import _markers_by_segment
 
     markers_by_segment = _markers_by_segment(resolved.semantic.plan)
@@ -142,7 +142,15 @@ def iter_synthesized_segments(
             if session is None:
                 session = stack.enter_context(adapter.open(selection))
                 sessions[key] = session
-            atomic = render_atomic_request(session, lowered.request)
+            atomic = render_atomic_request(
+                session,
+                lowered.request,
+                capacity=CapacityContext(
+                    semantic_boundaries=lowered.semantic_boundaries,
+                    linguistic_token_ranges=lowered.capacity_token_ranges,
+                    planned_semantics=True,
+                ),
+            )
             rendered = atomic.result
             if rendered.id != lowered.request.id:
                 raise RenderError(

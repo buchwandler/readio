@@ -800,9 +800,9 @@ def test_project_settings_survive_failed_build_and_retry(tmp_path: Path, monkeyp
     with pytest.raises(ProjectError, match="synthetic runtime failure"):
         app.projects.build(project)
     assert (project.root / "plan" / "index.json").is_file()
-    plan_data = json.loads(
-        (project.root / "plan" / "document.utterplan.json").read_text(encoding="utf-8")
-    )
+    from utterplan import UtterancePlan
+
+    plan_data = UtterancePlan.load(project.root / "plan" / "document.utterplan.toml").to_dict()
     assert plan_data["config"]["language"] == "fr-fr"
     assert manifest_path.read_bytes() == persisted
     assert app.projects.settings(project) == configured

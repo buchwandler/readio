@@ -6,15 +6,20 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from utterplan import CURRENT_SCHEMA_VERSION, PlannerProgressEvent, UtterancePlan, UtterancePlanner
+from utterplan import (
+    CURRENT_SCHEMA_VERSION,
+    PlannerProgressEvent,
+    UtterancePlan,
+    compile_document,
+)
 
 from .policy import PlanningPolicy
 
-SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 3
+SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 4
 if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
     raise RuntimeError(
-        "Readio supports Utterplan schema v3; "
-        f"installed Utterplan reports schema {CURRENT_SCHEMA_VERSION}"
+        "Readio requires UtterPlan semantic schema v4; "
+        f"installed UtterPlan reports schema {CURRENT_SCHEMA_VERSION}"
     )
 
 logger = logging.getLogger(__name__)
@@ -35,12 +40,14 @@ class SemanticPlanningService:
         on_progress: Callable[[PlannerProgressEvent], None] | None = None,
     ) -> UtterancePlan:
         """Compile text into the canonical UtterancePlan."""
-        planner = UtterancePlanner(policy.to_planner_config())
-        plan = (
-            planner.plan(text)
-            if on_progress is None
-            else planner.plan(text, on_progress=on_progress)
+        result = compile_document(
+            text,
+            input_format=policy.document_format,
+            config=policy.to_planner_config(),
+            trace=False,
+            on_progress=on_progress,
         )
+        plan = result.plan
         self._last_plan = plan
         self._last_provenance = {
             "plan_id": plan.plan_id,

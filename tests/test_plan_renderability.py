@@ -148,7 +148,7 @@ def test_unsafe_repair_failure_is_structured_and_writes_no_plan(tmp_path):
     assert caught.value.renderability_mode == "repair"
     assert [issue["reason"] for issue in caught.value.issues] == ["symbol_only"]
     assert not project.paths["plan_index"].exists()
-    assert not tuple((project.state_root / "plan").rglob("*.utterplan.json"))
+    assert not tuple((project.state_root / "plan").rglob("*.utterplan.toml"))
 
 
 def test_unicode_lexical_numbers_remain_renderable(tmp_path):

@@ -48,7 +48,7 @@ def test_plan_represents_semantics_render_target_environment_and_output():
     assert plan.schema == "readio.plan.v2"
     assert plan.input.source_kind == "stdin"
     assert plan.input.format == "text"
-    assert plan.semantic_plan.schema_version == 3
+    assert plan.semantic_plan.schema_version == 4
     assert plan.planning.language == "en-us"
     assert plan.render.engine == "kokoro"
     assert plan.render.default_target.id

@@ -56,7 +56,7 @@ def test_document_index_round_trips_scope_provenance_and_metadata() -> None:
 
 
 def test_plan_index_settings_fingerprint_is_optional_and_round_trips() -> None:
-    scope = PlanScope(id="document", kind="document", path="document.utterplan.json")
+    scope = PlanScope(id="document", kind="document", path="document.utterplan.toml")
     value = {"format": "readio.plan-index", "schema_version": 1, "scopes": [scope.to_dict()]}
     assert PlanIndex.from_dict(value).to_dict() == value
     configured = PlanIndex(
@@ -69,7 +69,7 @@ def test_plan_index_settings_fingerprint_is_optional_and_round_trips() -> None:
 
 
 def test_plan_scope_semantic_planner_fingerprint_is_optional_and_round_trips() -> None:
-    scope = PlanScope(id="document", kind="document", path="document.utterplan.json")
+    scope = PlanScope(id="document", kind="document", path="document.utterplan.toml")
     assert PlanScope.from_dict(scope.to_dict()) == scope
 
     fingerprinted = replace(scope, semantic_planner_fingerprint=f"sha256:{'b' * 64}")

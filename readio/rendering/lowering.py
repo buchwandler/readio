@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from utterplan import PlanSegment, UtterancePlan
+from utterplan import PlanSegment, SemanticBoundary, UtterancePlan
 
 from ..engines.base import (
     EngineCapabilities,
@@ -16,6 +16,16 @@ from ..engines.base import (
     SpeechToken,
 )
 from ..plan import PlanDiagnostic
+
+
+@dataclass(frozen=True, slots=True)
+class RequestBoundary:
+    """UtterPlan semantic split hint rebased to a single speech request."""
+
+    position: int
+    kind: str
+    semantic_boundary_id: str
+    origin: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +39,8 @@ class LoweredSegment:
     pause_after: float
     directives: Mapping[str, Any]
     marker_ids: tuple[str, ...] = ()
+    semantic_boundaries: tuple[RequestBoundary, ...] = ()
+    capacity_token_ranges: tuple[tuple[int, int], ...] = ()
     diagnostics: tuple[PlanDiagnostic, ...] = ()
 
 
@@ -65,6 +77,8 @@ def lower_segment(
 
     diagnostics: list[PlanDiagnostic] = []
     source_tokens = plan.tokens_for_segment(segment)
+    capacity_token_ranges = _collect_capacity_token_ranges(segment, source_tokens)
+    semantic_boundaries = _collect_semantic_boundaries(plan, segment)
     if source_tokens and not capabilities.supports_linguistic_tokens:
         tokens = ()
         diagnostics.append(
@@ -137,6 +151,8 @@ def lower_segment(
         pause_after=segment.pause_after.seconds,
         directives=directives,
         marker_ids=marker_ids,
+        semantic_boundaries=semantic_boundaries,
+        capacity_token_ranges=capacity_token_ranges,
         diagnostics=tuple(diagnostics),
     )
 
@@ -173,6 +189,60 @@ def _collect_tokens(
             )
         )
     return tuple(lowered)
+
+
+def _collect_capacity_token_ranges(
+    segment: PlanSegment,
+    source_tokens: tuple[Any, ...],
+) -> tuple[tuple[int, int], ...]:
+    ranges: list[tuple[int, int]] = []
+    for token in source_tokens:
+        start = token.spoken_start - segment.spoken_start
+        end = token.spoken_end - segment.spoken_start
+        if (
+            start < 0
+            or start >= end
+            or end > len(segment.text)
+            or segment.text[start:end] != token.text
+        ):
+            _fail(
+                "render.token_offset_invalid",
+                f"Token offsets do not match segment {segment.id!r} text.",
+                "render.segment.tokens",
+            )
+        ranges.append((start, end))
+    return tuple(ranges)
+
+
+def _collect_semantic_boundaries(
+    plan: UtterancePlan,
+    segment: PlanSegment,
+) -> tuple[RequestBoundary, ...]:
+    supported_kinds = {"clause", "parenthetical"}
+    boundaries: tuple[SemanticBoundary, ...] = plan.semantic_boundaries_for_segment(
+        segment,
+        kinds=supported_kinds,
+    )
+    result: list[RequestBoundary] = []
+    for boundary in boundaries:
+        if boundary.kind not in supported_kinds:
+            continue
+        position = boundary.position - segment.spoken_start
+        if type(position) is not int or not 0 < position < len(segment.text):
+            _fail(
+                "render.semantic_boundary_offset_invalid",
+                f"Semantic boundary {boundary.id!r} does not rebase inside segment {segment.id!r}.",
+                "render.segment.semantic_boundaries",
+            )
+        result.append(
+            RequestBoundary(
+                position=position,
+                kind=boundary.kind,
+                semantic_boundary_id=boundary.id,
+                origin=boundary.origin,
+            )
+        )
+    return tuple(result)
 
 
 def _collect_pronunciation(
@@ -287,4 +357,4 @@ def _fail(code: str, message: str, field: str) -> None:
     raise LoweringError(PlanDiagnostic(code=code, severity="error", message=message, field=field))
 
 
-__all__ = ["LoweredSegment", "LoweringError", "lower_segment"]
+__all__ = ["LoweredSegment", "LoweringError", "RequestBoundary", "lower_segment"]

@@ -94,6 +94,8 @@ class InvalidStoredPlanError(ReadioError):
             if renderability_invalid
             else "plan.artifact.schema_mismatch"
             if validation_code == "schema_mismatch"
+            else "plan.artifact.legacy_format"
+            if validation_code == "legacy_format"
             else "plan.artifact.invalid"
         )
         message = (

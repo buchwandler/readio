@@ -38,6 +38,10 @@ _STAGE_REASON_MESSAGES = {
     "plan.stale.planner_version_changed": (
         "The semantic planner contract changed. Rebuild with: readio plan build ."
     ),
+    "plan.artifact.legacy_format": (
+        "Stored plan uses legacy JSON and must be regenerated from source. "
+        "Rebuild with: readio plan build ."
+    ),
     "plan.artifact.schema_mismatch": (
         "Stored plan schema is unsupported. Rebuild with: readio plan build ."
     ),

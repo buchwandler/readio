@@ -90,7 +90,7 @@ def _persist_nonrenderable_plan(project, scope, plan) -> None:
         segments=(invalid_segment, *plan.segments[1:]),
     ).with_identity()
     artifact_path = project.state_root / "plan" / scope.path
-    artifact_path.write_text(invalid_plan.to_json(), encoding="utf-8")
+    artifact_path.write_text(invalid_plan.to_toml(), encoding="utf-8")
     plan_index = project.load_plan_index()
     updated_scope = replace(
         scope,
@@ -302,10 +302,14 @@ def test_preflighted_lowered_request_is_reused_during_render(tmp_path, monkeypat
 
     original_render = readio.rendering.render_atomic_request
     rendered_requests = []
+    capacity_contexts = []
 
     def assert_same_request(session, speech_request, **kwargs):
         rendered_requests.append(speech_request)
         assert speech_request is lowered_by_id[speech_request.id].request
+        capacity_context = kwargs["capacity"]
+        capacity_contexts.append(capacity_context)
+        assert capacity_context.planned_semantics is True
         return original_render(session, speech_request, **kwargs)
 
     monkeypatch.setattr(readio.rendering, "render_atomic_request", assert_same_request)
@@ -314,6 +318,7 @@ def test_preflighted_lowered_request_is_reused_during_render(tmp_path, monkeypat
     assert set(lower_calls) == {segment.id for segment in plan.segments}
     assert len(lower_calls) == len(plan.segments)
     assert {item.id for item in rendered_requests} == {segment.id for segment in plan.segments}
+    assert len(capacity_contexts) == len(plan.segments)
     assert adapter.open_calls == 1
 
 

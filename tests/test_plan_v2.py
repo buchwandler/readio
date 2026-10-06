@@ -23,7 +23,7 @@ from readio.plan import (
 def test_semantic_plan_ref_uses_utterplan_schema() -> None:
     ref = SemanticPlanRef(plan_id="plan", sha256="hash")
     assert ref.format == "utterplan"
-    assert ref.schema_version == CURRENT_SCHEMA_VERSION == 3
+    assert ref.schema_version == CURRENT_SCHEMA_VERSION == 4
     assert ref.to_dict()["sha256"] == "hash"
 
 

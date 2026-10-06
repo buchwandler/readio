@@ -910,7 +910,7 @@ def _render_missing(
         session_context = adapter.open(selection)
     else:
         session_context = nullcontext(session)
-    from ..rendering import render_atomic_request
+    from ..rendering import CapacityContext, render_atomic_request
 
     with session_context as active_session:
         if session is None:
@@ -953,7 +953,15 @@ def _render_missing(
             lowered = item["lowered"]
             segment_text = _segment_progress_text(segment)
             try:
-                atomic = render_atomic_request(active_session, lowered.request)
+                atomic = render_atomic_request(
+                    active_session,
+                    lowered.request,
+                    capacity=CapacityContext(
+                        semantic_boundaries=lowered.semantic_boundaries,
+                        linguistic_token_ranges=lowered.capacity_token_ranges,
+                        planned_semantics=True,
+                    ),
+                )
             except Exception as error:
                 context = {
                     **{key: value for key, value in scope_metadata.items() if value is not None},

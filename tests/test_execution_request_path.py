@@ -170,10 +170,16 @@ def test_playback_composes_and_releases_each_mixed_rate_segment_before_next_synt
 
     from readio import rendering
 
+    capacity_contexts = []
+
+    def capture_render(session, speech_request, **kwargs):
+        capacity_contexts.append(kwargs["capacity"])
+        return SimpleNamespace(result=session.synthesize(speech_request))
+
     monkeypatch.setattr(
         rendering,
         "render_atomic_request",
-        lambda session, speech_request: SimpleNamespace(result=session.synthesize(speech_request)),
+        capture_render,
     )
     config = ReadioConfig(reader=ReaderSettings(engine=adapter.id, voice="fixture-voice"))
     request = PlanRequest(
@@ -207,6 +213,8 @@ def test_playback_composes_and_releases_each_mixed_rate_segment_before_next_synt
     ]
     assert [sample_rate for _audio, sample_rate in sink.writes] == [16000] * len(sink.writes)
     assert len(sink.writes) == len(resolved.semantic.plan.segments)
+    assert len(capacity_contexts) == len(resolved.semantic.plan.segments)
+    assert all(context.planned_semantics for context in capacity_contexts)
     assert result.summary.sample_rate == 16000
     assert result.summary.sample_count == sum(len(audio) for audio, _rate in sink.writes)
     assert [item.completed_units for item in progress] == list(range(len(sink.writes) + 1))
@@ -234,3 +242,35 @@ def test_unrepresentable_pronunciation_fails_before_opening_engine(monkeypatch):
         execute_render_v2(resolved, _Sink())
 
     assert adapter.open_selections == []
+
+
+def test_live_path_explicitly_uses_unplanned_capacity_context(monkeypatch) -> None:
+    adapter = _Adapter()
+    adapter.capabilities = lambda: EngineCapabilities(
+        id=adapter.id,
+        supports_named_voices=True,
+        supports_live=True,
+    )
+    monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    from readio import rendering
+    from readio.reader import render_live
+
+    original_render = rendering.render_atomic_request
+    contexts = []
+
+    def capture_render(session, speech_request, **kwargs):
+        contexts.append(kwargs["capacity"])
+        return original_render(session, speech_request, **kwargs)
+
+    monkeypatch.setattr(rendering, "render_atomic_request", capture_render)
+    summary = render_live(
+        ["Live paragraph.\n"],
+        ReaderSettings(engine=adapter.id, voice="fixture-voice"),
+        _Sink(),
+    )
+
+    assert summary.sample_count == 8
+    assert len(contexts) == 1
+    assert contexts[0].planned_semantics is False
+    assert contexts[0].semantic_boundaries == ()
+    assert contexts[0].linguistic_token_ranges == ()

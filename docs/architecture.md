@@ -7,7 +7,7 @@ source/document
       |
       | semantic policy and linguistic enrichment
       v
-UtterancePlan schema v3
+UtterancePlan schema v4
       |\
       | \
       |  +--> resolved pauses, segment order, presentation directives
@@ -85,6 +85,14 @@ A sidecar records the speech hash, synthesis key, profile ID, audio digest,
 sample rate, channel count, and frame count. A plan re-run can therefore reuse
 speech artifacts even when its plan ID or trace changes. Missing or corrupt
 sidecars cause only the affected segment to render again.
+
+## UtterPlan persistence and semantic capacity
+
+Readio targets UtterPlan 0.4 schema v4. Current project plans are stored as canonical `.utterplan.toml` artifacts and loaded through `UtterancePlan.load()`. An indexed legacy `.utterplan.json` artifact is stale and actionable; Readio re-plans from its source instead of silently migrating that file.
+
+During lowering, Readio rebases the public clause and parenthetical semantic boundaries once into request-local hints and retains linguistic token ranges independently of engine token support. These hints stay in `CapacityContext`; `SpeechRequest` and engine APIs remain UtterPlan-neutral.
+
+For planned content, capacity fitting prefers clause boundaries, then parenthetical boundaries, newlines, conservative clause punctuation, linguistic-token edges, and whitespace. It does not rediscover sentence boundaries from periods or split arbitrary codepoints. Live/raw text keeps a distinct unplanned compatibility policy. Engine-reported measurements remain authoritative (including PocketSynth's model-token limit); Readio preserves exact text, never packs adjacent semantic sentences, and rebases child word timings to the original request. Atomic-lowering and capacity-fitting v2 manifests record split reason and boundary provenance.
 
 ## Engine boundary
 

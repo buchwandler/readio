@@ -8,7 +8,6 @@ compiled plan is engine-neutral and reusable across different engines.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,31 +46,32 @@ class PlanSchemaMismatchError(ValueError):
     def __init__(self, stored: object) -> None:
         self.stored = stored
         super().__init__(
-            f"Utterplan schema {stored!r} is not supported; "
+            f"UtterPlan semantic schema {stored!r} is not supported; "
             f"expected {SUPPORTED_UTTERPLAN_SCHEMA_VERSION}"
         )
 
 
+class LegacyPlanArtifactError(ValueError):
+    """A legacy JSON plan artifact requires explicit source re-planning."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"legacy JSON UtterPlan artifact requires re-planning: {path}")
+
+
 def serialize_utterplan(plan: UtterancePlan) -> bytes:
-    """Serialize the canonical UtterPlan artifact with stable JSON fallback."""
-    try:
-        return plan.to_json().encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError):
-        semantic = plan.semantic_dict()
-        return json.dumps(
-            semantic, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
+    """Serialize the canonical UtterPlan TOML artifact."""
+    return plan.to_toml().encode("utf-8")
 
 
-def load_utterplan_v3(path: Path) -> UtterancePlan:
-    """Load an Utterplan v3 artifact without invoking schema migration."""
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("format") != "utterplan":
-        raise ValueError("semantic plan artifact is not an Utterplan document")
-    stored = data.get("schema_version")
-    if type(stored) is not int or stored != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
-        raise PlanSchemaMismatchError(stored)
-    return UtterancePlan.from_dict(data)
+def load_current_utterplan(path: Path) -> UtterancePlan:
+    """Load a current canonical-TOML Readio plan without schema migration."""
+    if path.suffix.lower() == ".json":
+        raise LegacyPlanArtifactError(path)
+    plan = UtterancePlan.load(path)
+    if plan.schema_version != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
+        raise PlanSchemaMismatchError(plan.schema_version)
+    return plan
 
 
 def compile_semantic_plan(
@@ -129,9 +129,10 @@ def compile_semantic_plan(
 
 __all__ = [
     "CompiledSemanticPlan",
+    "LegacyPlanArtifactError",
     "PlanSchemaMismatchError",
     "UtterancePlan",
     "compile_semantic_plan",
-    "load_utterplan_v3",
+    "load_current_utterplan",
     "serialize_utterplan",
 ]

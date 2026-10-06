@@ -14,7 +14,7 @@ try:
 except ImportError:
     import tomli as tomllib
 from project_support import assert_neutral_session_contract
-from utterplan import PlannerConfig, UtterancePlanner
+from utterplan import LinguisticsConfig, PauseConfig, PlannerConfig, UtterancePlanner
 
 from readio.engines.base import EngineSelection, SpeechRequest
 from readio.engines.catalog import CatalogRequest, TargetVoice
@@ -22,6 +22,7 @@ from readio.engines.pocketsynth import PocketSynthEngineAdapter
 from readio.engines.registry import engine_for_ssmd_provider, ssmd_provider_for_engine
 from readio.engines.selection import EngineRequest
 from readio.errors import EngineBackendError
+from readio.rendering import CapacityContext, render_atomic_request
 from readio.rendering.lowering import LoweringError, lower_segment
 
 
@@ -128,6 +129,21 @@ class _PublicRuntime:
         self.close_calls += 1
 
 
+class _LimitedPublicRuntime(_PublicRuntime):
+    def __init__(self, maximum: int):
+        super().__init__()
+        self.maximum = maximum
+
+    def measure_request(self, request):
+        self.measure_calls.append(request)
+        amount = len(request.text.split())
+        return SimpleNamespace(
+            fits=amount <= self.maximum,
+            amount=amount,
+            maximum=self.maximum,
+        )
+
+
 def _request(*, language="en-us", voice="alba", options=None):
     return EngineRequest(
         engine="pocket",
@@ -168,6 +184,22 @@ def _install_fakes(monkeypatch, runtime=None):
         classmethod(lambda cls, bundle, **kwargs: runtime),
     )
     return pocketsynth, runtime
+
+
+def _render_planned_pocket_segments(adapter, selection, plan):
+    rendered_segments = []
+    capabilities = adapter.capabilities()
+    with adapter.open(selection) as session:
+        for segment in plan.segments:
+            lowered = lower_segment(plan, segment, selection, capabilities)
+            capacity = CapacityContext(
+                semantic_boundaries=lowered.semantic_boundaries,
+                linguistic_token_ranges=lowered.capacity_token_ranges,
+                planned_semantics=True,
+            )
+            rendered = render_atomic_request(session, lowered.request, capacity=capacity)
+            rendered_segments.append((segment, lowered, rendered))
+    return rendered_segments
 
 
 def test_pocket_discovery_maps_bundle_catalog(monkeypatch):
@@ -693,6 +725,149 @@ def test_pocket_public_measurement_uses_shared_native_request_without_runtime_in
     assert not hasattr(runtime, "metadata")
     assert rendered.metadata["token_count"] == len(request.text)
     assert runtime.close_calls == 1
+
+
+def test_pocket_keeps_fitting_semantic_sentences_as_independent_requests(monkeypatch) -> None:
+    text = (
+        "Dr. Smith arrived early. He reviewed the notes carefully. "
+        "Then he started the presentation. The audience listened closely."
+    )
+    plan = UtterancePlanner(
+        PlannerConfig(
+            language="en-us",
+            text_preparation="identity",
+            unit="sentence",
+            pauses=PauseConfig(enabled=False),
+        )
+    ).plan(text)
+    expected_texts = [
+        "Dr. Smith arrived early.",
+        "He reviewed the notes carefully.",
+        "Then he started the presentation.",
+        "The audience listened closely.",
+    ]
+    assert [segment.text for segment in plan.segments] == expected_texts
+    assert len(plan.units) == 4
+    assert all(len(unit.segment_ids) == 1 for unit in plan.units)
+
+    runtime = _LimitedPublicRuntime(maximum=100)
+    _install_fakes(monkeypatch, runtime)
+    adapter = PocketSynthEngineAdapter()
+    selection, _ = adapter.resolve(_request())
+    rendered_segments = _render_planned_pocket_segments(adapter, selection, plan)
+
+    assert [len(atomic.requests) for _segment, _lowered, atomic in rendered_segments] == [1] * 4
+    assert [request.text for request in runtime.measure_calls] == expected_texts
+    assert [call[0].text for call in runtime.synthesis_calls] == expected_texts
+    assert all(
+        atomic.requests[0].measure is not None
+        and atomic.requests[0].measure.maximum == runtime.maximum
+        and atomic.requests[0].measure.source == "pocketsynth.measure_request"
+        for _segment, _lowered, atomic in rendered_segments
+    )
+
+
+def test_pocket_fits_oversized_sentence_at_published_clauses_first(monkeypatch) -> None:
+    import re
+    import sys
+
+    import phrasplit
+    from utterplan.linguistics import LinguisticResourcePool
+
+    class FakeProviderDoc(list):
+        def __init__(self, source: str) -> None:
+            tokens = [
+                SimpleNamespace(
+                    idx=match.start(),
+                    text=match.group(0),
+                    pos_="NOUN",
+                    tag_="NN",
+                    lemma_=match.group(0).lower(),
+                    morph="",
+                )
+                for match in re.finditer(r"\S+", source)
+            ]
+            super().__init__(tokens)
+            self.text = source
+            self.sents = ()
+
+    class Pipeline:
+        def __call__(self, source: str):
+            return FakeProviderDoc(source)
+
+    monkeypatch.setitem(sys.modules, "spacy", SimpleNamespace(__version__="3.7.0"))
+    monkeypatch.setattr(
+        LinguisticResourcePool,
+        "pipeline",
+        lambda self, model, require=False: Pipeline(),
+    )
+    monkeypatch.setattr(
+        phrasplit,
+        "detect_clause_boundaries",
+        lambda source, *, language, doc: [
+            SimpleNamespace(kind="clausal_comma", char_start=match.start())
+            for match in re.finditer(",", source)
+        ],
+    )
+    text = (
+        "The careful reporter interviewed the witness, reviewed the documents, "
+        "and wrote a detailed account before the evening deadline arrived."
+    )
+    plan = UtterancePlanner(
+        PlannerConfig(
+            language="en-us",
+            text_preparation="identity",
+            unit="sentence",
+            linguistics=LinguisticsConfig(
+                use_spacy=True,
+                spacy_model="pocket-test",
+                require_spacy=True,
+            ),
+            pauses=PauseConfig(enabled=False),
+        )
+    ).plan(text)
+
+    assert len(plan.segments) == 1
+    segment = plan.segments[0]
+    semantic_boundaries = plan.semantic_boundaries_for_segment(
+        segment,
+        kinds={"clause"},
+    )
+    assert len(semantic_boundaries) >= 2
+    assert segment.pause_before.seconds == 0
+    assert segment.pause_after.seconds == 0
+    assert len(plan.units) == 1
+    assert plan.units[0].segment_ids == (segment.id,)
+
+    runtime = _LimitedPublicRuntime(maximum=8)
+    _install_fakes(monkeypatch, runtime)
+    adapter = PocketSynthEngineAdapter()
+    selection, _ = adapter.resolve(_request())
+    rendered_segments = _render_planned_pocket_segments(adapter, selection, plan)
+    lowered, atomic = rendered_segments[0][1], rendered_segments[0][2]
+
+    assert lowered.semantic_boundaries
+    assert len(atomic.requests) >= 4
+    assert all(
+        item.measure is not None
+        and item.measure.fits is True
+        and item.measure.maximum == runtime.maximum
+        and item.measure.unit == "model_tokens"
+        and item.measure.source == "pocketsynth.measure_request"
+        for item in atomic.requests
+    )
+    assert all(len(item.request.text.split()) <= runtime.maximum for item in atomic.requests)
+    assert "".join(item.request.text for item in atomic.requests) == segment.text
+    assert any(
+        item.split.get("boundary_kind") == "semantic_clause"
+        and item.split.get("source") == "utterplan"
+        and item.split.get("semantic_boundary_id")
+        in {boundary.id for boundary in semantic_boundaries}
+        for item in atomic.requests
+    )
+    assert [call[0].text for call in runtime.synthesis_calls] == [
+        item.request.text for item in atomic.requests
+    ]
 
 
 def test_pocket_reference_voice_is_content_identified_and_cached(monkeypatch, tmp_path):

@@ -43,9 +43,9 @@ def test_plan_artifacts_are_valid_utterplan(tmp_path):
     source.write_text("First sentence.\n\nSecond sentence.", encoding="utf-8")
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, default_config())
-    plan = UtterancePlan.load(project.root / "plan" / "document.utterplan.json")
+    plan = UtterancePlan.load(project.root / "plan" / "document.utterplan.toml")
     assert plan.plan_id
-    assert project.load_plan_index().scopes[0].path == "document.utterplan.json"
+    assert project.load_plan_index().scopes[0].path == "document.utterplan.toml"
 
 
 def test_attached_project_keeps_workspace_and_state_paths_separate(tmp_path):

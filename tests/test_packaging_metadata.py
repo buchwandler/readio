@@ -33,7 +33,7 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
         in {"epub2text", "ebooklib", "pypdf", "python-docx"}
         for item in dependencies
     )
-    assert "utterplan>=0.3.6,<0.4" in dependencies
+    assert "utterplan>=0.4.0,<0.5" in dependencies
     assert "audiocompose>=0.2.0,<0.3" in dependencies
     assert "ssmd>=0.8.7,<0.9" not in dependencies
     assert "utterplan>=0.2.0,<0.3" not in dependencies
@@ -51,9 +51,9 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     tests_job = workflow.split("  engine-probe-python314:", maxsplit=1)[0]
     minimum_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[1]
     assert "ssmdconvert[pdf,docx]==0.1.3" in minimum_job
-    assert "utterplan==0.3.6" in minimum_job
+    assert "utterplan[spacy]==0.4.0" in minimum_job
     assert 'READIO_TEST_UTTERPLAN_MINIMUM: "1"' in minimum_job
-    assert "tests/test_utterplan_v3_linguistics.py" in minimum_job
+    assert "tests/test_utterplan_v4_semantics.py" in minimum_job
     assert "tests/test_supertonicsynth_engine.py" in workflow
     assert all(
         engine not in tests_job
@@ -101,7 +101,7 @@ def test_base_ci_and_wheel_smoke_cover_dependency_ownership() -> None:
 
 OWNED_DEPENDENCIES = {
     "numpy>=1.23",
-    "utterplan>=0.3.6,<0.4",
+    "utterplan>=0.4.0,<0.5",
     "audiocompose>=0.2.0,<0.3",
     "ssmd>=0.9.3,<0.10",
     "ssmdconvert>=0.1.3,<0.2",
@@ -125,6 +125,14 @@ def test_current_docs_have_no_stale_integration_references() -> None:
         content = (ROOT / relative).read_text(encoding="utf-8").lower()
         for stale in ("onnxvoice requires", "ttsready", "markdown-it", "mdit-py-plugins"):
             assert stale not in content, f"{relative} still references {stale!r}"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    projects = (ROOT / "docs/projects.md").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs/architecture.md").read_text(encoding="utf-8")
+    assert "UtterPlan >=0.4.0,<0.5" in readme
+    assert '"schema_version": 4' in readme
+    assert '"path": "plan/document.utterplan.toml"' in readme
+    assert "canonical `.utterplan.toml`" in projects
+    assert "UtterPlan 0.4 schema v4" in architecture
 
 
 def test_engine_runtime_dependency_floors_are_declared() -> None:
@@ -137,14 +145,14 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
     assert not any("pykokoro[playback]" in item for item in optional["all"])
     assert optional["piper"] == ["pipersynth>=0.2.1,<0.3"]
     assert optional["pocket"] == ["pocketsynth[cpu]>=0.2.5,<0.3"]
-    assert optional["spacy"] == ["utterplan[spacy]>=0.3.6,<0.4"]
+    assert optional["spacy"] == ["utterplan[spacy]>=0.4.0,<0.5"]
     assert "pipersynth>=0.2.1,<0.3" in optional["all"]
     assert "pocketsynth[cpu]>=0.2.5,<0.3" in optional["all"]
     assert optional["kitten"] == ["kittensynth[cpu]>=0.1.1,<0.2"]
     assert optional["supertonic"] == ["supertonicsynth[cpu]>=0.1.2,<0.2"]
     assert "supertonicsynth[cpu]>=0.1.2,<0.2" in optional["all"]
     assert "kittensynth[cpu]>=0.1.1,<0.2" in optional["all"]
-    assert "utterplan[spacy]>=0.3.6,<0.4" in optional["all"]
+    assert "utterplan[spacy]>=0.4.0,<0.5" in optional["all"]
     assert all(
         dependency != "utterplan[spacy]>=0.1.4,<0.2"
         for group in optional.values()

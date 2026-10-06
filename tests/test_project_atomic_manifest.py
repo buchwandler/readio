@@ -82,7 +82,7 @@ def test_project_persists_exact_atomic_manifest_and_reuses_cached_segment(
     assert first["rendered"] == len(rows)
     assert all(sidecar["schema_version"] == 3 for sidecar in sidecars)
     assert all(sidecar["lowering_sha256"] for sidecar in sidecars)
-    assert all(sidecar["lowering"]["schema"] == "readio.atomic-lowering.v1" for sidecar in sidecars)
+    assert all(sidecar["lowering"]["schema"] == "readio.atomic-lowering.v2" for sidecar in sidecars)
     for row, sidecar in zip(rows, sidecars, strict=True):
         manifest = sidecar["lowering"]
         requests = manifest["requests"]

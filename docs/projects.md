@@ -113,10 +113,7 @@ profile unless `--activate` is supplied. `readio status --json` exposes stage
 state and diagnostic reasons. `readio render PROJECT --format mp3` is the
 incremental high-level build command.
 
-The plan index can contain multiple independent scopes such as chapters. Each
-scope points to a real Utterplan artifact; an `*.utterplan.json` file is never
-
-used as a custom collection manifest.
+The plan index can contain multiple independent scopes such as chapters. Each scope points to a canonical `.utterplan.toml` artifact. Indexed legacy `.utterplan.json` plans are stale and must be regenerated with `readio plan`; Readio does not load or migrate them during normal project loading, and plan files are not custom collection manifests.
 
 ## Status cockpit
 
