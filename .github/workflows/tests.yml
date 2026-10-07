@@ -316,6 +316,26 @@ jobs:
               document = document_from_file(source)
               assert document.format == "ssmd"
           PY
+      - name: Installed-wheel smoke (verification extra)
+        shell: bash
+        run: |
+          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-verification"
+          WHEEL="$(ls "${PWD}"/dist/*.whl | head -n 1)"
+          "${RUNNER_TEMP}/readio-wheel-smoke-verification/bin/python" -m pip install \
+            "readio[verification] @ file://${WHEEL}"
+          "${RUNNER_TEMP}/readio-wheel-smoke-verification/bin/python" -m pip check
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/readio-wheel-smoke-verification/bin/python" - <<'PY'
+          import importlib.metadata
+          import sys
+          from readio.api import Readio
+
+          assert importlib.metadata.version("moondream")
+          app = Readio()
+          service = app.verification
+          assert service is app.verification
+          assert "readio.integrations.moondream" not in sys.modules
+          PY
       - name: Installed-wheel smoke (engines)
         shell: bash
         run: |

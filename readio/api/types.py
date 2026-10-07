@@ -413,6 +413,208 @@ class ProjectPlanOptions:
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationOptions:
+    model: str = "moondream/parakeet-redux"
+    device: str = "cpu"
+    timestamps: Literal["none", "segment", "word"] = "word"
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestRequest:
+    case: str = "readio-e2e-en-v1"
+    synthesis: SynthesisRequest = dataclass_field(default_factory=SynthesisRequest)
+    planning: ProjectPlanOptions = dataclass_field(default_factory=ProjectPlanOptions)
+    composition: CompositionOptions = dataclass_field(
+        default_factory=lambda: CompositionOptions(sample_rate=16_000)
+    )
+    verification: VerificationOptions = dataclass_field(default_factory=VerificationOptions)
+    repetitions: int = 1
+    require_clean_plan: bool = False
+    output: Path | None = None
+    pass_wer: float = 0.10
+    pass_cer: float = 0.05
+    fail_wer: float = 0.20
+    fail_cer: float = 0.10
+
+    def __post_init__(self) -> None:
+        if self.repetitions < 1:
+            raise ValueError("repetitions must be at least 1")
+        if not self.case:
+            raise ValueError("case must be a non-empty string")
+        thresholds = (self.pass_wer, self.pass_cer, self.fail_wer, self.fail_cer)
+        if any(not 0 <= value <= 1 for value in thresholds):
+            raise ValueError("WER/CER thresholds must be between 0 and 1")
+        if self.pass_wer > self.fail_wer or self.pass_cer > self.fail_cer:
+            raise ValueError("pass thresholds must not exceed fail thresholds")
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestResult:
+    schema: str
+    overall_status: Literal["pass", "review", "fail"]
+    case: Mapping[str, JsonValue]
+    requested: Mapping[str, JsonValue]
+    resolved: Mapping[str, JsonValue]
+    planning: Mapping[str, JsonValue]
+    synthesis: Mapping[str, JsonValue]
+    composition: Mapping[str, JsonValue]
+    verification: Mapping[str, JsonValue]
+    timings: Mapping[str, JsonValue]
+    environment: Mapping[str, JsonValue]
+    output: Path | None = None
+    failure_stage: str | None = None
+    error: Mapping[str, JsonValue] | None = None
+    attempts: tuple[Mapping[str, JsonValue], ...] = ()
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampComparisonRequest:
+    audio: Path
+    text: str
+    native_word_timings: tuple[Mapping[str, JsonValue], ...] = ()
+    verification: VerificationOptions = dataclass_field(default_factory=VerificationOptions)
+    pass_wer: float = 0.10
+    pass_cer: float = 0.05
+    fail_wer: float = 0.20
+    fail_cer: float = 0.10
+
+    def __post_init__(self) -> None:
+        thresholds = (self.pass_wer, self.pass_cer, self.fail_wer, self.fail_cer)
+        if any(not 0 <= value <= 1 for value in thresholds):
+            raise ValueError("WER/CER thresholds must be between 0 and 1")
+        if self.pass_wer > self.fail_wer or self.pass_cer > self.fail_cer:
+            raise ValueError("pass thresholds must not exceed fail thresholds")
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampComparisonResult:
+    schema: str
+    overall_status: Literal["pass", "review", "fail"]
+    transcript_status: Literal["pass", "review", "fail"]
+    wer: float
+    cer: float
+    transcript: str
+    alignment: Mapping[str, JsonValue]
+    timing_structure: Mapping[str, JsonValue]
+    native_comparison: Mapping[str, JsonValue]
+    derived_word_timings: tuple[Mapping[str, JsonValue], ...]
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampSelfTestRequest:
+    synthesis: SynthesisRequest = dataclass_field(default_factory=SynthesisRequest)
+    planning: ProjectPlanOptions = dataclass_field(default_factory=ProjectPlanOptions)
+    verification: VerificationOptions = dataclass_field(default_factory=VerificationOptions)
+    case: str = "readio-timestamps-en-v1"
+    require_clean_plan: bool = False
+    output: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampSelfTestResult:
+    schema: str
+    overall_status: Literal["pass", "review", "fail"]
+    case: Mapping[str, JsonValue]
+    requested: Mapping[str, JsonValue]
+    resolved: Mapping[str, JsonValue]
+    planning: Mapping[str, JsonValue]
+    synthesis: Mapping[str, JsonValue]
+    redux: Mapping[str, JsonValue]
+    summary: Mapping[str, JsonValue]
+    results: tuple[Mapping[str, JsonValue], ...]
+    timings: Mapping[str, JsonValue]
+    environment: Mapping[str, JsonValue]
+    output: Path | None = None
+    failure_stage: str | None = None
+    error: Mapping[str, JsonValue] | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampGenerationRequest:
+    project: ProjectLike
+    synthesis: SynthesisRequest = dataclass_field(default_factory=SynthesisRequest)
+    planning: ProjectPlanOptions = dataclass_field(default_factory=ProjectPlanOptions)
+    verification: VerificationOptions = dataclass_field(default_factory=VerificationOptions)
+    force_refresh: bool = False
+    output: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampGenerationResult:
+    schema: str
+    overall_status: Literal["pass", "review", "fail"]
+    project: ProjectRef
+    requested: Mapping[str, JsonValue]
+    resolved: Mapping[str, JsonValue]
+    synthesis: Mapping[str, JsonValue]
+    redux: Mapping[str, JsonValue]
+    summary: Mapping[str, JsonValue]
+    results: tuple[Mapping[str, JsonValue], ...]
+    timings: Mapping[str, JsonValue]
+    cache_root: Path
+    output: Path | None = None
+    error: Mapping[str, JsonValue] | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceMatrixRequest:
+    synthesis: SynthesisRequest = dataclass_field(default_factory=SynthesisRequest)
+    planning: ProjectPlanOptions = dataclass_field(default_factory=ProjectPlanOptions)
+    composition: CompositionOptions = dataclass_field(
+        default_factory=lambda: CompositionOptions(sample_rate=16_000)
+    )
+    verification: VerificationOptions = dataclass_field(default_factory=VerificationOptions)
+    discovery: DiscoveryOptions = dataclass_field(default_factory=DiscoveryOptions)
+    case: str = "readio-e2e-en-v1"
+    include_experimental: bool = False
+    pass_wer: float = 0.10
+    pass_cer: float = 0.05
+    fail_wer: float = 0.20
+    fail_cer: float = 0.10
+    require_clean_plan: bool = False
+    output: Path | None = None
+
+    def __post_init__(self) -> None:
+        if not self.case:
+            raise ValueError("case must be a non-empty string")
+        thresholds = (self.pass_wer, self.pass_cer, self.fail_wer, self.fail_cer)
+        if any(not 0 <= value <= 1 for value in thresholds):
+            raise ValueError("WER/CER thresholds must be between 0 and 1")
+        if self.pass_wer > self.fail_wer or self.pass_cer > self.fail_cer:
+            raise ValueError("pass thresholds must not exceed fail thresholds")
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceMatrixResult:
+    schema: str
+    overall_status: Literal["pass", "review", "fail"]
+    requested: Mapping[str, JsonValue]
+    query: Mapping[str, JsonValue]
+    case: Mapping[str, JsonValue]
+    redux: Mapping[str, JsonValue]
+    summary: Mapping[str, JsonValue]
+    results: tuple[Mapping[str, JsonValue], ...]
+    environment: Mapping[str, JsonValue]
+    output: Path | None = None
+    error: Mapping[str, JsonValue] | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectPlanScope:
     scope_id: str
     plan_id: str
@@ -549,6 +751,25 @@ class ProjectPlanRepairResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectSynthesisArtifact:
+    scope_id: str
+    segment_id: str
+    text: str
+    audio_path: Path
+    sample_rate: int
+    frames: int
+    audio_sha256: str
+    speech_hash: str | None
+    synthesis_key: str
+    profile_id: str | None
+    lowering_sha256: str | None
+    word_timings: tuple[Mapping[str, JsonValue], ...] = ()
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectSynthesisResult:
     project: ProjectRef
     profile_id: str
@@ -557,6 +778,7 @@ class ProjectSynthesisResult:
     rendered: int
     activated: bool
     selected_units: int = 0
+    artifacts: tuple[ProjectSynthesisArtifact, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -1359,6 +1581,7 @@ __all__ = [
     "VoicePromptQuery",
     "VoiceQuery",
     "VoiceResolution",
+    "VoiceTarget",
     "document_from_file",
     "document_from_text",
 ]

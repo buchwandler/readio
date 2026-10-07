@@ -101,6 +101,8 @@ def test_base_ci_and_wheel_smoke_cover_dependency_ownership() -> None:
     assert "readio-wheel-smoke-base" in workflow
     assert "readio-wheel-smoke-documents" in workflow
     assert "readio[documents] @ file://" in workflow
+    assert "readio[verification] @ file://" in workflow
+    assert "Installed-wheel smoke (verification extra)" in workflow
 
 
 OWNED_DEPENDENCIES = {
@@ -162,3 +164,13 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
         for group in optional.values()
         for dependency in group
     )
+
+
+def test_verification_extras_keep_moondream_optional_and_versioned() -> None:
+    dependencies = _project_dependencies()
+    optional = _project_optional_dependencies()
+    requirement = "moondream>=2.4,<3"
+    assert optional["verification"] == [requirement]
+    assert optional["benchmark"] == [requirement]
+    assert not any(item.startswith("moondream") for item in dependencies)
+    assert not any(item.startswith("moondream") for item in optional["all"])

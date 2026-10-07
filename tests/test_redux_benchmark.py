@@ -1,45 +1,39 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
-from typing import Any
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import soundfile as sf
-from typing_extensions import Self
 
 import readio.api as readio_api
 from benchmarks.redux import benchmark_e2e, benchmark_voices
+from benchmarks.redux.benchmark_e2e import SHORT_TAIL_CASE, summarize_short_tail
+from benchmarks.redux.benchmark_voices import (
+    aggregate_results,
+    numeric_summary,
+    safe_name,
+    voice_wav_name,
+)
 from benchmarks.redux.common import (
+    DEFAULT_REDUX_MODEL,
     DEFAULT_TEXT,
-    SHORT_TAIL_CASE,
     BenchmarkCase,
     BenchmarkError,
     BenchmarkResult,
-    ReduxTranscriber,
-    Transcript,
-    TranscriptWord,
-    aggregate_results,
     character_error_rate,
     classify_verification,
     default_case,
     edit_distance,
     environment_metadata,
-    filter_voices,
     inspect_wav,
     normalize_text,
-    numeric_summary,
     parse_engine_options,
-    run_case,
-    safe_name,
     sha256_file,
-    summarize_short_tail,
     to_jsonable,
     verify,
-    voice_wav_name,
     word_error_rate,
     write_json,
 )
@@ -109,38 +103,22 @@ def test_short_tail_summary_requires_exact_terminal_transcript_and_reports_metri
     assert report["duration_seconds"] == {"min": 1.0, "median": 1.5, "max": 2.0}
 
 
-def test_repeated_short_tail_runner_executes_selected_phrase_each_time(tmp_path: Path, monkeypatch):
-    calls = []
-    monkeypatch.setattr(readio_api, "Readio", lambda: object())
-
-    class ReusedRedux:
-        def __enter__(self):
-            return _FakeRedux()
-
-        def __exit__(self, *_args):
-            return None
-
-    def fake_run_case(**kwargs):
-        calls.append(kwargs)
-        return BenchmarkResult(
-            status="pass",
-            case=kwargs["case"].name,
-            total_seconds=1.0,
-            verification=verify(
-                expected=kwargs["case"].reference_text,
-                transcript=kwargs["case"].reference_text,
-            ),
-        )
-
-    monkeypatch.setattr(benchmark_e2e, "ReduxTranscriber", lambda: ReusedRedux())
-    monkeypatch.setattr(benchmark_e2e, "run_case", fake_run_case)
+def test_repeated_short_tail_runner_executes_packaged_api_case_each_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, requests = _fake_verification_app()
+    monkeypatch.setattr(readio_api, "Readio", lambda: app)
 
     report = benchmark_e2e.run_repeated_short_tail(tmp_path, repetitions=3)
 
     assert report["runs"] == 3
     assert report["pass_count"] == 3
-    assert [call["case"].text for call in calls] == ["Hello, how are you?"] * 3
-    assert len({call["project_dir"] for call in calls}) == 3
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.case == "pocket-short-tail-v1"
+    assert request.repetitions == 3
+    assert request.output == tmp_path
+    assert request.synthesis.language == "en"
 
 
 def test_normalize_text_handles_nfkc_case_punctuation_apostrophes_and_spacing() -> None:
@@ -254,364 +232,97 @@ def test_environment_metadata_records_nullable_package_versions() -> None:
     assert "cpu_count" in metadata
 
 
-def test_redux_adapter_loads_context_and_converts_word_timestamps(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    calls: list[object] = []
+def _fake_verification_app(*, failure_stage: str | None = None):
+    requests = []
 
-    class Speech:
-        def transcribe(self, *, audio: Path, timestamps: str) -> dict[str, object]:
-            calls.append((audio, timestamps))
-            return {
-                "text": "hello there",
-                "timestamps": [
-                    {"text": "hello", "start": 0.0, "end": 0.2},
-                    {"word": "there", "start": 0.21, "end": 0.4},
-                ],
+    class Verification:
+        def run_e2e(self, request):
+            requests.append(request)
+            expected = (
+                SHORT_TAIL_CASE.reference_text
+                if request.case == "pocket-short-tail-v1"
+                else DEFAULT_TEXT
+            )
+            status = "fail" if failure_stage else "pass"
+            attempt = {
+                "ordinal": 1,
+                "overall_status": status,
+                "failure_stage": failure_stage,
+                "project_path": str(Path(request.output or ".") / "attempt-001" / "project.readio"),
+                "source_sha256": "a" * 64,
+                "resolved": {
+                    "language": request.synthesis.language,
+                    "engine": request.synthesis.engine,
+                    "model": request.synthesis.model,
+                    "voice": request.synthesis.voice,
+                    "voice_ref": request.synthesis.voice,
+                },
+                "planning": {
+                    "status": "pass",
+                    "attempt_id": "plan-1",
+                    "scope_count": 1,
+                    "planned_units": 1,
+                },
+                "synthesis": {
+                    "profile_id": "profile-1",
+                    "selected_units": 1,
+                    "rendered_units": 1,
+                    "reused_units": 0,
+                    "activated": True,
+                },
+                "composition": {
+                    "composition_id": "composition-1",
+                    "items": 1,
+                    "audio_seconds": 1.0,
+                    "sample_rate": 16_000,
+                    "channels": 1,
+                    "wav": str(Path(request.output or ".") / "attempt-001" / "master.wav"),
+                    "wav_sha256": "b" * 64,
+                },
+                "verification": {"status": status, "wer": 0.0, "cer": 0.0, "transcript": expected},
+                "timings": {
+                    "project_seconds": 0.1,
+                    "resolution_seconds": 0.1,
+                    "planning_seconds": 0.1,
+                    "synthesis_seconds": 0.1,
+                    "composition_seconds": 0.1,
+                    "redux_seconds": 0.1,
+                },
+                "seconds": 0.6,
+                "error": {"message": "resolved engine piper is not supported"}
+                if failure_stage
+                else None,
             }
-
-    class Photon:
-        def __enter__(self) -> Speech:
-            calls.append("entered")
-            return Speech()
-
-        def __exit__(self, *_: object) -> None:
-            calls.append("exited")
-
-    fake_moondream = ModuleType("moondream")
-
-    def fake_photon(model: str, *, device: str) -> Photon:
-        calls.append((model, device))
-        return Photon()
-
-    fake_moondream.__dict__["photon"] = fake_photon
-    monkeypatch.setitem(sys.modules, "moondream", fake_moondream)
-
-    wav = tmp_path / "input.wav"
-    transcriber = ReduxTranscriber()
-    with transcriber as redux:
-        transcript = redux.transcribe(wav)
-        assert redux.load_seconds is not None
-
-    assert isinstance(transcript, Transcript)
-    assert transcript.text == "hello there"
-    assert transcript.words == (
-        TranscriptWord("hello", 0.0, 0.2),
-        TranscriptWord("there", 0.21, 0.4),
-    )
-    assert calls == [
-        ("moondream/parakeet-redux", "cpu"),
-        "entered",
-        (wav, "word"),
-        "exited",
-    ]
-
-
-def test_redux_adapter_requires_context_before_transcribing(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="must be entered"):
-        ReduxTranscriber().transcribe(tmp_path / "audio.wav")
-
-
-def _fake_readio(tmp_path: Path, *, resolved_engine: str = "kokoro") -> tuple[object, list[str]]:
-    calls: list[str] = []
-    project_path = tmp_path / "project.readio"
-
-    class Projects:
-        def create(self, source: Path, *, output: Path) -> SimpleNamespace:
-            calls.append("create")
-            assert source.read_text(encoding="utf-8") == DEFAULT_TEXT
-            assert output == project_path
-            return SimpleNamespace(project_id="project-1", root=output)
-
-        def resolve_synthesis(
-            self, _project: Any, request: Any, *, use_saved_settings: bool
-        ) -> SimpleNamespace:
-            calls.append("resolve_synthesis")
-            assert use_saved_settings is False
-            assert request.language == "en-us"
-            assert request.engine == "kokoro"
-            assert request.model == "v1.0"
-            assert request.voice == "kokoro:v1.0/af_sarah"
-            if hasattr(self, "expected_engine_options"):
-                assert request.engine_options == self.expected_engine_options
             return SimpleNamespace(
-                engine=resolved_engine,
-                model="v1.0",
-                language="en-us",
-                voice="af_sarah",
+                to_dict=lambda: {
+                    "overall_status": status,
+                    "verification": {"backend_package_version": "1.2.3"},
+                    "timings": {"total_seconds": 0.6, "backend_load_seconds": 0.2},
+                    "output": request.output,
+                    "error": attempt["error"],
+                    "failure_stage": failure_stage,
+                },
+                attempts=tuple(
+                    dict(attempt, ordinal=index) for index in range(1, request.repetitions + 1)
+                ),
+                error=attempt["error"],
+                failure_stage=failure_stage,
+                timings={"total_seconds": 0.6},
             )
 
-        def plan(self, _project: object) -> SimpleNamespace:
-            calls.append("plan")
-            return SimpleNamespace(scopes=(SimpleNamespace(plan_id="plan-1", units=2),))
-
-        def synthesize(self, _project: Any, _request: Any, *, activate: bool) -> SimpleNamespace:
-            calls.append("synthesize")
-            assert activate is True
-            return SimpleNamespace(
-                profile_id="profile-1",
-                selected_units=2,
-                rendered=2,
-                reused=0,
-                activated=True,
-            )
-
-        def compose(self, _project: Any, options: Any) -> SimpleNamespace:
-            calls.append("compose")
-            assert options.sample_rate == 16_000
-            wav = tmp_path / "master.wav"
-            sf.write(wav, np.full(160, 0.1, dtype=np.float32), 16_000)
-            return SimpleNamespace(
-                composition_id="composition-1",
-                master_path=wav,
-                frames=160,
-                items=1,
-                loudness=None,
-            )
-
-    class Catalog:
-        def resolve_voice(self, voice: str, *, engine: str) -> SimpleNamespace:
-            calls.append("resolve_voice")
-            assert voice == "kokoro:v1.0/af_sarah"
-            assert engine == "kokoro"
-            return SimpleNamespace(
-                ref=voice,
-                voice="af_sarah",
-                catalog_entry=SimpleNamespace(ref=voice, id="af_sarah"),
-            )
-
-    return SimpleNamespace(projects=Projects(), catalog=Catalog()), calls
-
-
-class _FakeRedux:
-    model = "mock/redux"
-    device = "cpu"
-    load_seconds = 0.25
-
-    def transcribe(self, wav: Path) -> Transcript:
-        assert wav.is_file()
-        return Transcript(DEFAULT_TEXT)
-
-
-def test_run_case_executes_explicit_public_api_pipeline(tmp_path: Path) -> None:
-    app, calls = _fake_readio(tmp_path)
-    result = run_case(
-        app=app,
-        case=default_case(),
-        language="en-us",
-        engine="kokoro",
-        model="v1.0",
-        voice="kokoro:v1.0/af_sarah",
-        project_dir=tmp_path / "project.readio",
-        source_path=tmp_path / "source.txt",
-        redux=_FakeRedux(),  # type: ignore[arg-type]
-    )
-
-    assert calls == [
-        "create",
-        "resolve_voice",
-        "resolve_synthesis",
-        "plan",
-        "synthesize",
-        "compose",
-    ]
-    assert result.status == "pass"
-    assert result.project_id == "project-1"
-    assert result.plan_ids == ("plan-1",)
-    assert result.planned_units == 2
-    assert result.sample_rate == 16_000
-    assert result.channels == 1
-    assert result.verification is not None
-    assert result.verification.wer == 0.0
-    assert result.redux_load_seconds == 0.25
-    assert result.input_sha256 is not None
-    assert result.wav_sha256 is not None
-
-
-def test_run_case_merges_engine_device_and_redacts_credentials_from_result(tmp_path: Path) -> None:
-    app, _calls = _fake_readio(tmp_path)
-    expected_options = {
-        "temperature": 0.3,
-        "api_token": "secret-value",
-        "device": "cuda",
-    }
-    app.projects.expected_engine_options = expected_options
-
-    result = run_case(
-        app=app,
-        case=default_case(),
-        language="en-us",
-        engine="kokoro",
-        model="v1.0",
-        voice="kokoro:v1.0/af_sarah",
-        project_dir=tmp_path / "project.readio",
-        source_path=tmp_path / "source.txt",
-        engine_device="cuda",
-        engine_options={"temperature": 0.3, "api_token": "secret-value", "device": "ignored"},
-        redux=_FakeRedux(),  # type: ignore[arg-type]
-    )
-
-    assert result.engine_options == {
-        "temperature": 0.3,
-        "api_token": "<redacted>",
-        "device": "cuda",
-    }
-    assert "secret-value" not in json.dumps(result.to_dict())
-
-
-def test_pocket_voice_benchmark_preflight_preserves_regional_language(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from readio.engines.catalog import CatalogResult, SynthesisTarget, TargetVoice
-    from readio.voices import resolve_voice_reference
-
-    target = SynthesisTarget(
-        engine="pocket",
-        id="english_2026-04",
-        display_name="English Pocket",
-        languages=("en",),
-        voices=("alba",),
-        voice_details=(
-            TargetVoice(
-                id="alba",
-                gender="unknown",
-                language="en",
-                locale="en",
-                language_label="English",
-                languages=("en",),
-            ),
-        ),
-    )
-    import readio.voices as voices_module
-
-    monkeypatch.setattr(
-        voices_module,
-        "discover_targets",
-        lambda **_kwargs: CatalogResult(targets=(target,)),
-    )
-    requests: list[str] = []
-
-    class Projects:
-        def create(self, _source: Path, *, output: Path) -> SimpleNamespace:
-            return SimpleNamespace(project_id="pocket-project", root=output)
-
-        def resolve_synthesis(
-            self, _project: object, request: Any, *, use_saved_settings: bool
-        ) -> SimpleNamespace:
-            assert use_saved_settings is False
-            requests.append(request.language)
-            resolution = resolve_voice_reference(
-                request.voice,
-                language=request.language,
-                model=request.model,
-                source=None,
-                engine=request.engine,
-            )
-            assert resolution is not None
-            return SimpleNamespace(
-                engine=resolution.engine,
-                model=resolution.target_id,
-                language=resolution.language,
-                voice=resolution.voice,
-            )
-
-        def plan(self, _project: object) -> SimpleNamespace:
-            return SimpleNamespace(scopes=(SimpleNamespace(plan_id="plan", units=1),))
-
-        def synthesize(
-            self, _project: object, _request: object, *, activate: bool
-        ) -> SimpleNamespace:
-            assert activate is True
-            return SimpleNamespace(
-                profile_id="profile",
-                selected_units=1,
-                rendered=1,
-                reused=0,
-                activated=True,
-            )
-
-        def compose(self, _project: object, _options: Any) -> SimpleNamespace:
-            wav = tmp_path / "pocket-master.wav"
-            sf.write(wav, np.full(160, 0.1, dtype=np.float32), 16_000)
-            return SimpleNamespace(
-                composition_id="composition",
-                master_path=wav,
-                frames=160,
-                items=1,
-                loudness=None,
-            )
-
-    class Catalog:
-        def resolve_voice(self, voice: str, *, engine: str) -> Any:
-            return resolve_voice_reference(
-                voice,
-                language=None,
-                model=None,
-                source=None,
-                engine=engine,
-            )
-
-    result = run_case(
-        app=SimpleNamespace(projects=Projects(), catalog=Catalog()),
-        case=default_case(),
-        language="en-US",
-        engine="pocket",
-        model="english_2026-04",
-        voice="pocket:english_2026-04/alba",
-        project_dir=tmp_path / "pocket-project.readio",
-        source_path=tmp_path / "pocket-source.txt",
-        redux=_FakeRedux(),  # type: ignore[arg-type]
-    )
-
-    assert result.status == "pass"
-    assert result.resolved_language == "en-us"
-    assert requests == ["en-US"]
-
-
-def test_run_case_records_preflight_failure_without_running_later_stages(tmp_path: Path) -> None:
-    app, calls = _fake_readio(tmp_path, resolved_engine="piper")
-    result = run_case(
-        app=app,
-        case=default_case(),
-        language="en-us",
-        engine="kokoro",
-        model="v1.0",
-        voice="kokoro:v1.0/af_sarah",
-        project_dir=tmp_path / "project.readio",
-        source_path=tmp_path / "source.txt",
-        redux=_FakeRedux(),  # type: ignore[arg-type]
-    )
-
-    assert result.status == "fail"
-    assert result.failure_stage == "preflight"
-    assert "resolved engine" in (result.error or "")
-    assert calls == ["create", "resolve_voice", "resolve_synthesis"]
-    assert result.input_sha256 is not None
-    assert result.to_dict()["status"] == "fail"
+    return SimpleNamespace(verification=Verification()), requests
 
 
 def test_e2e_cli_writes_json_result_without_loading_real_models(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    app, _ = _fake_readio(tmp_path)
+    app, requests = _fake_verification_app()
     monkeypatch.setattr(readio_api, "Readio", lambda: app)
-
-    class MockTranscriber(_FakeRedux):
-        def __enter__(self) -> Self:
-            return self
-
-        def __exit__(self, *_: object) -> None:
-            return None
-
-    monkeypatch.setattr(
-        benchmark_e2e,
-        "ReduxTranscriber",
-        lambda **_kwargs: MockTranscriber(),
-    )
-
     status = benchmark_e2e.main(["--work-dir", str(tmp_path), "--json"])
 
     assert status == 0
+    assert len(requests) == 1
+    assert requests[0].case == "readio-e2e-en-v1"
     result = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     assert result["status"] == "pass"
     assert result["verification"]["transcript"] == DEFAULT_TEXT
@@ -621,44 +332,17 @@ def test_e2e_cli_writes_json_result_without_loading_real_models(
 def test_e2e_cli_persists_preflight_failure_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    app, _ = _fake_readio(tmp_path, resolved_engine="piper")
+    app, requests = _fake_verification_app(failure_stage="preflight")
     monkeypatch.setattr(readio_api, "Readio", lambda: app)
-
-    class MockTranscriber(_FakeRedux):
-        def __enter__(self) -> Self:
-            return self
-
-        def __exit__(self, *_: object) -> None:
-            return None
-
-    monkeypatch.setattr(
-        benchmark_e2e,
-        "ReduxTranscriber",
-        lambda **_kwargs: MockTranscriber(),
-    )
-
     status = benchmark_e2e.main(["--work-dir", str(tmp_path), "--json"])
 
     result = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     assert status == 2
+    assert len(requests) == 1
     assert result["status"] == "fail"
     assert result["failure_stage"] == "preflight"
     assert "resolved engine" in result["error"]
     assert json.loads(capsys.readouterr().out)["status"] == "fail"
-
-
-def test_filter_voices_preserves_catalog_order_and_experimental_opt_in() -> None:
-    voices = (
-        SimpleNamespace(id="first", runtime_available=True, experimental=False),
-        SimpleNamespace(id="preview", runtime_available=True, experimental=True),
-        SimpleNamespace(id="missing", runtime_available=False, experimental=False),
-    )
-
-    assert [voice.id for voice in filter_voices(voices)] == ["first"]
-    assert [voice.id for voice in filter_voices(voices, include_experimental=True)] == [
-        "first",
-        "preview",
-    ]
 
 
 def test_safe_voice_names_include_ordinal_and_sanitize_components() -> None:
@@ -701,142 +385,101 @@ def test_numeric_summary_and_voice_aggregation_include_outliers() -> None:
     assert summary["highest_wer"] == {"voice": "af_heart", "wer": 0.5}
 
 
-def _fake_voice_app() -> tuple[Any, list[Any]]:
-    def voice_info(voice_id: str, *, experimental: bool = False, runtime: bool = True):
-        return readio_api.VoiceInfo(
-            ref=f"kokoro:v1.0/{voice_id}",
-            id=voice_id,
-            gender="female",
-            language="en-us",
-            locale="en-us",
-            language_label="English",
-            model="v1.0",
-            source="test",
-            default=False,
-            status="ready",
-            experimental=experimental,
-            runtime_available=runtime,
-            engine="kokoro",
-        )
-
-    voices = [
-        voice_info("af_bella"),
-        voice_info("af_heart"),
-        voice_info("af_experimental", experimental=True),
-        voice_info("af_missing", runtime=False),
-    ]
-    requests: list[Any] = []
-
-    class Projects:
-        def create(self, source: Path, *, output: Path) -> SimpleNamespace:
-            assert source.read_text(encoding="utf-8") == DEFAULT_TEXT
-            return SimpleNamespace(project_id=output.name, root=output)
-
-        def resolve_synthesis(
-            self, _project: Any, request: Any, *, use_saved_settings: bool
-        ) -> SimpleNamespace:
-            requests.append(request)
-            assert use_saved_settings is False
-            voice = request.voice.rsplit("/", 1)[-1]
-            engine = "wrong-engine" if voice == "af_heart" else "kokoro"
-            return SimpleNamespace(
-                engine=engine,
-                model="v1.0",
-                language="en-us",
-                voice=voice,
-            )
-
-        def plan(self, _project: object) -> SimpleNamespace:
-            return SimpleNamespace(scopes=(SimpleNamespace(plan_id="plan", units=2),))
-
-        def synthesize(self, _project: Any, _request: Any, *, activate: bool) -> SimpleNamespace:
-            return SimpleNamespace(
-                profile_id="profile",
-                selected_units=2,
-                rendered=2,
-                reused=0,
-                activated=activate,
-            )
-
-        def compose(self, project: Any, _options: Any) -> SimpleNamespace:
-            root = project.root
-            wav = root.parent / f"{root.name}.wav"
-            sf.write(wav, np.full(320, 0.1, dtype=np.float32), 16_000)
-            return SimpleNamespace(
-                composition_id="composition",
-                master_path=wav,
-                frames=320,
-                items=1,
-                loudness=None,
-            )
-
-    class Catalog:
-        def voices(self, query: Any) -> tuple[Any, ...]:
-            assert query.language == "en-us"
-            assert query.engine == "kokoro"
-            assert query.model == "v1.0"
-            return tuple(voices)
-
-        def resolve_voice(self, reference: str, *, engine: str) -> SimpleNamespace:
-            assert engine == "kokoro"
-            voice = next(item for item in voices if item.ref == reference)
-            return SimpleNamespace(
-                ref=voice.ref,
-                voice=voice.id,
-                catalog_entry=voice,
-            )
-
-    return SimpleNamespace(projects=Projects(), catalog=Catalog()), requests
-
-
-class _SharedMockRedux(_FakeRedux):
-    instances = 0
-    enters = 0
-
-    def __init__(self, *, model: str, device: str) -> None:
-        self.model = model
-        self.device = device
-        self.load_seconds = 0.5
-        type(self).instances += 1
-
-    def __enter__(self) -> Self:
-        type(self).enters += 1
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        return None
-
-    def transcribe(self, wav: Path) -> Transcript:
-        if "af-heart" in wav.name:
-            return Transcript("")
-        return Transcript(DEFAULT_TEXT)
-
-
-def test_voice_matrix_cli_reuses_runner_continues_and_writes_json_csv(
+def test_voice_matrix_compatibility_cli_delegates_to_api_and_writes_json_csv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    app, requests = _fake_voice_app()
-    monkeypatch.setattr(readio_api, "Readio", lambda: app)
-    _SharedMockRedux.instances = 0
-    _SharedMockRedux.enters = 0
-    monkeypatch.setattr(benchmark_voices, "ReduxTranscriber", _SharedMockRedux)
-
-    status: int = benchmark_voices.main(["--work-dir", str(tmp_path / "matrix"), "--json"])
-
     output = tmp_path / "matrix"
+    api_wav = tmp_path / "api-master.wav"
+    api_wav.write_bytes(b"test wav placeholder")
+    requests = []
+
+    def row(voice_id: str, *, transcript: str, status: str, error: str | None = None):
+        return {
+            "voice": {
+                "ref": f"kokoro:v1.0/{voice_id}",
+                "id": voice_id,
+                "engine": "kokoro",
+                "model": "v1.0",
+                "language": "en-us",
+            },
+            "status": status,
+            "planning_status": "pass",
+            "synthesis_status": "pass",
+            "resolved": {
+                "language": "en-us",
+                "engine": "kokoro",
+                "model": "v1.0",
+                "voice": voice_id,
+                "voice_ref": f"kokoro:v1.0/{voice_id}",
+            },
+            "planning": {
+                "status": "pass",
+                "attempt_id": "plan-1",
+                "scope_count": 1,
+                "planned_units": 1,
+            },
+            "synthesis": {
+                "profile_id": "profile-1",
+                "selected_units": 1,
+                "rendered_units": 1,
+                "reused_units": 0,
+                "activated": True,
+            },
+            "composition": {
+                "composition_id": "composition-1",
+                "items": 1,
+                "audio_seconds": 1.0,
+                "sample_rate": 16_000,
+                "channels": 1,
+                "wav": str(api_wav),
+                "wav_sha256": "b" * 64,
+            },
+            "verification": {"status": status, "transcript": transcript, "wer": 0.0, "cer": 0.0},
+            "timings": {"synthesis_seconds": 0.2, "redux_seconds": 0.1},
+            "source_sha256": "a" * 64,
+            "project_path": str(tmp_path / voice_id / "project.readio"),
+            "error": {"message": error} if error else None,
+            "failure_stage": "verification" if error else None,
+        }
+
+    rows = (
+        row("af_bella", transcript=DEFAULT_TEXT, status="pass"),
+        row("af_heart", transcript="", status="fail", error="wrong-engine catalog entry"),
+    )
+    matrix_document = {
+        "schema": "readio.verification.voice-matrix.v1",
+        "overall_status": "fail",
+        "query": {"language": "en-us", "engine": "kokoro", "model": "v1.0"},
+        "redux": {"model": DEFAULT_REDUX_MODEL, "device": "cpu", "load_seconds": 0.5},
+        "results": rows,
+        "error": None,
+    }
+
+    class Verification:
+        def generate_voices(self, request):
+            requests.append(request)
+            return SimpleNamespace(
+                to_dict=lambda: matrix_document,
+                query=matrix_document["query"],
+                redux=matrix_document["redux"],
+                results=rows,
+                error=None,
+            )
+
+    monkeypatch.setattr(readio_api, "Readio", lambda: SimpleNamespace(verification=Verification()))
+    status = benchmark_voices.main(["--work-dir", str(output), "--json"])
+
     document = json.loads((output / "results.json").read_text(encoding="utf-8"))
     csv_text = (output / "results.csv").read_text(encoding="utf-8")
-    assert len(requests) == 2
-    assert _SharedMockRedux.instances == 1
-    assert _SharedMockRedux.enters == 1
-    assert [row["voice"] for row in document["results"]] == ["af_bella", "af_heart"]
+    assert len(requests) == 1
+    assert requests[0].output == output / "verification"
+    assert requests[0].include_experimental is False
+    assert [result["voice"] for result in document["results"]] == ["af_bella", "af_heart"]
     assert document["summary"]["passed"] == 1
     assert document["summary"]["failed"] == 1
     assert (output / "wav" / "001-kokoro-v1-0-af-bella.wav").is_file()
     assert "transcript" not in csv_text.casefold()
     assert DEFAULT_TEXT not in csv_text
     assert "wrong-engine" in document["results"][1]["error"]
-    assert json.loads(capsys.readouterr().out)["schema"] == (
-        "readio.benchmark.redux.voice-matrix.v1"
-    )
+    assert json.loads(capsys.readouterr().out)["schema"] == "readio.benchmark.redux.voice-matrix.v1"
     assert status == 1

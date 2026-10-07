@@ -18,6 +18,7 @@ DOMAIN_MODULES = frozenset(
         "pocketsynth",
         "kittensynth",
         "supertonicsynth",
+        "moondream",
     }
 )
 
@@ -36,6 +37,7 @@ BASELINE_IMPORTERS = {
         "readio/ssmd.py",
     },
     "ssmdconvert": {"readio/integrations/ssmdconvert.py"},
+    "moondream": {"readio/integrations/moondream.py"},
     "utterplan": {
         "readio/planning/compiler.py",
         "readio/planning/policy.py",
@@ -108,8 +110,8 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
     }
     print(f"Readio external domain import baseline: {metrics}")
     assert metrics == {
-        "domain_packages": 9,
-        "importing_files": 14,
-        "package_file_contacts": 14,
-        "imported_names": 85,
+        "domain_packages": 10,
+        "importing_files": 15,
+        "package_file_contacts": 15,
+        "imported_names": 86,
     }

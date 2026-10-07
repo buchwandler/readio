@@ -166,6 +166,9 @@ class SynthesisArtifact:
     speech_hash: str | None = None
     segment_id_value: str | None = None
     segment_index_value: int | None = None
+    text: str | None = None
+    profile_id: str | None = None
+    lowering_sha256: str | None = None
     sidecar_path: Path | None = None
 
     @property
@@ -1364,6 +1367,9 @@ def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisA
         speech_hash=item["speech_hash"],
         segment_id_value=item["segment_id"],
         segment_index_value=item["segment_index"],
+        text=str(item["segment"].text),
+        profile_id=str(item["profile_id"]),
+        lowering_sha256=str(sidecar["lowering_sha256"]),
         sidecar_path=item["sidecar_path"],
     )
 

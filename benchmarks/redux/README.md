@@ -1,123 +1,94 @@
-# Readio Redux benchmarks
+# Readio Redux verification
 
-These opt-in tools exercise a real Readio synthesis pipeline and independently
-transcribe its composed WAV with Parakeet Redux. They are benchmark tooling, not
-a Readio runtime feature. Redux remains an optional dependency and normal tests
-do not download models.
+These opt-in checks exercise Readio's normal planning, synthesis, and composition pipeline, then independently transcribe the resulting audio with Parakeet Redux. Redux is optional: ordinary Readio synthesis and composition do not require the verification extra, load Moondream, or generate derived ASR timings.
 
 ## Install
 
 From the repository root:
 
 ```bash
-python -m pip install -e ".[kokoro,benchmark]"
+python -m pip install -e ".[kokoro,verification]"
 ```
 
-The first run may download the Kokoro voice/model and Parakeet Redux assets via
-their respective public libraries. Readio uses its normal synthesis defaults;
-Redux uses CPU by default.
+The first run may download Kokoro assets and the selected Redux model. The normal test and pull-request workflows do not perform real-model inference or bundle model assets.
 
-## Single-voice end-to-end benchmark
+## Supported end-to-end self-test
 
-```bash
-python -m benchmarks.redux.benchmark_e2e
-```
-
-This uses the fixed `en-us` / Kokoro `v1.0` / `kokoro:v1.0/af_sarah` profile,
-creates a project, resolves the target, plans, synthesizes, composes a normal
-master at 16 kHz mono, and verifies that master with Redux. It prints each stage,
-WER/CER, expected and recognized text, timings, and artifact locations. A fresh
-timestamped directory is created under `benchmark-output/`.
-
-Use a fresh explicit work directory when reproducing or collecting artifacts:
+Prefer the packaged CLI for new automation and manual verification runs:
 
 ```bash
-python -m benchmarks.redux.benchmark_e2e \
-  --work-dir benchmark-output/redux-e2e-manual \
-  --language en-us --engine kokoro --model v1.0 \
+readio selftest e2e \
+  --engine kokoro \
+  --model v1.0 \
   --voice kokoro:v1.0/af_sarah \
-  --redux-device cpu --json
+  --lang en-us \
+  --output benchmark-output/audio-e2e \
+  --json
 ```
 
-The directory contains `source.txt`, `result.json`, and the Readio project and
-master WAV. Artifacts are retained for PASS, REVIEW, and FAIL in this initial
-release; `--keep` is accepted for clarity and future cleanup policy. Do not reuse
-a work directory whose `project.readio` already exists.
+The output directory contains stable JSON evidence, the source and project, and the composed master WAV. Planning provenance and any blocked-plan attempt remain inspectable. A failing pipeline still writes a diagnostic result when possible. Add `--strict` to make REVIEW return a nonzero status.
 
-Repeated engine settings can be supplied with `--engine-option KEY=VALUE`; the flag is repeatable. `true`/`false`, `null`, and JSON numbers are converted to scalars, while other values remain strings. For example, use `--engine-option temperature=0.3 --engine-option frames_after_eos=5`. Credential-like option names are redacted from benchmark JSON; do not pass secrets as benchmark options.
-
-## Pocket short-tail regression
-
-The Pocket-focused diagnostic uses the exact observed phrase and keeps the existing WER/CER thresholds. Each repetition gets a separate project and WAV; JSON records each attempt, exact normalized terminal completeness, pass/fail totals, median and worst WER/CER, and minimum/median/maximum duration:
+For the Pocket short-tail regression, run a sequence of fresh projects while reusing one Redux session:
 
 ```bash
-python -m benchmarks.redux.benchmark_e2e \
-  --case pocket-short-tail --repetitions 20 \
-  --engine pocket --model english_2026-04 --language en \
-  --voice pocket:english_2026-04/alba --json
+readio selftest e2e \
+  --case pocket-short-tail-v1 \
+  --repetitions 20 \
+  --engine pocket \
+  --model english_2026-04 \
+  --voice pocket:english_2026-04/alba \
+  --lang en \
+  --output benchmark-output/pocket-short-tail \
+  --json
 ```
 
-Defaults for that case select the Pocket engine, model, voice, and 20 repetitions. To isolate an explicit generation override, append repeatable flags such as `--engine-option frames_after_eos=5`. The composed WAV exists before Redux transcription; playback is not used as a success criterion.
-Options include `--device` for a Readio engine device override, `--redux-model`,
-`--pass-wer`, `--pass-cer`, `--fail-wer`, `--fail-cer`, `--strict`, and `--json`.
-PASS exits 0; REVIEW exits 0 unless `--strict`; audio, semantic, or pipeline
-FAIL exits 1; configuration/preflight failures exit 2. A result JSON is written
-when possible even if a pipeline stage fails.
+Each attempt records terminal completeness and WER/CER; the exact short phrase must be complete for an attempt to pass.
 
-## All-voices compatibility matrix
+## Voice matrix and timestamp QA
+
+Use the packaged API/CLI for voice matrices. Each voice gets an independent project while the Redux lifecycle is shared:
 
 ```bash
-python -m benchmarks.redux.benchmark_voices \
-  --engine kokoro --model v1.0 --language en-us
+readio selftest voices \
+  --engine kokoro --model v1.0 --lang en-us \
+  --output benchmark-output/voice-matrix --json
 ```
 
-The catalog is the source of truth. By default the runner keeps runtime-available
-non-experimental voices in catalog order. `--include-experimental` opts into
-experimental voices. Each voice gets its own fresh project, uses the same
-`run_case()` pipeline as the single benchmark, and is transcribed using one Redux
-instance for the whole process. A failing voice is recorded and the next voice
-still runs.
+`--include-experimental` opts into experimental voices. The command writes JSON and transcript-free CSV artifacts and returns nonzero for failures; `--strict` also rejects REVIEW.
 
-The output directory (timestamped under `benchmark-output/` by default) contains
-`source.txt`, `voices.json`, `results.json`, `results.csv`, per-voice projects,
-and copied WAVs named with stable ordinal and sanitized target/voice components.
-JSON is authoritative and contains transcripts; CSV is transcript-free for
-regression plotting. All artifacts are retained. The command exits nonzero if
-any voice fails; `--strict` also makes REVIEW nonzero.
-
-The matrix accepts the same target, device, Redux, threshold, `--work-dir`, and
-`--json` options as the single benchmark, plus `--include-experimental`. Use a
-fresh `--work-dir` for each run.
-
-## Opt-in pytest test
-
-The real model test uses the same `run_default_e2e()` entry point as the CLI and
-is skipped in the normal test suite:
+Timestamp QA is explicit and separate from composition:
 
 ```bash
-READIO_E2E_REDUX=1 python -m pytest -q -m e2e tests/e2e/test_redux_e2e.py
+readio selftest timestamps \
+  --engine kokoro --model v1.0 --voice kokoro:v1.0/af_sarah \
+  --lang en-us --output benchmark-output/timestamps --json
 ```
 
-Fast helper and matrix tests need no Redux model downloads:
+To generate ASR-derived word timing artifacts for a project, call `Readio().verification.generate_timestamps(...)` explicitly. These derived artifacts are kept in the verification cache; they do not mutate synthesis sidecars, synthesis cache identity, or native timing declarations, and composition never invokes ASR implicitly.
+
+## Legacy benchmark entry points
+
+The old Python module commands remain available for compatibility and preserve their result JSON/CSV format:
+
+```bash
+python -m benchmarks.redux.benchmark_e2e --work-dir benchmark-output/legacy-e2e
+python -m benchmarks.redux.benchmark_voices --work-dir benchmark-output/legacy-voices
+```
+
+They delegate execution to the public `Readio().verification` API. Prefer the supported `readio selftest` commands for new scripts and CI. Existing scalar `--engine-option KEY=VALUE`, threshold, JSON, and strict options remain accepted by the wrappers. Credential-like option names are redacted in output.
+
+## Manual GitHub Actions run
+
+`.github/workflows/audio-e2e.yml` is `workflow_dispatch` only. It installs the Kokoro and verification extras, runs `readio selftest e2e`, and uploads the output directory even when the run fails. Normal pull-request CI does not download real models or run model inference.
+
+## Interpretation
+
+Default classification is PASS at WER <= 0.10 and CER <= 0.05; REVIEW at WER <= 0.20 and CER <= 0.10; worse scores, empty transcripts, invalid audio, or pipeline errors FAIL. Thresholds can be overridden by supported requests and the compatibility wrappers.
+
+WER/CER measure recognized word content; they do not assess speaker identity, naturalness, prosody, timbre, loudness, clipping, or background noise. Cases remain fixed and plain-text; the benchmark does not semantically rewrite numbers, abbreviations, or symbols.
+
+Fast helper tests need no Redux model download:
 
 ```bash
 python -m pytest -q tests/test_redux_benchmark.py
 ```
-
-## Interpreting results
-
-Default classification is PASS at WER <= 0.10 and CER <= 0.05; REVIEW at WER <=
-0.20 and CER <= 0.10; worse scores, empty transcripts, invalid audio, or pipeline
-errors FAIL. Thresholds can be overridden but are shared across voices.
-
-Zero WER/CER establishes recognized word content, not voice identity, phoneme
-quality, naturalness, prosody, timbre, loudness, clipping, or background-noise
-quality. The benchmark deliberately does not semantically rewrite numbers,
-abbreviations, or symbols; keep the initial corpus plain and fixed.
-
-## Manual GitHub Actions run
-
-`.github/workflows/audio-e2e.yml` is `workflow_dispatch` only. It runs one fixed
-benchmark on Ubuntu/Python 3.13 and uploads the full output directory even when
-the benchmark fails. It does not add model downloads to the normal pull-request
-suite and does not run the all-voices matrix.

@@ -20,6 +20,7 @@ EventStage = Literal[
     "synthesis",
     "composition",
     "export",
+    "verification",
     "output",
     "readiness",
     "render",

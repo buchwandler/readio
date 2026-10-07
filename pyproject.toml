@@ -32,7 +32,8 @@ kitten = ['kittensynth[cpu]>=0.1.1,<0.2']
 supertonic = ['supertonicsynth[cpu]>=0.1.2,<0.2']
 spacy = ['utterplan[spacy]>=0.4.0,<0.5']
 documents = ["ssmdconvert[pdf,docx]>=0.1.3,<0.2"]
-benchmark = ["moondream>=2.4"]
+verification = ["moondream>=2.4,<3"]
+benchmark = ["moondream>=2.4,<3"]
 all = [
   'pykokoro>=0.10.2,<0.11',
   'pipersynth>=0.2.1,<0.3',

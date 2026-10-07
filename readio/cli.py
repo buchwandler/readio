@@ -2121,6 +2121,198 @@ def _cmd_formats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_verification_engine_options(values: Sequence[str]) -> dict[str, object]:
+    options: dict[str, object] = {}
+    for item in values:
+        key, separator, raw = item.partition("=")
+        if not separator or not key.strip():
+            raise ValueError("--engine-option must use KEY=VALUE")
+        key = key.strip()
+        if raw.casefold() == "true":
+            value: object = True
+        elif raw.casefold() == "false":
+            value = False
+        elif raw.casefold() == "null":
+            value = None
+        else:
+            try:
+                candidate = json.loads(raw)
+            except json.JSONDecodeError:
+                candidate = raw
+            value = (
+                candidate
+                if isinstance(candidate, (int, float)) and not isinstance(candidate, bool)
+                else raw
+            )
+        options[key] = value
+    return options
+
+
+def _add_voice_matrix_options(parser: argparse.ArgumentParser) -> None:
+    _add_synthesis_options(parser)
+    parser.add_argument(
+        "--case",
+        choices=("readio-e2e-en-v1", "default", "pocket-short-tail", "pocket-short-tail-v1"),
+        default="readio-e2e-en-v1",
+    )
+    parser.add_argument("--engine-option", action="append", default=[], metavar="KEY=VALUE")
+    parser.add_argument("--redux-model", default="moondream/parakeet-redux")
+    parser.add_argument("--redux-device", default="cpu")
+    parser.add_argument("--plan-renderability", choices=("repair", "strict"), default="repair")
+    parser.add_argument("--require-clean-plan", action="store_true")
+    parser.add_argument("--sample-rate", type=int, default=16_000)
+    parser.add_argument(
+        "--output", type=Path, help="directory for stable JSON/CSV matrix artifacts"
+    )
+    parser.add_argument("--include-experimental", action="store_true")
+    parser.add_argument(
+        "--preference", choices=("auto", "github", "huggingface", "upstream"), default="auto"
+    )
+    parser.add_argument("--pass-wer", type=float, default=0.10)
+    parser.add_argument("--pass-cer", type=float, default=0.05)
+    parser.add_argument("--fail-wer", type=float, default=0.20)
+    parser.add_argument("--fail-cer", type=float, default=0.10)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--strict", action="store_true")
+
+
+def _cmd_voices_generate(args: argparse.Namespace) -> int:
+    if any(
+        getattr(args, name, None) is not None
+        for name in ("voice", "voice_file", "voice_prompt", "speaker")
+    ):
+        raise ValueError(
+            "voice matrix generation selects catalog voices; do not pass --voice, --voice-file, --voice-prompt, or --speaker"
+        )
+    from .verification.cases import get_case
+
+    case = get_case(args.case)
+    synthesis = cli_adapter.synthesis_request_from_args(args, default_language=case.language)
+    engine_options = dict(synthesis.engine_options)
+    engine_options.update(_parse_verification_engine_options(args.engine_option))
+    synthesis = replace(
+        synthesis, engine_options=engine_options, voice=None, voice_file=None, voice_prompt=None
+    )
+    request = public_api.VoiceMatrixRequest(
+        synthesis=synthesis,
+        planning=public_api.ProjectPlanOptions(renderability=args.plan_renderability),
+        composition=public_api.CompositionOptions(sample_rate=args.sample_rate),
+        verification=public_api.VerificationOptions(
+            model=args.redux_model, device=args.redux_device
+        ),
+        discovery=public_api.DiscoveryOptions(
+            offline=args.offline,
+            refresh=args.refresh,
+            preference=args.preference,
+        ),
+        case=args.case,
+        include_experimental=args.include_experimental,
+        pass_wer=args.pass_wer,
+        pass_cer=args.pass_cer,
+        fail_wer=args.fail_wer,
+        fail_cer=args.fail_cer,
+        require_clean_plan=args.require_clean_plan,
+        output=args.output,
+    )
+    result = _api_for(args).verification.generate_voices(request)
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        summary = result.summary
+        print(f"Readio Redux voice matrix: {result.overall_status.upper()}")
+        print(
+            f"Voices: {summary.get('voice_count', 0)} (pass {summary.get('passed', 0)}, review {summary.get('review', 0)}, fail {summary.get('failed', 0)})"
+        )
+        print(f"Output: {result.output}")
+        if result.error:
+            print(f"Error: {result.error.get('message', result.error)}")
+    return (
+        1
+        if result.overall_status == "fail" or (args.strict and result.overall_status == "review")
+        else 0
+    )
+
+
+def _cmd_selftest_e2e(args: argparse.Namespace) -> int:
+    from .verification.cases import get_case
+
+    case = get_case(args.case)
+    synthesis = cli_adapter.synthesis_request_from_args(args, default_language=case.language)
+    engine_options = dict(synthesis.engine_options)
+    engine_options.update(_parse_verification_engine_options(args.engine_option))
+    synthesis = replace(synthesis, engine_options=engine_options)
+    request = public_api.SelfTestRequest(
+        case=args.case,
+        synthesis=synthesis,
+        planning=public_api.ProjectPlanOptions(renderability=args.plan_renderability),
+        composition=public_api.CompositionOptions(sample_rate=args.sample_rate),
+        verification=public_api.VerificationOptions(
+            model=args.redux_model, device=args.redux_device
+        ),
+        repetitions=args.repetitions,
+        require_clean_plan=args.require_clean_plan,
+        output=args.output,
+    )
+    result = _api_for(args).verification.run_e2e(request)
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(f"Readio verification: {result.overall_status.upper()}")
+        print(f"Case: {args.case}")
+        print(f"Output: {result.output}")
+        if result.planning.get("attempt_id"):
+            print(f"Planning attempt: {result.planning['attempt_id']}")
+            print(f"Planning repairs: {result.planning.get('repairs', 0)}")
+        if result.verification.get("wer") is not None:
+            print(f"WER: {result.verification['wer']}; CER: {result.verification.get('cer')}")
+        if result.error:
+            print(f"Error: {result.error.get('message', result.error)}")
+    return (
+        1
+        if result.overall_status == "fail" or (args.strict and result.overall_status == "review")
+        else 0
+    )
+
+
+def _cmd_selftest_timestamps(args: argparse.Namespace) -> int:
+    from .verification.cases import get_case
+
+    case = get_case(args.case)
+    synthesis = cli_adapter.synthesis_request_from_args(args, default_language=case.language)
+    engine_options = dict(synthesis.engine_options)
+    engine_options.update(_parse_verification_engine_options(args.engine_option))
+    synthesis = replace(synthesis, engine_options=engine_options)
+    request = public_api.TimestampSelfTestRequest(
+        case=args.case,
+        synthesis=synthesis,
+        planning=public_api.ProjectPlanOptions(renderability=args.plan_renderability),
+        verification=public_api.VerificationOptions(
+            model=args.redux_model, device=args.redux_device
+        ),
+        require_clean_plan=args.require_clean_plan,
+        output=args.output,
+    )
+    result = _api_for(args).verification.selftest_timestamps(request)
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(f"Readio timestamp self-test: {result.overall_status.upper()}")
+        print(f"Case: {args.case}")
+        print(f"Output: {result.output}")
+        print(
+            "Word alignment: "
+            f"{result.summary.get('matched_words', 0)}/{result.summary.get('expected_words', 0)}"
+        )
+        print(f"Native comparison segments: {result.summary.get('native_comparison_segments', 0)}")
+        if result.error:
+            print(f"Error: {result.error.get('message', result.error)}")
+    return (
+        1
+        if result.overall_status == "fail" or (args.strict and result.overall_status == "review")
+        else 0
+    )
+
+
 def _cmd_doctor(args: argparse.Namespace | None) -> int:
     report = _api_for(args or argparse.Namespace()).diagnostics.run()
     if args is None or getattr(args, "json", False):
@@ -2583,6 +2775,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     voices_list.add_argument("--json", action="store_true")
     voices_list.set_defaults(func=_cmd_voices)
+    voices_generate = voices_sub.add_parser(
+        "generate", help="generate a project-backed Redux voice matrix"
+    )
+    _add_voice_matrix_options(voices_generate)
+    voices_generate.set_defaults(func=_cmd_voices_generate)
     voices_prompts = voices_sub.add_parser(
         "prompts", help="list metadata-only PocketSynth managed voice prompts"
     )
@@ -2726,6 +2923,66 @@ def build_parser() -> argparse.ArgumentParser:
     new_cmd.set_defaults(func=_cmd_ingest)
     ingest_list = ingest_sub.add_parser("list", help="List ingest files.")
     ingest_list.set_defaults(func=_cmd_ingest)
+
+    selftest = sub.add_parser(
+        "selftest", help="Run active Readio synthesis and verification checks."
+    )
+    selftest.set_defaults(func=show_help, _help_parser=selftest)
+    selftest_sub = selftest.add_subparsers(
+        dest="selftest_command", required=True, title="Commands", metavar="COMMAND"
+    )
+    selftest_e2e = selftest_sub.add_parser(
+        "e2e", help="run a project-to-master Redux verification case"
+    )
+    _add_synthesis_options(selftest_e2e)
+    selftest_e2e.add_argument(
+        "--case",
+        choices=("readio-e2e-en-v1", "default", "pocket-short-tail", "pocket-short-tail-v1"),
+        default="readio-e2e-en-v1",
+    )
+    selftest_e2e.add_argument("--repetitions", type=int, default=1)
+    selftest_e2e.add_argument("--engine-option", action="append", default=[], metavar="KEY=VALUE")
+    selftest_e2e.add_argument("--redux-model", default="moondream/parakeet-redux")
+    selftest_e2e.add_argument("--redux-device", default="cpu")
+    selftest_e2e.add_argument(
+        "--plan-renderability", choices=("repair", "strict"), default="repair"
+    )
+    selftest_e2e.add_argument("--require-clean-plan", action="store_true")
+    selftest_e2e.add_argument("--sample-rate", type=int, default=16_000)
+    selftest_e2e.add_argument("--output", type=Path)
+    selftest_e2e.add_argument("--json", action="store_true")
+    selftest_e2e.add_argument("--strict", action="store_true")
+    selftest_e2e.set_defaults(func=_cmd_selftest_e2e)
+    selftest_voices = selftest_sub.add_parser("voices", help="run the Redux voice-matrix self-test")
+    _add_voice_matrix_options(selftest_voices)
+    selftest_voices.set_defaults(func=_cmd_voices_generate)
+    selftest_timestamps = selftest_sub.add_parser(
+        "timestamps", help="compare Redux word timings with canonical Readio segment timings"
+    )
+    _add_synthesis_options(selftest_timestamps)
+    selftest_timestamps.add_argument(
+        "--case",
+        choices=(
+            "readio-timestamps-en-v1",
+            "readio-e2e-en-v1",
+            "pocket-short-tail",
+            "pocket-short-tail-v1",
+        ),
+        default="readio-timestamps-en-v1",
+    )
+    selftest_timestamps.add_argument(
+        "--engine-option", action="append", default=[], metavar="KEY=VALUE"
+    )
+    selftest_timestamps.add_argument("--redux-model", default="moondream/parakeet-redux")
+    selftest_timestamps.add_argument("--redux-device", default="cpu")
+    selftest_timestamps.add_argument(
+        "--plan-renderability", choices=("repair", "strict"), default="repair"
+    )
+    selftest_timestamps.add_argument("--require-clean-plan", action="store_true")
+    selftest_timestamps.add_argument("--output", type=Path)
+    selftest_timestamps.add_argument("--json", action="store_true")
+    selftest_timestamps.add_argument("--strict", action="store_true")
+    selftest_timestamps.set_defaults(func=_cmd_selftest_timestamps)
 
     doctor = sub.add_parser("doctor", help="Check dependencies, engines, paths, and formats.")
     doctor.set_defaults(func=_cmd_doctor)

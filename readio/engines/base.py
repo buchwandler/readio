@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -228,6 +228,47 @@ class EngineAdapter(Protocol):
         ...
 
 
+def validate_word_timings(
+    *,
+    text: str,
+    frame_count: int,
+    timings: Sequence[SpeechWordTiming],
+    context: Mapping[str, object] | None = None,
+) -> tuple[SpeechWordTiming, ...]:
+    """Validate request-text and rendered-audio coordinates for native or derived words."""
+    from numbers import Integral
+
+    label = ""
+    if context:
+        label = " (" + ", ".join(f"{key}={value}" for key, value in sorted(context.items())) + ")"
+
+    def invalid(reason: str) -> ValueError:
+        return ValueError(f"{reason}{label}")
+
+    if isinstance(frame_count, bool) or not isinstance(frame_count, Integral) or frame_count < 0:
+        raise invalid("frame count must be a non-negative integer")
+    previous_char_start = previous_char_end = -1
+    previous_sample_start = previous_sample_end = -1
+    for timing in timings:
+        if not isinstance(timing.text, str):
+            raise invalid("word timing text must be a string")
+        coordinates = (timing.char_start, timing.char_end, timing.start_sample, timing.end_sample)
+        if any(isinstance(value, bool) or not isinstance(value, Integral) for value in coordinates):
+            raise invalid("word timing coordinates must be integers")
+        char_start, char_end, sample_start, sample_end = (int(value) for value in coordinates)
+        if not (0 <= char_start <= char_end <= len(text)):
+            raise invalid("word timing character range is outside the request text")
+        if not (0 <= sample_start <= sample_end <= frame_count):
+            raise invalid("word timing sample range is outside the rendered audio")
+        if char_start < previous_char_start or char_end < previous_char_end:
+            raise invalid("word timings are not monotonic in request text")
+        if sample_start < previous_sample_start or sample_end < previous_sample_end:
+            raise invalid("word timings are not monotonic in rendered audio")
+        previous_char_start, previous_char_end = char_start, char_end
+        previous_sample_start, previous_sample_end = sample_start, sample_end
+    return tuple(timings)
+
+
 def validate_rendered_speech(
     request: SpeechRequest,
     result: RenderedSpeech,
@@ -284,32 +325,14 @@ def validate_rendered_speech(
     if not np.isfinite(audio).all():
         raise invalid("audio must contain only finite samples")
 
-    previous_char_start = -1
-    previous_char_end = -1
-    previous_sample_start = -1
-    previous_sample_end = -1
-    for timing in result.word_timings:
-        coordinates = (
-            timing.char_start,
-            timing.char_end,
-            timing.start_sample,
-            timing.end_sample,
+    try:
+        result.word_timings = validate_word_timings(
+            text=request.text,
+            frame_count=int(audio.size),
+            timings=result.word_timings,
         )
-        if any(isinstance(value, bool) or not isinstance(value, Integral) for value in coordinates):
-            raise invalid("word timing coordinates must be integers")
-        char_start, char_end, sample_start, sample_end = (int(value) for value in coordinates)
-        if not (0 <= char_start <= char_end <= len(request.text)):
-            raise invalid("word timing character range is outside the request text")
-        if not (0 <= sample_start <= sample_end <= audio.size):
-            raise invalid("word timing sample range is outside the rendered audio")
-        if char_start < previous_char_start or char_end < previous_char_end:
-            raise invalid("word timings are not monotonic in request text")
-        if sample_start < previous_sample_start or sample_end < previous_sample_end:
-            raise invalid("word timings are not monotonic in rendered audio")
-        previous_char_start = char_start
-        previous_char_end = char_end
-        previous_sample_start = sample_start
-        previous_sample_end = sample_end
+    except ValueError as exc:
+        raise invalid(str(exc)) from exc
 
     result.audio = audio
     result.sample_rate = sample_rate

@@ -7,10 +7,12 @@ import json
 import math
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
+from typing import Any
+
+from readio.verification.cases import POCKET_SHORT_TAIL_CASE
 
 from .common import (
     DEFAULT_FAIL_CER,
@@ -18,15 +20,15 @@ from .common import (
     DEFAULT_PASS_CER,
     DEFAULT_PASS_WER,
     DEFAULT_REDUX_MODEL,
-    SHORT_TAIL_CASE,
+    BenchmarkCase,
     BenchmarkResult,
-    ReduxTranscriber,
+    _safe_engine_options,
     default_case,
     environment_metadata,
+    normalize_text,
     parse_engine_options,
-    run_case,
-    summarize_short_tail,
     to_jsonable,
+    verify,
     write_json,
 )
 
@@ -34,6 +36,67 @@ DEFAULT_LANGUAGE = "en-us"
 DEFAULT_ENGINE = "kokoro"
 DEFAULT_MODEL = "v1.0"
 DEFAULT_VOICE = "kokoro:v1.0/af_sarah"
+
+
+SHORT_TAIL_CASE = BenchmarkCase(
+    name="pocket-short-tail",
+    text=POCKET_SHORT_TAIL_CASE.text,
+    expected_text=POCKET_SHORT_TAIL_CASE.expected_text,
+)
+
+
+def numeric_summary(values: Sequence[float | int | None]) -> dict[str, float] | None:
+    samples = sorted(float(value) for value in values if value is not None and math.isfinite(value))
+    if not samples:
+        return None
+    return {
+        "mean": sum(samples) / len(samples),
+        "median": (samples[(len(samples) - 1) // 2] + samples[len(samples) // 2]) / 2,
+        "min": samples[0],
+        "max": samples[-1],
+    }
+
+
+def summarize_short_tail(results: Sequence[BenchmarkResult]) -> dict[str, Any]:
+    """Summarize repeated exact short-tail attempts without relaxing pass thresholds."""
+    attempts: list[dict[str, Any]] = []
+    wers: list[float] = []
+    cers: list[float] = []
+    durations: list[float] = []
+    pass_count = 0
+    for ordinal, result in enumerate(results, start=1):
+        verification = result.verification
+        terminal_complete = verification is not None and normalize_text(
+            verification.transcript
+        ) == normalize_text(SHORT_TAIL_CASE.reference_text)
+        passed = result.status == "pass" and terminal_complete
+        pass_count += int(passed)
+        if verification is not None:
+            wers.append(verification.wer)
+            cers.append(verification.cer)
+        durations.append(result.total_seconds)
+        attempts.append(
+            {
+                "run": ordinal,
+                **result.to_dict(),
+                "terminal_complete": terminal_complete,
+                "accepted": passed,
+            }
+        )
+    wer_summary = numeric_summary(wers) or {}
+    cer_summary = numeric_summary(cers) or {}
+    duration_summary = numeric_summary(durations) or {}
+    return {
+        "case": SHORT_TAIL_CASE.name,
+        "text": SHORT_TAIL_CASE.text,
+        "runs": len(results),
+        "pass_count": pass_count,
+        "fail_count": len(results) - pass_count,
+        "wer": {"median": wer_summary.get("median"), "worst": max(wers, default=None)},
+        "cer": {"median": cer_summary.get("median"), "worst": max(cers, default=None)},
+        "duration_seconds": {key: duration_summary.get(key) for key in ("min", "median", "max")},
+        "attempts": attempts,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -127,6 +190,247 @@ def _failure_result(
     )
 
 
+def _number(data: Mapping[str, Any], key: str) -> float | None:
+    value = data.get(key)
+    return float(value) if isinstance(value, (int, float)) and math.isfinite(float(value)) else None
+
+
+def _api_benchmark_result(
+    document: Mapping[str, Any],
+    attempt: Mapping[str, Any],
+    *,
+    case_name: str,
+    expected_text: str,
+    language: str,
+    engine: str,
+    model: str,
+    voice: str,
+    engine_options: Mapping[str, object] | None,
+    redux_model: str,
+    redux_device: str,
+    pass_wer: float = DEFAULT_PASS_WER,
+    pass_cer: float = DEFAULT_PASS_CER,
+    fail_wer: float = DEFAULT_FAIL_WER,
+    fail_cer: float = DEFAULT_FAIL_CER,
+) -> BenchmarkResult:
+    resolved = attempt.get("resolved") if isinstance(attempt.get("resolved"), Mapping) else {}
+    planning = attempt.get("planning") if isinstance(attempt.get("planning"), Mapping) else {}
+    synthesis = attempt.get("synthesis") if isinstance(attempt.get("synthesis"), Mapping) else {}
+    composition = (
+        attempt.get("composition") if isinstance(attempt.get("composition"), Mapping) else {}
+    )
+    verification = (
+        attempt.get("verification") if isinstance(attempt.get("verification"), Mapping) else {}
+    )
+    timings = attempt.get("timings") if isinstance(attempt.get("timings"), Mapping) else {}
+    redux_metadata = (
+        document.get("verification") if isinstance(document.get("verification"), Mapping) else {}
+    )
+    error_data = attempt.get("error") if isinstance(attempt.get("error"), Mapping) else {}
+    transcript = verification.get("transcript")
+    verified = (
+        verify(
+            expected=expected_text,
+            transcript=transcript,
+            pass_wer=pass_wer,
+            pass_cer=pass_cer,
+            fail_wer=fail_wer,
+            fail_cer=fail_cer,
+        )
+        if isinstance(transcript, str)
+        else None
+    )
+    status_value = str(attempt.get("overall_status", document.get("overall_status", "fail")))
+    status = status_value if status_value in {"pass", "review", "fail"} else "fail"
+    composition_seconds = _number(timings, "composition_seconds")
+    synthesis_seconds = _number(timings, "synthesis_seconds")
+    redux_seconds = _number(timings, "redux_seconds")
+    audio_seconds = _number(composition, "audio_seconds")
+    total_seconds = _number(attempt, "seconds")
+    api_attempts = document.get("attempts")
+    if isinstance(api_attempts, list) and len(api_attempts) == 1:
+        total_seconds = _number(document.get("timings", {}), "total_seconds") or total_seconds
+    if total_seconds is None:
+        total_seconds = 0.0
+    plan_attempt = planning.get("attempt_id")
+    loudness = composition.get("loudness")
+    return BenchmarkResult(
+        status=status,
+        case=case_name,
+        language=language,
+        engine=str(resolved.get("engine", engine)),
+        model=str(resolved.get("model", model)),
+        engine_options=_safe_engine_options(engine_options or {}),
+        voice=str(resolved.get("voice", voice)),
+        voice_ref=str(resolved.get("voice_ref", voice))
+        if resolved.get("voice_ref", voice)
+        else None,
+        resolved_language=str(resolved["language"]) if resolved.get("language") else None,
+        resolved_engine=str(resolved["engine"]) if resolved.get("engine") else None,
+        resolved_model=str(resolved["model"]) if resolved.get("model") else None,
+        resolved_voice=str(resolved["voice"]) if resolved.get("voice") else None,
+        project_path=str(attempt["project_path"]) if attempt.get("project_path") else None,
+        plan_ids=(str(plan_attempt),) if plan_attempt else (),
+        scope_count=int(planning["scope_count"])
+        if isinstance(planning.get("scope_count"), int)
+        else None,
+        planned_units=int(planning["planned_units"])
+        if isinstance(planning.get("planned_units"), int)
+        else None,
+        synthesis_profile_id=str(synthesis["profile_id"]) if synthesis.get("profile_id") else None,
+        selected_units=int(synthesis["selected_units"])
+        if isinstance(synthesis.get("selected_units"), int)
+        else None,
+        rendered_units=int(synthesis["rendered_units"])
+        if isinstance(synthesis.get("rendered_units"), int)
+        else None,
+        reused_units=int(synthesis["reused_units"])
+        if isinstance(synthesis.get("reused_units"), int)
+        else None,
+        active_synthesis=bool(synthesis["activated"])
+        if isinstance(synthesis.get("activated"), bool)
+        else None,
+        composition_id=str(composition["composition_id"])
+        if composition.get("composition_id")
+        else None,
+        composition_items=int(composition["items"])
+        if isinstance(composition.get("items"), int)
+        else None,
+        loudness=loudness if isinstance(loudness, Mapping) else None,
+        wav=str(composition["wav"]) if composition.get("wav") else None,
+        wav_sha256=str(composition["wav_sha256"]) if composition.get("wav_sha256") else None,
+        input_sha256=str(attempt["source_sha256"]) if attempt.get("source_sha256") else None,
+        audio_seconds=audio_seconds,
+        sample_rate=int(composition["sample_rate"])
+        if isinstance(composition.get("sample_rate"), int)
+        else None,
+        channels=int(composition["channels"])
+        if isinstance(composition.get("channels"), int)
+        else None,
+        project_seconds=_number(timings, "project_seconds"),
+        resolution_seconds=_number(timings, "resolution_seconds"),
+        plan_seconds=_number(timings, "planning_seconds"),
+        synthesis_seconds=synthesis_seconds,
+        composition_seconds=composition_seconds,
+        redux_load_seconds=_number(document.get("timings", {}), "backend_load_seconds"),
+        redux_seconds=redux_seconds,
+        total_seconds=total_seconds,
+        synthesis_x_real_time=(
+            audio_seconds / synthesis_seconds
+            if audio_seconds is not None and synthesis_seconds
+            else None
+        ),
+        redux_x_real_time=(
+            audio_seconds / redux_seconds if audio_seconds is not None and redux_seconds else None
+        ),
+        redux_model=redux_model,
+        redux_revision=str(redux_metadata["backend_package_version"])
+        if redux_metadata.get("backend_package_version")
+        else None,
+        redux_device=redux_device,
+        verification=verified,
+        environment=environment_metadata(
+            engine=engine, redux_model=redux_model, redux_device=redux_device
+        ),
+        error=str(error_data.get("message")) if error_data.get("message") else None,
+        failure_stage=str(attempt["failure_stage"]) if attempt.get("failure_stage") else None,
+    )
+
+
+def _run_api_case(
+    *,
+    work_dir: Path,
+    case: str,
+    case_name: str,
+    expected_text: str,
+    language: str,
+    engine: str,
+    model: str,
+    voice: str,
+    device: str | None,
+    engine_options: Mapping[str, object] | None,
+    redux_device: str,
+    redux_model: str,
+    repetitions: int,
+    pass_wer: float,
+    pass_cer: float,
+    fail_wer: float,
+    fail_cer: float,
+) -> tuple[Mapping[str, Any], list[BenchmarkResult]]:
+    from readio.api import (
+        CompositionOptions,
+        ProjectPlanOptions,
+        Readio,
+        SelfTestRequest,
+        SynthesisRequest,
+        VerificationOptions,
+    )
+
+    options = dict(engine_options or {})
+    if device is not None:
+        options.setdefault("device", device)
+    request = SelfTestRequest(
+        case=case,
+        synthesis=SynthesisRequest(
+            language=language,
+            engine=engine,
+            model=model,
+            voice=voice,
+            engine_options=options,
+        ),
+        planning=ProjectPlanOptions(),
+        composition=CompositionOptions(sample_rate=16_000),
+        verification=VerificationOptions(model=redux_model, device=redux_device),
+        repetitions=repetitions,
+        pass_wer=pass_wer,
+        pass_cer=pass_cer,
+        fail_wer=fail_wer,
+        fail_cer=fail_cer,
+        output=work_dir,
+    )
+    result = Readio().verification.run_e2e(request)
+    document = result.to_dict()
+    rows = [
+        _api_benchmark_result(
+            document,
+            attempt,
+            case_name=case_name,
+            expected_text=expected_text,
+            language=language,
+            engine=engine,
+            model=model,
+            voice=voice,
+            engine_options=options,
+            redux_model=redux_model,
+            redux_device=redux_device,
+            pass_wer=pass_wer,
+            pass_cer=pass_cer,
+            fail_wer=fail_wer,
+            fail_cer=fail_cer,
+        )
+        for attempt in result.attempts
+    ]
+    if not rows:
+        rows = [
+            _failure_result(
+                args=argparse.Namespace(
+                    language=language,
+                    engine=engine,
+                    model=model,
+                    voice=voice,
+                    redux_model=redux_model,
+                    redux_device=redux_device,
+                ),
+                error=RuntimeError(
+                    str((result.error or {}).get("message", "verification produced no attempts"))
+                ),
+                failure_stage=result.failure_stage or "verification",
+                total_seconds=float(result.timings.get("total_seconds", 0.0)),
+            )
+        ]
+    return document, rows
+
+
 def run_default_e2e(
     work_dir: Path,
     *,
@@ -143,53 +447,42 @@ def run_default_e2e(
     fail_wer: float = DEFAULT_FAIL_WER,
     fail_cer: float = DEFAULT_FAIL_CER,
 ) -> BenchmarkResult:
-    """Execute the exact default pipeline used by the CLI and opt-in pytest test."""
-    args = argparse.Namespace(
-        language=language,
-        engine=engine,
-        model=model,
-        voice=voice,
-        redux_model=redux_model,
-        redux_device=redux_device,
-    )
+    """Compatibility wrapper over the packaged verification API."""
     started = perf_counter()
-    failure_stage = "configuration"
     try:
-        work_dir.mkdir(parents=True, exist_ok=True)
-        from readio.api import Readio
-
-        app = Readio()
-        failure_stage = "redux_load"
-        with ReduxTranscriber(model=redux_model, device=redux_device) as redux:
-            redux_load_seconds = redux.load_seconds
-            result = run_case(
-                app=app,
-                case=default_case(),
+        _, results = _run_api_case(
+            work_dir=work_dir,
+            case="readio-e2e-en-v1",
+            case_name=default_case().name,
+            expected_text=default_case().reference_text,
+            language=language,
+            engine=engine,
+            model=model,
+            voice=voice,
+            device=device,
+            engine_options=engine_options,
+            redux_device=redux_device,
+            redux_model=redux_model,
+            repetitions=1,
+            pass_wer=pass_wer,
+            pass_cer=pass_cer,
+            fail_wer=fail_wer,
+            fail_cer=fail_cer,
+        )
+        return results[0]
+    except Exception as error:  # noqa: BLE001 - return diagnostics to CLI and opt-in pytest caller
+        return _failure_result(
+            args=argparse.Namespace(
                 language=language,
                 engine=engine,
                 model=model,
                 voice=voice,
-                project_dir=work_dir / "project.readio",
-                source_path=work_dir / "source.txt",
-                engine_device=device,
-                engine_options=engine_options,
-                redux=redux,
-                pass_wer=pass_wer,
-                pass_cer=pass_cer,
-                fail_wer=fail_wer,
-                fail_cer=fail_cer,
-            )
-        return replace(
-            result,
-            total_seconds=perf_counter() - started,
-            redux_load_seconds=redux_load_seconds,
-        )
-    except Exception as error:  # noqa: BLE001 - return diagnostics to CLI and opt-in pytest caller
-        return _failure_result(
-            args=args,
+                redux_model=redux_model,
+                redux_device=redux_device,
+            ),
             error=error,
-            failure_stage=failure_stage,
-            total_seconds=perf_counter() - started,
+            failure_stage="verification",
+            total_seconds=max(0.0, perf_counter() - started),
         )
 
 
@@ -204,38 +497,37 @@ def run_repeated_short_tail(
     device: str | None = None,
     engine_options: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Run the exact short-tail regression repeatedly, reusing one Redux model."""
+    """Run the packaged short-tail case with one Redux session and fresh attempts."""
     if repetitions < 1:
         raise ValueError("repetitions must be at least 1")
     work_dir.mkdir(parents=True, exist_ok=True)
-    from readio.api import Readio
-
-    app = Readio()
-    with ReduxTranscriber() as redux:
-        results = [
-            run_case(
-                app=app,
-                case=SHORT_TAIL_CASE,
-                language=language,
-                engine=engine,
-                model=model,
-                voice=voice,
-                project_dir=work_dir / f"run-{ordinal:03d}.readio",
-                source_path=work_dir / f"run-{ordinal:03d}.txt",
-                engine_device=device,
-                engine_options=engine_options,
-                redux=redux,
-            )
-            for ordinal in range(1, repetitions + 1)
-        ]
-    report: dict[str, object] = {
+    document, results = _run_api_case(
+        work_dir=work_dir,
+        case="pocket-short-tail-v1",
+        case_name=SHORT_TAIL_CASE.name,
+        expected_text=SHORT_TAIL_CASE.reference_text,
+        language=language,
+        engine=engine,
+        model=model,
+        voice=voice,
+        device=device,
+        engine_options=engine_options,
+        redux_device="cpu",
+        redux_model=DEFAULT_REDUX_MODEL,
+        repetitions=repetitions,
+        pass_wer=DEFAULT_PASS_WER,
+        pass_cer=DEFAULT_PASS_CER,
+        fail_wer=DEFAULT_FAIL_WER,
+        fail_cer=DEFAULT_FAIL_CER,
+    )
+    return {
         "schema": "readio.benchmark.redux.short-tail.v1",
         "engine": engine,
         "model": model,
         "voice": voice,
         **summarize_short_tail(results),
+        "verification_output": str(document.get("output", work_dir)),
     }
-    return report
 
 
 def _human_report(

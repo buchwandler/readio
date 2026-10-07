@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .speech import SpeechService
     from .ssmd import SSMDService
     from .templates import TemplateService
+    from .verification import VerificationService
 
 
 class Readio:
@@ -93,6 +94,14 @@ class Readio:
     @property
     def diagnostics(self) -> DiagnosticsService:
         return cast("DiagnosticsService", self._service("diagnostics", "DiagnosticsService"))
+
+    @property
+    def verification(self) -> VerificationService:
+        """Return the lazy optional-verification service."""
+        return cast(
+            "VerificationService",
+            self._service("verification", "VerificationService"),
+        )
 
 
 __all__ = ["Readio"]

@@ -22,6 +22,8 @@ from ..errors import (
     VoiceResolutionError,
 )
 from ..formats import SUPPORTED_AUDIO_FORMATS
+from ..verification.text import TextVerificationResult, VerificationThresholds
+from ..verification.types import TranscriptionResult, TranscriptSegment, TranscriptWord
 from .app import Readio
 from .errors import (
     DiscoveryError,
@@ -148,6 +150,7 @@ from .types import (
     ProjectSettings,
     ProjectSettingsPatch,
     ProjectStatus,
+    ProjectSynthesisArtifact,
     ProjectSynthesisResult,
     ProjectSynthesisSettings,
     ProjectTarget,
@@ -158,6 +161,8 @@ from .types import (
     ResolvedPlan,
     RoleBinding,
     RoleLocation,
+    SelfTestRequest,
+    SelfTestResult,
     SSMDAnalysis,
     SSMDCheckResult,
     SSMDMaterializeResult,
@@ -171,8 +176,17 @@ from .types import (
     TargetQuery,
     TemplateInfo,
     TemplateValidationResult,
+    TimestampComparisonRequest,
+    TimestampComparisonResult,
+    TimestampGenerationRequest,
+    TimestampGenerationResult,
+    TimestampSelfTestRequest,
+    TimestampSelfTestResult,
     Unset,
+    VerificationOptions,
     VoiceInfo,
+    VoiceMatrixRequest,
+    VoiceMatrixResult,
     VoicePromptInfo,
     VoicePromptQuery,
     VoiceQuery,
@@ -181,6 +195,7 @@ from .types import (
     document_from_file,
     document_from_text,
 )
+from .verification import VerificationService
 
 PUBLIC_API_VERSION = 1
 
@@ -300,6 +315,7 @@ __all__ = [
     "ProjectSettings",
     "ProjectSettingsPatch",
     "ProjectStatus",
+    "ProjectSynthesisArtifact",
     "ProjectSynthesisResult",
     "ProjectSynthesisSettings",
     "ProjectTarget",
@@ -321,6 +337,8 @@ __all__ = [
     "SSMDInputError",
     "SSMDMaterializeResult",
     "SSMDVoiceReference",
+    "SelfTestRequest",
+    "SelfTestResult",
     "SpeechRequestTooLongError",
     "StageName",
     "StageOperation",
@@ -333,9 +351,24 @@ __all__ = [
     "TargetQuery",
     "TemplateInfo",
     "TemplateValidationResult",
+    "TextVerificationResult",
+    "TimestampComparisonRequest",
+    "TimestampComparisonResult",
+    "TimestampGenerationRequest",
+    "TimestampGenerationResult",
+    "TimestampSelfTestRequest",
+    "TimestampSelfTestResult",
+    "TranscriptSegment",
+    "TranscriptWord",
+    "TranscriptionResult",
     "Unset",
     "UnsupportedSynthesisFeatureError",
+    "VerificationOptions",
+    "VerificationService",
+    "VerificationThresholds",
     "VoiceInfo",
+    "VoiceMatrixRequest",
+    "VoiceMatrixResult",
     "VoicePromptInfo",
     "VoicePromptQuery",
     "VoiceQuery",

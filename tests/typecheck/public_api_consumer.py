@@ -49,9 +49,23 @@ from readio.api import (
     RenderResult,
     ResolvedPlan,
     RoleBinding,
+    SelfTestRequest,
+    SelfTestResult,
     SSMDCheckResult,
     SynthesisRequest,
+    TextVerificationResult,
+    TimestampComparisonRequest,
+    TimestampComparisonResult,
+    TimestampGenerationRequest,
+    TimestampGenerationResult,
+    TimestampSelfTestRequest,
+    TimestampSelfTestResult,
+    TranscriptionResult,
+    VerificationOptions,
+    VerificationService,
     VoiceInfo,
+    VoiceMatrixRequest,
+    VoiceMatrixResult,
     VoiceQuery,
     VoiceTarget,
     document_from_file,
@@ -214,3 +228,69 @@ def public_project_settings_consumer(app: Readio, project: ProjectRef) -> Projec
 
 def public_audiobook_build_consumer(app: Readio, project: ProjectRef) -> AudiobookExportResult:
     return app.audiobooks.build(project)
+
+
+def public_timestamp_consumer(
+    app: Readio, audio: Path, project: ProjectRef
+) -> tuple[
+    TimestampComparisonResult,
+    TimestampGenerationResult,
+    TimestampSelfTestResult,
+    dict[str, JsonValue],
+]:
+    comparison: TimestampComparisonResult = app.verification.compare_timestamps(
+        TimestampComparisonRequest(audio=audio, text="typed consumer")
+    )
+    generation: TimestampGenerationResult = app.verification.generate_timestamps(
+        TimestampGenerationRequest(project=project)
+    )
+    selftest: TimestampSelfTestResult = app.verification.selftest_timestamps(
+        TimestampSelfTestRequest(case="readio-timestamps-en-v1")
+    )
+    payload: dict[str, JsonValue] = comparison.to_dict()
+    assert comparison.timing_structure["status"]
+    assert generation.schema
+    assert selftest.schema
+    return comparison, generation, selftest, payload
+
+
+def public_verification_consumer(
+    app: Readio, audio: Path, project: ProjectRef, output: Path
+) -> tuple[
+    VerificationService,
+    TranscriptionResult,
+    TextVerificationResult,
+    SelfTestResult,
+    VoiceMatrixResult,
+    TimestampGenerationResult,
+    dict[str, JsonValue],
+]:
+    verification: VerificationService = app.verification
+    options = VerificationOptions()
+    transcription: TranscriptionResult = verification.transcribe(audio, options)
+    text_result: TextVerificationResult = verification.verify_text(
+        audio, "typed public API", options=options
+    )
+    synthesis = SynthesisRequest(language="en-us", engine="kokoro", model="v1.0")
+    e2e: SelfTestResult = verification.run_e2e(
+        SelfTestRequest(synthesis=synthesis, output=output / "e2e")
+    )
+    voices: VoiceMatrixResult = verification.generate_voices(
+        VoiceMatrixRequest(synthesis=synthesis, output=output / "voices")
+    )
+    timestamps: TimestampGenerationResult = verification.generate_timestamps(
+        TimestampGenerationRequest(
+            project=project, synthesis=synthesis, output=output / "timestamps"
+        )
+    )
+    reports: dict[str, JsonValue] = {
+        "e2e": e2e.to_dict(),
+        "voices": voices.to_dict(),
+        "timestamps": timestamps.to_dict(),
+    }
+    assert transcription.text
+    assert text_result.status
+    assert e2e.overall_status
+    assert voices.overall_status
+    assert timestamps.overall_status
+    return verification, transcription, text_result, e2e, voices, timestamps, reports

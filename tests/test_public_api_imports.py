@@ -31,6 +31,26 @@ def test_public_import_surface_and_typing_marker() -> None:
     assert "ProgressKind" in readio.api.__all__
     assert "EventStage" in readio.api.__all__
     assert "UNSET" in readio.api.__all__
+    for symbol in (
+        "TextVerificationResult",
+        "TranscriptSegment",
+        "TranscriptWord",
+        "TranscriptionResult",
+        "SelfTestRequest",
+        "SelfTestResult",
+        "TimestampComparisonRequest",
+        "TimestampComparisonResult",
+        "TimestampGenerationRequest",
+        "TimestampGenerationResult",
+        "TimestampSelfTestRequest",
+        "TimestampSelfTestResult",
+        "VerificationOptions",
+        "VerificationService",
+        "VerificationThresholds",
+        "VoiceMatrixRequest",
+        "VoiceMatrixResult",
+    ):
+        assert symbol in readio.api.__all__
     assert readio.api.G2P_FALLBACKS == config_internal.G2P_FALLBACKS
     assert readio.api.LANGUAGE_DETECTION_MODES == config_internal.LANGUAGE_DETECTION_MODES
     assert readio.api.LEXICON_DATA_POLICIES == config_internal.LEXICON_DATA_POLICIES
@@ -49,6 +69,7 @@ forbidden = {
     'readio.api.integrations.spotify', 'readio.spotify',
     'readio.engines.pykokoro', 'readio.engines.pipersynth',
     'pykokoro', 'pykokoro.playback', 'pipersynth', 'onnxruntime',
+    'moondream', 'readio.integrations.moondream',
 }
 assert not forbidden.intersection(sys.modules)
 """
@@ -57,6 +78,18 @@ assert not forbidden.intersection(sys.modules)
         check=True,
         env=os.environ.copy(),
     )
+
+
+def test_verification_service_construction_is_lazy() -> None:
+    script = """
+import sys
+from readio.api import Readio
+app = Readio()
+assert app.verification is app.verification
+assert 'moondream' not in sys.modules
+assert 'readio.integrations.moondream' not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True, env=os.environ.copy())
 
 
 def test_readio_construction_does_not_create_configuration(monkeypatch, tmp_path: Path) -> None:

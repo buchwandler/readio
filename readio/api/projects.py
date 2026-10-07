@@ -66,6 +66,7 @@ from .types import (
     ProjectSettings,
     ProjectSettingsPatch,
     ProjectStatus,
+    ProjectSynthesisArtifact,
     ProjectSynthesisResult,
     StageName,
     StageOperation,
@@ -734,6 +735,26 @@ class ProjectService:
             rendered=int(raw["rendered"]),
             activated=bool(raw["activated"]),
             selected_units=selected_units,
+            artifacts=tuple(
+                ProjectSynthesisArtifact(
+                    scope_id=artifact.scope_id,
+                    segment_id=artifact.segment_id,
+                    text=artifact.text or "",
+                    audio_path=artifact.path,
+                    sample_rate=artifact.sample_rate,
+                    frames=artifact.frames,
+                    audio_sha256=artifact.audio_sha256,
+                    speech_hash=artifact.speech_hash,
+                    synthesis_key=artifact.synthesis_key,
+                    profile_id=artifact.profile_id,
+                    lowering_sha256=artifact.lowering_sha256,
+                    word_timings=tuple(
+                        cast(Mapping[str, JsonValue], json_value(item))
+                        for item in artifact.word_timings
+                    ),
+                )
+                for artifact in raw["artifacts"]
+            ),
         )
 
     def compose(

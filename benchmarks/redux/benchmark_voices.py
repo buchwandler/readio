@@ -6,9 +6,10 @@ import argparse
 import csv
 import json
 import math
+import re
 import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from .benchmark_e2e import (
     DEFAULT_ENGINE,
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
+    _api_benchmark_result,
     _threshold_error,
 )
 from .common import (
@@ -28,19 +30,94 @@ from .common import (
     DEFAULT_REDUX_MODEL,
     VOICE_MATRIX_SCHEMA,
     BenchmarkResult,
-    ReduxTranscriber,
-    aggregate_results,
     default_case,
     environment_metadata,
-    filter_voices,
     parse_engine_options,
-    run_case,
-    safe_name,
     sha256_file,
     to_jsonable,
-    voice_wav_name,
     write_json,
 )
+
+
+def _field(value: Any, key: str, default: Any = None) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def safe_name(value: str) -> str:
+    """Return a filesystem-safe, stable lowercase component."""
+    return re.sub(r"[^a-z0-9]+", "-", str(value).casefold()).strip("-") or "voice"
+
+
+def voice_wav_name(ordinal: int, engine: str, model: str, voice: str) -> str:
+    if ordinal < 1:
+        raise ValueError("voice ordinal must be a positive integer")
+    return f"{ordinal:03d}-{safe_name(engine)}-{safe_name(model)}-{safe_name(voice)}.wav"
+
+
+def numeric_summary(values: Sequence[float | int | None]) -> dict[str, float | int] | None:
+    samples = sorted(float(value) for value in values if value is not None and math.isfinite(value))
+    if not samples:
+        return None
+    result: dict[str, float | int] = {
+        "mean": sum(samples) / len(samples),
+        "median": (samples[(len(samples) - 1) // 2] + samples[len(samples) // 2]) / 2,
+        "min": samples[0],
+        "max": samples[-1],
+    }
+    if len(samples) >= 20:
+        result["p95"] = samples[math.ceil(0.95 * len(samples)) - 1]
+    return result
+
+
+def aggregate_results(results: Sequence[Any]) -> dict[str, Any]:
+    """Create stable, transcript-free voice-matrix counts and statistics."""
+    status_counts = {status: 0 for status in ("pass", "review", "fail")}
+    for result in results:
+        status = str(_field(result, "status", "fail")).casefold()
+        if status in status_counts:
+            status_counts[status] += 1
+
+    def metric_summary(
+        attribute: str, *, verification: bool = False
+    ) -> dict[str, float | int] | None:
+        values: list[float | None] = []
+        for result in results:
+            source = _field(result, "verification") if verification else result
+            value = _field(source, attribute) if source is not None else None
+            values.append(float(value) if isinstance(value, (int, float)) else None)
+        return numeric_summary(values)
+
+    def extreme(attribute: str, *, verification: bool = False) -> dict[str, Any] | None:
+        candidates: list[tuple[float, Any]] = []
+        for result in results:
+            source = _field(result, "verification") if verification else result
+            value = _field(source, attribute) if source is not None else None
+            if isinstance(value, (int, float)) and math.isfinite(value):
+                candidates.append((float(value), result))
+        if not candidates:
+            return None
+        value, result = max(candidates, key=lambda item: item[0])
+        return {"voice": _field(result, "voice"), attribute: value}
+
+    return {
+        "voice_count": len(results),
+        "passed": status_counts["pass"],
+        "review": status_counts["review"],
+        "failed": status_counts["fail"],
+        "status_counts": status_counts,
+        "wer": metric_summary("wer", verification=True),
+        "cer": metric_summary("cer", verification=True),
+        "synthesis_seconds": metric_summary("synthesis_seconds"),
+        "composition_seconds": metric_summary("composition_seconds"),
+        "redux_seconds": metric_summary("redux_seconds"),
+        "synthesis_x_real_time": metric_summary("synthesis_x_real_time"),
+        "redux_x_real_time": metric_summary("redux_x_real_time"),
+        "slowest_synthesis": extreme("synthesis_seconds"),
+        "highest_wer": extreme("wer", verification=True),
+    }
+
 
 CSV_COLUMNS = (
     "voice",
@@ -272,39 +349,10 @@ def _human_report(
             f"  JSON: {work_dir / 'results.json'}",
             f"  CSV:  {work_dir / 'results.csv'}",
             f"  WAVs: {work_dir / 'wav'}",
-            f"  Projects: {work_dir / 'projects'}",
+            f"  Projects: {work_dir / 'verification'}",
         ]
     )
     return "\n".join(rows)
-
-
-def _failed_voice_result(
-    args: argparse.Namespace,
-    voice: Any,
-    error: Exception,
-    *,
-    failure_stage: str = "voice_runner",
-) -> BenchmarkResult:
-    voice_id = str(getattr(voice, "id", voice))
-    voice_ref = getattr(voice, "ref", None)
-    return BenchmarkResult(
-        status="fail",
-        case=default_case().name,
-        language=args.language,
-        engine=getattr(voice, "engine", args.engine),
-        model=getattr(voice, "target_id", args.model),
-        voice=voice_id,
-        voice_ref=voice_ref,
-        redux_model=args.redux_model,
-        redux_device=args.redux_device,
-        environment=environment_metadata(
-            engine=args.engine,
-            redux_model=args.redux_model,
-            redux_device=args.redux_device,
-        ),
-        error=f"{type(error).__name__}: {error}",
-        failure_stage=failure_stage,
-    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -326,23 +374,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        from readio.api import Readio, VoiceQuery
+        from readio.api import (
+            CompositionOptions,
+            DiscoveryOptions,
+            ProjectPlanOptions,
+            Readio,
+            SynthesisRequest,
+            VerificationOptions,
+            VoiceMatrixRequest,
+        )
 
-        app = Readio()
-        all_voices = app.catalog.voices(
-            VoiceQuery(language=args.language, engine=args.engine, model=args.model)
+        options = dict(engine_options)
+        if args.device is not None:
+            options.setdefault("device", args.device)
+        matrix = Readio().verification.generate_voices(
+            VoiceMatrixRequest(
+                synthesis=SynthesisRequest(
+                    language=args.language,
+                    engine=args.engine,
+                    model=args.model,
+                    engine_options=options,
+                ),
+                planning=ProjectPlanOptions(),
+                composition=CompositionOptions(sample_rate=16_000),
+                verification=VerificationOptions(model=args.redux_model, device=args.redux_device),
+                discovery=DiscoveryOptions(),
+                include_experimental=args.include_experimental,
+                pass_wer=args.pass_wer,
+                pass_cer=args.pass_cer,
+                fail_wer=args.fail_wer,
+                fail_cer=args.fail_cer,
+                output=work_dir / "verification",
+            )
         )
-        voices = filter_voices(all_voices, include_experimental=args.include_experimental)
-        write_json(
-            work_dir / "voices.json",
-            {
-                "schema": VOICE_MATRIX_SCHEMA,
-                "query": {"language": args.language, "engine": args.engine, "model": args.model},
-                "voices": all_voices,
-                "selected_voice_refs": [getattr(voice, "ref", None) for voice in voices],
-            },
-        )
-    except Exception as error:  # noqa: BLE001 - persist discovery/preflight errors as a matrix report
+    except Exception as error:  # noqa: BLE001 - persist discovery/preflight failures as a matrix report
         message = f"{type(error).__name__}: {error}"
         document = _write_reports(work_dir, args, (), None, message)
         if args.json:
@@ -353,100 +418,107 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return 2
 
-    if not voices:
-        message = "catalog query found no runnable voices for the requested target"
-        document = _write_reports(work_dir, args, (), None, message)
-        if args.json:
-            print(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True))
-        else:
-            print(
-                _human_report(
-                    args=args, voices=voices, results=(), document=document, work_dir=work_dir
-                )
-            )
-        return 2
-
-    projects_dir = work_dir / "projects"
+    matrix_document = matrix.to_dict()
+    rows: list[BenchmarkResult] = []
     wav_dir = work_dir / "wav"
-    source_path = work_dir / "source.txt"
-    projects_dir.mkdir(parents=True, exist_ok=True)
     wav_dir.mkdir(parents=True, exist_ok=True)
-    results: list[BenchmarkResult] = []
-    redux_load_seconds: float | None = None
-    fatal_error: str | None = None
-    try:
-        with ReduxTranscriber(model=args.redux_model, device=args.redux_device) as redux:
-            redux_load_seconds = redux.load_seconds
-            for ordinal, voice_info in enumerate(voices, start=1):
-                voice_id = str(voice_info.id)
-                voice_engine = str(getattr(voice_info, "engine", args.engine))
-                target_id = str(getattr(voice_info, "target_id", args.model))
-                voice_ref = getattr(voice_info, "ref", None) or voice_id
-                project_dir = projects_dir / f"{ordinal:03d}-{safe_name(voice_id)}.readio"
-                print(f"Running voice {ordinal}/{len(voices)}: {voice_id}", file=sys.stderr)
-                try:
-                    result = run_case(
-                        app=app,
-                        case=default_case(),
-                        language=args.language,
-                        engine=voice_engine,
-                        model=target_id,
-                        voice=voice_ref,
-                        project_dir=project_dir,
-                        source_path=source_path,
-                        engine_device=args.device,
-                        engine_options=engine_options,
-                        redux=redux,
-                        pass_wer=args.pass_wer,
-                        pass_cer=args.pass_cer,
-                        fail_wer=args.fail_wer,
-                        fail_cer=args.fail_cer,
-                    )
-                except Exception as error:  # noqa: BLE001 - isolate one voice and continue the matrix
-                    result = _failed_voice_result(args, voice_info, error)
-                else:
-                    result = replace(
-                        result, voice=voice_id, voice_ref=result.voice_ref or voice_ref
-                    )
-                    if result.wav and Path(result.wav).is_file():
-                        output_wav = wav_dir / voice_wav_name(
-                            ordinal, voice_engine, target_id, voice_id
-                        )
-                        try:
-                            shutil.copy2(result.wav, output_wav)
-                            result = replace(
-                                result,
-                                wav=str(output_wav),
-                                wav_sha256=sha256_file(output_wav),
-                            )
-                        except Exception as error:  # noqa: BLE001 - keep synthesis diagnostics on copy failure
-                            result = replace(
-                                result,
-                                status="fail",
-                                error=f"{type(error).__name__}: {error}",
-                                failure_stage="artifact_copy",
-                            )
-                results.append(result)
-    except Exception as error:  # noqa: BLE001 - record Redux startup/teardown errors in reports
-        fatal_error = f"{type(error).__name__}: {error}"
-        for voice in voices[len(results) :]:
-            results.append(
-                _failed_voice_result(args, voice, error, failure_stage="redux_lifecycle")
+    (work_dir / "source.txt").write_text(default_case().text, encoding="utf-8")
+    selected_voices: list[Mapping[str, Any]] = []
+    for ordinal, row in enumerate(matrix.results, start=1):
+        voice = row.get("voice") if isinstance(row.get("voice"), Mapping) else {}
+        selected_voices.append(voice)
+        synthesis = row.get("synthesis") if isinstance(row.get("synthesis"), Mapping) else {}
+        timings = row.get("timings") if isinstance(row.get("timings"), Mapping) else {}
+        total_seconds = sum(
+            float(value)
+            for key, value in timings.items()
+            if key.endswith("_seconds") and isinstance(value, (int, float))
+        )
+        attempt: dict[str, Any] = {
+            "overall_status": row.get("status", "fail"),
+            "resolved": row.get("resolved", {}),
+            "planning": row.get("planning", {}),
+            "synthesis": synthesis,
+            "composition": row.get("composition", {}),
+            "verification": row.get("verification", {}),
+            "timings": timings,
+            "seconds": total_seconds,
+            "source_sha256": row.get("source_sha256"),
+            "project_path": row.get("project_path"),
+            "error": row.get("error"),
+            "failure_stage": row.get("failure_stage"),
+        }
+        result = _api_benchmark_result(
+            matrix_document,
+            attempt,
+            case_name=default_case().name,
+            expected_text=default_case().reference_text,
+            language=args.language,
+            engine=str(voice.get("engine", args.engine)),
+            model=str(voice.get("model", args.model)),
+            voice=str(voice.get("id", voice.get("ref", "unknown"))),
+            engine_options=options,
+            redux_model=args.redux_model,
+            redux_device=args.redux_device,
+            pass_wer=args.pass_wer,
+            pass_cer=args.pass_cer,
+            fail_wer=args.fail_wer,
+            fail_cer=args.fail_cer,
+        )
+        if result.wav and Path(result.wav).is_file():
+            output_wav = wav_dir / voice_wav_name(
+                ordinal, result.engine, result.model, result.voice
             )
+            try:
+                shutil.copy2(result.wav, output_wav)
+                result = replace(result, wav=str(output_wav), wav_sha256=sha256_file(output_wav))
+            except Exception as error:  # noqa: BLE001 - retain diagnostics if an artifact copy fails
+                result = replace(
+                    result,
+                    status="fail",
+                    error=f"{type(error).__name__}: {error}",
+                    failure_stage="artifact_copy",
+                )
+        rows.append(result)
 
-    document = _write_reports(work_dir, args, results, redux_load_seconds, fatal_error)
+    write_json(
+        work_dir / "voices.json",
+        {
+            "schema": VOICE_MATRIX_SCHEMA,
+            "query": matrix.query,
+            "voices": selected_voices,
+            "selected_voice_refs": [voice.get("ref") for voice in selected_voices],
+        },
+    )
+    redux_metadata = matrix_document.get("redux", {})
+    redux_load_seconds = (
+        float(redux_metadata["load_seconds"])
+        if isinstance(redux_metadata, Mapping)
+        and isinstance(redux_metadata.get("load_seconds"), (int, float))
+        else None
+    )
+    matrix_error = matrix.error.get("message") if matrix.error else None
+    document = _write_reports(
+        work_dir, args, rows, redux_load_seconds, str(matrix_error) if matrix_error else None
+    )
     if args.json:
         print(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True))
     else:
         print(
             _human_report(
-                args=args, voices=voices, results=results, document=document, work_dir=work_dir
+                args=args,
+                voices=selected_voices,
+                results=rows,
+                document=document,
+                work_dir=work_dir,
             )
         )
 
-    failed = any(result.status == "fail" for result in results)
-    reviewed = any(result.status == "review" for result in results)
-    return 1 if fatal_error or failed or (args.strict and reviewed) else 0
+    if matrix.error or not rows:
+        return 2
+    failed = any(result.status == "fail" for result in rows)
+    reviewed = any(result.status == "review" for result in rows)
+    return 1 if failed or (args.strict and reviewed) else 0
 
 
 if __name__ == "__main__":

@@ -1151,3 +1151,156 @@ def test_supertonic_voice_cli_lists_semantic_refs_and_count(monkeypatch, capsys)
         available_engines=set(),
         normalize_engine=lambda engine: engine,
     ) == ("supertonic", None)
+
+
+def test_selftest_e2e_cli_uses_public_api_and_merges_engine_options(monkeypatch, capsys, tmp_path):
+    captured = []
+
+    class Verification:
+        def run_e2e(self, request):
+            captured.append(request)
+            return SimpleNamespace(
+                overall_status="pass",
+                output=tmp_path / "report",
+                planning={},
+                verification={},
+                error=None,
+                to_dict=lambda: {"schema": "readio.verification.e2e.v1", "overall_status": "pass"},
+            )
+
+    monkeypatch.setattr(cli, "_api_for", lambda _args: SimpleNamespace(verification=Verification()))
+    args = build_parser().parse_args(
+        [
+            "selftest",
+            "e2e",
+            "--case",
+            "pocket-short-tail",
+            "--engine",
+            "pocket",
+            "--model",
+            "english_2026-04",
+            "--voice",
+            "pocket:english_2026-04/alba",
+            "--lang",
+            "en",
+            "--temperature",
+            "0.3",
+            "--engine-option",
+            "frames_after_eos=5",
+            "--repetitions",
+            "2",
+            "--json",
+        ]
+    )
+    assert cli._cmd_selftest_e2e(args) == 0
+    request = captured[0]
+    assert request.case == "pocket-short-tail"
+    assert request.repetitions == 2
+    assert request.synthesis.engine_options == {"temperature": 0.3, "frames_after_eos": 5}
+    assert request.planning.renderability == "repair"
+    assert request.composition.sample_rate == 16_000
+    assert json.loads(capsys.readouterr().out)["overall_status"] == "pass"
+
+
+def test_selftest_timestamps_cli_uses_public_api_and_merged_options(monkeypatch, capsys, tmp_path):
+    captured = []
+
+    class Verification:
+        def selftest_timestamps(self, request):
+            captured.append(request)
+            return SimpleNamespace(
+                overall_status="pass",
+                output=tmp_path / "timestamps",
+                summary={"matched_words": 5, "expected_words": 5, "native_comparison_segments": 1},
+                error=None,
+                to_dict=lambda: {
+                    "schema": "readio.verification.timestamp-selftest.v1",
+                    "overall_status": "pass",
+                },
+            )
+
+    monkeypatch.setattr(cli, "_api_for", lambda _args: SimpleNamespace(verification=Verification()))
+    args = build_parser().parse_args(
+        [
+            "selftest",
+            "timestamps",
+            "--engine",
+            "kokoro",
+            "--model",
+            "v1",
+            "--voice",
+            "kokoro:v1/af_sarah",
+            "--engine-option",
+            "speed=1.1",
+            "--plan-renderability",
+            "strict",
+            "--json",
+        ]
+    )
+    assert cli._cmd_selftest_timestamps(args) == 0
+    request = captured[0]
+    assert request.case == "readio-timestamps-en-v1"
+    assert request.synthesis.engine_options == {"speed": 1.1}
+    assert request.planning.renderability == "strict"
+    assert request.verification.model == "moondream/parakeet-redux"
+    assert json.loads(capsys.readouterr().out)["overall_status"] == "pass"
+
+
+def test_voice_matrix_cli_and_selftest_alias_lower_synthesis_and_discovery_options(
+    monkeypatch, capsys, tmp_path
+):
+    captured = []
+
+    class Verification:
+        def generate_voices(self, request):
+            captured.append(request)
+            return SimpleNamespace(
+                overall_status="pass",
+                summary={"voice_count": 1, "passed": 1, "review": 0, "failed": 0},
+                output=tmp_path / "matrix",
+                error=None,
+                to_dict=lambda: {
+                    "schema": "readio.verification.voice-matrix.v1",
+                    "overall_status": "pass",
+                },
+            )
+
+    monkeypatch.setattr(cli, "_api_for", lambda _args: SimpleNamespace(verification=Verification()))
+    args = build_parser().parse_args(
+        [
+            "voices",
+            "generate",
+            "--engine",
+            "pocket",
+            "--model",
+            "english_2026-04",
+            "--lang",
+            "en",
+            "--frames-after-eos",
+            "5",
+            "--engine-option",
+            "custom_mode=fast",
+            "--offline",
+            "--refresh",
+            "--preference",
+            "huggingface",
+            "--include-experimental",
+            "--output",
+            str(tmp_path / "matrix"),
+            "--json",
+        ]
+    )
+    assert cli._cmd_voices_generate(args) == 0
+    request = captured[0]
+    assert request.synthesis.engine == "pocket"
+    assert request.synthesis.model == "english_2026-04"
+    assert request.synthesis.voice is None
+    assert request.synthesis.engine_options == {"frames_after_eos": 5, "custom_mode": "fast"}
+    assert request.discovery.offline is True
+    assert request.discovery.refresh is True
+    assert request.discovery.preference == "huggingface"
+    assert request.include_experimental is True
+    assert json.loads(capsys.readouterr().out)["overall_status"] == "pass"
+
+    selftest = build_parser().parse_args(["selftest", "voices", "--engine", "kokoro"])
+    assert selftest.func is cli._cmd_voices_generate
