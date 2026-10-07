@@ -9,7 +9,12 @@ from readio.config import ReaderSettings, ReadioConfig
 from readio.errors import ProjectPlanRenderabilityError
 from readio.project import init_project
 from readio.project_model import DocumentIndex, DocumentScope
-from readio.stages.planning import load_primary_scope_plan, plan_project
+from readio.stages.planning import (
+    _legacy_semantic_planner_fingerprint,
+    _plan_artifact_status,
+    load_primary_scope_plan,
+    plan_project,
+)
 
 
 def _multi_scope_project(tmp_path):
@@ -65,7 +70,12 @@ def test_strict_project_failure_aggregates_issues_without_replacing_plans(tmp_pa
     progress = []
 
     with pytest.raises(ProjectPlanRenderabilityError) as caught:
-        plan_project(project, config, on_progress=progress.append)
+        plan_project(
+            project,
+            config,
+            renderability_mode="strict",
+            on_progress=progress.append,
+        )
 
     error = caught.value
     assert error.code == "planning.not_renderable"
@@ -85,9 +95,16 @@ def test_strict_project_failure_aggregates_issues_without_replacing_plans(tmp_pa
         assert issue["line"] is not None and issue["column"] is not None
         assert issue["source_excerpt"]
         assert issue["segment_id"] and issue["text"]
-        assert issue["repair_command"] == "readio plan build . --renderability repair"
+        assert issue["repair_command"] == "readio plan repair ."
     assert error.details["issues"] == list(error.issues)
-    assert error.details["repair_command"] == "readio plan build . --renderability repair"
+    assert error.details["repair_command"] == "readio plan repair ."
+    attempt_id = error.details["attempt_id"]
+    attempt_dir = project.state_root / "plan" / "attempts" / attempt_id
+    attempt = json.loads((attempt_dir / "attempt.json").read_text(encoding="utf-8"))
+    assert attempt["status"] == "blocked"
+    assert attempt["activated"] is False
+    assert len(attempt["scopes"]) == 2
+    assert len(json.loads((attempt_dir / "issues.json").read_text(encoding="utf-8"))["issues"]) == 4
     assert project.paths["plan_index"].read_bytes() == previous_index
     assert {
         scope_id: path.read_bytes() for scope_id, path in artifact_paths.items()
@@ -121,6 +138,14 @@ def test_repair_mode_is_one_shot_reports_diagnostics_and_persists_strict_valid_p
     assert result.renderability_guaranteed is True
     assert result.repairs > 0
     assert any(item["code"] == "planning.renderability.repaired" for item in result.diagnostics)
+    assert result.attempt_id is not None
+    attempt = json.loads(
+        (project.state_root / "plan" / "attempts" / result.attempt_id / "attempt.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert attempt["status"] == "repaired"
+    assert attempt["activated"] is True
     assert config.reader is original_reader
     plan = load_primary_scope_plan(project)
     assert plan.config["renderability_mode"] == "repair"
@@ -149,6 +174,38 @@ def test_unsafe_repair_failure_is_structured_and_writes_no_plan(tmp_path):
     assert [issue["reason"] for issue in caught.value.issues] == ["symbol_only"]
     assert not project.paths["plan_index"].exists()
     assert not tuple((project.state_root / "plan").rglob("*.utterplan.toml"))
+    latest = json.loads(
+        (project.state_root / "plan" / "attempts" / "latest.json").read_text(encoding="utf-8")
+    )
+    attempt_dir = project.state_root / "plan" / "attempts" / latest["attempt_id"]
+    attempt = json.loads((attempt_dir / "attempt.json").read_text(encoding="utf-8"))
+    assert attempt["status"] == "blocked"
+    assert attempt["activated"] is False
+    assert attempt["scopes"][0]["status"] == "blocked"
+    assert (attempt_dir / attempt["scopes"][0]["candidate_path"]).is_file()
+
+
+def test_first_strict_failure_persists_attempt_without_creating_active_plan(tmp_path):
+    source = tmp_path / "first-failure.txt"
+    source.write_text("A spoken sentence.\n\n€", encoding="utf-8")
+    project = init_project(source, tmp_path / "first-failure.readio")
+
+    with pytest.raises(ProjectPlanRenderabilityError):
+        plan_project(
+            project,
+            ReadioConfig(reader=ReaderSettings(spacy="off")),
+            renderability_mode="strict",
+        )
+
+    latest = json.loads(
+        (project.state_root / "plan" / "attempts" / "latest.json").read_text(encoding="utf-8")
+    )
+    attempt_dir = project.state_root / "plan" / "attempts" / latest["attempt_id"]
+    attempt = json.loads((attempt_dir / "attempt.json").read_text(encoding="utf-8"))
+    assert attempt["status"] == "blocked"
+    assert attempt["issue_count"] > 0
+    assert attempt["activated"] is False
+    assert not project.paths["plan_index"].exists()
 
 
 def test_unicode_lexical_numbers_remain_renderable(tmp_path):
@@ -187,3 +244,72 @@ def test_scene_break_forms_do_not_create_unrenderable_segments(tmp_path, name, s
     assert [segment.text for segment in plan.segments] == ["Before scene.", "After scene."]
     assert all("Scene-boundary regression" not in segment.text for segment in plan.segments)
     assert source.read_text(encoding="utf-8") == original
+
+
+def test_retry_reuses_unchanged_persisted_scope_attempts(tmp_path):
+    project = _multi_scope_project(tmp_path)
+    config = ReadioConfig(reader=ReaderSettings(spacy="off", unit="paragraph"))
+
+    first = plan_project(project, config)
+    second = plan_project(project, config)
+
+    assert set(first.rebuilt_scopes) == {"chapter-0002", "chapter-0003"}
+    assert second.reused_scopes == ("chapter-0002", "chapter-0003")
+    assert second.rebuilt_scopes == ()
+    attempt = json.loads(
+        (project.state_root / "plan" / "attempts" / second.attempt_id / "attempt.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert all(scope["reused"] for scope in attempt["scopes"])
+    assert all(scope["source_attempt_id"] == first.attempt_id for scope in attempt["scopes"])
+
+
+def test_failed_scope_leaves_completed_attempt_scopes_available(tmp_path, monkeypatch):
+    from readio.stages import planning
+
+    project = _multi_scope_project(tmp_path)
+    config = ReadioConfig(reader=ReaderSettings(spacy="off", unit="paragraph"))
+    compile_scope = planning.compile_project_scope
+
+    def fail_second_scope(project, cfg, scope, document, **kwargs):
+        if scope.id == "chapter-0003":
+            raise RuntimeError("synthetic planner interruption")
+        return compile_scope(project, cfg, scope, document, **kwargs)
+
+    monkeypatch.setattr(planning, "compile_project_scope", fail_second_scope)
+    with pytest.raises(RuntimeError, match="synthetic planner interruption"):
+        plan_project(project, config)
+
+    latest = json.loads(
+        (project.state_root / "plan" / "attempts" / "latest.json").read_text(encoding="utf-8")
+    )
+    attempt_dir = project.state_root / "plan" / "attempts" / latest["attempt_id"]
+    attempt = json.loads((attempt_dir / "attempt.json").read_text(encoding="utf-8"))
+    assert attempt["status"] == "incomplete"
+    assert attempt["activated"] is False
+    assert [scope["status"] for scope in attempt["scopes"]] == ["renderable", "failed"]
+    first_candidate = attempt_dir / attempt["scopes"][0]["candidate_path"]
+    assert first_candidate.is_file()
+    assert not project.paths["plan_index"].exists()
+
+
+def test_legacy_mode_sensitive_plan_fingerprints_remain_current(tmp_path):
+    source = tmp_path / "legacy-plan.txt"
+    source.write_text("A spoken sentence.", encoding="utf-8")
+    project = init_project(source, tmp_path / "legacy-plan.readio")
+    plan_project(
+        project,
+        ReadioConfig(reader=ReaderSettings(spacy="off")),
+        renderability_mode="strict",
+    )
+    plan = load_primary_scope_plan(project)
+
+    index_path = project.paths["plan_index"]
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index["scopes"][0]["semantic_planner_fingerprint"] = _legacy_semantic_planner_fingerprint(
+        plan.config
+    )
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+
+    assert _plan_artifact_status(project, "text")["state"] == "current"

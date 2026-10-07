@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
+from ..errors import ProjectPlanAttemptError
 from ..formats import AudioFormat
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, canonical_json, hash_file, read_json
@@ -26,7 +27,13 @@ from .composition import (
     compose_project,
 )
 from .export import export_project, is_export_current, project_export_states
-from .planning import PlanningProgressCallback, load_scope_plan, plan_project, semantic_status
+from .planning import (
+    PlanningProgressCallback,
+    inspect_plan_state,
+    load_scope_plan,
+    plan_project,
+    semantic_status,
+)
 from .synthesis import synthesize_project
 
 _STAGE_REASON_MESSAGES = {
@@ -569,11 +576,57 @@ def project_status(project: Project) -> dict[str, Any]:
                 "reason": row["reason"],
             }
         )
+    planning_attempt: dict[str, Any] | None = None
+    try:
+        plan_inspection = inspect_plan_state(project, attempt="latest")
+        attempt_ref = plan_inspection.get("attempt")
+        if isinstance(attempt_ref, Mapping):
+            planning_attempt = dict(attempt_ref)
+            attempt_status = attempt_ref.get("status")
+            if attempt_status in {"blocked", "incomplete"}:
+                reason = (
+                    f"Latest planning attempt {attempt_ref.get('attempt_id')} is {attempt_status}."
+                )
+                issues.append(
+                    {
+                        "code": f"planning.attempt.{attempt_status}",
+                        "stage": "plan",
+                        "message": reason,
+                        "details": attempt_ref,
+                    }
+                )
+                next_actions.insert(
+                    0,
+                    {
+                        "stage": "plan",
+                        "command": "readio plan inspect .",
+                        "reason": reason,
+                    },
+                )
+    except ProjectPlanAttemptError as exc:
+        reason = str(exc)
+        issues.append(
+            {
+                "code": "planning.attempt.invalid",
+                "stage": "plan",
+                "message": reason,
+                "details": exc.details,
+            }
+        )
+        next_actions.insert(
+            0,
+            {
+                "stage": "plan",
+                "command": "readio plan inspect .",
+                "reason": reason,
+            },
+        )
     return {
         "project": str(project.root),
         "name": project.manifest.name,
         "source": {"path": project.manifest.source_path, "format": project.manifest.source_format},
         "stages": stages,
+        "planning_attempt": planning_attempt,
         "issues": issues,
         "next_actions": next_actions[:1],
     }

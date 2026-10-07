@@ -111,5 +111,5 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
         "domain_packages": 9,
         "importing_files": 14,
         "package_file_contacts": 14,
-        "imported_names": 82,
+        "imported_names": 85,
     }

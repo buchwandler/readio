@@ -141,6 +141,29 @@ exported = app.projects.export(project, ExportOptions(format="mp3"))
 build = app.projects.build(project, ProjectBuildRequest(target="export"))
 ```
 
+Planning defaults to safe repair; strict mode remains explicit for audit runs. Attempts are separate from active artifacts: blocked/incomplete candidates are inspectable but never synthesis-eligible, and a retry activates only after every selected scope is renderable. The typed API mirrors the CLI:
+
+```python
+from readio.api import (
+    ProjectPlanInspectionOptions,
+    ProjectPlanOptions,
+    ProjectPlanRepairOptions,
+)
+
+# Optional strict audit; the default ProjectPlanOptions uses safe repair.
+plan = app.projects.plan(project, options=ProjectPlanOptions(renderability="strict"))
+review = app.projects.inspect_plan(
+    project,
+    options=ProjectPlanInspectionOptions(attempt="latest", issues=True, repairs=True),
+)
+preview = app.projects.repair_plan(
+    project,
+    options=ProjectPlanRepairOptions(dry_run=True),
+)
+```
+
+Inspection can select `latest`, `active`, or a concrete attempt ID and can focus on scopes, units, segments, and source context. Repair may reuse unchanged renderable scopes, never edits source files, and reports whether an attempt activated. `readio status` exposes the latest attempt independently of active PLAN stage state.
+
 `ProjectBuildRequest` carries the stage target, selection, synthesis settings, composition options, and export options. `PreviewRequest` controls a selection and temporary output for a preview. Every lifecycle method returns a typed result, and mutating operations accept `on_event`.
 
 `CompositionOptions.mastering` selects `spoken-word` by default (`-16 LUFS/-1 dBTP`); the other profiles are `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), and `off` (no target or ceiling). `target_lufs` and `true_peak_ceiling_dbtp` override profile values when non-`None`; `None` inherits. For example, `CompositionOptions(mastering="broadcast-ebu", target_lufs=-21.0)` keeps the EBU true-peak ceiling and uses a `-21 LUFS` target.

@@ -9,8 +9,9 @@ from typing import Any
 from utterplan import (
     CURRENT_SCHEMA_VERSION,
     PlannerProgressEvent,
+    PlanRenderabilityError,
     UtterancePlan,
-    compile_document,
+    compile_attempt,
 )
 
 from .policy import PlanningPolicy
@@ -40,14 +41,20 @@ class SemanticPlanningService:
         on_progress: Callable[[PlannerProgressEvent], None] | None = None,
     ) -> UtterancePlan:
         """Compile text into the canonical UtterancePlan."""
-        result = compile_document(
+        attempt = compile_attempt(
             text,
             input_format=policy.document_format,
             config=policy.to_planner_config(),
-            trace=False,
             on_progress=on_progress,
         )
-        plan = result.plan
+        if not attempt.ok:
+            error = PlanRenderabilityError(
+                attempt.renderability.issues,
+                mode=attempt.renderability_mode,
+            )
+            error.planning_attempt = attempt
+            raise error
+        plan = attempt.candidate.to_plan()
         self._last_plan = plan
         self._last_provenance = {
             "plan_id": plan.plan_id,

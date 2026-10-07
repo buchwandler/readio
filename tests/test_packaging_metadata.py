@@ -49,9 +49,13 @@ def test_numpy_is_a_direct_dependency() -> None:
 def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
     tests_job = workflow.split("  engine-probe-python314:", maxsplit=1)[0]
-    minimum_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[1]
-    assert "ssmdconvert[pdf,docx]==0.1.3" in minimum_job
-    assert "utterplan[spacy]==0.4.0" in minimum_job
+    minimum_job = workflow.split("  engine-compatibility:", maxsplit=1)[0].split(
+        "  semantic-stack-minimum:", maxsplit=1
+    )[1]
+    assert '"ssmd==0.9.3"' in minimum_job
+    assert '"ssmdconvert[pdf,docx]==0.1.3"' in minimum_job
+    assert '"utterplan[spacy]==0.4.0"' in minimum_job
+    assert "tests/test_plan_renderability.py" in minimum_job
     assert 'READIO_TEST_UTTERPLAN_MINIMUM: "1"' in minimum_job
     assert "tests/test_utterplan_v4_semantics.py" in minimum_job
     assert "tests/test_supertonicsynth_engine.py" in workflow
@@ -91,7 +95,7 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
 
 def test_base_ci_and_wheel_smoke_cover_dependency_ownership() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
-    tests_job = workflow.split("  ssmdconvert-minimum:", maxsplit=1)[0]
+    tests_job = workflow.split("  semantic-stack-minimum:", maxsplit=1)[0]
 
     assert "python -m pip check" in tests_job
     assert "readio-wheel-smoke-base" in workflow

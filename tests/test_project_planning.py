@@ -298,10 +298,10 @@ def test_project_planning_does_not_replace_index_when_scope_compile_fails(tmp_pa
     project = _multi_scope_project(tmp_path)
     from readio.stages import planning
 
-    def fail_second(project, cfg, scope, document):
+    def fail_second(project, cfg, scope, document, **kwargs):
         if scope.id == "chapter-0003":
             raise ValueError("compile failed")
-        return original(project, cfg, scope, document)
+        return original(project, cfg, scope, document, **kwargs)
 
     original = planning.compile_project_scope
     monkeypatch.setattr(planning, "compile_project_scope", fail_second)
@@ -410,11 +410,28 @@ def test_nonrenderable_stored_plan_status_recommends_rebuild(tmp_path):
     spoken = list(plan.texts.spoken)
     punctuation = "." * (first.spoken_end - first.spoken_start)
     spoken[first.spoken_start : first.spoken_end] = punctuation
+    tokens = tuple(
+        replace(token, text="." * (token.spoken_end - token.spoken_start)) for token in plan.tokens
+    )
     invalid_plan = replace(
         plan,
         texts=replace(plan.texts, spoken="".join(spoken)),
+        tokens=tokens,
         segments=(replace(first, text=punctuation), *plan.segments[1:]),
     ).with_identity()
+    from utterplan.hashing import semantic_hash, unit_hash_payload_from_serialized
+
+    serialized = invalid_plan.to_dict()
+    units = tuple(
+        replace(
+            unit,
+            content_hash=semantic_hash(
+                unit_hash_payload_from_serialized(unit.to_dict(), serialized)
+            ),
+        )
+        for unit in invalid_plan.units
+    )
+    invalid_plan = replace(invalid_plan, units=units).with_identity()
     artifact_path = project.state_root / "plan" / scope.path
     artifact_path.write_text(invalid_plan.to_toml(), encoding="utf-8")
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))

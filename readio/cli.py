@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -893,6 +893,12 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"Readio project: {result.project.name}")
         print(f"Root: {result.project.root}")
         print(f"Source format: {result.project.source_format}\n")
+        if result.planning_attempt is not None:
+            print(
+                f"Planning attempt: {result.planning_attempt.attempt_id} "
+                f"({result.planning_attempt.status}; "
+                f"activated={str(result.planning_attempt.activated).lower()})"
+            )
         message_by_reason = {issue.code: issue.message for issue in result.issues}
         for row in result.stages:
             reusable = row.details.get("reusable")
@@ -933,8 +939,8 @@ def _cmd_plan_build(args: argparse.Namespace) -> int:
     progress = _build_progress(args)
     with progress:
         plan_options: dict[str, Any] = {"on_event": _api_progress_handler(progress)}
-        renderability_mode = getattr(args, "renderability", "strict")
-        if renderability_mode != "strict":
+        renderability_mode = getattr(args, "renderability", "repair")
+        if renderability_mode != "repair":
             plan_options["options"] = public_api.ProjectPlanOptions(
                 renderability=renderability_mode
             )
@@ -962,12 +968,20 @@ def _print_project_plan_result(result: Any, scope_rows: list[dict[str, Any]]) ->
         for item in result.scopes:
             print(f"{item.scope_id}: {item.plan_id} ({item.units or 0} units)")
 
-    mode = getattr(result, "renderability_mode", "strict")
+    mode = getattr(result, "renderability_mode", "repair")
     guaranteed = getattr(result, "renderability_guaranteed", True)
     repairs = getattr(result, "repairs", 0)
     label = "guaranteed" if guaranteed else "not guaranteed"
     print(f"Renderability: {label} ({mode})")
     print(f"Repairs: {repairs}")
+    attempt_id = getattr(result, "attempt_id", None)
+    if attempt_id:
+        print(f"Planning attempt: {attempt_id}")
+    print(f"Activated: {'yes' if getattr(result, 'activated', False) else 'no'}")
+    print("Source files changed: no")
+    if repairs:
+        print("Review repairs:")
+        print("  readio plan inspect . --repairs")
     for diagnostic in getattr(result, "diagnostics", ()):
         if getattr(diagnostic, "code", None) != "planning.renderability.repaired":
             continue
@@ -982,6 +996,102 @@ def _print_project_plan_result(result: Any, scope_rows: list[dict[str, Any]]) ->
             if column is not None:
                 location += f":{column}"
         print(f"{scope_id}: {location} {diagnostic.message}".rstrip())
+
+
+def _cmd_plan_inspect(args: argparse.Namespace) -> int:
+    app = _api_for(args)
+    result = app.projects.inspect_plan(
+        _plan_project_path(args),
+        options=public_api.ProjectPlanInspectionOptions(
+            attempt=getattr(args, "attempt", "latest"),
+            scope_id=getattr(args, "scope", None),
+            issues=getattr(args, "issues", False),
+            repairs=getattr(args, "repairs", False),
+            segment_id=getattr(args, "segment", None),
+            unit_id=getattr(args, "unit", None),
+            source_context=getattr(args, "source_context", 0),
+        ),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
+        return 0
+    print(f"Selected: {result.selected}")
+    print(f"Active plan: {result.active_plan_status}")
+    if result.attempt is not None:
+        print(
+            f"Attempt: {result.attempt.attempt_id} ({result.attempt.status}; "
+            f"activated={str(result.attempt.activated).lower()})"
+        )
+    if result.scopes:
+        print("Scopes:")
+        for scope in result.scopes:
+            print(
+                f"  {scope.scope_id}: {scope.status} "
+                f"({scope.issue_count} issues, {scope.repair_count} repairs)"
+            )
+    for title, entries in (("Issues", result.issues), ("Safe repairs", result.repairs)):
+        if not entries:
+            continue
+        print(f"{title}:")
+        for issue in entries:
+            location = issue.source_path or "<unknown source>"
+            if issue.line is not None:
+                location += f":{issue.line}"
+                if issue.column is not None:
+                    location += f":{issue.column}"
+            print(f"  {issue.scope_id} {issue.code}: {issue.reason} ({location})")
+            if issue.text:
+                print(f"    {issue.text}")
+            if issue.repair_action:
+                print(f"    safe action: {issue.repair_action}")
+    for segment in result.segments:
+        segment_id = segment.get("segment_id", "<unknown>")
+        source = segment.get("source", {})
+        spoken = segment.get("spoken", {})
+        print(f"Segment {segment_id} ({segment.get('scope_id', 'scope')})")
+        if isinstance(source, Mapping):
+            print(f"  source: {source.get('text')!r} at {source.get('span')}")
+        if isinstance(spoken, Mapping):
+            print(f"  spoken: {spoken.get('text')!r} at {spoken.get('span')}")
+        print(f"  language: {segment.get('language')}")
+        print(f"  units: {', '.join(segment.get('unit_ids', []))}")
+    if not result.attempt and result.active_plan_status == "missing":
+        print("No planning attempt or active plan was found.")
+    return 0
+
+
+def _cmd_plan_repair(args: argparse.Namespace) -> int:
+    app = _api_for(args)
+    progress = _build_progress(args)
+    with progress:
+        result = app.projects.repair_plan(
+            _plan_project_path(args),
+            options=public_api.ProjectPlanRepairOptions(
+                attempt_id=getattr(args, "attempt", None),
+                scope_id=getattr(args, "scope", None),
+                dry_run=getattr(args, "dry_run", False),
+            ),
+            on_event=_api_progress_handler(progress),
+        )
+    payload = {"ok": result.activated or result.dry_run, **result.to_dict()}
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        action = "Dry run" if result.dry_run else "Repair attempt"
+        status = (
+            "would activate"
+            if result.dry_run and not result.issues
+            else ("activated" if result.activated else "still blocked")
+        )
+        print(f"{action}: {result.attempt.attempt_id} ({status})")
+        print(f"Safe repairs: {result.repairs}")
+        if result.reused_scopes:
+            print(f"Reused scopes: {', '.join(result.reused_scopes)}")
+        if result.rebuilt_scopes:
+            print(f"Rebuilt scopes: {', '.join(result.rebuilt_scopes)}")
+        for issue in result.issues:
+            print(f"{issue.scope_id} {issue.code}: {issue.reason}")
+    return 0 if result.activated or result.dry_run else 2
 
 
 def _cmd_plan_roles(args: argparse.Namespace) -> int:
@@ -2095,12 +2205,47 @@ def build_parser() -> argparse.ArgumentParser:
     plan_build.add_argument(
         "--renderability",
         choices=("strict", "repair"),
-        default="strict",
-        help="semantic renderability policy (default: strict)",
+        default="repair",
+        help="semantic renderability policy (default: safe repair)",
     )
     _add_progress_option(plan_build, default=argparse.SUPPRESS)
     plan_build.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     plan_build.set_defaults(func=_cmd_plan_build)
+
+    plan_inspect = plan_sub.add_parser(
+        "inspect", help="inspect active plans and persisted planning attempts"
+    )
+    plan_inspect.add_argument("project_pos", nargs="?", type=Path)
+    plan_inspect.add_argument("--project", dest="project_option", type=Path)
+    plan_inspect.add_argument(
+        "--attempt", default="latest", help="latest, active, or an attempt ID"
+    )
+    plan_inspect.add_argument("--scope", help="limit inspection to a plan scope ID")
+    plan_inspect.add_argument("--issues", action="store_true", help="include renderability issues")
+    plan_inspect.add_argument(
+        "--repairs", action="store_true", help="include safe repair assessments"
+    )
+    plan_inspect.add_argument("--segment", help="inspect one semantic segment")
+    plan_inspect.add_argument("--unit", help="inspect segments in one semantic unit")
+    plan_inspect.add_argument(
+        "--source-context", type=int, default=0, help="source lines before and after a segment"
+    )
+    plan_inspect.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    plan_inspect.set_defaults(func=_cmd_plan_inspect)
+
+    plan_repair = plan_sub.add_parser(
+        "repair", help="retry a planning attempt using safe automatic repairs"
+    )
+    plan_repair.add_argument("project_pos", nargs="?", type=Path)
+    plan_repair.add_argument("--project", dest="project_option", type=Path)
+    plan_repair.add_argument("--attempt", help="blocked or incomplete attempt ID (default: latest)")
+    plan_repair.add_argument("--scope", help="validate and identify a plan scope")
+    plan_repair.add_argument(
+        "--dry-run", action="store_true", help="preview repairs without writing"
+    )
+    plan_repair.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    _add_progress_option(plan_repair, default=argparse.SUPPRESS)
+    plan_repair.set_defaults(func=_cmd_plan_repair)
 
     plan_roles = plan_sub.add_parser("roles", help="inspect SSMD roles and effective voices")
     plan_roles.add_argument("project_pos", nargs="?", type=Path)
@@ -2618,7 +2763,28 @@ def _error_payload(exc: Exception) -> dict[str, object]:
 def _format_project_plan_renderability_error(
     error: public_api.ProjectPlanRenderabilityError,
 ) -> str:
-    lines = [str(error), ""]
+    scope_count = len({str(issue.get("scope_id", "document")) for issue in error.issues})
+    lines = [
+        f"Planning blocked: {scope_count} scope(s), {len(error.issues)} renderer segment(s).",
+        "",
+    ]
+    if error.attempt_id is not None:
+        lines.extend(
+            (
+                "Planning attempt saved:",
+                f"  attempt: {error.attempt_id}",
+                f"  path: plan/attempts/{error.attempt_id}/attempt.json",
+                "",
+                "Active semantic plan: unchanged",
+                "",
+                "Review:",
+                f"  {error.inspect_command}",
+            )
+        )
+    safe_count = sum(issue.get("repair_safe") is True for issue in error.issues)
+    if safe_count:
+        lines.append(f"Safe repairs available: {safe_count}")
+    lines.append("")
     for issue in error.issues:
         scope_id = issue.get("scope_id", "document")
         title = issue.get("scope_title")
@@ -2646,14 +2812,7 @@ def _format_project_plan_renderability_error(
         text = issue.get("text", "")
         lines.append(f"  {segment_id} · {reason} · {text!r}")
         lines.append("")
-    lines.extend(
-        (
-            "No semantic plan artifacts were replaced.",
-            "",
-            "Fix the source, or retry safe automatic repair:",
-            f"  {error.repair_command}",
-        )
-    )
+    lines.extend(("Retry safe automatic repair:", f"  {error.repair_command}"))
     return "\n".join(lines)
 
 

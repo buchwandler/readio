@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from utterplan import preflight_renderability
 
 from readio import cli
 from readio.api import ProjectRef, ProjectRoleMutationResult
@@ -16,6 +17,7 @@ from readio.cli import build_parser
 from readio.config import ReaderSettings, ReadioConfig
 from readio.project import init_project
 from readio.role_targets import VoiceTarget
+from readio.stages.planning import load_primary_scope_plan
 
 
 def test_plan_without_subcommand_builds_current_project(tmp_path, monkeypatch, capsys) -> None:
@@ -45,7 +47,7 @@ def test_plan_help_is_project_scoped(capsys) -> None:
         build_parser().parse_args(["plan", "--help"])
     assert exc.value.code == 0
     output = capsys.readouterr().out
-    assert "{build,roles,bind,unbind}" in output
+    assert "{build,inspect,repair,roles,bind,unbind}" in output
     for option in ("--engine", "--voice", "--model", "--format", "--output", "--voice-bind"):
         assert option not in output
 
@@ -241,7 +243,7 @@ def test_plan_build_renderability_modes_report_structured_failures(
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: config)
 
     with pytest.raises(SystemExit) as failure:
-        cli.main(["plan", "build", str(project.root), "--json"])
+        cli.main(["plan", "build", str(project.root), "--renderability", "strict", "--json"])
     assert failure.value.code == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["code"] == "planning.not_renderable"
@@ -253,12 +255,13 @@ def test_plan_build_renderability_modes_report_structured_failures(
     assert issue["column"] is not None
 
     with pytest.raises(SystemExit) as failure:
-        cli.main(["plan", "build", str(project.root)])
+        cli.main(["plan", "build", str(project.root), "--renderability", "strict"])
     assert failure.value.code == 2
     human = capsys.readouterr().err
-    assert "No semantic plan artifacts were replaced." in human
+    assert "Planning attempt saved:" in human
+    assert "Active semantic plan: unchanged" in human
     assert "^" in human
-    assert "readio plan build . --renderability repair" in human
+    assert "readio plan repair ." in human
 
     with pytest.raises(SystemExit) as success:
         cli.main(["plan", "build", str(project.root), "--renderability", "repair", "--json"])
@@ -278,6 +281,77 @@ def test_plan_build_renderability_modes_report_structured_failures(
     assert "Renderability: guaranteed (repair)" in human_repaired
     assert "Repairs: " in human_repaired
     assert "document: document/" in human_repaired
+
+    with pytest.raises(SystemExit) as default_build:
+        cli.main(["plan", "build", str(project.root), "--json"])
+    assert default_build.value.code == 0
+    assert json.loads(capsys.readouterr().out)["renderability_mode"] == "repair"
+
+
+def test_plan_inspect_and_repair_cli_commands(tmp_path, monkeypatch, capsys) -> None:
+    source = tmp_path / "repair-cli.txt"
+    source.write_text("First sentence.\n\n.\n\nLast sentence.", encoding="utf-8")
+    project = init_project(source, tmp_path / "repair-cli.readio")
+    monkeypatch.setattr(
+        cli,
+        "_resolved_config",
+        lambda _args: ReadioConfig(reader=ReaderSettings(spacy="off", unit="paragraph")),
+    )
+
+    with pytest.raises(SystemExit) as blocked:
+        cli.main(["plan", "build", str(project.root), "--renderability", "strict", "--json"])
+    assert blocked.value.code == 2
+    error = json.loads(capsys.readouterr().out)
+    assert error["details"]["attempt_id"]
+
+    with pytest.raises(SystemExit) as inspected:
+        cli.main(["plan", "inspect", str(project.root), "--issues", "--repairs", "--json"])
+    assert inspected.value.code == 0
+    inspection = json.loads(capsys.readouterr().out)
+    assert inspection["selected"] == "attempt"
+    assert inspection["issues"]
+    assert inspection["repairs"]
+
+    with pytest.raises(SystemExit) as dry_run:
+        cli.main(["plan", "repair", str(project.root), "--dry-run", "--json"])
+    assert dry_run.value.code == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["dry_run"] is True
+    assert preview["activated"] is False
+
+    with pytest.raises(SystemExit) as repaired:
+        cli.main(["plan", "repair", str(project.root), "--json"])
+    assert repaired.value.code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["activated"] is True
+    assert result["repairs"] > 0
+    assert result["source_files_changed"] is False
+
+
+def test_plan_build_cli_keeps_front_mattered_scene_separators_out_of_speech(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "scene-cli.ssmd"
+    source.write_text(
+        '---\nssmd_version: "0.9"\nlanguage: en-US\n---\n'
+        "Before the break.\n\n---\n\nAfter the break.\n\n...p",
+        encoding="utf-8",
+    )
+    project = init_project(source, tmp_path / "scene-cli.readio")
+    monkeypatch.setattr(
+        cli,
+        "_resolved_config",
+        lambda _args: ReadioConfig(reader=ReaderSettings(spacy="off")),
+    )
+
+    with pytest.raises(SystemExit) as built:
+        cli.main(["plan", "build", str(project.root), "--renderability", "strict", "--json"])
+
+    assert built.value.code == 0
+    assert json.loads(capsys.readouterr().out)["activated"] is True
+    plan = load_primary_scope_plan(project)
+    assert preflight_renderability(plan).ok
+    assert [segment.text for segment in plan.segments] == ["Before the break.", "After the break."]
 
 
 def test_plan_commands_discover_projects_from_nested_cwd(tmp_path, monkeypatch, capsys) -> None:

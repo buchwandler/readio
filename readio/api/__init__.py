@@ -14,7 +14,13 @@ from ..config import (
     VOICE_LEVEL_MODES,
     default_config,
 )
-from ..errors import ManifestError, RenderError, SSMDInputError, VoiceResolutionError
+from ..errors import (
+    ManifestError,
+    ProjectPlanAttemptError,
+    RenderError,
+    SSMDInputError,
+    VoiceResolutionError,
+)
 from ..formats import SUPPORTED_AUDIO_FORMATS
 from .app import Readio
 from .errors import (
@@ -125,7 +131,14 @@ from .types import (
     ProjectCompositionResult,
     ProjectExportResult,
     ProjectLike,
+    ProjectPlanAttemptRef,
+    ProjectPlanAttemptScope,
+    ProjectPlanInspection,
+    ProjectPlanInspectionOptions,
+    ProjectPlanIssue,
     ProjectPlanOptions,
+    ProjectPlanRepairOptions,
+    ProjectPlanRepairResult,
     ProjectPlanResult,
     ProjectPlanScope,
     ProjectRef,
@@ -268,8 +281,16 @@ __all__ = [
     "ProjectFormatError",
     "ProjectLike",
     "ProjectNotFoundError",
+    "ProjectPlanAttemptError",
+    "ProjectPlanAttemptRef",
+    "ProjectPlanAttemptScope",
+    "ProjectPlanInspection",
+    "ProjectPlanInspectionOptions",
+    "ProjectPlanIssue",
     "ProjectPlanOptions",
     "ProjectPlanRenderabilityError",
+    "ProjectPlanRepairOptions",
+    "ProjectPlanRepairResult",
     "ProjectPlanResult",
     "ProjectPlanScope",
     "ProjectRef",

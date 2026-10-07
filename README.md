@@ -31,6 +31,7 @@ Install a compatible local spaCy language model separately. Readio never downloa
 `readio plan` stores token annotations and linguistic provenance in the canonical UtterPlan 0.4 schema-v4 `.utterplan.toml` artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected engine's local frontend because they do not consume a persisted semantic plan.
 
 `readio plan build` reports planning phases on interactive terminals; force this with `--progress` or suppress it with `--no-progress`. Progress is written to stderr, so JSON stdout stays machine-readable. The phase details can identify a spaCy model and linguistic-analysis passes; the existing `reader.spacy` configuration still controls analysis. See the [CLI guide](docs/cli.md#planning-progress).
+`readio plan inspect` reviews persisted planning attempts and active plans; `readio plan repair` retries blocked work with safe automatic repairs (the default for planning) and never edits source files. Blocked/incomplete candidates stay isolated from the active synthesis plan. See [Planning attempts and repair](docs/cli.md#planning-attempts-inspection-and-repair).
 
 ## Python API
 

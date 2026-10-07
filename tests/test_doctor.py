@@ -38,6 +38,7 @@ def test_doctor_text_reports_structured_engine_probe(monkeypatch) -> None:
 
     report = run_doctor()
 
+    assert "Readio:" in report
     assert "module version: 0.1.0" in report
     assert "module path: /tmp/kittensynth/__init__.py" in report
     assert "request API: 2" in report

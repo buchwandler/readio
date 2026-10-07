@@ -23,8 +23,15 @@ from readio.api import (
     ProjectError,
     ProjectFormatError,
     ProjectNotFoundError,
+    ProjectPlanAttemptRef,
+    ProjectPlanAttemptScope,
+    ProjectPlanInspection,
+    ProjectPlanInspectionOptions,
+    ProjectPlanIssue,
     ProjectPlanOptions,
     ProjectPlanRenderabilityError,
+    ProjectPlanRepairOptions,
+    ProjectPlanRepairResult,
     ProjectPlanResult,
     ProjectRef,
     ProjectStatus,
@@ -39,6 +46,32 @@ from readio.plan import SynthesisRequest
 
 def _project_snapshot(root: Path) -> dict[Path, bytes]:
     return {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+def test_public_plan_attempt_types_have_stable_json_shapes() -> None:
+    attempt = ProjectPlanAttemptRef(
+        "plan-attempt-0123456789abcdef", "blocked", False, "strict", "2026-10-07T00:00:00Z"
+    )
+    scope = ProjectPlanAttemptScope("chapter-0001", "blocked", issue_count=1)
+    issue = ProjectPlanIssue(
+        "chapter-0001",
+        "renderability.punctuation_only",
+        "punctuation_only",
+        segment_id="seg-000001",
+        text="---",
+        repair_safe=True,
+        repair_action="convert_to_boundary",
+    )
+    inspection = ProjectPlanInspection("attempt", attempt, (scope,), (issue,))
+    repair = ProjectPlanRepairResult(attempt, False, issues=(issue,), dry_run=True)
+
+    assert ProjectPlanInspectionOptions(attempt="latest", source_context=2).source_context == 2
+    with pytest.raises(ValueError, match="source_context"):
+        ProjectPlanInspectionOptions(source_context=-1)
+    assert json.loads(json.dumps(inspection.to_dict()))["issues"][0]["text"] == "---"
+    assert json.loads(json.dumps(repair.to_dict()))["dry_run"] is True
+    assert ProjectPlanRepairOptions(scope_id="chapter-0001", dry_run=True).dry_run is True
+    assert ProjectPlanAttemptRef(**attempt.to_dict()) == attempt
 
 
 def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
@@ -59,9 +92,14 @@ def test_project_lifecycle_planning_and_typed_status(tmp_path: Path) -> None:
         result = app.projects.plan(project)
 
     assert isinstance(result, ProjectPlanResult)
-    assert result.renderability_mode == "strict"
+    assert result.renderability_mode == "repair"
     assert result.renderability_guaranteed is True
     assert result.repairs == 0
+    assert result.attempt_id is not None
+    assert result.activated is True
+    assert result.reused_scopes == ()
+    assert result.rebuilt_scopes == ("document",)
+    assert json.loads(json.dumps(result.to_dict()))["attempt_id"] == result.attempt_id
     assert result.scopes
     assert json.loads(json.dumps(result.to_dict()))["project"]["project_id"] == project.project_id
     status = app.projects.status(project)
@@ -80,12 +118,22 @@ def test_project_plan_options_and_renderability_errors_are_public(tmp_path: Path
     events = []
 
     with pytest.raises(ProjectPlanRenderabilityError) as caught:
-        app.projects.plan(project, on_event=events.append)
+        app.projects.plan(
+            project,
+            options=ProjectPlanOptions(renderability="strict"),
+            on_event=events.append,
+        )
 
     error = caught.value
     assert error.code == "planning.not_renderable"
     assert error.details["issues"] == list(error.issues)
     assert error.issues[0]["source_path"]
+    assert error.attempt_id == error.details["attempt_id"]
+    assert error.attempt_status == "blocked"
+    assert error.active_plan_changed is False
+    assert error.inspect_command == "readio plan inspect ."
+    assert error.repair_command == "readio plan repair ."
+    assert error.issues[0]["repair_command"] == "readio plan repair ."
     assert error.issues[0]["line"] is not None
     assert any(
         event.progress_kind == "phase" and event.details.get("phase") == "renderability_preflight"

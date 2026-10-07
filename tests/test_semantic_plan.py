@@ -115,21 +115,21 @@ class TestSemanticPlanIdentityAcousticInvariant:
     def test_planner_is_called_once_and_plan_identity_is_canonical(self, monkeypatch) -> None:
         import readio.planning.semantic as semantic_module
 
-        upstream_compile_document = semantic_module.compile_document
+        upstream_compile_attempt = semantic_module.compile_attempt
         calls = []
 
-        def counting_compile_document(text, **kwargs):
+        def counting_compile_attempt(text, **kwargs):
             calls.append((text, kwargs))
-            return upstream_compile_document(text, **kwargs)
+            return upstream_compile_attempt(text, **kwargs)
 
-        monkeypatch.setattr(semantic_module, "compile_document", counting_compile_document)
+        monkeypatch.setattr(semantic_module, "compile_attempt", counting_compile_attempt)
         result = compile_semantic_plan(_make_document("Hello world."), planning=_make_policy())
 
         assert len(calls) == 1
         text, kwargs = calls[0]
         assert text == "Hello world."
         assert kwargs["input_format"] == "plain"
-        assert kwargs["trace"] is False
+        assert kwargs["config"].renderability_mode == "repair"
         assert kwargs["on_progress"] is None
         assert result.plan_id == result.plan.plan_id
 
@@ -158,7 +158,7 @@ def test_semantic_compiler_uses_typed_planner_config() -> None:
 
 
 def test_renderability_mode_is_forwarded_to_utterplan() -> None:
-    assert PlanningPolicy().to_planner_config().renderability_mode == "strict"
+    assert PlanningPolicy().to_planner_config().renderability_mode == "repair"
     assert (
         PlanningPolicy(renderability_mode="repair").to_planner_config().renderability_mode
         == "repair"

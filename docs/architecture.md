@@ -46,7 +46,9 @@ Novel.ssmdbook/                  # canonical, editable book
   .readio/                       # disposable Readio state
     project.json
     document/index.json          # chapter selection and local index
-    plan/                        # Utterplan artifacts
+    plan/                        # active plan and durable planning attempts
+      index.json                 # active, synthesis-eligible scopes
+      attempts/                  # isolated candidates and diagnostics
     synthesis/                   # cache and trace
     composition/                 # timeline and master
     output/
@@ -60,6 +62,8 @@ UtterPlan remains the owner of semantic identity. Its unit hashes may include
 resolved pauses and directives because those facts describe the semantic plan.
 Readio does not use a unit hash as its acoustic cache atom. Unit selectors are
 expanded to ordered, unique `PlanSegment` IDs before synthesis.
+
+Planning is transactional across scopes. Each build writes a durable attempt under `plan/attempts/`; completed candidates and renderability diagnostics remain inspectable even when another scope blocks the build. Only a fully renderable attempt atomically replaces the active plan index and canonical artifacts. Synthesis reads only that active index, never an attempt candidate. Repair retries compile current project documents, may reuse fingerprint-matching renderable scopes, and never rewrite source files. Safe repair is the default; strict mode remains available for auditing.
 
 Each canonical artifact is identified by `readio.canonical-speech.v1` segment
 input facts and a `readio.synthesis-segment.v2` key. The speech fingerprint

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.metadata
 from typing import Any
 
+from . import __version__ as readio_version
 from .engines import engine_status
 
 
@@ -79,6 +80,7 @@ def run_doctor() -> str:
     lines.append("")
 
     dependencies = {
+        "Readio": {"available": True, "version": readio_version},
         "UtterPlan": check_utterplan(),
         "SSMD": check_ssmd(),
         "SSMDConvert": check_ssmdconvert(),

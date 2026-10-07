@@ -52,7 +52,14 @@ from .types import (
     ProjectCompositionResult,
     ProjectExportResult,
     ProjectLike,
+    ProjectPlanAttemptRef,
+    ProjectPlanAttemptScope,
+    ProjectPlanInspection,
+    ProjectPlanInspectionOptions,
+    ProjectPlanIssue,
     ProjectPlanOptions,
+    ProjectPlanRepairOptions,
+    ProjectPlanRepairResult,
     ProjectPlanResult,
     ProjectPlanScope,
     ProjectRef,
@@ -117,6 +124,158 @@ def _optional_string_tuple(value: object) -> tuple[str, ...] | None:
     if isinstance(value, (tuple, list)):
         return tuple(str(item) for item in value)
     raise TypeError(f"expected a list or tuple, got {type(value).__name__}")
+
+
+def _plan_attempt_ref(value: Mapping[str, Any]) -> ProjectPlanAttemptRef:
+    return ProjectPlanAttemptRef(
+        attempt_id=str(value.get("attempt_id", "")),
+        status=cast(Any, value.get("status", "incomplete")),
+        activated=value.get("activated") is True,
+        renderability_mode=cast(Any, value.get("renderability_mode", "strict")),
+        created_at=str(value.get("created_at", "")),
+        parent_attempt_id=(
+            value.get("parent_attempt_id")
+            if isinstance(value.get("parent_attempt_id"), str)
+            else None
+        ),
+        scope_count=(
+            value.get("scope_count")
+            if isinstance(value.get("scope_count"), int)
+            else len(value.get("scopes", []))
+            if isinstance(value.get("scopes"), list)
+            else 0
+        ),
+        issue_count=(value.get("issue_count") if isinstance(value.get("issue_count"), int) else 0),
+        repair_count=(
+            value.get("repair_count")
+            if isinstance(value.get("repair_count"), int)
+            else sum(
+                item.get("repair_count", 0)
+                for item in value.get("scopes", [])
+                if isinstance(item, Mapping) and isinstance(item.get("repair_count", 0), int)
+            )
+            if isinstance(value.get("scopes"), list)
+            else 0
+        ),
+    )
+
+
+def _plan_attempt_scope(value: Mapping[str, Any]) -> ProjectPlanAttemptScope:
+    return ProjectPlanAttemptScope(
+        scope_id=str(value.get("scope_id", "")),
+        status=cast(Any, value.get("status", "failed")),
+        source_path=value.get("source_path") if isinstance(value.get("source_path"), str) else None,
+        source_sha256=(
+            value.get("source_sha256") if isinstance(value.get("source_sha256"), str) else None
+        ),
+        semantic_planner_fingerprint=(
+            value.get("semantic_planner_fingerprint")
+            if isinstance(value.get("semantic_planner_fingerprint"), str)
+            else None
+        ),
+        candidate_path=(
+            value.get("candidate_path") if isinstance(value.get("candidate_path"), str) else None
+        ),
+        issue_count=value.get("issue_count", 0) if isinstance(value.get("issue_count"), int) else 0,
+        repair_count=value.get("repair_count", 0)
+        if isinstance(value.get("repair_count"), int)
+        else 0,
+        reused=value.get("reused") is True,
+    )
+
+
+def _plan_issue(value: Mapping[str, Any]) -> ProjectPlanIssue:
+    fields = {
+        "scope_id",
+        "code",
+        "reason",
+        "segment_id",
+        "unit_id",
+        "text",
+        "source_path",
+        "line",
+        "column",
+        "end_line",
+        "end_column",
+        "source_context",
+        "repair_safe",
+        "repair_action",
+        "repair_blockers",
+    }
+    context = value.get("source_context", ())
+    blockers = value.get("repair_blockers", ())
+    details = {key: item for key, item in value.items() if key not in fields}
+    return ProjectPlanIssue(
+        scope_id=str(value.get("scope_id", "")),
+        code=str(value.get("code", "")),
+        reason=str(value.get("reason", "")),
+        segment_id=value.get("segment_id") if isinstance(value.get("segment_id"), str) else None,
+        unit_id=value.get("unit_id") if isinstance(value.get("unit_id"), str) else None,
+        text=value.get("text") if isinstance(value.get("text"), str) else None,
+        source_path=value.get("source_path") if isinstance(value.get("source_path"), str) else None,
+        line=value.get("line") if isinstance(value.get("line"), int) else None,
+        column=value.get("column") if isinstance(value.get("column"), int) else None,
+        end_line=value.get("end_line") if isinstance(value.get("end_line"), int) else None,
+        end_column=value.get("end_column") if isinstance(value.get("end_column"), int) else None,
+        source_context=tuple(str(item) for item in context)
+        if isinstance(context, (list, tuple))
+        else (),
+        repair_safe=value.get("repair_safe")
+        if isinstance(value.get("repair_safe"), bool)
+        else None,
+        repair_action=(
+            value.get("repair_action") if isinstance(value.get("repair_action"), str) else None
+        ),
+        repair_blockers=tuple(str(item) for item in blockers)
+        if isinstance(blockers, (list, tuple))
+        else (),
+        details=details,
+    )
+
+
+def _plan_inspection(value: Mapping[str, Any]) -> ProjectPlanInspection:
+    attempt_raw = value.get("attempt")
+    attempt = _plan_attempt_ref(attempt_raw) if isinstance(attempt_raw, Mapping) else None
+    scopes_raw = value.get("scopes", [])
+    issues_raw = value.get("issues", [])
+    repairs_raw = value.get("repairs", [])
+    segments_raw = value.get("segments", [])
+    return ProjectPlanInspection(
+        selected=cast(Any, value.get("selected", "attempt")),
+        attempt=attempt,
+        scopes=tuple(_plan_attempt_scope(row) for row in scopes_raw if isinstance(row, Mapping))
+        if isinstance(scopes_raw, list)
+        else (),
+        issues=tuple(_plan_issue(row) for row in issues_raw if isinstance(row, Mapping))
+        if isinstance(issues_raw, list)
+        else (),
+        repairs=tuple(_plan_issue(row) for row in repairs_raw if isinstance(row, Mapping))
+        if isinstance(repairs_raw, list)
+        else (),
+        segments=tuple(row for row in segments_raw if isinstance(row, Mapping))
+        if isinstance(segments_raw, list)
+        else (),
+        active_plan_status=str(value.get("active_plan_status", "missing")),
+    )
+
+
+def _plan_repair_result(value: Mapping[str, Any]) -> ProjectPlanRepairResult:
+    attempt_raw = value.get("attempt")
+    if not isinstance(attempt_raw, Mapping):
+        raise TypeError("planning repair result is missing its attempt manifest")
+    issues_raw = value.get("issues", [])
+    return ProjectPlanRepairResult(
+        attempt=_plan_attempt_ref(attempt_raw),
+        activated=value.get("activated") is True,
+        repairs=value.get("repairs", 0) if isinstance(value.get("repairs"), int) else 0,
+        reused_scopes=tuple(str(item) for item in value.get("reused_scopes", [])),
+        rebuilt_scopes=tuple(str(item) for item in value.get("rebuilt_scopes", [])),
+        issues=tuple(_plan_issue(row) for row in issues_raw if isinstance(row, Mapping))
+        if isinstance(issues_raw, list)
+        else (),
+        dry_run=value.get("dry_run") is True,
+        source_files_changed=value.get("source_files_changed") is True,
+    )
 
 
 class ProjectService:
@@ -272,7 +431,11 @@ class ProjectService:
             )
             for row in raw["next_actions"]
         )
-        return ProjectStatus(self._ref(internal), stages, issues, actions)
+        attempt_raw = raw.get("planning_attempt")
+        planning_attempt = (
+            _plan_attempt_ref(attempt_raw) if isinstance(attempt_raw, Mapping) else None
+        )
+        return ProjectStatus(self._ref(internal), stages, issues, actions, planning_attempt)
 
     def plan(
         self,
@@ -307,6 +470,10 @@ class ProjectService:
                     "renderability_mode": result.renderability_mode,
                     "renderability_guaranteed": result.renderability_guaranteed,
                     "repairs": result.repairs,
+                    "attempt_id": result.attempt_id,
+                    "activated": result.activated,
+                    "reused_scopes": list(result.reused_scopes),
+                    "rebuilt_scopes": list(result.rebuilt_scopes),
                 },
             ),
         )
@@ -352,7 +519,86 @@ class ProjectService:
             renderability_guaranteed=result.renderability_guaranteed,
             repairs=result.repairs,
             diagnostics=diagnostics,
+            attempt_id=result.attempt_id,
+            activated=result.activated,
+            reused_scopes=result.reused_scopes,
+            rebuilt_scopes=result.rebuilt_scopes,
         )
+
+    def inspect_plan(
+        self,
+        project: ProjectLike,
+        *,
+        options: ProjectPlanInspectionOptions | None = None,
+    ) -> ProjectPlanInspection:
+        """Inspect active and persisted planning state without mutating the project."""
+        from ..stages.planning import inspect_plan_state
+
+        internal = self._load(project)
+        selected = options or ProjectPlanInspectionOptions()
+        raw = self._call(
+            lambda: inspect_plan_state(
+                internal,
+                attempt=selected.attempt,
+                scope_id=selected.scope_id,
+                issues=selected.issues,
+                repairs=selected.repairs,
+                segment_id=selected.segment_id,
+                unit_id=selected.unit_id,
+                source_context=selected.source_context,
+            )
+        )
+        if not isinstance(raw, Mapping):
+            raise TypeError("plan inspection returned an invalid result")
+        return _plan_inspection(raw)
+
+    def repair_plan(
+        self,
+        project: ProjectLike,
+        *,
+        options: ProjectPlanRepairOptions | None = None,
+        on_event: EventHandler | None = None,
+    ) -> ProjectPlanRepairResult:
+        """Retry a blocked attempt using only UtterPlan-approved safe repairs."""
+        from ..stages.planning import repair_plan_project
+
+        internal = self._load(project)
+        selected = options or ProjectPlanRepairOptions()
+        handler = self._handler(on_event)
+        operation = "projects.repair_plan"
+        self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
+        self._notify(handler, ReadioEvent(kind="stage.started", operation=operation, stage="plan"))
+        raw = self._call(
+            lambda: repair_plan_project(
+                internal,
+                self._app.config,
+                attempt_id=selected.attempt_id,
+                scope_id=selected.scope_id,
+                dry_run=selected.dry_run,
+                on_progress=self._planning_handler(handler, operation),
+            )
+        )
+        if not isinstance(raw, Mapping):
+            raise TypeError("plan repair returned an invalid result")
+        result = _plan_repair_result(raw)
+        self._notify(
+            handler,
+            ReadioEvent(
+                kind="stage.completed",
+                operation=operation,
+                stage="plan",
+                details={
+                    "attempt_id": result.attempt.attempt_id,
+                    "activated": result.activated,
+                    "repairs": result.repairs,
+                    "reused_scopes": list(result.reused_scopes),
+                    "rebuilt_scopes": list(result.rebuilt_scopes),
+                    "dry_run": result.dry_run,
+                },
+            ),
+        )
+        self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
+        return result
 
     def resolve_synthesis(
         self,

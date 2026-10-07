@@ -84,11 +84,29 @@ def _persist_nonrenderable_plan(project, scope, plan) -> None:
     punctuation = "." * (first.spoken_end - first.spoken_start)
     spoken[first.spoken_start : first.spoken_end] = punctuation
     invalid_segment = replace(first, text=punctuation)
+    tokens = tuple(
+        replace(token, text="." * (token.spoken_end - token.spoken_start)) for token in plan.tokens
+    )
     invalid_plan = replace(
         plan,
         texts=replace(plan.texts, spoken="".join(spoken)),
+        tokens=tokens,
         segments=(invalid_segment, *plan.segments[1:]),
     ).with_identity()
+
+    from utterplan.hashing import semantic_hash, unit_hash_payload_from_serialized
+
+    serialized = invalid_plan.to_dict()
+    units = tuple(
+        replace(
+            unit,
+            content_hash=semantic_hash(
+                unit_hash_payload_from_serialized(unit.to_dict(), serialized)
+            ),
+        )
+        for unit in invalid_plan.units
+    )
+    invalid_plan = replace(invalid_plan, units=units).with_identity()
     artifact_path = project.state_root / "plan" / scope.path
     artifact_path.write_text(invalid_plan.to_toml(), encoding="utf-8")
     plan_index = project.load_plan_index()

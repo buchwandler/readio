@@ -115,6 +115,14 @@ incremental high-level build command.
 
 The plan index can contain multiple independent scopes such as chapters. Each scope points to a canonical `.utterplan.toml` artifact. Indexed legacy `.utterplan.json` plans are stale and must be regenerated with `readio plan`; Readio does not load or migrate them during normal project loading, and plan files are not custom collection manifests.
 
+## Planning attempts and safe repair
+
+`readio plan` defaults to safe renderability repair; `readio plan build . --renderability strict` retains the unmodified audit path. Every invocation persists its planning attempt and per-scope candidates under `plan/attempts/` in the project state root. Blocked and incomplete candidates are inspection-only: they cannot replace the active plan index or be consumed by synthesis. Promotion occurs only after all selected scopes produce renderable plans.
+
+Use `readio plan inspect . --attempt latest --issues --repairs` to review diagnostics and safe repair assessments. Select `--attempt active` to inspect the current synthesis-eligible plan, or provide an attempt ID. Focus review with `--scope`, `--unit`, `--segment`, and `--source-context`. `readio plan repair . --attempt ID --dry-run` previews a retry; omit `--dry-run` to compile current project documents with safe repair and activate only if the full attempt succeeds. Repair may reuse unchanged renderable scopes and never edits source files. A failed or interrupted retry leaves existing active artifacts untouched.
+
+`readio status --json` reports the latest `planning_attempt` separately from active PLAN stage state. Blocked/incomplete attempts are surfaced as issues with an inspection action, while synthesis continues to use only the active index. The public project API provides `inspect_plan()` and `repair_plan()` with typed inspection, issue, repair, and result values.
+
 ## Status cockpit
 
 Run `readio status` from the project root or any nested directory. It validates the source, normalized document, every indexed plan artifact, the active synthesis profile/trace, composition, and output. Stale upstream stages block downstream stages; the terminal view prints the first command to run, while `--json` also exposes `issues` and `next_actions`.

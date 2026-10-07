@@ -381,6 +381,8 @@ class ProjectStatus:
     issues: tuple[Diagnostic, ...]
     next_actions: tuple[NextAction, ...]
 
+    planning_attempt: ProjectPlanAttemptRef | None = None
+
     def stage(self, name: StageName) -> StageStatus:
         for status in self.stages:
             if status.stage == name:
@@ -403,7 +405,7 @@ class StageOperation:
 
 @dataclass(frozen=True, slots=True)
 class ProjectPlanOptions:
-    renderability: Literal["strict", "repair"] = "strict"
+    renderability: Literal["strict", "repair"] = "repair"
 
     def __post_init__(self) -> None:
         if self.renderability not in {"strict", "repair"}:
@@ -425,10 +427,122 @@ class ProjectPlanScope:
 class ProjectPlanResult:
     project: ProjectRef
     scopes: tuple[ProjectPlanScope, ...]
-    renderability_mode: Literal["strict", "repair"] = "strict"
+    renderability_mode: Literal["strict", "repair"] = "repair"
     renderability_guaranteed: bool = True
     repairs: int = 0
     diagnostics: tuple[Diagnostic, ...] = ()
+    attempt_id: str | None = None
+    activated: bool = False
+    reused_scopes: tuple[str, ...] = ()
+    rebuilt_scopes: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanAttemptRef:
+    attempt_id: str
+    status: Literal["renderable", "repaired", "blocked", "incomplete"]
+    activated: bool
+    renderability_mode: Literal["strict", "repair"]
+    created_at: str
+    parent_attempt_id: str | None = None
+    scope_count: int = 0
+    issue_count: int = 0
+    repair_count: int = 0
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanAttemptScope:
+    scope_id: str
+    status: Literal["processing", "renderable", "repaired", "blocked", "failed"]
+    source_path: str | None = None
+    source_sha256: str | None = None
+    semantic_planner_fingerprint: str | None = None
+    candidate_path: str | None = None
+    issue_count: int = 0
+    repair_count: int = 0
+    reused: bool = False
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanIssue:
+    scope_id: str
+    code: str
+    reason: str
+    segment_id: str | None = None
+    unit_id: str | None = None
+    text: str | None = None
+    source_path: str | None = None
+    line: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+    source_context: tuple[str, ...] = ()
+    repair_safe: bool | None = None
+    repair_action: str | None = None
+    repair_blockers: tuple[str, ...] = ()
+    details: Mapping[str, JsonValue] = dataclass_field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanInspectionOptions:
+    attempt: str = "latest"
+    scope_id: str | None = None
+    issues: bool = False
+    repairs: bool = False
+    segment_id: str | None = None
+    unit_id: str | None = None
+    source_context: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.attempt:
+            raise ValueError("attempt must be a non-empty selector")
+        if self.source_context < 0:
+            raise ValueError("source_context must be zero or greater")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanInspection:
+    selected: Literal["attempt", "active_plan"]
+    attempt: ProjectPlanAttemptRef | None
+    scopes: tuple[ProjectPlanAttemptScope, ...] = ()
+    issues: tuple[ProjectPlanIssue, ...] = ()
+    repairs: tuple[ProjectPlanIssue, ...] = ()
+    segments: tuple[Mapping[str, JsonValue], ...] = ()
+    active_plan_status: str = "missing"
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanRepairOptions:
+    attempt_id: str | None = None
+    scope_id: str | None = None
+    dry_run: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPlanRepairResult:
+    attempt: ProjectPlanAttemptRef
+    activated: bool
+    repairs: int = 0
+    reused_scopes: tuple[str, ...] = ()
+    rebuilt_scopes: tuple[str, ...] = ()
+    issues: tuple[ProjectPlanIssue, ...] = ()
+    dry_run: bool = False
+    source_files_changed: bool = False
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -1199,7 +1313,14 @@ __all__ = [
     "ProjectCompositionResult",
     "ProjectExportResult",
     "ProjectLike",
+    "ProjectPlanAttemptRef",
+    "ProjectPlanAttemptScope",
+    "ProjectPlanInspection",
+    "ProjectPlanInspectionOptions",
+    "ProjectPlanIssue",
     "ProjectPlanOptions",
+    "ProjectPlanRepairOptions",
+    "ProjectPlanRepairResult",
     "ProjectPlanResult",
     "ProjectPlanScope",
     "ProjectRef",

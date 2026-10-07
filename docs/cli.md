@@ -188,7 +188,7 @@ Composition events identify the current speech segment and operation, show compl
 
 With `--json`, stdout remains one JSON document. Explicit progress remains on stderr, and progress callbacks are runtime observations only. They do not enter composition IDs, AudioJob serialization, timelines, or composition state identities.
 
-`readio plan` is a project command family: `build` creates semantic Utterplan artifacts, `roles` inspects SSMD roles, and `bind` / `unbind` manage project-local acoustic settings. It never selects an engine or loads TTS. Use `readio render --dry-run` to inspect the complete execution plan for one-shot input.
+`readio plan` is a project command family: `build` creates semantic Utterplan artifacts (safe repair by default), `inspect` reviews active plans and persisted attempts, `repair` retries an attempt without editing source, `roles` inspects SSMD roles, and `bind` / `unbind` manage project-local acoustic settings. It never selects an engine or loads TTS. Use `readio render --dry-run` to inspect the complete execution plan for one-shot input.
 
 ## Planning progress
 
@@ -201,3 +201,26 @@ readio plan build . --progress
 readio plan build . --no-progress
 readio plan build . --json --progress
 ```
+
+## Planning attempts, inspection, and repair
+
+Planning writes each run to a durable per-scope attempt before activation. A blocked or interrupted attempt remains available for review, but its candidates never replace active plan artifacts and are never eligible for synthesis. Activation is transactional: only a complete, renderable attempt updates the active plan index. Safe renderability repair is the default; use `--renderability strict` when auditing the unmodified planner output.
+
+```bash
+# Strict audit; any unrenderable segments are persisted for inspection.
+readio plan build . --renderability strict
+
+# Inspect the latest attempt, its issues, and suggested safe repairs.
+readio plan inspect . --attempt latest --issues --repairs --json
+
+# Inspect the active plan instead of the latest attempt.
+readio plan inspect . --attempt active
+
+# Preview, then retry a blocked/incomplete attempt without editing source files.
+readio plan repair . --attempt ATTEMPT_ID --dry-run
+readio plan repair . --attempt ATTEMPT_ID
+```
+
+`inspect` accepts `--scope`, `--unit`, `--segment`, and `--source-context` for focused semantic and source review. `--attempt` may be `latest`, `active`, or a concrete attempt ID. `repair` defaults to the latest attempt, supports dry-run, and compiles current project documents; it does not rewrite SSMD or other source files. Matching renderable scopes may be reused across retries. A failed repair leaves the prior active plan untouched.
+
+Attempts and candidates are stored under `plan/attempts/` within the project state root (`.readio/` for attached audiobooks). `readio status --json` reports a separate `planning_attempt` object and includes blocked/incomplete attempts in `issues` and the next action; this does not change the active plan's stage state. The public Python API exposes the same operations as `app.projects.inspect_plan(...)` and `app.projects.repair_plan(...)`.

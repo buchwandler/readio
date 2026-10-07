@@ -147,27 +147,59 @@ class ProjectPlanRenderabilityError(ReadioError):
     """One or more project scopes contain unrenderable semantic segments."""
 
     code = "planning.not_renderable"
-    repair_command = "readio plan build . --renderability repair"
+    repair_command = "readio plan repair ."
 
     def __init__(
         self,
         issues: tuple[dict[str, JsonValue], ...],
         *,
         renderability_mode: str,
+        attempt_id: str | None = None,
+        attempt_status: str | None = None,
+        active_plan_changed: bool = False,
+        inspect_command: str = "readio plan inspect .",
+        repair_command: str | None = None,
     ) -> None:
         self.issues = tuple(dict(issue) for issue in issues)
         self.renderability_mode = renderability_mode
+        self.attempt_id = attempt_id
+        self.attempt_status = attempt_status
+        self.active_plan_changed = active_plan_changed
+        self.inspect_command = inspect_command
+        self.repair_command = repair_command or type(self).repair_command
         source_path_value = self.issues[0].get("source_path") if self.issues else None
         source_path = Path(source_path_value) if isinstance(source_path_value, str) else None
         details: dict[str, JsonValue] = {
             "issues": list(self.issues),
             "renderability_mode": renderability_mode,
             "repair_command": self.repair_command,
+            "inspect_command": inspect_command,
+            "active_plan_changed": active_plan_changed,
         }
+        if attempt_id is not None:
+            details["attempt_id"] = attempt_id
+        if attempt_status is not None:
+            details["attempt_status"] = attempt_status
         super().__init__(
             f"Planning failed: {len(self.issues)} renderer segment(s) are not renderable.",
             source_path=source_path,
             details=details,
+        )
+
+
+class ProjectPlanAttemptError(ReadioError):
+    """A persisted planning attempt is malformed or cannot be safely inspected."""
+
+    code = "planning.attempt_invalid"
+
+    def __init__(self, attempt_id: str | None, reason: str) -> None:
+        self.attempt_id = attempt_id
+        self.reason = reason
+        details: dict[str, JsonValue] = {"reason": reason}
+        if attempt_id is not None:
+            details["attempt_id"] = attempt_id
+        super().__init__(
+            f"Planning attempt {attempt_id or '<latest>'} is invalid: {reason}", details=details
         )
 
 

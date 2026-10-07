@@ -57,15 +57,20 @@ class ParsedSSMD09:
     voice_references: tuple[VoiceReferenceUse, ...]
 
 
+def parse_ssmd_structure_09(text: str) -> Any:
+    """Parse SSMD 0.9 structure through Readio's dependency boundary."""
+    return ssmd_api.parse_structure(
+        text,
+        default_lang=None,
+        parse_yaml_header=True,
+        resolve_defaults=False,
+        dialect="0.9",
+    )
+
+
 def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09:
     try:
-        structure = ssmd_api.parse_structure(
-            text,
-            default_lang=None,
-            parse_yaml_header=True,
-            resolve_defaults=False,
-            dialect="0.9",
-        )
+        structure = parse_ssmd_structure_09(text)
     except Exception as exc:
         raise SSMDInputError(f"SSMD 0.9 input is required: {exc}", source_path=source_path) from exc
 
