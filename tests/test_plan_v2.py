@@ -491,6 +491,23 @@ def test_engine_probe_statuses_map_to_distinct_plan_diagnostics() -> None:
     assert "/checkout/pykokoro/__init__.py" in warning[0].message
 
 
+def test_inflect_engine_probe_install_hint_uses_optional_extra() -> None:
+    from readio.engines.api_probe import EngineApiProbe
+    from readio.plan import _engine_api_probe_diagnostics
+
+    diagnostic = _engine_api_probe_diagnostics(
+        EngineApiProbe(
+            engine="inflect",
+            package="inflectsynth",
+            compatible=False,
+            status="package_missing",
+        )
+    )[0]
+    assert diagnostic.code == "engine_package_missing"
+    assert "InflectSynth is not installed" in diagnostic.message
+    assert "pip install readio[inflect]" in diagnostic.message
+
+
 def test_pocket_voice_file_is_hashed_into_the_resolved_render_target(monkeypatch, tmp_path) -> None:
     import hashlib
 

@@ -100,6 +100,7 @@ _ENGINE_DISPLAY_NAMES = {
     "pocket": "PocketSynth",
     "kitten": "KittenSynth",
     "supertonic": "SupertonicSynth",
+    "inflect": "InflectSynth",
 }
 _ENGINE_EXTRA_NAMES = {
     "kokoro": "kokoro",
@@ -107,6 +108,7 @@ _ENGINE_EXTRA_NAMES = {
     "pocket": "pocket",
     "kitten": "kitten",
     "supertonic": "supertonic",
+    "inflect": "inflect",
 }
 
 

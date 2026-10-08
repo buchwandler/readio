@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+from readio.engines.inflectsynth import InflectSynthEngineAdapter
 from readio.engines.kittensynth import KittenSynthEngineAdapter
 from readio.engines.pipersynth import PiperSynthEngineAdapter
 from readio.engines.pocketsynth import PocketSynthEngineAdapter
@@ -18,6 +19,7 @@ _ENGINE_APIS = {
     "pocket": ("pocketsynth", PocketSynthEngineAdapter, (0, 2)),
     "kitten": ("kittensynth", KittenSynthEngineAdapter, (0, 1)),
     "supertonic": ("supertonicsynth", SupertonicSynthEngineAdapter, (0, 1)),
+    "inflect": ("inflectsynth", InflectSynthEngineAdapter, (0, 1)),
 }
 
 

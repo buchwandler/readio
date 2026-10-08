@@ -108,6 +108,16 @@ Kokoro, Pocket, and Supertonic support request-scoped voice selection. Piper bin
 
 Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. Kokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Supertonic uses the validated model base language and forwards the speed multiplier to its atomic synthesis API. Composition rate remains separate, so synthesis speed is never applied twice.
 
+### InflectSynth ownership and capabilities
+
+| Engine    | G2P and synthesis owner                         | Runtime layer                                | Readio-owned boundary                                                                                       |
+| --------- | ----------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `inflect` | InflectSynth, including G2P and model internals | ONNXVoice, transitively through InflectSynth | Request boundaries, selection, capacity policy, session lifecycle, audio validation, and synthesis identity |
+
+InflectSynth's public catalog currently discovers `nano-v2` and `micro-v2`, each with the fixed `default` voice. The adapter supports English only; speed, variation, seed, and calibrated voice-level handling are supported controls. Variation and seed are API engine options. Speaker selection, reference voices, pronunciation overrides, and native word timings are unsupported.
+
+The InflectSynth 0.1.1 public capacity contract reports `supports_known_maximum: false`. Readio therefore treats request capacity as unknown rather than inventing a token limit; it still translates typed native oversize errors and owns any legal-boundary lowering. InflectSynth owns G2P, model, and runtime details. ONNXVoice remains a transitive dependency: Readio does not import or manage it, InflectG2P, or the Inflect bundle catalog.
+
 ## Managed and catalog voice sources
 
 Supertonic discovery uses the engine's public model metadata API, while synthesis uses one atomic native request for each Readio request. Readio resolves locale tags to supported base languages and retains its ownership of text splitting and composition.

@@ -103,7 +103,7 @@ def _add_synthesis_options(parser: argparse.ArgumentParser) -> None:
     voice_group = parser.add_mutually_exclusive_group()
     voice_group.add_argument(
         "--voice",
-        help="semantic voice reference or native voice ID, e.g. kokoro:v1.0/af_heart, piper:en_US-amy-medium, or pocket:english_2026-04/alba",
+        help="semantic voice reference or native voice ID, e.g. kokoro:v1.0/af_heart, piper:en_US-amy-medium, pocket:english_2026-04/alba, or inflect:nano-v2/default",
     )
     parser.add_argument("--speaker", help="named or numeric speaker for multi-speaker engines")
     voice_group.add_argument(
@@ -1745,7 +1745,14 @@ def _normalize_voice_list_filters(
     available_engines: set[str] | None,
     normalize_engine: Callable[[str], str],
 ) -> tuple[str | None, str | None]:
-    available = available_engines or {"kokoro", "piper", "pocket", "kitten", "supertonic"}
+    available = available_engines or {
+        "kokoro",
+        "piper",
+        "pocket",
+        "kitten",
+        "supertonic",
+        "inflect",
+    }
     if engine is not None:
         canonical = normalize_engine(engine)
         if canonical == engine:

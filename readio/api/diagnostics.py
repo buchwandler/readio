@@ -26,6 +26,7 @@ _ENGINE_DISTRIBUTIONS = {
     "pocket": "pocketsynth",
     "kitten": "kittensynth",
     "supertonic": "supertonicsynth",
+    "inflect": "inflectsynth",
 }
 
 if TYPE_CHECKING:

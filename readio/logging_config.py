@@ -7,7 +7,15 @@ from typing import TextIO
 
 MAX_VERBOSITY = 2
 _MANAGED_HANDLER = "_readio_verbose_handler"
-_LOGGER_NAMES = ("readio", "pykokoro", "pipersynth", "pocketsynth", "kittensynth")
+_LOGGER_NAMES = (
+    "readio",
+    "pykokoro",
+    "pipersynth",
+    "pocketsynth",
+    "kittensynth",
+    "supertonicsynth",
+    "inflectsynth",
+)
 
 
 class IsoLocalFormatter(logging.Formatter):

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from readio import cli
 from readio.api.catalog import CatalogService
-from readio.lexicons import LexiconCatalogEntry
+from readio.lexicons import _ENGINE_PRIORITY, LexiconCatalogEntry
 
 
 def _entries() -> tuple[LexiconCatalogEntry, ...]:
@@ -111,3 +111,8 @@ def test_lexicons_list_without_language_handles_missing_assets(capsys) -> None:
     assert cli._cmd_lexicons(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["lexicons"]
+
+
+def test_lexicon_engine_priority_is_exhaustive_for_supported_engines():
+    assert _ENGINE_PRIORITY["supertonic"] == 4
+    assert _ENGINE_PRIORITY["inflect"] == 5

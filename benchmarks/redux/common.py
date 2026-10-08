@@ -288,6 +288,7 @@ def environment_metadata(
         "pocket": "pocketsynth",
         "kitten": "kittensynth",
         "supertonic": "supertonicsynth",
+        "inflect": "inflectsynth",
     }
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),

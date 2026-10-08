@@ -20,7 +20,15 @@ def clean_verbose_logging():
 
 
 def _reset_verbose_loggers() -> None:
-    for name in ("readio", "pykokoro", "pipersynth", "pocketsynth", "kittensynth"):
+    for name in (
+        "readio",
+        "pykokoro",
+        "pipersynth",
+        "pocketsynth",
+        "kittensynth",
+        "supertonicsynth",
+        "inflectsynth",
+    ):
         logger = logging.getLogger(name)
         for handler in logger.handlers[:]:
             if getattr(handler, "_readio_verbose_handler", False):
@@ -64,6 +72,16 @@ def test_debug_logging_includes_engine_namespaces():
     logging.getLogger("kittensynth.systems.kitten").debug("timing output durations")
 
     assert "DEBUG kittensynth.systems.kitten timing output durations" in stream.getvalue()
+
+
+def test_debug_logging_includes_inflect_and_supertonic_namespaces():
+    stream = io.StringIO()
+    configure_logging(2, stream=stream)
+    logging.getLogger("inflectsynth.voice").debug("inflect runtime")
+    logging.getLogger("supertonicsynth.runtime").debug("supertonic runtime")
+    output = stream.getvalue()
+    assert "DEBUG inflectsynth.voice inflect runtime" in output
+    assert "DEBUG supertonicsynth.runtime supertonic runtime" in output
 
 
 def test_vv_logging_includes_structured_engine_api_probe_event(monkeypatch):

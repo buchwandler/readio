@@ -317,6 +317,7 @@ def test_input_help_describes_positional_files_and_literal_escape(capsys):
     assert "unambiguous scripting form" in help_text
     assert "selects the input format" in help_text
     assert "positional file detection" in help_text
+    assert "inflect:nano-v2/default" in help_text
 
 
 @pytest.mark.parametrize("command", ["speak", "render"])
@@ -1151,6 +1152,13 @@ def test_supertonic_voice_cli_lists_semantic_refs_and_count(monkeypatch, capsys)
         available_engines=set(),
         normalize_engine=lambda engine: engine,
     ) == ("supertonic", None)
+
+    assert cli._normalize_voice_list_filters(
+        engine=None,
+        model="inflectsynth",
+        available_engines=set(),
+        normalize_engine=lambda value: "inflect" if value == "inflectsynth" else value,
+    ) == ("inflect", None)
 
 
 def test_selftest_e2e_cli_uses_public_api_and_merges_engine_options(monkeypatch, capsys, tmp_path):

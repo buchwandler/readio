@@ -245,7 +245,11 @@ def validate_language_settings(
                 model, "readio.model_unsupported", "pykokoro.model_unsupported"
             ),
         )
-    if settings.source is not None and settings.source not in _RUNTIME_SOURCES:
+    if (
+        settings.source is not None
+        and settings.source not in _RUNTIME_SOURCES
+        and not (model.engine == "inflect" and settings.source == "inflectsynth")
+    ):
         raise ModelDiscoveryError(
             f"Model source '{settings.source}' is not supported; use github or huggingface.",
             code=_validation_error_code(

@@ -24,6 +24,7 @@ ENGINE_ALIASES: dict[str, str] = {
     "pipersynth": "piper",
     "kittensynth": "kitten",
     "supertonicsynth": "supertonic",
+    "inflectsynth": "inflect",
 }
 
 
@@ -33,6 +34,7 @@ READIO_ENGINE_TO_ONNXVOICE_SYSTEM: dict[str, str] = {
     "pocket": "pocket",
     "kitten": "kitten",
     "supertonic": "supertonic",
+    "inflect": "inflect",
 }
 
 ONNXVOICE_SYSTEM_TO_READIO_ENGINE: dict[str, str] = {
@@ -41,9 +43,10 @@ ONNXVOICE_SYSTEM_TO_READIO_ENGINE: dict[str, str] = {
     "pocket": "pocket",
     "kitten": "kitten",
     "supertonic": "supertonic",
+    "inflect": "inflect",
 }
 CANONICAL_ENGINE_IDS: frozenset[str] = frozenset(
-    {"kokoro", "piper", "pocket", "kitten", "supertonic"}
+    {"kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"}
 )
 
 
@@ -125,6 +128,8 @@ class EngineRegistry:
             self._try_register_kitten()
         elif engine_id == "supertonic":
             self._try_register_supertonic()
+        elif engine_id == "inflect":
+            self._try_register_inflect()
 
     def _try_register_pykokoro(self) -> None:
         """Try to register the Kokoro engine adapter."""
@@ -171,6 +176,15 @@ class EngineRegistry:
         except ImportError:
             logger.debug("SupertonicSynth not available")
 
+    def _try_register_inflect(self) -> None:
+        """Try to register InflectSynth without importing the optional package."""
+        try:
+            from .inflectsynth import InflectSynthEngineAdapter
+
+            self.register(InflectSynthEngineAdapter())
+        except ImportError:
+            logger.debug("InflectSynth adapter not available")
+
     def available_engines(self) -> tuple[str, ...]:
         """Return IDs of all registered engines."""
         return tuple(sorted(self._adapters.keys()))
@@ -187,6 +201,7 @@ class EngineRegistry:
             "pocket": "pocketsynth",
             "kitten": "kittensynth",
             "supertonic": "supertonicsynth",
+            "inflect": "inflectsynth",
         }
         result: dict[str, dict[str, Any]] = {}
         engine_ids = sorted(CANONICAL_ENGINE_IDS | self._adapters.keys())

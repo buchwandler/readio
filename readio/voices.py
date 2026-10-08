@@ -22,7 +22,14 @@ RUNNABLE_STATUSES = frozenset({"ready", "experimental"})
 
 # These priorities are presentation ordering only and never participate in voice identity.
 MODEL_PRIORITY = {"v1.0": 0, "v1.1-zh": 1}
-ENGINE_PRIORITY = {"kokoro": 0, "piper": 1, "pocket": 2, "kitten": 3}
+ENGINE_PRIORITY = {
+    "kokoro": 0,
+    "piper": 1,
+    "pocket": 2,
+    "kitten": 3,
+    "supertonic": 4,
+    "inflect": 5,
+}
 
 
 @dataclass(frozen=True, slots=True)

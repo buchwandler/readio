@@ -14,7 +14,14 @@ from .engines.registry import (
     normalize_engine_id,
 )
 
-_ENGINE_PRIORITY = {"kokoro": 0, "piper": 1, "pocket": 2, "kitten": 3}
+_ENGINE_PRIORITY = {
+    "kokoro": 0,
+    "piper": 1,
+    "pocket": 2,
+    "kitten": 3,
+    "supertonic": 4,
+    "inflect": 5,
+}
 
 
 @dataclass(frozen=True, slots=True)

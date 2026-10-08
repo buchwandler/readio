@@ -51,6 +51,8 @@ _ENGINE_PACKAGES = {
     "piper": "pipersynth",
     "pocket": "pocketsynth",
     "kitten": "kittensynth",
+    "supertonic": "supertonicsynth",
+    "inflect": "inflectsynth",
 }
 _DEFAULT_DISCOVERY = DiscoveryOptions()
 _DEFAULT_TARGET_QUERY = TargetQuery()

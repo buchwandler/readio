@@ -388,3 +388,38 @@ def test_supertonic_voice_language_capabilities_survive_public_filtering(monkeyp
     assert app.catalog.voices(VoiceQuery(language="fr", engine="supertonic")) == ()
     assert not hasattr(voices[0], "languages")
     assert "languages" not in voices[0].to_dict()
+
+
+def test_engine_catalogs_report_inflect_and_supertonic_package_names(monkeypatch) -> None:
+    from readio.api.catalog import CatalogService
+    from readio.api.diagnostics import DiagnosticsService
+
+    unavailable = {
+        "adapter": False,
+        "package": False,
+        "version": None,
+        "status": "package_missing",
+        "module_version": None,
+        "module_path": None,
+        "request_api_version": None,
+        "expected_request_api_version": None,
+        "contract_source": None,
+        "api_compatible": None,
+        "missing_symbols": (),
+        "missing_methods": (),
+        "failed_stage": None,
+        "failed_symbol": None,
+        "error_type": None,
+        "error_message": None,
+        "warnings": (),
+    }
+    statuses = {engine: dict(unavailable) for engine in ("inflect", "supertonic")}
+    monkeypatch.setattr("readio.api.catalog.engine_status", lambda: statuses)
+    monkeypatch.setattr("readio.api.diagnostics.engine_status", lambda: statuses)
+
+    catalog = {item.id: item for item in CatalogService(None).engines()}
+    assert catalog["inflect"].missing_dependency == "inflectsynth"
+    assert catalog["supertonic"].missing_dependency == "supertonicsynth"
+
+    diagnostics = {item.id: item for item in DiagnosticsService(None).engines()}
+    assert diagnostics["inflect"].missing_dependency == "inflectsynth"

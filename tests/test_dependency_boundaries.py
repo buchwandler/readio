@@ -18,6 +18,7 @@ DOMAIN_MODULES = frozenset(
         "pocketsynth",
         "kittensynth",
         "supertonicsynth",
+        "inflectsynth",
         "moondream",
     }
 )
@@ -32,6 +33,7 @@ BASELINE_IMPORTERS = {
     "pipersynth": {"readio/engines/pipersynth.py"},
     "pocketsynth": {"readio/engines/pocketsynth.py"},
     "supertonicsynth": {"readio/engines/supertonicsynth.py"},
+    "inflectsynth": {"readio/engines/inflectsynth.py"},
     "pykokoro": {"readio/engines/pykokoro.py"},
     "ssmd": {
         "readio/ssmd.py",
@@ -110,8 +112,29 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
     }
     print(f"Readio external domain import baseline: {metrics}")
     assert metrics == {
-        "domain_packages": 10,
-        "importing_files": 15,
-        "package_file_contacts": 15,
-        "imported_names": 86,
+        "domain_packages": 11,
+        "importing_files": 16,
+        "package_file_contacts": 16,
+        "imported_names": 87,
     }
+
+
+def test_inflectsynth_public_package_root_is_contacted_only_by_its_adapter() -> None:
+    importers, _ = _collect_domain_imports()
+    assert importers["inflectsynth"] == {"readio/engines/inflectsynth.py"}
+
+    adapter = (REPO_ROOT / "readio/engines/inflectsynth.py").read_text(encoding="utf-8")
+    tree = ast.parse(adapter)
+    imported_roots = {
+        alias.name.split(".", 1)[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imported_roots.update(
+        node.module.split(".", 1)[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module
+    )
+    assert "inflectsynth" in imported_roots
+    assert not imported_roots.intersection({"onnxvoice", "inflectg2p"})

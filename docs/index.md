@@ -32,7 +32,7 @@ Use the GPU extra when a GPU-enabled ONNX Runtime is available:
 python -m pip install "readio[kokoro,gpu]"
 ```
 
-Install Piper, Pocket, Supertonic, or Kitten with `readio[piper,cpu]`, `readio[pocket]`, `readio[supertonic]`, or `readio[kitten]`. The `readio[all,cpu]` extra installs all engine packages for a CPU environment.
+Install Piper, Pocket, Supertonic, Kitten, or Inflect with `readio[piper,cpu]`, `readio[pocket]`, `readio[supertonic]`, `readio[kitten]`, or `readio[inflect]`. The `readio[all,cpu]` extra installs all engine packages for a CPU environment.
 
 Engine packages may download model, voice, or bundle assets on first use. Spotify publishing additionally requires the separately installed and authenticated `save-to-spotify` executable.
 
@@ -111,7 +111,7 @@ Synthesis options are available on all three commands:
 --voice VOICE             engine voice ID
 --voice-file PATH         PocketSynth reference WAV
 --voice-prompt REF        PocketSynth managed reference prompt
---engine ENGINE           kokoro, piper, pocket, supertonic, or kitten
+--engine ENGINE           kokoro, piper, pocket, supertonic, kitten, or inflect
 --model TARGET            model or engine-specific target ID
 --precision int8|fp32     PocketSynth bundle precision
 --temperature FLOAT       PocketSynth generation temperature
@@ -134,12 +134,16 @@ Synthesis options are available on all three commands:
 --unit UNIT               sentence or paragraph
 
 Readio's short-sentence default is `phrase`; Readio resolves the policy before engine adapters translate it to engine-native settings.
-Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5. Project plans use canonical UtterPlan schema-v4 TOML artifacts; the `readio.plan.v2` response remains JSON. It supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.5,<0.3, SupertonicSynth >=0.1.2,<0.2, and KittenSynth >=0.1.1,<0.2; each engine package owns its own runtime dependencies and Readio does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`. Install engines with the matching optional extra; `readio doctor` checks each installed package's public request API without downloading models.
+Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5. Project plans use canonical UtterPlan schema-v4 TOML artifacts; the `readio.plan.v2` response remains JSON. It supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.5,<0.3, SupertonicSynth >=0.1.2,<0.2, KittenSynth >=0.1.1,<0.2, and InflectSynth >=0.1.1,<0.2; each engine package owns its own runtime dependencies and Readio does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; package names such as `inflectsynth` are input aliases. Install engines with the matching optional extra; `readio doctor` checks each installed package's public request API without downloading models.
+
+
+InflectSynth uses public metadata discovery for current targets including `nano-v2` and `micro-v2`, each with the fixed `default` voice. It is English-only; unsupported languages and explicit speaker selection, reference voices, pronunciation overrides, or native word timings are rejected. Readio owns request boundaries and capacity policy; InflectSynth owns G2P and model/runtime internals, while ONNXVoice remains a transitive dependency rather than a Readio import. InflectSynth 0.1.1's public capacity contract does not report a trustworthy maximum, so Readio treats capacity as unknown and does not guess a token limit. Shared speed and voice-level calibration are available in the CLI; API clients can also pass variation and seed through `SynthesisRequest.engine_options`.
+
 Readio's built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting or `--pause-mode tts|manual|auto` override takes precedence.
 
-Speed is an engine synthesis multiplier, not a composition tempo. Kokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, PocketSynth rejects explicit values other than `1.0`, and Supertonic forwards the multiplier to its atomic API.
+Speed is an engine synthesis multiplier, not a composition tempo. Kokoro receives the value directly, PiperSynth uses its reciprocal as `length_scale`, PocketSynth rejects explicit values other than `1.0`, and Supertonic and InflectSynth forward the multiplier to their native APIs.
 
-Readio, not the engine adapter, owns text-capacity fitting and exact-text subdivision. Adapters synthesize one strict request at a time and do not call native splitters. Readio preserves legal linguistic and pronunciation boundaries and fails when an oversized request has no legal split.
+Readio, not the engine adapter, owns text-capacity fitting and exact-text subdivision. Adapters synthesize one strict request at a time and do not call native splitters. Readio preserves legal linguistic and pronunciation boundaries and fails when an oversized request has no legal split. InflectSynth 0.1.1 does not advertise a known maximum, so Readio does not apply a guessed token limit.
 
 ```bash
 readio models list --language de --offline
@@ -153,6 +157,11 @@ readio render --lang de --file notes.md
 readio lexicons list --lang de --offline --json
 readio lexicons show crane --lang de --offline --json
 readio voices list --engine supertonic --lang en-us
+
+readio voices list --engine inflect --lang en-us
+readio voices show inflect:nano-v2/default
+readio render --engine inflect --model nano-v2 --voice default --lang en-us "Hello from Inflect."
+
 readio voices prompts --engine pocket --dataset alba
 ````
 
@@ -160,7 +169,7 @@ The `--voice`, `--voice-file`, and `--voice-prompt` selectors are mutually exclu
 
 `models`, `voices`, and `lexicons` enumerate targets from the unified engine registry. They are metadata-only and do not load model weights or instantiate ONNX runtimes. `readio voices prompts` separately lists Pocket managed-prompt metadata without opening a model or fetching prompt audio. Offline mode uses cached catalogs; refresh updates catalog metadata only.
 `--model-source` applies only to engines that advertise distribution-source selection. Voice rosters are target-scoped where the engine exposes them, and lexicons are listed only for engines that support lexicon discovery. SSMD preflight validates role targets against the selected engine catalog.
-Readio uses `readio.engines` as its sole engine registry. The registered engines are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; aliases are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
+Readio uses `readio.engines` as its sole engine registry. The registered engines are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; aliases such as `inflectsynth` are normalized before target resolution. Lexicon operations reject engines that do not advertise lexicon support.
 
 ## Synthesis planning
 
@@ -332,7 +341,7 @@ readio voices list --engine kitten --json
 readio voices show kokoro:v1.0/af_heart --json
 readio roles list --engine kokoro
 
-For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`. References use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, or `pocket:english_2026-04/alba`; numbered voice selectors are removed. `--engine`, `--model`, `--lang`, and `--gender` filter catalog metadata. Native voice IDs need enough discovery context to resolve uniquely; prefer a semantic reference when the target must be explicit. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles.
+For a selected model, inspect concrete voices with `readio voices list --model MODEL --lang LANG --json`. References use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, or `inflect:nano-v2/default`; numbered voice selectors are removed. `--engine`, `--model`, `--lang`, and `--gender` filter catalog metadata. Native voice IDs need enough discovery context to resolve uniquely; prefer a semantic reference when the target must be explicit. Document bindings take precedence over invocation bindings, which take precedence over configured portable roles.
 Use `readio roles bind ROLE REF` for an explicit persistent mapping. Native voice IDs can be used when their engine and target resolve uniquely. For automation, pass missing logical roles only for one invocation:
 
 ```bash

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from readio.models import ModelInfo, VoiceMetadata
-from readio.voices import VoiceCatalogEntry, build_voice_catalog, filter_voice_catalog
+from readio.voices import (
+    ENGINE_PRIORITY,
+    VoiceCatalogEntry,
+    build_voice_catalog,
+    filter_voice_catalog,
+)
 
 
 def model(
@@ -245,3 +250,8 @@ def test_base_language_capabilities_match_regional_tags_without_promoting_fallba
     fallback_only = entry("en", ())
     assert filter_voice_catalog((generic,), language="en-us") == (generic,)
     assert filter_voice_catalog((fallback_only,), language="en-us") == ()
+
+
+def test_engine_priority_includes_inflect_and_supertonic():
+    assert ENGINE_PRIORITY["supertonic"] == 4
+    assert ENGINE_PRIORITY["inflect"] == 5

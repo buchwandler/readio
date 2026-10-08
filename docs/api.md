@@ -75,7 +75,23 @@ if plan.ok:
 
 For auto-converted sources, `InputDocument.provenance` is an immutable public `DocumentProvenance` value containing `source_format`, `media_type`, `source_name`, `converter`, `converter_version`, and converter `metadata`. Explicit text/Markdown/SSMD input does not claim conversion provenance.
 
-`SynthesisRequest.speed` is a finite positive engine synthesis multiplier and is not also applied as composition rate. `voice_level` accepts `"off"` or `"calibrated"`; both settings are passed through typed planning and are part of the effective speech identity. PocketSynth currently supports only speed `1.0` and reports unsupported explicit values as a resolution error. Supertonic converts locale tags to the model's base language, so `en-us` resolves to `en`, and rejects unsupported bases.
+`SynthesisRequest.speed` is a finite positive engine synthesis multiplier and is not also applied as composition rate. `voice_level` accepts `"off"` or `"calibrated"`; both settings are passed through typed planning and are part of the effective speech identity. PocketSynth currently supports only speed `1.0` and reports unsupported explicit values as a resolution error. Supertonic converts locale tags to the model's base language, so `en-us` resolves to `en`, and rejects unsupported bases. InflectSynth supports English only and accepts speed and voice-level controls plus variation and seed through `engine_options`; its current targets expose the fixed `default` voice.
+
+InflectSynth discovers its current targets (including `nano-v2` and `micro-v2`) through the optional package's public catalog. Its fixed voice is `default`; speaker selection, reference voices, pronunciation overrides, and native word timings are unsupported. In InflectSynth 0.1.1 the public capacity contract reports no trustworthy maximum, so Readio leaves request capacity unknown instead of applying a guessed token limit. InflectSynth owns G2P and model/runtime internals; ONNXVoice is only a transitive dependency and is not imported by Readio.
+
+```python
+from readio.api import SynthesisRequest
+
+synthesis = SynthesisRequest(
+    engine="inflect",
+    model="nano-v2",
+    voice="default",
+    language="en-us",
+    speed=1.1,
+    voice_level="calibrated",
+    engine_options={"variation": 0.667, "seed": 7},
+)
+```
 
 `render_live_to_file(lines, output, ...)` consumes the caller-owned iterable without closing it, resolves the output format/path, creates and closes its own file sink, and atomically commits the file. Its `RenderResult` includes `output_path` and `audio_format`. Live support is declared by each adapter's `capabilities().supports_live`; requesting live synthesis from an unsupported engine raises `InvalidRequestError` with code `speech.live_unsupported`.
 
@@ -250,8 +266,8 @@ Title and author default from the project's persisted book metadata and can be o
 ## Discovery and roles
 
 `app.catalog.engines()`, `targets()`, `models()`, `voices()`, `voice_prompts()`, `lexicons()`, and `audio_formats()` expose typed discovery data. Listing methods such as `models_listing()`, `voices_listing()`, and `voice_prompts_listing()` wrap entries with `CatalogDiscovery` metadata, including source, cache fallback, offline, and refresh state. Pass `DiscoveryOptions(offline=True)` to use cached metadata without a network refresh.
-Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; upstream names such as `pykokoro`, `pipersynth`, and `supertonicsynth` are accepted only as input aliases where supported. `app.catalog.normalize_engine()` returns canonical IDs. Lexicon queries are filtered through engine capabilities. The `voices list` CLI treats a registered engine name supplied to `--model` as an engine filter when `--engine` is omitted.
-Voice references use `SYSTEM:TARGET[/VOICE]`, for example `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, and `supertonic:supertonic-3/F1`. Public voice records expose `ref`, `target_id`, and public engine names. Metadata filtering uses descriptive language, locale, and gender fields and does not affect identity. A voice's singular locale is descriptive; its `languages` tuple records synthesis-language capability and is used for voice-reference compatibility when present. A compatible explicit request language (for example `en-us` against capability `en`) remains the requested language through resolution, rather than being downgraded to the voice's descriptive locale. Pocket generic language `en` matches a specific `en-US` query, while an explicit `en-GB` locale does not; generic metadata is not assigned unsupported regional specificity.
+Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; upstream names such as `pykokoro`, `pipersynth`, `supertonicsynth`, and `inflectsynth` are accepted only as input aliases where supported. `app.catalog.normalize_engine()` returns canonical IDs. Lexicon queries are filtered through engine capabilities. The `voices list` CLI treats a registered engine name supplied to `--model` as an engine filter when `--engine` is omitted.
+Voice references use `SYSTEM:TARGET[/VOICE]`, for example `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, `supertonic:supertonic-3/F1`, and `inflect:nano-v2/default`. Public voice records expose `ref`, `target_id`, and public engine names. Metadata filtering uses descriptive language, locale, and gender fields and does not affect identity. A voice's singular locale is descriptive; its `languages` tuple records synthesis-language capability and is used for voice-reference compatibility when present. A compatible explicit request language (for example `en-us` against capability `en`) remains the requested language through resolution, rather than being downgraded to the voice's descriptive locale. Pocket generic language `en` matches a specific `en-US` query, while an explicit `en-GB` locale does not; generic metadata is not assigned unsupported regional specificity.
 
 ```python
 from readio.api import DiscoveryOptions, Readio, VoiceQuery

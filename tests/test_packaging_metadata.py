@@ -61,7 +61,14 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     assert "tests/test_supertonicsynth_engine.py" in workflow
     assert all(
         engine not in tests_job
-        for engine in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth", "supertonicsynth")
+        for engine in (
+            "pykokoro",
+            "pipersynth",
+            "pocketsynth",
+            "kittensynth",
+            "supertonicsynth",
+            "inflectsynth",
+        )
     )
     base_install = tests_job.index('python -m pip install -e ".[dev]"')
     engine_free_smoke = tests_job.index("Public API import smoke without synthesis engines")
@@ -75,6 +82,7 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
         "pocketsynth[cpu]==0.2.5",
         "kittensynth[cpu]==0.1.1",
         "supertonicsynth[cpu]==0.1.2",
+        "inflectsynth[cpu]==0.1.1",
     ):
         assert requirement in workflow
 
@@ -84,6 +92,13 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
     assert "engine-compatibility" in workflow
     assert "released-engine-api" in workflow
     assert "READIO_TEST_ENGINE" in workflow
+    python314_job = workflow.split("  engine-probe-python314:", maxsplit=1)[1].split(
+        "  semantic-stack-minimum:", maxsplit=1
+    )[0]
+    assert "inflectsynth" in python314_job
+    assert 'package: "inflectsynth[cpu]"' in workflow
+    assert 'specifier: "==0.1.1"' in workflow
+    assert 'specifier: ">=0.1.1,<0.2"' in workflow
     assert "pykokoro.git@" not in workflow
     assert "ssmd.git@" not in workflow
     assert "0.9.9" not in workflow
@@ -103,6 +118,8 @@ def test_base_ci_and_wheel_smoke_cover_dependency_ownership() -> None:
     assert "readio[documents] @ file://" in workflow
     assert "readio[verification] @ file://" in workflow
     assert "Installed-wheel smoke (verification extra)" in workflow
+    assert "Installed-wheel smoke (engines)" in workflow
+    assert '"inflectsynth[cpu]==0.1.1"' in workflow
 
 
 OWNED_DEPENDENCIES = {
@@ -156,7 +173,9 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
     assert "pocketsynth[cpu]>=0.2.5,<0.3" in optional["all"]
     assert optional["kitten"] == ["kittensynth[cpu]>=0.1.1,<0.2"]
     assert optional["supertonic"] == ["supertonicsynth[cpu]>=0.1.2,<0.2"]
+    assert optional["inflect"] == ["inflectsynth[cpu]>=0.1.1,<0.2"]
     assert "supertonicsynth[cpu]>=0.1.2,<0.2" in optional["all"]
+    assert "inflectsynth[cpu]>=0.1.1,<0.2" in optional["all"]
     assert "kittensynth[cpu]>=0.1.1,<0.2" in optional["all"]
     assert "utterplan[spacy]>=0.4.0,<0.5" in optional["all"]
     assert all(

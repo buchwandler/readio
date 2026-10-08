@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from .config import (
     DEFAULT_SHORT_SENTENCE_POLICY,
@@ -95,6 +96,7 @@ class ResolvedSynthesis:
     discovery_offline: bool = False
     discovery_refreshed: bool = False
     engine: str = "kokoro"
+    engine_options: Mapping[str, object] = field(default_factory=dict)
 
 
 def _raw_synthesis_selection(
@@ -339,6 +341,7 @@ def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> R
         discovery_offline=discovery_offline,
         discovery_refreshed=discovery_refreshed,
         engine=engine,
+        engine_options=dict(request.engine_options),
     )
 
 

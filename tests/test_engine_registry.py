@@ -8,6 +8,7 @@ These tests verify:
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -52,6 +53,9 @@ class TestNormalizeEngineId:
     def test_alias_supertonicsynth_normalizes_to_supertonic(self) -> None:
         assert normalize_engine_id("supertonicsynth") == "supertonic"
 
+    def test_inflectsynth_alias_normalizes_to_inflect(self) -> None:
+        assert normalize_engine_id("inflectsynth") == "inflect"
+
     def test_unknown_engine_passes_through(self) -> None:
         assert normalize_engine_id("unknown") == "unknown"
 
@@ -68,11 +72,12 @@ class TestEngineAliases:
             "pipersynth": "piper",
             "kittensynth": "kitten",
             "supertonicsynth": "supertonic",
+            "inflectsynth": "inflect",
         }
 
     def test_canonical_ids(self) -> None:
         assert CANONICAL_ENGINE_IDS == frozenset(
-            {"kokoro", "piper", "pocket", "supertonic", "kitten"}
+            {"kokoro", "piper", "pocket", "supertonic", "kitten", "inflect"}
         )
 
 
@@ -103,6 +108,13 @@ class TestRegistryFacade:
         with patch("readio.engines.registry._registry", registry):
             result = get_engine("pipersynth")
             assert result is mock_adapter
+
+    def test_get_engine_normalizes_inflectsynth_alias(self) -> None:
+        adapter = type("MockAdapter", (), {"id": "inflect"})()
+        registry = EngineRegistry()
+        registry.register(adapter)
+        with patch("readio.engines.registry._registry", registry):
+            assert get_engine("inflectsynth") is adapter
 
     def test_get_engine_raises_for_missing(self) -> None:
         """get_engine should raise ValueError for unavailable engines."""
@@ -195,7 +207,45 @@ class TestEngineRegistryClass:
         registry = EngineRegistry()
         status = registry.status()
         # Known optional engines remain visible when their packages are absent.
-        assert {"kokoro", "piper", "pocket", "supertonic", "kitten"}.issubset(status)
+        assert {"kokoro", "piper", "pocket", "supertonic", "kitten", "inflect"}.issubset(status)
+
+    def test_inflect_registers_lazily_and_reports_missing_package(self, monkeypatch) -> None:
+        monkeypatch.setitem(sys.modules, "inflectsynth", None)
+        monkeypatch.setattr("readio.engines.registry.CANONICAL_ENGINE_IDS", frozenset({"inflect"}))
+        registry = EngineRegistry()
+
+        adapter = registry.get("inflect")
+        assert adapter is not None
+        assert adapter.id == "inflect"
+        status = registry.status()["inflect"]
+        assert status["adapter"] is True
+        assert status["package"] is False
+        assert status["status"] == "package_missing"
+
+    def test_inflect_installed_package_status_uses_probe_result(self, monkeypatch) -> None:
+        monkeypatch.setattr("readio.engines.registry.CANONICAL_ENGINE_IDS", frozenset({"inflect"}))
+        registry = EngineRegistry()
+        adapter = registry.get("inflect")
+        assert adapter is not None
+        probe = EngineApiProbe(
+            engine="inflect",
+            package="inflectsynth",
+            compatible=True,
+            status="ready",
+            distribution_version="0.1.1",
+            module_version="0.1.1",
+            module_path="/fake/inflectsynth/__init__.py",
+            expected_api_version=1,
+            api_version=1,
+            contract_source="explicit",
+        )
+        monkeypatch.setattr(adapter, "probe_api", lambda: probe)
+
+        status = registry.status()["inflect"]
+        assert status["adapter"] is True
+        assert status["package"] is True
+        assert status["version"] == "0.1.1"
+        assert status["status"] == "ready"
 
     def test_status_reuses_one_structured_probe_result(self, monkeypatch) -> None:
         registry = EngineRegistry()

@@ -95,7 +95,7 @@ Synthesis, composition, generic export, and audiobook export defaults are used b
 
 ### Shared speech controls
 
-The `--speed` option and `reader.speed` configuration value are engine synthesis multipliers. Kokoro receives speed directly, PiperSynth maps it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`; unsupported explicit values fail before inference. Supertonic converts the locale to a supported base language and forwards speed as an engine synthesis multiplier. Composition rate is separate and is not also changed by `--speed`.
+The `--speed` option and `reader.speed` configuration value are engine synthesis multipliers. Kokoro receives speed directly, PiperSynth maps it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`; unsupported explicit values fail before inference. Supertonic converts the locale to a supported base language and forwards speed as an engine synthesis multiplier; InflectSynth also supports the shared speed control. Composition rate is separate and is not also changed by `--speed`.
 
 Use `--voice-level off|calibrated` or `reader.voice_level` to select voice-level handling. The resolved voice-level mode and synthesis speed are included in speech-cache identity.
 
@@ -111,9 +111,9 @@ readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-prompt kyutai-tts
 
 ## Voice catalog filters
 
-For `readio voices list`, canonical engine IDs passed as `--model` are shortcuts only when `--engine` is omitted: `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`. Input aliases such as `pykokoro`, `pipersynth`, and `supertonicsynth` normalize to the canonical ID. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and model targets remain model filters.
+For `readio voices list`, canonical engine IDs passed as `--model` are shortcuts only when `--engine` is omitted: `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`. Input aliases such as `pykokoro`, `pipersynth`, `supertonicsynth`, and `inflectsynth` normalize to the canonical ID. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and model targets remain model filters.
 
-Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, or `supertonic:supertonic-3/F1`. Voice listing filters (`--engine`, `--model`, `--lang`, and `--gender`) select descriptive metadata, not voice identity. Native IDs are accepted when discovery context resolves them uniquely; use a semantic reference when the target must be explicit.
+Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, `supertonic:supertonic-3/F1`, or `inflect:nano-v2/default`. Voice listing filters (`--engine`, `--model`, `--lang`, and `--gender`) select descriptive metadata, not voice identity. Native IDs are accepted when discovery context resolves them uniquely; use a semantic reference when the target must be explicit.
 Pocket language filtering treats a generic bundle language as compatible with a specific query: `--lang en-us` includes a bundle advertising `en`, but excludes one explicitly advertising `en-GB`. The generic voice remains labeled `en`; Readio does not infer a regional locale.
 
 ```bash
@@ -137,6 +137,16 @@ Supertonic selects catalog voices such as `F1` on model `supertonic-3`. Readio m
 readio voices list --engine supertonic --lang en-us
 readio render --engine supertonic --model supertonic-3 --voice F1 --lang en-us "Hello"
 ```
+
+InflectSynth is optional (`python -m pip install "readio[inflect]"`), English-only, and uses public metadata discovery for its current model targets such as `nano-v2` and `micro-v2`. Each target exposes the fixed `default` voice; `inflectsynth` is accepted as an alias for `inflect`.
+
+```bash
+readio voices list --engine inflect --lang en-us
+readio voices show inflect:nano-v2/default
+readio render --engine inflect --model nano-v2 --voice default --lang en-us --speed 1.1 --voice-level calibrated "Hello from Inflect."
+```
+
+The CLI exposes shared speed and voice-level calibration; variation and seed are API engine options. Speaker selection, reference voices, pronunciation overrides, and native word timings are unsupported. InflectSynth 0.1.1 does not advertise a trustworthy capacity maximum, so Readio leaves capacity unknown instead of guessing a token limit. Readio owns request boundaries and capacity policy; InflectSynth owns G2P and runtime/model internals, while ONNXVoice is a transitive dependency that Readio does not import or manage.
 
 Project initialization converts supported filesystem document inputs through ssmdconvert. Ordinary document inputs include text/Markdown, HTML, PDF, DOCX, EPUB, and SSMD. The original file is retained under `source/` as provenance; the editable semantic input is canonical SSMD under `document/document.ssmd.md`. Planning reads the persisted SSMD, not the original source. Editing it replans changed semantics. If the source snapshot changes, status reports the provenance change but does not silently reconvert; initialize a new project from the updated source to ingest it. `readio project init novel.epub` creates one combined document project. `.ssmdbook` bundles are multi-chapter audiobook inputs and are rejected by generic project initialization.
 

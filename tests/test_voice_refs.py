@@ -22,6 +22,8 @@ from readio.voice_refs import (
             VoiceRef("pocket", "english_2026-04", "alba"),
         ),
         ("kitten:nano-0.8-int8/Jasper", VoiceRef("kitten", "nano-0.8-int8", "Jasper")),
+        ("inflect:nano-v2/default", VoiceRef("inflect", "nano-v2", "default")),
+        ("inflect:micro-v2/default", VoiceRef("inflect", "micro-v2", "default")),
     ],
 )
 def test_parse_and_format_voice_ref(value: str, expected: VoiceRef) -> None:
@@ -65,9 +67,12 @@ def test_public_system_and_engine_mappings() -> None:
     assert public_system_for_engine("pipersynth") == "piper"
     assert public_system_for_engine("pocket") == "pocket"
     assert public_system_for_engine("kittensynth") == "kitten"
+    assert engine_for_public_system("inflect") == "inflect"
+    assert public_system_for_engine("inflect") == "inflect"
+    assert public_system_for_engine("inflectsynth") == "inflect"
 
 
-@pytest.mark.parametrize("system", ["", "unknown"])
+@pytest.mark.parametrize("system", ["", "unknown", "inflectsynth"])
 def test_reject_unsupported_system(system: str) -> None:
     with pytest.raises(ValueError, match="unsupported voice reference system"):
         VoiceRef(system, "target")

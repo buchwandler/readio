@@ -14,7 +14,7 @@ For GPU ONNX Runtime:
 python -m pip install "readio[kokoro,gpu]"
 ```
 
-For the other engines, install `readio[piper,cpu]`, `readio[pocket]`, or `readio[kitten]`. `readio[all,cpu]` installs all supported engine packages and optional spaCy planning support for a CPU environment.
+For the other engines, install `readio[piper,cpu]`, `readio[pocket]`, `readio[supertonic]`, `readio[kitten]`, or `readio[inflect]`. `readio[all,cpu]` installs all supported engine packages and optional spaCy planning support for a CPU environment.
 
 Engine adapters may download target and voice assets on first use. Spotify publishing requires the separately installed `save-to-spotify` executable and its authenticated session. Readio never reads Spotify credential files.
 
@@ -106,13 +106,13 @@ Project manifests also use schema 3. Before opening a v0.3 project, run `readio 
 
 ### Model discovery and language defaults
 
-Readio uses one registry for `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to check whether an engine package and its required public API are available.
+Readio uses one registry for `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; model, voice, and lexicon discovery use the selected engine's catalog and capabilities. Run `readio doctor` to check whether an engine package and its required public API are available.
 
-Supported engine package floors are PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.3,<0.3, SupertonicSynth >=0.1.2,<0.2, and KittenSynth >=0.1.1,<0.2. Each engine package owns its own runtime dependencies; Readio does not require OnnxVoice. Install Kokoro or Piper with a runtime extra such as `readio[kokoro,cpu]` or `readio[piper,cpu]`, and install Pocket, Supertonic, and Kitten with `readio[pocket]`, `readio[supertonic]`, or `readio[kitten]`. PDF and DOCX ingestion requires the `readio[documents]` extra. `readio[all,cpu]` also installs optional spaCy support.
+Supported engine package floors are PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.3,<0.3, SupertonicSynth >=0.1.2,<0.2, KittenSynth >=0.1.1,<0.2, and InflectSynth >=0.1.1,<0.2. Each engine package owns its own runtime dependencies; Readio does not require OnnxVoice. Install Kokoro or Piper with a runtime extra such as `readio[kokoro,cpu]` or `readio[piper,cpu]`, and install Pocket, Supertonic, Kitten, and Inflect with `readio[pocket]`, `readio[supertonic]`, `readio[kitten]`, or `readio[inflect]`. PDF and DOCX ingestion requires the `readio[documents]` extra. `readio[all,cpu]` also installs optional spaCy support.
 
-`readio voices list` shows runnable voices with semantic references. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, and `kitten`; upstream package names such as `pykokoro`, `pipersynth`, and `supertonicsynth` are accepted only as input aliases where applicable. Filters use `--engine`, `--model`, `--lang`, and `--gender`.
+`readio voices list` shows runnable voices with semantic references. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; upstream package names such as `pykokoro`, `pipersynth`, `supertonicsynth`, and `inflectsynth` are accepted only as input aliases where applicable. Filters use `--engine`, `--model`, `--lang`, and `--gender`.
 
-Voice references use `SYSTEM:TARGET[/VOICE]`: `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, or `supertonic:supertonic-3/F1`. The system and target identify the engine and model/bundle; the voice suffix is omitted when the target itself is the voice. `readio voices show REF` inspects one reference. Native voice IDs can be used when discovery context resolves them uniquely; supply engine or target context where the command supports it. References identify voices, while `--lang` and `--gender` filter their descriptive metadata.
+Voice references use `SYSTEM:TARGET[/VOICE]`: `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, `supertonic:supertonic-3/F1`, or `inflect:nano-v2/default`. The system and target identify the engine and model/bundle; the voice suffix is omitted when the target itself is the voice. `readio voices show REF` inspects one reference. Native voice IDs can be used when discovery context resolves them uniquely; supply engine or target context where the command supports it. References identify voices, while `--lang` and `--gender` filter their descriptive metadata.
 
 Kitten can be inspected and selected without changing the other engine workflows:
 
@@ -128,10 +128,20 @@ readio voices list --engine supertonic --lang en-us
 readio render --engine supertonic --model supertonic-3 --voice F1 --lang en-us "Hello"
 ```
 
-A Pocket bundle advertising generic `en` can satisfy `--lang en-us`; a bundle explicitly advertising `en-GB` does not. Generic language metadata stays generic and is not assigned unsupported locale specificity.
-Common `--speed` is a positive synthesis multiplier, not a composition tempo: Kokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. Supertonic forwards the multiplier to its atomic synthesis API. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
+InflectSynth is an optional English-only engine (`readio[inflect]`, or `readio[all,cpu]`). Its public catalog supplies the current model targets, including `nano-v2` and `micro-v2`; each uses the fixed `default` voice. `inflectsynth` is accepted as an input alias for canonical engine ID `inflect`.
 
-Adapters make one strict native synthesis request for each Readio-shaped child and do not invoke native text splitters. Readio owns capacity measurement and exact-text subdivision, preserves linguistic and pronunciation boundaries, and merges child audio and local timings. Unsupported explicit semantics and unsplittable requests fail with stable Readio errors instead of being discarded or truncated.
+```bash
+readio voices list --engine inflect --lang en-us
+readio voices show inflect:nano-v2/default
+readio render --engine inflect --model nano-v2 --voice default --lang en-us --speed 1.1 --voice-level calibrated "Hello from Inflect."
+```
+
+InflectSynth supports speed, variation, seed, and calibrated voice-level controls; the CLI exposes the shared speed and voice-level options, while variation and seed are API engine options. It does not support speaker selection, reference voices, pronunciation overrides, or native word timings. Readio owns request boundaries and capacity policy; InflectSynth owns G2P and model/runtime internals, with ONNXVoice remaining a transitive InflectSynth dependency that Readio neither imports nor manages.
+
+A Pocket bundle advertising generic `en` can satisfy `--lang en-us`; a bundle explicitly advertising `en-GB` does not. Generic language metadata stays generic and is not assigned unsupported locale specificity.
+Common `--speed` is a positive synthesis multiplier, not a composition tempo: Kokoro receives it directly and PiperSynth converts it to `length_scale = 1 / speed`. PocketSynth supports only `1.0`; other explicit values fail validation. Supertonic and InflectSynth forward the multiplier to their native synthesis APIs. `--voice-level off|calibrated` selects the engine's voice-level handling and participates in speech identity.
+
+Adapters make one strict native synthesis request for each Readio-shaped child and do not invoke native text splitters. Readio owns capacity measurement and exact-text subdivision, preserves linguistic and pronunciation boundaries, and merges child audio and local timings. InflectSynth 0.1.1 does not advertise a trustworthy maximum in its public capacity contract, so Readio treats its capacity as unknown rather than guessing a token limit. Unsupported explicit semantics and unsplittable requests fail with stable Readio errors instead of being discarded or truncated.
 
 ```bash
 readio models list --language de --offline

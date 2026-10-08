@@ -227,6 +227,7 @@ def test_environment_metadata_records_nullable_package_versions() -> None:
     metadata = environment_metadata(engine="unknown-engine")
     assert metadata["timestamp_utc"].endswith("+00:00")
     assert metadata["engine_package"] == "unknown-engine"
+    assert environment_metadata(engine="inflect")["engine_package"] == "inflectsynth"
     assert metadata["redux_model"] == "moondream/parakeet-redux"
     assert "moondream_version" in metadata
     assert "cpu_count" in metadata

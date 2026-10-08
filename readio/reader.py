@@ -174,6 +174,7 @@ def render_live(
             language=resolved.language,
             voice=resolved.voice,
             options=options,
+            engine_options=getattr(resolved, "engine_options", {}),
         )
     )
     validate = getattr(adapter, "validate_selection", None)
