@@ -22,7 +22,7 @@ include = [
   "MANIFEST.in",
   "NOTICE*",
 ]
-split_max_chars = 2500000
+split_max_chars = 5000000
 layout = "full"
 profile = "portable-agent"
 emit_standalone_unpacker = true

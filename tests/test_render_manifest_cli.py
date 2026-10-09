@@ -16,9 +16,7 @@ from readio.manifest import RENDER_MANIFEST_SCHEMA_V2, manifest_path_for
 
 
 def _workspace_cfg(tmp_path: Path) -> ReadioConfig:
-    return ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    return ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
 
 
 def _install_render_stub(monkeypatch, calls: list[tuple[object, bool]]) -> None:

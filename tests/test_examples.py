@@ -9,11 +9,7 @@ ROOT = Path(__file__).parents[1]
 EXAMPLE = ROOT / "examples" / "readio-prosody.ssmd"
 SSMD_ASSETS = tuple(
     source_path
-    for directory in (
-        ROOT / "examples",
-        ROOT / "readio" / "resources" / "templates",
-        ROOT / "tests" / "fixtures",
-    )
+    for directory in (ROOT / "examples",)
     for source_path in sorted(directory.glob("*.ssmd"))
 )
 

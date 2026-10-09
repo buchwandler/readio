@@ -160,7 +160,7 @@ def public_api_consumer(
     )
     checked: SSMDCheckResult = app.ssmd.check(document, synthesis=request.synthesis)
     canonical_engine: str = app.catalog.normalize_engine("pipersynth")
-    initialized: ConfigurationInitResult = app.configuration.initialize(seed_templates=False)
+    initialized: ConfigurationInitResult = app.configuration.initialize()
     report: DoctorReport = app.diagnostics.run()
     integration = SpotifyService(app)
     live_publish = integration.publish_live(

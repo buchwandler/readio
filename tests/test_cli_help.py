@@ -52,6 +52,8 @@ def test_root_help_uses_backend_neutral_description_and_lists_commands(
 
     help_text = " ".join(capsys.readouterr().out.split())
     assert "Plan, synthesize, compose, and export speech and audiobooks" in help_text
+    assert "template" not in help_text
+    assert "ingest" not in help_text
     assert "multiple TTS engines" in help_text
     assert "Stream text to PyKokoro TTS" not in help_text
     assert "[OPTIONS] COMMAND [ARGS]..." in help_text
@@ -100,10 +102,8 @@ def test_invalid_command_or_option_remains_parser_error(
         ("defaults", "list"),
         ("voices", "list"),
         ("roles", "list"),
-        ("ssmd", "bind"),
+        ("ssmd", "check"),
         ("config", "path"),
-        ("template", "list"),
-        ("ingest", "path"),
     ],
 )
 def test_command_group_without_child_prints_group_help(
@@ -116,6 +116,23 @@ def test_command_group_without_child_prints_group_help(
     assert exc.value.code == 0
     assert child in captured.out
     assert "error:" not in captured.err
+
+
+def test_ssmd_help_exposes_only_consumer_check(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as group_exc:
+        cli.main(["ssmd"])
+    assert group_exc.value.code == 0
+    group_help = capsys.readouterr().out
+    assert "check" in group_help
+    assert "bind" not in group_help
+
+    with pytest.raises(SystemExit) as check_exc:
+        cli.main(["ssmd", "check", "--help"])
+    assert check_exc.value.code == 0
+    check_help = capsys.readouterr().out
+    assert "--voice-bind" in check_help
+    assert "--roundtrip" not in check_help
+    assert "--output" not in check_help
 
 
 def test_plan_without_subcommand_still_builds_current_project(

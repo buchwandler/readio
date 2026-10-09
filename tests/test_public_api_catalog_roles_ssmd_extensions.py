@@ -17,7 +17,6 @@ from readio.api import (
     RoleBinding,
     SSMDAnalysis,
     SSMDCheckResult,
-    SSMDMaterializeResult,
     VoiceResolutionError,
     VoiceTarget,
     default_config,
@@ -314,13 +313,16 @@ def test_project_role_unbind_result_exposes_config_fallback(tmp_path: Path) -> N
     assert mutation.status == "resolved"
 
 
-def test_ssmd_service_checks_materializes_and_roundtrips(tmp_path: Path, monkeypatch) -> None:
+def test_ssmd_service_analyzes_document_bindings_without_writing_source(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "input.ssmd"
     source.write_text(
         "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    speaker: missing_voice\n---\n"
         '[Hello.]{voice="speaker"}\n',
         encoding="utf-8",
     )
+    original = source.read_bytes()
     app = Readio(default_config())
 
     analysis = app.ssmd.analyze(source)
@@ -329,26 +331,13 @@ def test_ssmd_service_checks_materializes_and_roundtrips(tmp_path: Path, monkeyp
     assert analysis.unresolved_references == ()
     assert any(item.code == "ssmd.document_binding_invalid" for item in analysis.diagnostics)
 
-    monkeypatch.setattr(
-        "readio.api.ssmd.ssmd_authoring.materialize_voice_bindings",
-        lambda source, bindings, **kwargs: kwargs["output"] or source,
-    )
-    materialized = app.ssmd.materialize_bindings(
-        source, {"speaker": "af_heart"}, output=tmp_path / "materialized.ssmd"
-    )
-    assert isinstance(materialized, SSMDMaterializeResult)
-    assert materialized.output_path == tmp_path / "materialized.ssmd"
-    assert materialized.binding_count == 1
-
-    monkeypatch.setattr(
-        "readio.api.ssmd.ssmd_authoring.roundtrip_check",
-        lambda source, config: {"ok": True, "checked": str(source)},
-    )
-    checked = app.ssmd.check(source, roundtrip=True)
+    checked = app.ssmd.check(source)
     assert isinstance(checked, SSMDCheckResult)
-    assert checked.roundtrip and checked.roundtrip["ok"] is True
+    assert not hasattr(checked, "roundtrip")
+    assert checked.analysis == analysis
     assert not checked.ok
     json.dumps(checked.to_dict())
+    assert source.read_bytes() == original
 
 
 def test_ssmd_validate_raises_public_resolution_error_without_changing_check(

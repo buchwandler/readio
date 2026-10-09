@@ -410,7 +410,7 @@ def _build_plan_request(
                 "--resolve-voices requires an interactive terminal; "
                 "provide --voice-bind ROLE=VOICE_ID instead"
             )
-        result = app.ssmd.analyze(document, bindings=bindings or None)
+        result = app.ssmd.check(document, bindings=bindings or None).analysis
         if result.unresolved_references:
             bindings.update(_prompt_for_missing_voices(app, result))
 
@@ -1343,17 +1343,6 @@ def _cmd_render(args: argparse.Namespace) -> int:
 def _cmd_ssmd(args: argparse.Namespace) -> int:
     app = _api_for(args)
     cfg = app.config
-    if args.ssmd_command == "bind":
-        result = app.ssmd.materialize_bindings(
-            args.file,
-            _parse_voice_bindings(args.voice_bind),
-            provider=args.provider,
-            output=args.output,
-            in_place=args.in_place,
-        )
-        print(result.output_path)
-        return 0
-
     bindings = _parse_voice_bindings(getattr(args, "voice_bind", []))
     synthesis = _synthesis_request_from_args(args, default_language=cfg.reader.lang)
     if args.resolve_voices:
@@ -1373,7 +1362,6 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
         args.file,
         synthesis=synthesis,
         bindings=bindings,
-        roundtrip=bool(args.roundtrip),
     )
     analysis = result.analysis
     consumer = {
@@ -1394,7 +1382,6 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
             "document": dict(analysis.document_bindings),
             "defaults": dict(analysis.default_bindings),
         },
-        "roundtrip": result.roundtrip,
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
@@ -1404,8 +1391,6 @@ def _cmd_ssmd(args: argparse.Namespace) -> int:
         print(f"Document bindings: {dict(analysis.document_bindings)}")
         print(f"Readio defaults: {dict(analysis.default_bindings)}")
         print("Consumer: OK" if consumer["ok"] else "Consumer: FAILED")
-        if args.roundtrip:
-            print("Roundtrip: OK" if (result.roundtrip or {}).get("ok") else "Roundtrip: FAILED")
     return 0
 
 
@@ -1971,101 +1956,6 @@ def _cmd_config(args: argparse.Namespace) -> int:
         print(path)
         return 0
     raise AssertionError("unreachable")
-
-
-def _template_validation_json(
-    result: public_api.TemplateValidationResult,
-) -> dict[str, object]:
-    consumer = result.consumer
-    payload: dict[str, object] = {
-        "name": result.name,
-        "source": str(result.source_path),
-        "ok": result.ok,
-        "provider": consumer.provider if consumer is not None else None,
-        "consumer": (
-            {
-                "ok": consumer.ok,
-                "unresolved": list(consumer.unresolved_references),
-                "diagnostics": [item.to_dict() for item in consumer.diagnostics],
-            }
-            if consumer is not None
-            else None
-        ),
-        "bindings": (
-            {
-                "document": dict(consumer.document_bindings),
-                "defaults": dict(consumer.default_bindings),
-            }
-            if consumer is not None
-            else None
-        ),
-        "roundtrip": result.roundtrip,
-    }
-    if result.error is not None:
-        payload["error"] = result.error.to_dict()
-    return payload
-
-
-def _cmd_template(args: argparse.Namespace) -> int:
-    app = _api_for(args)
-    templates = app.templates
-    if args.template_command == "validate":
-        if args.all:
-            names = [item.name for item in templates.list()]
-        elif args.name is not None:
-            names = [Path(args.name).stem]
-        else:
-            raise ValueError("template validate requires NAME or --all")
-        results = [templates.validate(name, roundtrip=args.roundtrip) for name in names]
-        payload = {
-            "ok": all(item.ok for item in results),
-            "templates": [_template_validation_json(item) for item in results],
-        }
-        if args.json:
-            print(json.dumps(payload, ensure_ascii=False))
-        else:
-            for item in results:
-                status = "OK" if item.ok else "FAILED"
-                print(f"{item.name}: {status}")
-        return 0 if payload["ok"] else 2
-
-    if args.template_command == "path":
-        print(templates.path(args.name) if args.name else templates.directory())
-    elif args.template_command == "list":
-        for item in templates.list():
-            print(item.name)
-    elif args.template_command == "show":
-        print(templates.show(args.name), end="")
-    elif args.template_command == "add":
-        source = Path(args.file) if args.file else None
-        content = sys.stdin.read() if source is None and not sys.stdin.isatty() else None
-        print(templates.add(args.name, source=source, content=content, force=args.force))
-    elif args.template_command == "remove":
-        templates.remove(args.name)
-    elif args.template_command == "reset":
-        if args.all:
-            templates.reset(all=True)
-        else:
-            if args.name is None:
-                raise ValueError("template reset requires NAME or --all")
-            templates.reset(args.name)
-    elif args.template_command == "use":
-        target = app.ingest.create(name=args.name, template=args.name_template)
-        print(target)
-    return 0
-
-
-def _cmd_ingest(args: argparse.Namespace) -> int:
-    ingest = _api_for(args).ingest
-    if args.ingest_command == "path":
-        print(ingest.directory())
-    elif args.ingest_command == "new":
-        target = ingest.create(name=args.name, template=args.template)
-        print(target)
-    elif args.ingest_command == "list":
-        for path in ingest.list():
-            print(path.name)
-    return 0
 
 
 def _cmd_engines(args: argparse.Namespace) -> int:
@@ -2834,21 +2724,13 @@ def build_parser() -> argparse.ArgumentParser:
     roles_unbind.add_argument("--json", action="store_true")
     roles_unbind.set_defaults(func=_cmd_roles)
 
-    ssmd = sub.add_parser("ssmd", help="Validate and author SSMD documents.")
+    ssmd = sub.add_parser("ssmd", help="Check SSMD documents for Readio consumption.")
     ssmd.set_defaults(func=show_help, _help_parser=ssmd)
     ssmd_sub = ssmd.add_subparsers(
         dest="ssmd_command", required=False, title="Commands", metavar="COMMAND"
     )
-    bind = ssmd_sub.add_parser("bind", help="materialize explicit voice bindings")
-    bind.add_argument("file", type=Path)
-    bind.add_argument("--voice-bind", action="append", default=[], metavar="ROLE=VOICE_ID")
-    bind.add_argument("--provider")
-    bind.add_argument("-o", "--output", type=Path)
-    bind.add_argument("--in-place", action="store_true")
-    bind.set_defaults(func=_cmd_ssmd)
     check = ssmd_sub.add_parser("check", help="check an SSMD document for Readio consumption")
     check.add_argument("file", type=Path)
-    check.add_argument("--roundtrip", action="store_true")
     check.add_argument("--json", action="store_true")
     _add_voice_resolution_options(check)
     check.set_defaults(func=_cmd_ssmd)
@@ -2876,60 +2758,6 @@ def build_parser() -> argparse.ArgumentParser:
     set_cmd.add_argument("key")
     set_cmd.add_argument("value")
     set_cmd.set_defaults(func=_cmd_config)
-
-    template = sub.add_parser("template", help="Manage user SSMD templates.")
-    template.set_defaults(func=show_help, _help_parser=template)
-    template_sub = template.add_subparsers(
-        dest="template_command", required=False, title="Commands", metavar="COMMAND"
-    )
-    path_cmd = template_sub.add_parser(
-        "path", help="Show the template directory or one template path."
-    )
-    path_cmd.add_argument("name", nargs="?")
-    path_cmd.set_defaults(func=_cmd_template)
-    template_list = template_sub.add_parser("list", help="List installed templates.")
-    template_list.set_defaults(func=_cmd_template)
-    validate_template = template_sub.add_parser(
-        "validate", help="Validate one template or all installed templates."
-    )
-    validate_template.add_argument("name", nargs="?")
-    validate_template.add_argument("--all", action="store_true")
-    validate_template.add_argument("--roundtrip", action="store_true")
-    validate_template.add_argument("--json", action="store_true")
-    validate_template.set_defaults(func=_cmd_template)
-    show_cmd = template_sub.add_parser("show", help="Show one template.")
-    show_cmd.add_argument("name")
-    show_cmd.set_defaults(func=_cmd_template)
-    add_cmd = template_sub.add_parser("add", help="Add a user template.")
-    add_cmd.add_argument("name")
-    add_cmd.add_argument("--file", type=Path)
-    add_cmd.add_argument("--force", action="store_true")
-    add_cmd.set_defaults(func=_cmd_template)
-    remove_cmd = template_sub.add_parser("remove", help="Remove a user template.")
-    remove_cmd.add_argument("name")
-    remove_cmd.set_defaults(func=_cmd_template)
-    reset_cmd = template_sub.add_parser("reset", help="Reset one or all user templates.")
-    reset_cmd.add_argument("name", nargs="?")
-    reset_cmd.add_argument("--all", action="store_true")
-    reset_cmd.set_defaults(func=_cmd_template)
-    use_cmd = template_sub.add_parser("use", help="Create an ingest file from a template.")
-    use_cmd.add_argument("name_template")
-    use_cmd.add_argument("--name")
-    use_cmd.set_defaults(func=_cmd_template)
-
-    ingest = sub.add_parser("ingest", help="Manage Readio ingest files.")
-    ingest.set_defaults(func=show_help, _help_parser=ingest)
-    ingest_sub = ingest.add_subparsers(
-        dest="ingest_command", required=False, title="Commands", metavar="COMMAND"
-    )
-    ingest_path = ingest_sub.add_parser("path", help="Show the ingest directory.")
-    ingest_path.set_defaults(func=_cmd_ingest)
-    new_cmd = ingest_sub.add_parser("new", help="Create a new ingest file.")
-    new_cmd.add_argument("--name")
-    new_cmd.add_argument("--template")
-    new_cmd.set_defaults(func=_cmd_ingest)
-    ingest_list = ingest_sub.add_parser("list", help="List ingest files.")
-    ingest_list.set_defaults(func=_cmd_ingest)
 
     selftest = sub.add_parser(
         "selftest", help="Run active Readio synthesis and verification checks."

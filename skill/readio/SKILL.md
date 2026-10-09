@@ -13,7 +13,7 @@ Use Readio for local text to speech, bounded-memory audio rendering, and explici
 1. **Exact reading:** When asked to read existing text, preserve the requested text and use `readio speak`; do not paraphrase or add an introduction.
 2. **Narrated summaries:** Generate plain text and render it directly. Do not create SSMD unless voice, role, prosody, markers, or multi-speaker semantics are required.
 3. **Markdown:** Pass Markdown directly to Readio; it projects structure into speech-friendly text. Use `--input-format text` only when Markdown-looking input must be read literally.
-4. **SSMD:** Use SSMD for multiple speakers, explicit roles, prosody, markers, or chapters. Run deterministic `readio ssmd check FILE --json` before rendering and resolve voices with repeatable `--voice-bind` options.
+4. **SSMD:** Use SSMD for multiple speakers, explicit roles, prosody, markers, or chapters. Use SSMDStudio 0.1.1 to create or structurally lint authored documents; then run `readio ssmd check FILE --json` for Readio consumer preflight and resolve voices with repeatable `--voice-bind` options.
 5. **Publishing:** Spotify is an external write. Publish only after explicit user intent; never infer permission from a request merely to render audio.
 6. **Agents:** Prefer complete files, explicit output paths, `--json`, and non-interactive voice bindings. Never rely on `--resolve-voices` outside an interactive human TTY.
 

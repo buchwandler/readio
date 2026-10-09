@@ -117,11 +117,7 @@ class _FakeAdapter:
 def _config(tmp_path: Path) -> ReadioConfig:
     return ReadioConfig(
         reader=ReaderSettings(engine="render-fixture", voice="fixture-voice", spacy="off"),
-        paths=PathSettings(
-            tmp_path / "templates",
-            tmp_path / "ingest",
-            tmp_path / "output",
-        ),
+        paths=PathSettings(output=tmp_path / "output"),
     )
 
 

@@ -228,7 +228,6 @@ class RenderResult:
 class ConfigurationInitResult:
     path: Path
     created_directories: tuple[Path, ...]
-    seeded_templates: tuple[Path, ...]
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -1351,48 +1350,10 @@ class SSMDAnalysis:
 class SSMDCheckResult:
     source_path: Path | None
     analysis: SSMDAnalysis
-    roundtrip: Mapping[str, JsonValue] | None = None
 
     @property
     def ok(self) -> bool:
-        return self.analysis.ok and (
-            self.roundtrip is None or self.roundtrip.get("ok") is not False
-        )
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
-
-
-@dataclass(frozen=True, slots=True)
-class SSMDMaterializeResult:
-    source_path: Path
-    output_path: Path
-    provider: str
-    binding_count: int
-    in_place: bool
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
-
-
-@dataclass(frozen=True, slots=True)
-class TemplateInfo:
-    name: str
-    path: Path
-
-    def to_dict(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], json_value(self))
-
-
-@dataclass(frozen=True, slots=True)
-class TemplateValidationResult:
-    name: str
-    source_path: Path
-    ok: bool
-    analysis: SSMDAnalysis | None = None
-    roundtrip: Mapping[str, JsonValue] | None = None
-    consumer: SSMDAnalysis | None = None
-    error: Diagnostic | None = None
+        return self.analysis.ok
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))
@@ -1564,7 +1525,6 @@ __all__ = [
     "RoleLocation",
     "SSMDAnalysis",
     "SSMDCheckResult",
-    "SSMDMaterializeResult",
     "SSMDVoiceReference",
     "StageName",
     "StageOperation",
@@ -1573,8 +1533,6 @@ __all__ = [
     "SynthesisResolution",
     "SynthesisTargetInfo",
     "TargetQuery",
-    "TemplateInfo",
-    "TemplateValidationResult",
     "Unset",
     "VoiceInfo",
     "VoicePromptInfo",

@@ -99,9 +99,9 @@ readio roles bind analyst am_michael --engine kokoro
 readio config set reader.pause_mode auto
 ```
 
-The default configuration uses `platformdirs` for config, template, ingest, and output locations. `READIO_CONFIG` overrides the configuration path. New files use schema 3 and canonical engine IDs. v0.3 configuration requires the explicit `readio config migrate` command; Readio does not silently apply legacy provider fallbacks.
+The default configuration uses `platformdirs` for config and runtime output locations. `READIO_CONFIG` overrides the configuration path. New files use schema 3 and canonical engine IDs. v0.3 configuration requires the explicit `readio config migrate` command; Readio does not silently apply legacy provider fallbacks.
 
-Schema-3 configuration contains reader settings, SSMD validation, paths, language policies, and engine-qualified global role bindings. A role target stores its canonical `engine`, `voice`, and optional `target_id`; provider-specific voice tables are not runtime configuration. Run `readio config migrate` to convert a v0.3 config explicitly. Templates refer to roles such as `host`, `analyst`, `guest`, and `narrator`, while literal narration may use `reader.voice`.
+Schema-3 configuration contains reader settings, paths, language policies, and engine-qualified global role bindings. A role target stores its canonical `engine`, `voice`, and optional `target_id`; provider-specific voice tables are not runtime configuration. Run `readio config migrate` to convert a v0.3 config explicitly. Portable SSMD documents can use roles such as `host`, `analyst`, `guest`, and `narrator`, while literal narration may use `reader.voice`.
 Project manifests also use schema 3. Before opening a v0.3 project, run `readio project migrate PROJECT`; both migration commands preserve a backup and stop on conflicts rather than guessing.
 
 ### Model discovery and language defaults
@@ -211,49 +211,42 @@ readio render --file article.md --lang de --model de-thorsten --no-lexicons --g2
 
 The plan also records optional PyKokoro language detection. SSMD documents may use `language_detection: {mode: auto, languages: [de, en]}`; this routes pronunciation fragments while retaining the selected acoustic language.
 
-## Templates
+## Creating SSMD documents
 
-Built-in templates are copied into the user template directory during initialization. They are user-owned and are not overwritten by normal initialization or package upgrades.
-
-```bash
-readio template path
-readio template list
-readio template show podcast
-readio template add custom --file custom.ssmd
-readio template remove custom
-readio template reset podcast
-readio template reset --all
-```
-
-Create an agent-editable draft with an automatic filename:
+Readio consumes SSMD and renders audio; **SSMDStudio owns authoring**: creating drafts, managing starter templates and LLM prompts, writing portable voice bindings, and structural/roundtrip lint. The handoff is a portable `.ssmd` or `.ssmd.md` file. Readio does not depend on or import SSMDStudio. SSMDStudio **0.1.1** is the verified handoff version; install its authoring tools on the authoring system. If bundled starters are not in the user library, restore them intentionally with `ssmdstudio template reset --all`:
 
 ```bash
-draft="$(readio template use podcast)"
+python -m pip install "ssmdstudio[authoring]==0.1.1"
+ssmdstudio template list
+ssmdstudio template use podcast --output episode.ssmd.md
+ssmdstudio draft new --output notes.ssmd.md
+ssmdstudio draft new --output another-episode.ssmd.md --template podcast
+ssmdstudio ssmd lint episode.ssmd.md --roundtrip --json
 ```
 
-The returned path is under the configured ingest directory. A caller can request a filename with `readio template use podcast --name weekly-review.ssmd`.
-
-## Standalone LLM authoring guides
-
-`llm-guides/ssmd/` contains standalone Markdown instructions for generic LLMs. These guides are distinct from the runtime `.ssmd` templates managed by `readio template`.
-
-No Readio or Python installation is needed on the authoring system: choose one guide and attach it with the task and source material. When the harness supports artifacts, ask it to create and return one downloadable `.ssmd.md` file; otherwise save the raw SSMD response as a `.ssmd.md` file. Readio also accepts `.ssmd` for compatibility. Rendering and final validation happen later on a system where Readio is installed.
-
-See [`llm-guides/README.md`](llm-guides/README.md) for the catalog and the authoring-to-rendering workflow.
-
-## Ingest directory
-
-The ingest directory stores text, Markdown, and SSMD files created for later processing.
+To write explicit portable bindings, choose voices for the selected provider. Studio writes the source but does not verify that Readio can use those voices; Readio performs that consumer-specific check:
 
 ```bash
-readio ingest path
-readio ingest new
-readio ingest new --name notes.txt
-readio ingest new --template podcast --name episode-42.ssmd
-readio ingest list
+ssmdstudio ssmd bind episode.ssmd.md --provider kokoro \\
+  --voice-bind host=af_heart --output episode.bound.ssmd.md
+ssmdstudio ssmd lint episode.bound.ssmd.md --roundtrip --json
+readio ssmd check episode.bound.ssmd.md --json
+readio render --file episode.bound.ssmd.md --dry-run --json
 ```
 
-Automatic names contain a UTC artifact ID such as `20260824T111423Z-5f8ab31c`. Explicit names are relative to the ingest directory and path traversal is rejected.
+### Command migration
+
+| Former Readio command                             | SSMDStudio 0.1.1 replacement / boundary                                                                                           |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `readio template path/list/show/add/remove/reset` | Corresponding `ssmdstudio template` command (`path`, `list`, `show`, `add`, `remove`, `reset`)                                    |
+| `readio template validate [NAME]` / `--all`       | `ssmdstudio template validate [NAME]` / `--all`; `--roundtrip` is optional structural validation                                  |
+| `readio template use NAME --name FILE`            | `ssmdstudio template use NAME --output FILE`                                                                                      |
+| `readio ingest new --name FILE [--template NAME]` | `ssmdstudio draft new --output FILE [--template NAME]`                                                                            |
+| `readio ingest path/list`                         | Studio has no managed ingest directory; use filesystem paths. Existing user files and directories are left untouched.             |
+| `readio ssmd bind FILE --voice-bind ROLE=ID`      | `ssmdstudio ssmd bind FILE --provider PROVIDER --voice-bind ROLE=ID [--output FILE]`                                              |
+| `readio ssmd check FILE --roundtrip`              | `ssmdstudio ssmd lint FILE --roundtrip` for authoring lint; `readio ssmd check` remains consumer preflight without `--roundtrip`. |
+
+`readio config init` initializes Readio configuration and its runtime output location only. Legacy `paths.templates`, `paths.ingest`, and `ssmd.validate_before_render`, `ssmd.roundtrip`, or `ssmd.fail_on_warn` entries warn, are ignored, and are omitted from new configuration writes. Readio does not move, rewrite, or delete existing authoring files.
 
 ## Planning before rendering
 
@@ -394,21 +387,18 @@ When `-o` is supplied, `.wav`, `.flac`, `.mp3`, `.m4a`, `.ogg`, and `.opus` suff
 
 M4A and Opus require an `ffmpeg` executable on `PATH`. WAV and FLAC use PCM16; MP3 and Ogg/Vorbis use the installed SoundFile/libsndfile codecs.
 
-## SSMD consumption and authoring checks
+## SSMD consumer checks
 
-For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan once, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD.
+For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD. Readio always performs consumer compatibility and voice checks during planning; the explicit check is a no-audio preflight:
 
 Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5/schema v4. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Indexed legacy UtterPlan JSON artifacts (including schema v1–3) are reported stale and require source re-planning with `readio plan`; normal loading does not migrate them. This does not change Readio's own `readio.plan.v2` response schema.
-
-Inspect a document before rendering:
 
 ```bash
 readio ssmd check episode.ssmd
 readio ssmd check episode.ssmd --json
-readio ssmd check episode.ssmd --roundtrip
 ```
 
-`readio template validate --all` checks shipped or configured templates with the same consumer preflight. Add `--roundtrip` for strict SSMD authoring validation. Unknown logical roles fail before model inference with a Readio diagnostic.
+Structural and roundtrip authoring lint belongs to SSMDStudio (`ssmdstudio ssmd lint FILE --roundtrip`). Unknown logical roles fail before model inference with a Readio diagnostic.
 
 ## Spotify publishing
 
@@ -439,7 +429,7 @@ Doctor is offline/local by default and supports `readio doctor --json`. It repor
 
 ## Agent Skill
 
-The portable skill is in `skill/readio/SKILL.md`. It uses Readio templates and commands directly. It does not teach raw SSMD voice discovery, create, lint, temporary file management, or manual cleanup for normal podcast workflows.
+The portable skill is in `skill/readio/SKILL.md`. It uses Readio's consumer and rendering commands; SSMD creation, templates, portable binding materialization, and structural lint are handed off to SSMDStudio 0.1.1.
 
 ## SSMD voice resolution and project role targets
 
@@ -464,7 +454,7 @@ readio render --file episode.ssmd \
   --voice-bind architect=kokoro:v1.0/am_michael
 ```
 
-`--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind`. `readio ssmd bind FILE --voice-bind ROLE=VOICE_ID -o OUTPUT.ssmd` explicitly materializes bindings into a new source file; ordinary consumption never edits SSMD.
+`--resolve-voices` prompts only when explicitly requested from an interactive TTY. It never persists choices. JSON, agents, scripts, and non-TTY execution must use `--voice-bind`. For portable source bindings, use `ssmdstudio ssmd bind FILE --provider PROVIDER --voice-bind ROLE=VOICE --output OUTPUT.ssmd`; Readio's voice bindings remain invocation-only or runtime configuration and ordinary consumption never edits SSMD.
 
 Project-local role targets let one SSMD document use multiple synthesis engines without changing the semantic SSMD speaker references:
 

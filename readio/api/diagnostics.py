@@ -57,11 +57,7 @@ class DiagnosticsService:
             config_path = config_internal.config_path()
             paths = tuple(
                 PathDiagnostic(name=name, path=path, exists=path.exists())
-                for name, path in (
-                    ("templates", self._app.config.paths.templates),
-                    ("ingest", self._app.config.paths.ingest),
-                    ("output", self._app.config.paths.output),
-                )
+                for name, path in (("output", self._app.config.paths.output),)
             )
             return DoctorReport(
                 readio_version=__version__,

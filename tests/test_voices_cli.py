@@ -76,7 +76,7 @@ def real_en_us_catalog() -> tuple[VoiceCatalogEntry, ...]:
 
 def config(tmp_path: Path) -> ReadioConfig:
     return ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "out"),
+        paths=PathSettings(output=tmp_path / "out"),
         roles={"host": VoiceTarget("kokoro", "af_sarah")},
     )
 

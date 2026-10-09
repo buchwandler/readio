@@ -29,7 +29,7 @@ def test_config_round_trip_schema_3_is_engine_neutral(tmp_path: Path) -> None:
             device="USB",
             spacy="off",
         ),
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output"),
+        paths=PathSettings(output=tmp_path / "output"),
         roles={"guest": VoiceTarget("pipersynth", "en_US-amy-medium", "amy-asset")},
     )
     save_config(cfg, path)
@@ -121,7 +121,8 @@ def test_v03_config_requires_explicit_migration_and_gets_backup(tmp_path: Path) 
     with pytest.raises(ValueError, match="readio config migrate"):
         load_config(path)
 
-    backup = migrate_config_file(path)
+    with pytest.warns(UserWarning, match="validate_before_render"):
+        backup = migrate_config_file(path)
     assert backup == path.with_name("legacy.toml.v03.bak")
     assert backup.read_text(encoding="utf-8").startswith("schema = 2")
     cfg = load_config(path)
@@ -129,7 +130,7 @@ def test_v03_config_requires_explicit_migration_and_gets_backup(tmp_path: Path) 
     assert cfg.reader.engine == "kitten"
     assert cfg.reader.voice is None
     assert cfg.reader.spacy == "sm"
-    assert cfg.ssmd.validate_before_render is False
+    assert not hasattr(cfg.ssmd, "validate_before_render")
     assert cfg.roles["narrator"] == VoiceTarget("kokoro", "af_heart")
     assert cfg.roles["guest"] == VoiceTarget("piper", "en_US-amy-medium")
     assert cfg.languages["en"].engine == "kokoro"
@@ -169,3 +170,49 @@ def test_schema_three_serialization_never_emits_aliases() -> None:
     assert 'engine = "kokoro"' in stored
     assert "pykokoro" not in stored
     assert "[voices" not in stored
+
+
+def test_legacy_authoring_config_warns_and_preserves_user_files(tmp_path: Path) -> None:
+    template_dir = tmp_path / "old-templates"
+    ingest_dir = tmp_path / "old-ingest"
+    output_dir = tmp_path / "output"
+    template_dir.mkdir()
+    ingest_dir.mkdir()
+    template_file = template_dir / "custom.ssmd"
+    ingest_file = ingest_dir / "draft.txt"
+    template_file.write_text("user template", encoding="utf-8")
+    ingest_file.write_text("user draft", encoding="utf-8")
+
+    path = tmp_path / "legacy-authoring.toml"
+    original = f'''schema = 3
+[paths]
+templates = "{template_dir.as_posix()}"
+ingest = "{ingest_dir.as_posix()}"
+output = "{output_dir.as_posix()}"
+[ssmd]
+validate_before_render = false
+fail_on_warn = false
+roundtrip = true
+'''
+    path.write_text(original, encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="paths.templates.*ssmd.roundtrip"):
+        loaded = load_config(path)
+
+    assert loaded.paths.output == output_dir
+    assert not hasattr(loaded.paths, "templates")
+    assert not hasattr(loaded.paths, "ingest")
+    assert not hasattr(loaded.ssmd, "validate_before_render")
+    assert not hasattr(loaded.ssmd, "fail_on_warn")
+    assert not hasattr(loaded.ssmd, "roundtrip")
+    assert template_file.read_text(encoding="utf-8") == "user template"
+    assert ingest_file.read_text(encoding="utf-8") == "user draft"
+    assert path.read_text(encoding="utf-8") == original
+
+    serialized = dumps_config(loaded)
+    assert "templates =" not in serialized
+    assert "ingest =" not in serialized
+    assert "validate_before_render" not in serialized
+    assert "fail_on_warn" not in serialized
+    assert "roundtrip" not in serialized
+    assert "[ssmd]" not in serialized

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 from .engines.registry import normalize_engine_id
-from .paths import default_config_path, default_ingest_dir, default_output_dir, default_template_dir
+from .paths import default_config_path, default_output_dir
 from .role_targets import VoiceTarget, voice_target_from_mapping
 
 DEFAULT_KOKORO_ROLES = {
@@ -76,15 +77,11 @@ class LanguageSettings:
 
 @dataclass(frozen=True, slots=True)
 class SSMDSettings:
-    validate_before_render: bool = True
-    fail_on_warn: bool = True
-    roundtrip: bool = False
+    pass
 
 
 @dataclass(frozen=True, slots=True)
 class PathSettings:
-    templates: Path = field(default_factory=default_template_dir)
-    ingest: Path = field(default_factory=default_ingest_dir)
     output: Path = field(default_factory=default_output_dir)
 
 
@@ -235,6 +232,31 @@ def _path_value(value: Any, field_name: str) -> Path:
     if not isinstance(value, str) or not value:
         raise ValueError(f"paths.{field_name} must be a non-empty string")
     return Path(value).expanduser()
+
+
+def _warn_legacy_authoring_config(
+    ssmd_values: Mapping[str, Any], path_values: Mapping[str, Any]
+) -> None:
+    removed = [f"paths.{key}" for key in ("templates", "ingest") if key in path_values]
+    removed.extend(
+        f"ssmd.{key}"
+        for key in ("validate_before_render", "fail_on_warn", "roundtrip")
+        if key in ssmd_values
+    )
+    if not removed:
+        return
+    names = ", ".join(removed)
+    warnings.warn(
+        "Ignoring deprecated Readio authoring configuration key(s): "
+        f"{names}. Readio no longer manages authoring templates, drafts, or "
+        "SSMDStudio lint/roundtrip operations; existing directories and files are "
+        "not deleted. Back up the config and manually move any authoring assets to "
+        "SSMDStudio before removing these entries. Readio's consumer/runtime checks "
+        "remain part of planning; ssmd.validate_before_render was never enforced. "
+        "New config writes omit these removed keys.",
+        UserWarning,
+        stacklevel=2,
+    )
 
 
 def _role_targets(values: Any) -> dict[str, VoiceTarget]:
@@ -416,6 +438,7 @@ def _config_from_data(data: Mapping[str, Any]) -> ReadioConfig:
     path_values = data.get("paths", {})
     if not isinstance(path_values, dict):
         raise TypeError("[paths] must be a TOML table")
+    _warn_legacy_authoring_config(ssmd_values, path_values)
     paths = PathSettings(
         **{key: _path_value(value, key) for key, value in path_values.items() if key in _PATH_KEYS}
     )
@@ -528,7 +551,6 @@ def _serializable_data(cfg: ReadioConfig, *, schema: int = 3) -> dict[str, Any]:
             for key in _READER_KEYS
             if getattr(cfg.reader, key) is not None
         },
-        "ssmd": {key: getattr(cfg.ssmd, key) for key in _SSMD_KEYS},
         "paths": {key: str(getattr(cfg.paths, key)) for key in _PATH_KEYS},
         "languages": {
             normalize_language_key(language): {

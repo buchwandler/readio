@@ -28,4 +28,6 @@ When a check reports unresolved roles, fix the source/configuration or provide r
 
 For marker-derived Spotify chapters, use at least two named markers with the first at offset zero and strictly increasing integer offsets. Readio validates this before publishing.
 
-Templates can be inspected with `readio template list`, `readio template show NAME`, and `readio template validate --all --json`.
+## SSMD authoring handoff
+
+Readio consumes SSMD; SSMDStudio 0.1.1 owns draft/template authoring, portable voice-binding materialization, and structural or roundtrip lint. Install separately with `python -m pip install "ssmdstudio[authoring]==0.1.1"`. Use `ssmdstudio template use podcast --output episode.ssmd.md` or `ssmdstudio draft new --output episode.ssmd.md --template podcast`; if bundled starters are absent, restore them intentionally with `ssmdstudio template reset --all`. Then run `ssmdstudio ssmd lint episode.ssmd.md --roundtrip --json`. Readio remains the consumer preflight and renderer: `readio ssmd check episode.ssmd.md --json`.

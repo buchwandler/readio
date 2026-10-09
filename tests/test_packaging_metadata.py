@@ -134,7 +134,6 @@ OWNED_DEPENDENCIES = {
     "tomli>=2.0; python_version < '3.11'",
     "typing_extensions>=4.0",
     "tomli-w>=1.0",
-    "PyYAML>=6.0",
     "rich-argparse>=1.7,<2",
 }
 

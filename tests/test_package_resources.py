@@ -1,12 +1,7 @@
 from importlib import resources
 
-from readio.templates import packaged_template_names
 
-
-def test_packaged_templates_are_available_as_resources():
-    assert packaged_template_names() == ("briefing", "dialogue", "podcast")
-    root = resources.files("readio.resources.templates")
-    for name in packaged_template_names():
-        resource = root.joinpath(f"{name}.ssmd")
-        assert resource.is_file()
-        assert resource.read_text(encoding="utf-8").strip()
+def test_readio_does_not_package_authoring_templates():
+    readio_resources = resources.files("readio.resources")
+    template_resources = readio_resources.joinpath("templates")
+    assert not template_resources.is_dir()

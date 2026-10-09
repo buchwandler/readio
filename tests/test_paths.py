@@ -1,10 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
 from readio.config import PathSettings, ReadioConfig
-from readio.paths import automatic_render_name, make_artifact_id, resolve_render_output, safe_child
+from readio.paths import automatic_render_name, make_artifact_id, resolve_render_output
 
 
 def test_artifact_id_format():
@@ -12,26 +10,13 @@ def test_artifact_id_format():
     assert value == "20260824T111423Z-5f8ab31c"
 
 
-def test_safe_child_rejects_absolute_and_parent_traversal(tmp_path: Path):
-    with pytest.raises(ValueError):
-        safe_child(tmp_path, "/tmp/escape")
-    with pytest.raises(ValueError):
-        safe_child(tmp_path, "../escape")
-
-
 def test_render_output_names(tmp_path: Path):
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
-    ingest = tmp_path / "ingest" / "podcast-20260824T111423Z-5f8ab31c.ssmd"
-    assert (
-        resolve_render_output(cfg, explicit=None, input_path=ingest).name
-        == ingest.with_suffix(".wav").name
-    )
-    assert (
-        resolve_render_output(cfg, explicit=None, input_path=ingest, audio_format="mp3").name
-        == ingest.with_suffix(".mp3").name
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
+    source = tmp_path / "episode.ssmd"
+    wav_name = resolve_render_output(cfg, explicit=None, input_path=source).name
+    assert wav_name.startswith("episode-") and wav_name.endswith(".wav")
+    mp3_name = resolve_render_output(cfg, explicit=None, input_path=source, audio_format="mp3").name
+    assert mp3_name.startswith("episode-") and mp3_name.endswith(".mp3")
     arbitrary = tmp_path / "meeting-notes.md"
     assert automatic_render_name(arbitrary).startswith("meeting-notes-")
     assert automatic_render_name(arbitrary, suffix=".m4a").endswith(".m4a")
@@ -45,7 +30,7 @@ def test_render_output_collision_allocates_new_name(tmp_path: Path, monkeypatch)
     (output / source.with_suffix(".ogg").name).touch()
     values = iter(("20260824T111423Z-aaaaaaaa", "20260824T111423Z-bbbbbbbb"))
     monkeypatch.setattr("readio.paths.make_artifact_id", lambda: next(values))
-    cfg = ReadioConfig(paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", output))
+    cfg = ReadioConfig(paths=PathSettings(output=output))
     assert resolve_render_output(
         cfg, explicit=None, input_path=source, audio_format="ogg"
     ).name.endswith("-aaaaaaaa.ogg")

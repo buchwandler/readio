@@ -6,8 +6,10 @@
 readio speak --file document.md
 readio render --file document.md --format mp3 --output episode.mp3
 readio render --input-format markdown
-readio ingest new --name summary.txt
+readio ssmd check document.ssmd.md --json
 ```
+
+For SSMD drafts, templates, portable bindings, and structural lint, use SSMDStudio 0.1.1 as a separate authoring tool; hand off a `.ssmd` or `.ssmd.md` file to Readio for consumer checks and rendering. Install the optional authoring tools with `python -m pip install "ssmdstudio[authoring]==0.1.1"`.
 
 Input can be literal text, a UTF-8 file, or stdin. For convenience, `speak`, `render`, and `spotify publish` treat one existing positional token as a file path, including paths with spaces when quoted. For scripts, prefer the explicit `--file PATH` form.
 

@@ -16,15 +16,16 @@ def test_ssmd_check_json_reports_consumer_and_bindings(monkeypatch, tmp_path: Pa
         "---\nssmd_version: '0.9'\nvoice_bindings:\n  kokoro:\n    host: af_bella\n---\n[Hello.]{voice=\"host\"}",
         encoding="utf-8",
     )
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "out")
-    )
+    original = source.read_bytes()
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "out"))
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     args = cli.build_parser().parse_args(["ssmd", "check", str(source), "--json"])
 
     assert cli._cmd_ssmd(args) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is True
+    assert "roundtrip" not in result
+    assert source.read_bytes() == original
     assert result["consumer"]["unresolved"] == []
     assert result["bindings"]["document"] == {"host": "af_bella"}
     assert result["bindings"]["defaults"]["analyst"] == "am_michael"

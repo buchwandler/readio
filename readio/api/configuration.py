@@ -96,29 +96,21 @@ class ConfigurationService:
         self,
         *,
         overwrite: bool = False,
-        seed_templates: bool = True,
     ) -> ConfigurationInitResult:
-        """Persist default configuration and initialize its storage directories."""
+        """Persist default configuration and initialize runtime-owned storage."""
         try:
             config = self.defaults()
             path = self.save(config, overwrite=overwrite)
             created_directories: list[Path] = []
-            for directory in (config.paths.templates, config.paths.ingest, config.paths.output):
-                existed = directory.exists()
-                directory.mkdir(parents=True, exist_ok=True)
-                if not existed:
-                    created_directories.append(directory)
-
-            seeded_templates: tuple[Path, ...] = ()
-            if seed_templates:
-                from .app import Readio
-
-                seeded_templates = Readio(config=config).templates.seed()
+            directory = config.paths.output
+            existed = directory.exists()
+            directory.mkdir(parents=True, exist_ok=True)
+            if not existed:
+                created_directories.append(directory)
 
             return ConfigurationInitResult(
                 path=path,
                 created_directories=tuple(created_directories),
-                seeded_templates=seeded_templates,
             )
         except ReadioError:
             raise

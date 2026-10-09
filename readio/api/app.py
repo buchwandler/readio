@@ -14,12 +14,10 @@ if TYPE_CHECKING:
     from .catalog import CatalogService
     from .configuration import ConfigurationService
     from .diagnostics import DiagnosticsService
-    from .ingest import IngestService
     from .projects import ProjectService
     from .roles import RoleService
     from .speech import SpeechService
     from .ssmd import SSMDService
-    from .templates import TemplateService
     from .verification import VerificationService
 
 
@@ -82,14 +80,6 @@ class Readio:
             "ConfigurationService",
             self._service("configuration", "ConfigurationService"),
         )
-
-    @property
-    def templates(self) -> TemplateService:
-        return cast("TemplateService", self._service("templates", "TemplateService"))
-
-    @property
-    def ingest(self) -> IngestService:
-        return cast("IngestService", self._service("ingest", "IngestService"))
 
     @property
     def diagnostics(self) -> DiagnosticsService:

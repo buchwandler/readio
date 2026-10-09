@@ -31,7 +31,7 @@ config = replace(
 app = Readio(config=config)
 ```
 
-Services are created lazily on first access: `app.speech`, `app.projects`, `app.audiobooks`, `app.catalog`, `app.roles`, `app.ssmd`, `app.configuration`, `app.templates`, `app.ingest`, and `app.diagnostics`. Persisted configuration changes do not mutate an existing application's snapshot. Create a new `Readio` instance to use the saved values.
+Services are created lazily on first access: `app.speech`, `app.projects`, `app.audiobooks`, `app.catalog`, `app.roles`, `app.ssmd`, `app.configuration`, and `app.diagnostics`. Persisted configuration changes do not mutate an existing application's snapshot. Create a new `Readio` instance to use the saved values.
 
 ## One-shot speech
 
@@ -317,11 +317,11 @@ for role in inspection.roles:
 
 `unbind_project_result(project, role)` returns a `ProjectRoleMutationResult` with the removed `previous_project_binding`, resulting `project_binding`, newly effective target and voice, `origin`, and `status`. It avoids reopening the project just to inspect the state transition. The original `unbind_project()` remains available and continues returning `None` for API-v1 compatibility.
 
-## SSMD, configuration, templates, and ingest
+## SSMD consumer API
 
-`app.ssmd.check()` and `analyze()` provide non-raising inspection of document and voice bindings. `app.ssmd.validate()` returns the same typed check result but raises the public `VoiceResolutionError` when voice references remain unresolved. This lets interactive clients inspect with `check()`, collect bindings, then call `validate()` without reconstructing domain errors. `materialize_bindings()` writes an explicitly requested bound copy; `roundtrip_check()` provides strict authoring validation.
+`app.ssmd.analyze()` inspects a document, `check()` provides non-raising consumer diagnostics, and `validate()` raises the public `VoiceResolutionError` when voice references remain unresolved. These APIs check whether Readio can consume the SSMD; they do not create or modify source files and do not provide structural or roundtrip authoring lint. Use SSMDStudio 0.1.1 for templates, drafts, portable binding materialization, and authoring lint (for example, `ssmdstudio ssmd lint FILE --roundtrip`).
 
-`app.configuration` loads, validates, and atomically saves `ReadioConfig`, sets dotted values, and manages language profiles/defaults. `app.templates` lists, reads, adds, removes, resets, seeds, and validates templates. `app.ingest.create()` creates an ingest file; `list()` and `directory` inspect the configured location. Read-only methods do not create storage directories.
+`app.configuration` loads, validates, and atomically saves `ReadioConfig`, sets dotted values, and manages language profiles/defaults. Initialization creates only Readio configuration and runtime output storage. Legacy authoring keys (`paths.templates`, `paths.ingest`, and `[ssmd]` validation/roundtrip options) warn, are ignored, and are omitted from new writes; existing files and directories are not modified.
 
 Use `LanguageProfilePatch` with `app.configuration.update_language_profile(language, patch)` for partial updates. Omitted fields use `UNSET` and remain unchanged. Explicit `None` clears nullable settings; for `lexicons`, `None` selects automatic lexicons while an empty tuple disables lexicon layers. `allow_experimental=False` is an explicit update. The method merges against the latest persisted profile and does not mutate the current `Readio.config` snapshot.
 

@@ -324,7 +324,7 @@ def bind_project_role(
         raise ProjectRoleError(
             f"Role {role!r} is bound by the SSMD document to {document_voice!r}. "
             "Document bindings are authoritative. Change the source binding, or use "
-            "readio ssmd bind to create a new bound SSMD file.",
+            "SSMDStudio to revise the source binding and export a new SSMD file.",
             code="readio.project_role.document_bound",
             details={
                 "role": role,

@@ -8,8 +8,6 @@ from types import SimpleNamespace
 import pytest
 
 from readio import config as config_internal
-from readio import ingest as ingest_internal
-from readio import templates as templates_internal
 from readio.api import (
     UNSET,
     AudioFormatDiagnostic,
@@ -18,24 +16,18 @@ from readio.api import (
     DiscoveryOptions,
     DoctorReport,
     EngineDiagnostic,
-    InputError,
     InvalidRequestError,
     LanguageProfilePatch,
     LanguageProfileResolution,
     OutputError,
     PathDiagnostic,
     Readio,
-    TemplateValidationResult,
 )
 from readio.config import LanguageSettings, PathSettings, ReadioConfig
 
 
 def _app(tmp_path: Path) -> tuple[Readio, PathSettings]:
-    paths = PathSettings(
-        templates=tmp_path / "templates",
-        ingest=tmp_path / "ingest",
-        output=tmp_path / "output",
-    )
+    paths = PathSettings(output=tmp_path / "output")
     return Readio(ReadioConfig(paths=paths)), paths
 
 
@@ -263,114 +255,6 @@ def test_configuration_service_maps_invalid_values_to_public_errors(tmp_path: Pa
     assert error.value.code == "config.invalid"
 
 
-def test_template_service_manages_templates_and_rejects_traversal(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    app, paths = _app(tmp_path)
-
-    with pytest.raises(InputError):
-        app.templates.list()
-    assert not paths.templates.exists()
-
-    seeded = app.templates.seed()
-    assert {path.stem for path in seeded} == set(templates_internal.packaged_template_names())
-    assert app.templates.path("briefing") == paths.templates / "briefing.ssmd"
-    assert app.templates.show("briefing")
-    assert all(
-        isinstance(item, TemplateValidationResult) and item.ok
-        for item in (
-            app.templates.validate("briefing"),
-            app.templates.validate("dialogue"),
-            app.templates.validate("podcast"),
-        )
-    )
-
-    content = templates_internal.packaged_template("briefing")
-    custom = app.templates.add("custom", content=content)
-    assert custom.read_text(encoding="utf-8") == content
-    assert "custom" in {item.name for item in app.templates.list()}
-    app.templates.remove("custom")
-    assert "custom" not in {item.name for item in app.templates.list()}
-
-    changed = app.templates.path("podcast")
-    changed.write_text("custom content", encoding="utf-8")
-    with pytest.raises(InvalidRequestError):
-        app.templates.add("podcast", content=content)
-    restored = app.templates.reset("podcast")
-    assert restored == (changed,)
-    assert changed.read_text(encoding="utf-8") == templates_internal.packaged_template("podcast")
-
-    outside = tmp_path / "outside.ssmd"
-    with pytest.raises(InvalidRequestError):
-        app.templates.add("../outside", content=content)
-    assert not outside.exists()
-    with pytest.raises(InvalidRequestError):
-        app.templates.path("../outside")
-
-    outside.write_text(content, encoding="utf-8")
-    (paths.templates / "escape.ssmd").symlink_to(outside)
-    with pytest.raises(InvalidRequestError):
-        app.templates.path("escape")
-
-
-def test_template_overwrite_failure_preserves_original_and_cleans_temporary_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    app, paths = _app(tmp_path)
-    app.templates.seed()
-    target = paths.templates / "podcast.ssmd"
-    original = target.read_text(encoding="utf-8")
-
-    def fail_replace(_source: str, _target: Path) -> None:
-        raise OSError("simulated replacement failure")
-
-    monkeypatch.setattr(templates_internal.os, "replace", fail_replace)
-    with pytest.raises(OutputError):
-        app.templates.add("podcast", content="replacement", force=True)
-    assert target.read_text(encoding="utf-8") == original
-    assert list(paths.templates.glob(".podcast.ssmd.*")) == []
-
-
-def test_ingest_service_is_read_only_until_create_and_rejects_traversal(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    app, paths = _app(tmp_path)
-
-    assert app.ingest.directory() == paths.ingest
-    assert app.ingest.list() == ()
-    assert not paths.ingest.exists()
-    with pytest.raises(InvalidRequestError):
-        app.ingest.create(name="../escape.txt")
-    assert not paths.ingest.exists()
-
-    target = app.ingest.create(name="notes.txt")
-    assert target.read_text(encoding="utf-8") == ""
-    with pytest.raises(InvalidRequestError):
-        app.ingest.create(name="notes.txt")
-
-    app.templates.seed()
-    copied = app.ingest.create(template="briefing")
-    assert copied.suffix == ".ssmd"
-    assert copied.read_text(encoding="utf-8") == templates_internal.packaged_template("briefing")
-    assert {path.name for path in app.ingest.list()} == {"notes.txt", copied.name}
-
-
-def test_ingest_template_copy_failure_does_not_leave_partial_output(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    app, paths = _app(tmp_path)
-    app.templates.seed()
-
-    def fail_replace(_source: str, _target: Path) -> None:
-        raise OSError("simulated replacement failure")
-
-    monkeypatch.setattr(ingest_internal.os, "replace", fail_replace)
-    with pytest.raises(OutputError):
-        app.ingest.create(name="atomic.ssmd", template="briefing")
-    assert not (paths.ingest / "atomic.ssmd").exists()
-    assert list(paths.ingest.glob(".atomic.ssmd.*")) == []
-
-
 def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -396,9 +280,7 @@ def test_diagnostics_are_typed_serializable_and_do_not_create_directories(
     assert all(isinstance(item, PathDiagnostic) for item in report.paths)
     serialized = json.loads(json.dumps(report.to_dict()))
     assert serialized["config_path"] == config_path.as_posix()
-    assert {item["name"] for item in serialized["paths"]} == {"templates", "ingest", "output"}
-    assert not paths.templates.exists()
-    assert not paths.ingest.exists()
+    assert {item["name"] for item in serialized["paths"]} == {"output"}
     assert not paths.output.exists()
     assert not config_path.exists()
 
@@ -432,16 +314,20 @@ def test_configuration_language_profile_resolution_reports_match_details() -> No
     assert service.language_profile("de-DE") == base_settings
 
 
-def test_configuration_initialize_owns_directories_and_template_seeding(
+def test_configuration_initialize_creates_only_runtime_output(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config_path = tmp_path / "config.toml"
     monkeypatch.setenv("READIO_CONFIG", str(config_path))
-    paths = PathSettings(
-        templates=tmp_path / "templates",
-        ingest=tmp_path / "ingest",
-        output=tmp_path / "output",
-    )
+    old_templates = tmp_path / "legacy-templates"
+    old_ingest = tmp_path / "legacy-ingest"
+    old_templates.mkdir()
+    old_ingest.mkdir()
+    template_file = old_templates / "custom.ssmd"
+    ingest_file = old_ingest / "draft.txt"
+    template_file.write_text("keep template", encoding="utf-8")
+    ingest_file.write_text("keep draft", encoding="utf-8")
+    paths = PathSettings(output=tmp_path / "output")
     config = ReadioConfig(paths=paths)
     monkeypatch.setattr(config_internal, "default_config", lambda: config)
     app, _paths = _app(tmp_path)
@@ -450,15 +336,15 @@ def test_configuration_initialize_owns_directories_and_template_seeding(
 
     assert isinstance(result, ConfigurationInitResult)
     assert result.path == config_path
-    assert result.created_directories == (paths.templates, paths.ingest, paths.output)
-    assert all(path.is_dir() for path in result.created_directories)
-    assert {path.stem for path in result.seeded_templates} == {"briefing", "dialogue", "podcast"}
+    assert result.created_directories == (paths.output,)
+    assert paths.output.is_dir()
     assert config_path.is_file()
 
     with pytest.raises(OutputError) as error:
         app.configuration.initialize()
     assert error.value.code == "config.exists"
 
-    repeated = app.configuration.initialize(overwrite=True, seed_templates=False)
+    repeated = app.configuration.initialize(overwrite=True)
     assert repeated.created_directories == ()
-    assert repeated.seeded_templates == ()
+    assert template_file.read_text(encoding="utf-8") == "keep template"
+    assert ingest_file.read_text(encoding="utf-8") == "keep draft"

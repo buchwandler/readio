@@ -51,6 +51,15 @@ def test_public_import_surface_and_typing_marker() -> None:
         "VoiceMatrixResult",
     ):
         assert symbol in readio.api.__all__
+    assert not hasattr(Readio(), "templates")
+    assert not hasattr(Readio(), "ingest")
+    assert "TemplateInfo" not in readio.api.__all__
+    assert "TemplateValidationResult" not in readio.api.__all__
+    assert "SSMDMaterializeResult" not in readio.api.__all__
+    assert not hasattr(readio.api, "SSMDMaterializeResult")
+    ssmd_service = Readio().ssmd
+    assert not hasattr(ssmd_service, "materialize_bindings")
+    assert not hasattr(ssmd_service, "roundtrip_check")
     assert readio.api.G2P_FALLBACKS == config_internal.G2P_FALLBACKS
     assert readio.api.LANGUAGE_DETECTION_MODES == config_internal.LANGUAGE_DETECTION_MODES
     assert readio.api.LEXICON_DATA_POLICIES == config_internal.LEXICON_DATA_POLICIES

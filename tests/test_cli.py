@@ -275,9 +275,7 @@ def test_positional_ssmd_is_passed_to_the_public_speech_service(monkeypatch, tmp
 def test_render_resolves_output_with_normalized_positional_path(monkeypatch, tmp_path: Path):
     source = tmp_path / "episode.ssmd"
     source.write_text("---\nssmd_version: '0.9'\n---\nHello.\n", encoding="utf-8")
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
     captured = []
 
     def render(request, plan, output, _on_event, _write_manifest):
@@ -390,9 +388,7 @@ def test_live_render_delegates_file_ownership_and_reports_service_metadata(
     monkeypatch, capsys, tmp_path: Path
 ):
     target = tmp_path / "live.wav"
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
     monkeypatch.setattr(cli.sys, "stdin", StringIO("Hello live\n"))
     calls = []
@@ -519,11 +515,7 @@ def test_project_settings_cli_accepts_managed_prompt_and_excludes_other_voice_so
 def test_speak_uses_the_public_speech_service_without_creating_a_project(monkeypatch, tmp_path):
     captured = []
     config = ReadioConfig(
-        paths=PathSettings(
-            tmp_path / "templates",
-            tmp_path / "ingest",
-            tmp_path / "output",
-        )
+        paths=PathSettings(output=tmp_path / "output"),
     )
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: config)
     monkeypatch.setattr(
@@ -540,9 +532,7 @@ def test_speak_uses_the_public_speech_service_without_creating_a_project(monkeyp
 
 
 def test_render_uses_selected_format_and_output_suffix(monkeypatch, tmp_path: Path):
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
     calls = []
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
 
@@ -608,9 +598,7 @@ def test_progress_enablement_respects_tty_and_json():
 def test_forced_render_progress_uses_stderr_and_keeps_path_on_stdout(
     monkeypatch, capsys, tmp_path: Path
 ):
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
 
     def render(_request, _plan, path, on_event, _write_manifest):
@@ -642,7 +630,7 @@ def test_config_init_delegates_initialization_and_preserves_printed_path(
     monkeypatch, capsys, tmp_path: Path
 ):
     config_path = tmp_path / "config.toml"
-    result = ConfigurationInitResult(path=config_path, created_directories=(), seeded_templates=())
+    result = ConfigurationInitResult(path=config_path, created_directories=())
     calls = []
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: ReadioConfig())
     monkeypatch.setattr(
@@ -658,9 +646,7 @@ def test_config_init_delegates_initialization_and_preserves_printed_path(
 
 
 def test_no_progress_suppresses_render_status(monkeypatch, capsys, tmp_path: Path):
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
 
     def render(_request, _plan, path, _on_event, _write_manifest):
@@ -676,9 +662,7 @@ def test_no_progress_suppresses_render_status(monkeypatch, capsys, tmp_path: Pat
 
 
 def test_render_json_reports_stable_envelope(monkeypatch, capsys, tmp_path: Path):
-    cfg = ReadioConfig(
-        paths=PathSettings(tmp_path / "templates", tmp_path / "ingest", tmp_path / "output")
-    )
+    cfg = ReadioConfig(paths=PathSettings(output=tmp_path / "output"))
     monkeypatch.setattr(cli, "_resolved_config", lambda _args: cfg)
 
     def render(_request, _plan, path, _on_event, _write_manifest):

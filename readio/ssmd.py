@@ -141,20 +141,6 @@ def parse_ssmd_09(text: str, *, source_path: Path | None = None) -> ParsedSSMD09
     )
 
 
-def serialize_generated_front_matter(
-    text: str,
-    generated: Mapping[str, Any],
-    *,
-    parsed: ParsedSSMD09 | None = None,
-    source_path: Path | None = None,
-) -> str:
-    """Merge generated header values and serialize the SSMD front matter."""
-    parsed = parsed or parse_ssmd_09(text, source_path=source_path)
-    front_matter = ssmd_api.parse_front_matter(text)
-    merged = ssmd_api.merge_generated_header(dict(parsed.header), dict(generated))
-    return ssmd_api.serialize_front_matter(merged, front_matter.body)
-
-
 @dataclass(frozen=True, slots=True)
 class ResolvedVoiceReference:
     """A single voice reference resolved against available bindings."""

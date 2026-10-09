@@ -17,14 +17,6 @@ def default_config_path() -> Path:
     return user_config_path("readio", appauthor=False) / "config.toml"
 
 
-def default_template_dir() -> Path:
-    return user_config_path("readio", appauthor=False) / "templates"
-
-
-def default_ingest_dir() -> Path:
-    return user_data_path("readio", appauthor=False) / "ingest"
-
-
 def default_output_dir() -> Path:
     return user_data_path("readio", appauthor=False) / "output"
 
@@ -38,24 +30,6 @@ def make_artifact_id(
     if len(suffix) != 8 or any(char not in "0123456789abcdef" for char in suffix.lower()):
         raise ValueError("random_hex must be 8 hexadecimal characters")
     return f"{timestamp.strftime('%Y%m%dT%H%M%SZ')}-{suffix.lower()}"
-
-
-def safe_child(root: Path, name: str) -> Path:
-    if not name or "\x00" in name:
-        raise ValueError(f"unsafe filename: {name}")
-    candidate = Path(name)
-    if candidate.is_absolute() or len(candidate.parts) != 1 or candidate.name in {".", ".."}:
-        raise ValueError(f"unsafe filename: {name}")
-    resolved_root = root.expanduser().resolve()
-    resolved_target = (resolved_root / candidate).resolve()
-    if resolved_target.parent != resolved_root:
-        raise ValueError(f"unsafe filename: {name}")
-    return resolved_target
-
-
-def automatic_ingest_name(*, template: str | None = None, suffix: str = ".txt") -> str:
-    prefix = Path(template).stem if template else "readio"
-    return f"{prefix}-{make_artifact_id()}{suffix}"
 
 
 def automatic_render_name(
