@@ -46,6 +46,7 @@ all = [
 cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu>=1.17"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
+audioexport = ["audioexport>=0.1.1,<0.2"]
 
 [project.scripts]
 readio = "readio.cli:main"

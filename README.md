@@ -353,6 +353,18 @@ readio export project.readio --format flac
 readio export project.readio --format opus --bitrate 96k
 ```
 
+For profile-driven **file exports**, install the optional integration with `pip install 'readio[audioexport]'` and pass an AudioExport `export.toml`:
+
+```bash
+readio export project.readio --profile export.toml --format mp3
+readio export project.readio --profile export.toml --all --out-dir output/
+readio audiobook export project.readio --profile audiobook.toml
+readio project settings set project.readio --export-profile export.toml
+readio project settings set project.readio --audiobook-profile audiobook.toml
+```
+
+A profile supplies encoder options and metadata through AudioExport's public Python API; Readio continues to own output authorization, state, and reuse. Saved profiles are checked by `readio status` and used by incremental project builds, so profile-only changes rebuild the export without re-synthesis or recomposition. Without a profile, existing project export behavior remains the default. `readio speak` keeps its current PCM streaming sink and does not use the file-based AudioExport path; M4B profile exports still require Readio's verified composition timeline.
+
 `.ogg` remains Ogg/Vorbis; `.opus` selects Opus and is a separate format. Readio's generic Opus default is 96k; this is Readio's setting, not a claim of TTSForge default parity.
 
 ## Progress

@@ -56,6 +56,20 @@ The Python API provides immutable `ProjectSettings`, `ProjectSynthesisSettings`,
 Persisted synthesis choices are resolved before global and engine defaults. Explicit run requests override saved choices without changing the manifest. Requestless `synthesize`, `compose`, generic `export`, and incremental `build` use saved settings. Composition-only changes stale composition and output; generic or audiobook export-only changes stale only output. Synthesis caches and previous outputs are retained for reuse.
 
 For audiobook projects, `app.audiobooks.export(project)` uses saved M4B path, metadata, cover, and bitrate defaults. `app.audiobooks.build(project)` plans, synthesizes, composes, then exports M4B using the saved settings. `create_project(..., settings=...)` can persist those choices during project creation. `readio status` reports when a prior M4B no longer matches the desired audiobook settings.
+
+### AudioExport profile exports
+
+Install the optional dependency with `pip install 'readio[audioexport]'` to opt into profile-based file exports. Generic profiles are selected with `--profile`; audiobook profiles must resolve to one M4B output. `readio export --all --out-dir DIR` writes every selected profile output under the chosen directory. If a profile has one output, Readio can select it without an explicit format; for multi-output profiles, provide `--format` or use `--all`.
+
+```bash
+readio export . --profile export.toml --format mp3
+readio export . --profile export.toml --all --out-dir output/
+readio audiobook export . --profile audiobook.toml
+readio project settings set . --export-profile export.toml
+readio project settings set . --audiobook-profile audiobook.toml
+```
+
+Saved profile paths are relative to the project root. Direct command/API options take precedence for that invocation without rewriting settings. `readio status` compares the effective profile identity and resolved output path; changing profile metadata or encoder settings stales only the export, and `build` re-exports without planning, synthesis, or composition. Readio keeps its export index and overwrite checks authoritative; AudioExport manifests are additional evidence. Clearing a saved profile does not delete the generated file or sidecar. No-profile exports retain the legacy path, and `readio speak` remains on its streaming sink. M4B output continues to validate Readio's composition and uses its verified timeline; a conflicting profile timeline is rejected.
 Use `readio render --file episode.ssmd --dry-run --json` for one-shot execution planning. `readio plan` is reserved for persistent project build and role management.
 
 ## Book-source audiobook projects

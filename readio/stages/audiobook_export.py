@@ -8,12 +8,15 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import Any, NoReturn
 
 from ..audioio import probe_audio
 from ..formats import ffmpeg_executable
+from ..integrations.audioexport import load_audioexport
 from ..project import (
     Project,
     hash_file,
@@ -73,6 +76,16 @@ class PreparedAudiobookExport:
     metadata: ResolvedAudiobookMetadata
     bitrate: str
     export_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAudiobookProfile:
+    profile_path: Path
+    audioexport: ModuleType
+    profile: Any
+    output_spec: Any
+    resolved_output: Any
+    metadata: Mapping[str, str]
 
 
 def build_audiobook_export_identity(
@@ -158,6 +171,182 @@ def _resolve_metadata(
             )
         cover_digest = hash_file(resolved_cover)
     return ResolvedAudiobookMetadata(chosen_title, chosen_author, resolved_cover, cover_digest)
+
+
+def _raise_audioexport_audiobook_error(error: Exception, *, phase: str) -> NoReturn:
+    code = getattr(error, "code", "")
+    details = {"audioexport_code": code} if isinstance(code, str) and code else {}
+    if code == "audioexport.cover_required":
+        raise AudiobookExportError(
+            str(error), code="audiobook.export.cover_not_found", details=details
+        ) from error
+    if code in {"audioexport.cover_invalid", "audioexport.cover_unsupported"}:
+        raise AudiobookExportError(
+            str(error), code="audiobook.export.cover_unsupported", details=details
+        ) from error
+    if "timeline" in code or "chapters" in code:
+        raise AudiobookExportError(
+            str(error), code="audiobook.export.invalid_chapters", details=details
+        ) from error
+    if "ffmpeg" in code and "ffprobe" not in code:
+        raise AudiobookExportError(
+            str(error), code="audiobook.export.ffmpeg_missing", details=details
+        ) from error
+    mapped = (
+        "audiobook.export.encode_failed"
+        if phase == "encode"
+        else "audiobook.export.profile_invalid"
+    )
+    raise AudiobookExportError(str(error), code=mapped, details=details) from error
+
+
+def _resolve_audiobook_profile(
+    project: Project,
+    profile_path: Path,
+    *,
+    title: str | None,
+    author: str | None,
+    cover: Path | None,
+    bitrate: str | None,
+    selected_output: Any | None = None,
+    loaded_profile: Any | None = None,
+) -> ResolvedAudiobookProfile:
+    audioexport = load_audioexport()
+    absolute_profile = profile_path.expanduser().resolve()
+    if loaded_profile is None:
+        try:
+            profile = audioexport.load_profile(absolute_profile)
+        except audioexport.AudioExportError as error:
+            _raise_audioexport_audiobook_error(error, phase="load")
+    else:
+        profile = loaded_profile
+
+    m4b_outputs = tuple(spec for spec in profile.outputs if spec.format == "m4b")
+    if selected_output is None:
+        if not m4b_outputs:
+            raise AudiobookExportError(
+                "audiobook profile must contain an M4B output",
+                code="audiobook.export.profile_format_invalid",
+            )
+        if len(m4b_outputs) != 1:
+            raise AudiobookExportError(
+                "audiobook profile must contain exactly one M4B output",
+                code="audiobook.export.profile_format_ambiguous",
+            )
+        selected = m4b_outputs[0]
+    elif selected_output.format == "m4b" and selected_output in m4b_outputs:
+        selected = selected_output
+    else:
+        raise AudiobookExportError(
+            "selected profile output is not an M4B row in this profile",
+            code="audiobook.export.profile_format_invalid",
+        )
+    if selected.use_chapters is False:
+        raise AudiobookExportError(
+            "audiobook profile cannot disable Readio's verified chapters",
+            code="audiobook.export.profile_chapters_required",
+        )
+
+    verified_timeline = project.paths["composition_timeline"].resolve()
+    if profile.timeline is not None and Path(profile.timeline).resolve() != verified_timeline:
+        raise AudiobookExportError(
+            "audiobook profile timeline conflicts with Readio's verified composition timeline",
+            code="audiobook.export.timeline_stale",
+        )
+
+    metadata = dict(profile.metadata)
+    if title is not None:
+        metadata["title"] = title
+    if author is not None:
+        metadata["artist"] = author
+    cover_override = Path(cover).expanduser().resolve() if cover is not None else profile.cover
+    effective_spec = replace(
+        selected,
+        bitrate=bitrate if bitrate is not None else selected.bitrate,
+        use_cover=True if cover is not None else selected.use_cover,
+        use_chapters=True,
+    )
+    effective_profile = replace(
+        profile,
+        outputs=(effective_spec,),
+        metadata=metadata,
+        cover=cover_override,
+        timeline=verified_timeline,
+    )
+    try:
+        resolved = audioexport.resolve_output(
+            effective_profile, effective_spec, project.manifest.name
+        )
+    except audioexport.AudioExportError as error:
+        _raise_audioexport_audiobook_error(error, phase="resolve")
+    if resolved.timeline != verified_timeline:
+        raise AudiobookExportError(
+            "audiobook profile did not resolve to Readio's verified composition timeline",
+            code="audiobook.export.timeline_stale",
+        )
+    return ResolvedAudiobookProfile(
+        absolute_profile, audioexport, effective_profile, effective_spec, resolved, metadata
+    )
+
+
+def _profile_audiobook_export_identity(
+    prepared: PreparedAudiobookExport,
+    resolved: ResolvedAudiobookProfile,
+    metadata: Mapping[str, str],
+) -> str:
+    report = resolved.audioexport.doctor()
+    tools = report.get("tools", {}) if isinstance(report, Mapping) else {}
+    tool_versions: dict[str, str | None] = {}
+    if isinstance(tools, Mapping):
+        for name in ("ffmpeg", "ffprobe"):
+            tool = tools.get(name)
+            tool_versions[name] = (
+                str(tool["version"])
+                if isinstance(tool, Mapping) and tool.get("version") is not None
+                else None
+            )
+    return export_id(
+        {
+            "schema": "readio.audiobook-export.v2",
+            "master_sha256": prepared.master_sha256,
+            "timeline_sha256": prepared.timeline_sha256,
+            "format": "m4b",
+            "metadata": {
+                "tags": dict(metadata),
+                "cover_sha256": prepared.metadata.cover_sha256,
+            },
+            "options": {
+                "backend": "audioexport",
+                "audioexport_version": str(resolved.audioexport.__version__),
+                "bitrate": prepared.bitrate,
+                "tool_versions": tool_versions,
+            },
+        }
+    )
+
+
+def _profile_audiobook_chapters(prepared: PreparedAudiobookExport, audioexport: ModuleType):
+    chapter_type = audioexport.Chapter
+    return tuple(
+        chapter_type(
+            title=chapter.title,
+            start_ms=round(chapter.start_sample * 1000 / prepared.sample_rate),
+            end_ms=round(chapter.end_sample * 1000 / prepared.sample_rate),
+            start_sample=chapter.start_sample,
+            end_sample=chapter.end_sample,
+            sample_rate=prepared.sample_rate,
+        )
+        for chapter in prepared.chapters
+    )
+
+
+def _profile_audiobook_target(
+    project: Project, output: Path | None, resolved: ResolvedAudiobookProfile
+) -> Path:
+    selected_output = output
+    if selected_output is None and resolved.output_spec.filename is not None:
+        selected_output = Path("output") / resolved.resolved_output.filename
+    return audiobook_export_target(project, selected_output)
 
 
 def _chapter_ranges(raw_chapters: Any, frames: int) -> tuple[AudiobookChapterRange, ...]:
@@ -556,12 +745,52 @@ def export_audiobook_project(
     cover: Path | None = None,
     bitrate: str | None = None,
     force: bool = False,
+    profile: Path | None = None,
+    selected_profile_output: Any | None = None,
+    loaded_profile: Any | None = None,
+    lock_held: bool = False,
 ) -> dict[str, Any]:
-    with project_lock(project, operation="audiobooks.export"):
-        prepared = prepare_audiobook_export(
-            project, title=title, author=author, cover=cover, bitrate=bitrate
-        )
-        target = audiobook_export_target(project, output)
+    with nullcontext() if lock_held else project_lock(project, operation="audiobooks.export"):
+        resolved_profile: ResolvedAudiobookProfile | None = None
+        audioexport_result: Any | None = None
+        metadata_tags: dict[str, str] = {}
+        if profile is None:
+            prepared = prepare_audiobook_export(
+                project, title=title, author=author, cover=cover, bitrate=bitrate
+            )
+            target = audiobook_export_target(project, output)
+        else:
+            resolved_profile = _resolve_audiobook_profile(
+                project,
+                Path(profile),
+                title=title,
+                author=author,
+                cover=cover,
+                bitrate=bitrate,
+                selected_output=selected_profile_output,
+                loaded_profile=loaded_profile,
+            )
+            prepared = prepare_audiobook_export(
+                project,
+                title=resolved_profile.metadata.get("title"),
+                author=resolved_profile.metadata.get("artist"),
+                cover=resolved_profile.resolved_output.cover,
+                bitrate=resolved_profile.resolved_output.bitrate,
+            )
+            metadata_tags = dict(resolved_profile.metadata)
+            metadata_tags["title"] = prepared.metadata.title
+            if prepared.metadata.author is None:
+                metadata_tags.pop("artist", None)
+            else:
+                metadata_tags["artist"] = prepared.metadata.author
+            prepared = replace(
+                prepared,
+                export_id=_profile_audiobook_export_identity(
+                    prepared, resolved_profile, metadata_tags
+                ),
+            )
+            target = _profile_audiobook_target(project, output, resolved_profile)
+
         target.parent.mkdir(parents=True, exist_ok=True)
         previous = output_state_for(project, target)
         tracked_unchanged = (
@@ -596,40 +825,92 @@ def export_audiobook_project(
                 "output_sha256": previous["output_sha256"],
                 "chapter_count": len(prepared.chapters),
             }
+
         executable = ffmpeg_executable()
         if executable is None:
             raise AudiobookExportError(
                 "M4B output requires FFmpeg; install ffmpeg and ensure it is on PATH",
                 code="audiobook.export.ffmpeg_missing",
             )
-        metadata_path = _write_ffmetadata_file(target, prepared)
-        try:
-            with atomic_audio_path(target, force=force or tracked_unchanged) as temporary:
-                command = build_m4b_ffmpeg_command(
-                    executable,
-                    prepared,
-                    metadata_path,
-                    temporary,
-                    bitrate=prepared.bitrate,
-                    cover=prepared.metadata.cover,
-                )
-                try:
-                    result = subprocess.run(command, capture_output=True, text=True, check=False)
-                except OSError as error:
-                    raise AudiobookExportError(
-                        f"failed to start FFmpeg for M4B: {error}",
-                        code="audiobook.export.encode_failed",
-                    ) from error
-                if result.returncode != 0:
-                    tail = _stderr_tail(result.stderr or "")
-                    raise AudiobookExportError(
-                        "FFmpeg failed to encode M4B" + (f": {tail}" if tail else ""),
-                        code="audiobook.export.encode_failed",
-                        details={"stderr_tail": tail} if tail else None,
+        if resolved_profile is None:
+            metadata_path = _write_ffmetadata_file(target, prepared)
+            try:
+                with atomic_audio_path(target, force=force or tracked_unchanged) as temporary:
+                    command = build_m4b_ffmpeg_command(
+                        executable,
+                        prepared,
+                        metadata_path,
+                        temporary,
+                        bitrate=prepared.bitrate,
+                        cover=prepared.metadata.cover,
                     )
-                _verify_m4b_output(temporary, prepared, shutil.which("ffprobe"))
-        finally:
-            metadata_path.unlink(missing_ok=True)
+                    try:
+                        result = subprocess.run(
+                            command, capture_output=True, text=True, check=False
+                        )
+                    except OSError as error:
+                        raise AudiobookExportError(
+                            f"failed to start FFmpeg for M4B: {error}",
+                            code="audiobook.export.encode_failed",
+                        ) from error
+                    if result.returncode != 0:
+                        tail = _stderr_tail(result.stderr or "")
+                        raise AudiobookExportError(
+                            "FFmpeg failed to encode M4B" + (f": {tail}" if tail else ""),
+                            code="audiobook.export.encode_failed",
+                            details={"stderr_tail": tail} if tail else None,
+                        )
+                    _verify_m4b_output(temporary, prepared, shutil.which("ffprobe"))
+            finally:
+                metadata_path.unlink(missing_ok=True)
+        else:
+            profile_for_preflight = replace(resolved_profile.profile, metadata=metadata_tags)
+            try:
+                preflight_outputs = resolved_profile.audioexport.preflight_profile(
+                    profile_for_preflight, prepared.master
+                )
+            except resolved_profile.audioexport.AudioExportError as error:
+                _raise_audioexport_audiobook_error(error, phase="preflight")
+            if len(preflight_outputs) != 1:
+                raise AudiobookExportError(
+                    "AudioExport preflight returned an unexpected output count",
+                    code="audiobook.export.profile_invalid",
+                )
+            preflight_output = preflight_outputs[0]
+            if (
+                preflight_output.format != "m4b"
+                or preflight_output.timeline != project.paths["composition_timeline"].resolve()
+                or preflight_output.cover != prepared.metadata.cover
+            ):
+                raise AudiobookExportError(
+                    "AudioExport preflight did not preserve Readio's verified M4B inputs",
+                    code="audiobook.export.timeline_stale",
+                )
+            chapters = _profile_audiobook_chapters(prepared, resolved_profile.audioexport)
+            try:
+                audioexport_result = resolved_profile.audioexport.encode(
+                    prepared.master,
+                    target,
+                    format="m4b",
+                    bitrate=prepared.bitrate,
+                    metadata=metadata_tags,
+                    cover=prepared.metadata.cover,
+                    chapters=chapters,
+                    force=force or tracked_unchanged,
+                )
+            except resolved_profile.audioexport.AudioExportError as error:
+                _raise_audioexport_audiobook_error(error, phase="encode")
+            except FileExistsError as error:
+                raise AudiobookExportError(
+                    str(error), code="audiobook.export.output_exists"
+                ) from error
+            except OSError as error:
+                raise AudiobookExportError(
+                    f"AudioExport could not encode M4B: {error}",
+                    code="audiobook.export.encode_failed",
+                ) from error
+            _verify_m4b_output(target, prepared, shutil.which("ffprobe"))
+
         state = {
             "format": "readio.audiobook-export-state",
             "schema_version": 1,
@@ -646,6 +927,17 @@ def export_audiobook_project(
             "path": target_record(project, target),
             "output_sha256": hash_file(target),
         }
+        if resolved_profile is not None and audioexport_result is not None:
+            state.update(
+                {
+                    "backend": "audioexport",
+                    "profile_path": str(resolved_profile.profile_path),
+                    "profile_metadata": metadata_tags,
+                    "audioexport_version": str(resolved_profile.audioexport.__version__),
+                    "audioexport_export_id": audioexport_result.export_id,
+                    "audioexport_manifest_path": str(audioexport_result.manifest_path),
+                }
+            )
         store_export_state(project, target, state)
         return {
             "export_id": state["export_id"],

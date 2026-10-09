@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -355,6 +356,233 @@ def test_export_produces_chapters_metadata_and_attached_cover(
     assert reused["output_sha256"] == result["output_sha256"]
 
 
+def _audioexport_profile(
+    path: Path,
+    *,
+    cover: Path,
+    filename: str = "profile-book.m4b",
+    timeline: Path | None = None,
+    bitrate: str = "128k",
+    use_cover: bool = True,
+    title: str = "Profile Book",
+    artist: str = "Profile Reader",
+) -> Path:
+    rows = [
+        'schema = "audioexport.profile.v1"',
+        f"cover = {json.dumps(str(cover))}",
+    ]
+    if timeline is not None:
+        rows.append(f"timeline = {json.dumps(str(timeline))}")
+    rows.extend(
+        [
+            "",
+            "[metadata]",
+            f"title = {json.dumps(title)}",
+            f"artist = {json.dumps(artist)}",
+            'album = "Profile Album"',
+            "",
+            "[[outputs]]",
+            'format = "m4b"',
+            f"filename = {json.dumps(filename)}",
+            f"bitrate = {json.dumps(bitrate)}",
+            f"use_cover = {str(use_cover).lower()}",
+            "use_chapters = true",
+            "",
+        ]
+    )
+    path.write_text("\n".join(rows), encoding="utf-8")
+    return path
+
+
+def _make_image_cover(path: Path, color: str) -> Path:
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color}:s=40x40",
+            "-frames:v",
+            "1",
+            "-y",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return path
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg and ffprobe are required for the M4B profile integration test",
+)
+@pytest.mark.parametrize("cover_extension", ["jpg", "png"])
+def test_audioexport_profile_m4b_uses_readio_chapters_and_reuses_output(
+    tmp_path: Path, monkeypatch, cover_extension: str
+):
+    audioexport = pytest.importorskip("audioexport")
+    project = _book_project(tmp_path)
+    titles = ("雪=第一章;#\\\\continued", "第二章")
+    _write_composition(project, starts=(0, 12000), titles=titles, frames=24000)
+    cover = _make_image_cover(tmp_path / f"profile-cover.{cover_extension}", "red")
+    profile = _audioexport_profile(tmp_path / "export.toml", cover=cover)
+    captured: dict[str, Any] = {}
+    encode = audioexport.encode
+
+    def capture_encode(*args, **kwargs):
+        captured["chapters"] = kwargs["chapters"]
+        return encode(*args, **kwargs)
+
+    monkeypatch.setattr(audioexport, "encode", capture_encode)
+    result = export_audiobook_project(project, profile=profile)
+
+    expected = project.state_root / "output" / "profile-book.m4b"
+    assert result["path"] == expected
+    assert result["chapter_count"] == 2
+    assert [(chapter.start_sample, chapter.end_sample) for chapter in captured["chapters"]] == [
+        (0, 12000),
+        (12000, 24000),
+    ]
+    assert all(chapter.sample_rate == 24000 for chapter in captured["chapters"])
+
+    probe = json.loads(
+        subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_streams",
+                "-show_chapters",
+                "-show_format",
+                "-of",
+                "json",
+                str(expected),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
+    audio = [stream for stream in probe["streams"] if stream.get("codec_type") == "audio"]
+    tags = {key.lower(): value for key, value in probe["format"]["tags"].items()}
+    assert len(audio) == 1 and audio[0]["codec_name"] == "aac"
+    assert tags["title"] == "Profile Book"
+    assert tags["artist"] == "Profile Reader"
+    assert tags["album"] == "Profile Album"
+    assert [chapter["tags"]["title"] for chapter in probe["chapters"]] == list(titles)
+    assert [
+        (
+            round(float(chapter["start_time"]) * 24000),
+            round(float(chapter["end_time"]) * 24000),
+        )
+        for chapter in probe["chapters"]
+    ] == [(0, 12000), (12000, 24000)]
+    assert any(
+        stream.get("disposition", {}).get("attached_pic") == 1 for stream in probe["streams"]
+    )
+
+    state_index = json.loads(
+        (project.state_root / "output" / "state.json").read_text(encoding="utf-8")
+    )
+    state = state_index["outputs"]["output/profile-book.m4b"]
+    assert state["backend"] == "audioexport"
+    assert state["options"]["bitrate"] == "128k"
+    assert state["metadata"]["cover_sha256"] == hash_file(cover)
+    assert Path(state["audioexport_manifest_path"]).is_file()
+    output_hash = result["output_sha256"]
+
+    def unexpected_encode(*_args, **_kwargs):
+        raise AssertionError("an unchanged profile M4B export should be reused")
+
+    monkeypatch.setattr(audioexport, "encode", unexpected_encode)
+    reused = export_audiobook_project(project, profile=profile)
+    assert reused["export_id"] == result["export_id"]
+    assert reused["output_sha256"] == output_hash
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg and ffprobe are required for the M4B profile integration test",
+)
+def test_audiobook_profile_cli_overrides_precede_profile_values(tmp_path: Path):
+    pytest.importorskip("audioexport")
+    project = _book_project(tmp_path)
+    _write_composition(project, starts=(0, 12000), frames=24000)
+    profile_cover = _make_image_cover(tmp_path / "profile.png", "blue")
+    cli_cover = _make_image_cover(tmp_path / "cli.jpg", "yellow")
+    profile = _audioexport_profile(tmp_path / "export.toml", cover=profile_cover, use_cover=False)
+
+    result = export_audiobook_project(
+        project,
+        profile=profile,
+        output=Path("output/cli-book.m4b"),
+        title="CLI Title",
+        author="CLI Author",
+        cover=cli_cover,
+        bitrate="96k",
+    )
+
+    assert result["path"] == project.state_root / "output" / "cli-book.m4b"
+    state_index = json.loads(
+        (project.state_root / "output" / "state.json").read_text(encoding="utf-8")
+    )
+    state = state_index["outputs"]["output/cli-book.m4b"]
+    assert state["metadata"]["title"] == "CLI Title"
+    assert state["metadata"]["author"] == "CLI Author"
+    assert state["metadata"]["cover_sha256"] == hash_file(cli_cover)
+    assert state["options"]["bitrate"] == "96k"
+    assert state["profile_metadata"]["album"] == "Profile Album"
+    assert state["profile_metadata"]["artist"] == "CLI Author"
+
+
+def test_audiobook_profile_rejects_foreign_timeline_before_replacement(tmp_path: Path):
+    pytest.importorskip("audioexport")
+    project = _book_project(tmp_path)
+    _write_composition(project)
+    cover = _png_cover(tmp_path / "profile.png")
+    foreign_timeline = tmp_path / "foreign-timeline.json"
+    foreign_timeline.write_text(
+        project.paths["composition_timeline"].read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    profile = _audioexport_profile(tmp_path / "export.toml", cover=cover, timeline=foreign_timeline)
+    target = project.state_root / "output" / "existing.m4b"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"existing user-owned output")
+
+    with pytest.raises(AudiobookExportError) as error:
+        export_audiobook_project(project, profile=profile, output=target, force=True)
+
+    assert error.value.code == "audiobook.export.timeline_stale"
+    assert target.read_bytes() == b"existing user-owned output"
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg and ffprobe are required for the M4B profile integration test",
+)
+def test_audioexport_chapter_verification_failure_preserves_existing_output(tmp_path: Path):
+    pytest.importorskip("audioexport")
+    project = _book_project(tmp_path)
+    _write_composition(project, titles=("Chapter one\ncontinued", "Chapter two"))
+    cover = _make_image_cover(tmp_path / "cover.png", "red")
+    profile = _audioexport_profile(tmp_path / "export.toml", cover=cover)
+    target = project.state_root / "output" / "existing.m4b"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"previous user-owned output")
+
+    with pytest.raises(AudiobookExportError) as error:
+        export_audiobook_project(project, profile=profile, output=target, force=True)
+
+    assert error.value.code == "audiobook.export.encode_failed"
+    assert target.read_bytes() == b"previous user-owned output"
+    assert not (project.state_root / "output" / "state.json").exists()
+
+
 def test_failed_ffmpeg_preserves_existing_destination_and_state(tmp_path: Path, monkeypatch):
     project = _book_project(tmp_path)
     _write_composition(project)
@@ -404,3 +632,73 @@ def test_missing_ffmpeg_has_specific_error(tmp_path: Path, monkeypatch):
         export_audiobook_project(project)
 
     assert error.value.code == "audiobook.export.ffmpeg_missing"
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg and ffprobe are required for the M4B profile integration test",
+)
+def test_saved_audiobook_profile_status_tracks_profile_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audioexport = pytest.importorskip("audioexport")
+    if not all(
+        hasattr(audioexport, name)
+        for name in ("load_profile", "resolve_output", "preflight_profile", "encode")
+    ):
+        pytest.skip("AudioExport 0.1.1 public profile API is not installed")
+    if not audioexport.doctor().get("formats", {}).get("m4b", {}).get("available"):
+        pytest.skip("AudioExport M4B encoder is unavailable")
+
+    from readio.api.types import AudiobookExportOptions, ProjectSettings
+    from readio.project_settings import with_project_settings
+    from readio.stages import pipeline
+
+    project = _book_project(tmp_path)
+    _write_composition(project, starts=(0, 12000), frames=24000)
+    cover = _make_image_cover(tmp_path / "profile.png", "blue")
+    profile = _audioexport_profile(tmp_path / "export.toml", cover=cover)
+    exported = export_audiobook_project(project, profile=profile)
+
+    project.paths["synthesis_profile"].parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(project.paths["synthesis_profile"], {"profile_id": "synthesis-id"})
+    composition_state = json.loads(project.paths["composition_state"].read_text(encoding="utf-8"))
+    composition_state["synthesis_profile_id"] = "synthesis-id"
+    atomic_write_json(project.paths["composition_state"], composition_state)
+    project.manifest = with_project_settings(
+        project.manifest,
+        ProjectSettings(audiobook_export=AudiobookExportOptions(profile=profile)),
+        project.state_root,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "semantic_status",
+        lambda _project: [
+            {"stage": "source", "state": "current"},
+            {"stage": "workspace", "state": "current"},
+            {"stage": "document", "state": "current"},
+            {"stage": "plan", "state": "current"},
+        ],
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_synthesis_status",
+        lambda _project: {"stage": "synthesis", "state": "current"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "build_audio_job",
+        lambda *_args, **_kwargs: (None, {"composition_id": "sha256:composition"}),
+    )
+
+    current = {row["stage"]: row for row in pipeline.project_status(project)["stages"]}
+    assert current["output"]["state"] == "current"
+    assert current["output"]["format"] == "m4b"
+    assert exported["path"] == project.state_root / "output" / "profile-book.m4b"
+
+    master_before = project.paths["composition_master"].read_bytes()
+    _audioexport_profile(profile, cover=cover, title="Changed profile title")
+    stale = {row["stage"]: row for row in pipeline.project_status(project)["stages"]}
+    assert stale["output"]["state"] == "stale"
+    assert stale["output"]["reason"] == "output.stale.project_settings_changed"
+    assert project.paths["composition_master"].read_bytes() == master_before

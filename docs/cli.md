@@ -28,8 +28,8 @@ readio plan unbind ROLE [--project PROJECT]
 readio synth PROJECT [--engine ENGINE] [--voice VOICE] [--select SELECTOR]
 readio preview PROJECT --select SELECTOR [--voice VOICE] [-o PREVIEW.wav]
 readio compose PROJECT [--target-lufs FLOAT] [--progress | --no-progress] [--json]
-readio export PROJECT --format {wav,flac,mp3,m4a,ogg,opus} [--bitrate BITRATE] [--force]
-readio audiobook export PROJECT --format m4b [--title TITLE] [--author AUTHOR] [--cover IMAGE] [--bitrate BITRATE] [--force]
+readio export PROJECT [--profile TOML] [--format {wav,flac,mp3,m4a,ogg,opus}] [--bitrate BITRATE] [--force] [--all --out-dir DIR]
+readio audiobook export PROJECT [--profile TOML] [--format m4b] [--title TITLE] [--author AUTHOR] [--cover IMAGE] [--bitrate BITRATE] [--force]
 readio status PROJECT [--json]
 readio render PROJECT --format FORMAT
 ```
@@ -83,13 +83,13 @@ readio project settings [--project PROJECT] [--json]
 readio project settings show [PROJECT] [--json]
 readio project settings set [PROJECT] [--engine ENGINE] [--model MODEL] [--language LANG] [--voice VOICE] [--voice-file PATH] [--voice-prompt REF] [--speed FLOAT]
   [--mastering PROFILE] [--target-lufs FLOAT] [--sample-rate HZ]
-  [--export-format FORMAT] [--export-output PATH] [--export-bitrate RATE]
+  [--export-format FORMAT] [--export-output PATH] [--export-bitrate RATE] [--export-profile TOML]
   [--audiobook-output PATH] [--audiobook-title TITLE] [--audiobook-author AUTHOR]
-  [--audiobook-cover IMAGE] [--audiobook-bitrate RATE]
+  [--audiobook-cover IMAGE] [--audiobook-bitrate RATE] [--audiobook-profile TOML]
 readio project settings clear [PROJECT] --section {synthesis,composition,export,audiobook_export}
 ```
 
-`set` updates only sections represented by its flags and preserves other saved section fields. It exposes named supported values, not arbitrary JSON editing. Relative paths are interpreted from the project root. Invocation-only `--force` and `--refresh` flags are never persisted.
+`set` updates only sections represented by its flags and preserves other saved section fields. It exposes named supported values, not arbitrary JSON editing. Relative paths are interpreted from the project root. Invocation-only `--force` and `--refresh` flags are never persisted. AudioExport profile paths may be saved with `--export-profile` and `--audiobook-profile`; direct export options override those defaults only for that operation. The `audioexport` dependency is optional (`pip install 'readio[audioexport]'`). Profiles apply only to file-based project exports; no-profile behavior and `readio speak`'s PCM streaming sink remain unchanged. `status` and project builds compare profile identity so profile-only edits stale only the output stage. M4B profiles use Readio's verified timeline, and foreign profile timelines are rejected.
 
 Synthesis, composition, generic export, and audiobook export defaults are used by requestless project APIs and builds. Explicit API or stage options override saved values for that invocation only. `readio status` reports stage-specific staleness when saved settings differ from built provenance; synthesis caches and previous outputs are retained.
 
@@ -168,7 +168,7 @@ readio audiobook export PROJECT --format m4b --output book.m4b \
   --title "Optional title" --author "Optional author" --cover cover.jpg --bitrate 96k
 ```
 
-Title and author default from the book metadata. `--cover` is optional and accepts an explicit JPEG/PNG file; automatic source cover extraction is not part of the current ssmdconvert integration, so provide a cover explicitly. M4B uses AAC with a Readio default bitrate of 192k. Existing unrelated output files require `--force`; unchanged Readio-owned outputs are safely reusable/replaced. Generic `readio export` supports FLAC and Opus; `.ogg` continues to mean Ogg/Vorbis.
+Title and author default from the book metadata. `--cover` is optional and accepts an explicit JPEG/PNG file; automatic source cover extraction is not part of the current ssmdconvert integration, so provide a cover explicitly. M4B uses AAC with a Readio default bitrate of 192k. Existing unrelated output files require `--force`; unchanged Readio-owned outputs are safely reusable/replaced. A profile can supply these options with `--profile AUDIOBOOK_TOML`; install the optional `readio[audioexport]` extra first. Readio still validates the composition timeline and audiobook metadata before profile encoding. Generic `readio export` supports FLAC and Opus; `.ogg` continues to mean Ogg/Vorbis.
 
 ## Persistent project status
 

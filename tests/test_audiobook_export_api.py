@@ -89,6 +89,31 @@ def test_audiobook_export_api_translates_result_for_public_consumers(tmp_path: P
     assert app_events[2].details["format"] == "m4b"
 
 
+def test_audiobook_export_api_forwards_profile(tmp_path: Path, monkeypatch):
+    project = _project(tmp_path)
+    captured = {}
+    app = Readio()
+
+    def fake_export(internal, **kwargs):
+        assert internal.root == project.root
+        captured.update(kwargs)
+        return {
+            "export_id": "sha256:export",
+            "path": project.state_root / "output" / "profile.m4b",
+            "format": "m4b",
+            "output_sha256": "sha256:output",
+            "chapter_count": 2,
+        }
+
+    monkeypatch.setattr(
+        "readio.api.audiobooks.audiobook_export_internal.export_audiobook_project",
+        fake_export,
+    )
+    profile = Path("profiles/audiobook.toml")
+    app.audiobooks.export(project.root, AudiobookExportOptions(profile=profile))
+    assert captured["profile"] == profile
+
+
 def test_audiobook_export_api_preserves_stable_error_codes_and_details(tmp_path: Path, monkeypatch):
     project = _project(tmp_path)
     app = Readio()

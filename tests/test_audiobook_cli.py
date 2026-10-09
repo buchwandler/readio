@@ -83,6 +83,7 @@ def test_audiobook_export_cli_uses_public_api_options(tmp_path, capsys, monkeypa
     project_path = tmp_path / "book.readio"
     output = tmp_path / "custom.m4b"
     cover = tmp_path / "cover.png"
+    profile = tmp_path / "audioexport.toml"
     project = ProjectRef(
         root=project_path,
         project_id="project-id",
@@ -128,6 +129,8 @@ def test_audiobook_export_cli_uses_public_api_options(tmp_path, capsys, monkeypa
                 "96k",
                 "--output",
                 str(output),
+                "--profile",
+                str(profile),
                 "--force",
                 "--json",
             ],
@@ -147,6 +150,7 @@ def test_audiobook_export_cli_uses_public_api_options(tmp_path, capsys, monkeypa
     assert options.bitrate == "96k"
     assert options.output == output
     assert options.force is True
+    assert options.profile == profile.resolve()
 
 
 def test_export_cli_has_generic_flac_opus_but_not_m4b(tmp_path, capsys) -> None:
@@ -163,6 +167,7 @@ def test_export_cli_has_generic_flac_opus_but_not_m4b(tmp_path, capsys) -> None:
     assert exit_info.value.code == 0
     audiobook_help = capsys.readouterr().out
     assert "--cover" in audiobook_help
+    assert "--profile" in audiobook_help
     assert "M4B output path" in audiobook_help
 
 

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
 from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
 from ..errors import ProjectPlanAttemptError
 from ..formats import AudioFormat
+from ..integrations.audioexport import AudioExportIntegrationError, AudioExportUnavailableError
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
 from ..project import Project, canonical_json, hash_file, read_json
 from ..project_settings import (
+    merge_export_options,
     merge_project_synthesis_request,
     project_role_targets_provenance,
     project_settings_from_manifest,
@@ -26,7 +29,13 @@ from .composition import (
     compose_artifacts,
     compose_project,
 )
-from .export import export_project, is_export_current, project_export_states
+from .export import (
+    export_project,
+    is_export_current,
+    output_state_for,
+    project_export_states,
+    resolve_project_export_target,
+)
 from .planning import (
     PlanningProgressCallback,
     inspect_plan_state,
@@ -300,14 +309,44 @@ def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
 def _audiobook_desired_output_status(
     project: Project, desired: Any, states: tuple[dict[str, Any], ...]
 ) -> dict[str, Any]:
-    target = audiobook_export_stage.audiobook_export_target(project, desired.output)
-    prepared = audiobook_export_stage.prepare_audiobook_export(
-        project,
-        title=desired.title,
-        author=desired.author,
-        cover=desired.cover,
-        bitrate=desired.bitrate,
-    )
+    if desired.profile is None:
+        prepared = audiobook_export_stage.prepare_audiobook_export(
+            project,
+            title=desired.title,
+            author=desired.author,
+            cover=desired.cover,
+            bitrate=desired.bitrate,
+        )
+        target = audiobook_export_stage.audiobook_export_target(project, desired.output)
+    else:
+        resolved = audiobook_export_stage._resolve_audiobook_profile(
+            project,
+            desired.profile,
+            title=desired.title,
+            author=desired.author,
+            cover=desired.cover,
+            bitrate=desired.bitrate,
+        )
+        prepared = audiobook_export_stage.prepare_audiobook_export(
+            project,
+            title=resolved.metadata.get("title"),
+            author=resolved.metadata.get("artist"),
+            cover=resolved.resolved_output.cover,
+            bitrate=resolved.resolved_output.bitrate,
+        )
+        metadata_tags = dict(resolved.metadata)
+        metadata_tags["title"] = prepared.metadata.title
+        if prepared.metadata.author is None:
+            metadata_tags.pop("artist", None)
+        else:
+            metadata_tags["artist"] = prepared.metadata.author
+        prepared = replace(
+            prepared,
+            export_id=audiobook_export_stage._profile_audiobook_export_identity(
+                prepared, resolved, metadata_tags
+            ),
+        )
+        target = audiobook_export_stage._profile_audiobook_target(project, desired.output, resolved)
     if audiobook_export_stage.is_audiobook_export_current(project, target, prepared):
         return {
             "stage": "output",
@@ -476,22 +515,28 @@ def project_status(project: Project) -> dict[str, Any]:
                         }
             else:
                 audio_format = desired_export.format
-                target = desired_export.output or (
-                    project.state_root / "output" / f"{project.manifest.name}.{audio_format}"
+                target = resolve_project_export_target(
+                    project,
+                    audio_format=audio_format,
+                    bitrate=desired_export.bitrate,
+                    output=desired_export.output,
+                    profile=desired_export.profile,
+                    format_explicit=desired_export.format_explicit,
                 )
-                if not target.is_absolute():
-                    target = project.state_root / target
                 if is_export_current(
                     project,
                     target,
                     audio_format=audio_format,
                     bitrate=desired_export.bitrate,
+                    profile=desired_export.profile,
+                    format_explicit=desired_export.format_explicit,
                 ):
+                    state = output_state_for(project, target)
                     output = {
                         "stage": "output",
                         "state": "current",
                         "reason": "current",
-                        "format": audio_format,
+                        "format": str(state.get("audio_format")) if state else audio_format,
                     }
                 else:
                     has_valid_current_export = False
@@ -527,7 +572,14 @@ def project_status(project: Project) -> dict[str, Any]:
                             "state": "stale",
                             "reason": "output.stale.composition_changed",
                         }
-        except (OSError, KeyError, TypeError, ValueError):
+        except (
+            OSError,
+            KeyError,
+            TypeError,
+            ValueError,
+            AudioExportIntegrationError,
+            AudioExportUnavailableError,
+        ):
             output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
     if (
         composition["state"] == "current"
@@ -540,7 +592,15 @@ def project_status(project: Project) -> dict[str, Any]:
                 desired_settings.audiobook_export,
                 project_export_states(project),
             )
-        except (OSError, KeyError, TypeError, ValueError):
+        except (
+            OSError,
+            KeyError,
+            TypeError,
+            ValueError,
+            audiobook_export_stage.AudiobookExportError,
+            AudioExportIntegrationError,
+            AudioExportUnavailableError,
+        ):
             output = {"stage": "output", "state": "stale", "reason": "output.invalid"}
     stages = [*rows, synthesis, composition, output]
     issues = [issue for row in stages if (issue := _stage_issue(row)) is not None]
@@ -643,11 +703,16 @@ def build_project(
     on_phase: Callable[[str], None] | None = None,
     on_stage: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
+    saved = project_settings_from_manifest(project.manifest, project.state_root)
     if request is None:
-        saved = project_settings_from_manifest(project.manifest, project.state_root)
         request = ProjectBuildRequest(
             composition=saved.composition or CompositionOptions(),
             export=saved.export or ExportOptions(),
+        )
+    else:
+        request = replace(
+            request,
+            export=merge_export_options(saved.export, request.export),
         )
     if request.target not in {"plan", "synthesis", "composition", "export"}:
         raise ValueError(f"unknown project build target: {request.target}")
@@ -744,16 +809,21 @@ def build_project(
 
     export_options = request.export
     audio_format = export_options.format
-    target = export_options.output or (
-        project.state_root / "output" / f"{project.manifest.name}.{audio_format}"
+    target = resolve_project_export_target(
+        project,
+        audio_format=audio_format,
+        bitrate=export_options.bitrate,
+        output=export_options.output,
+        profile=export_options.profile,
+        format_explicit=export_options.format_explicit,
     )
-    if not target.is_absolute():
-        target = project.state_root / target
     current_output = is_export_current(
         project,
         target,
         audio_format=audio_format,
         bitrate=export_options.bitrate,
+        profile=export_options.profile,
+        format_explicit=export_options.format_explicit,
     )
     if current_output:
         operations.append({"stage": "export", "action": "skipped", "path": target})
@@ -766,6 +836,8 @@ def build_project(
             bitrate=export_options.bitrate,
             output=target,
             force=export_options.force,
+            profile=export_options.profile,
+            format_explicit=export_options.format_explicit,
         )
         operations.append({"stage": "export", "action": "rebuilt", **exported})
         report("export", "rebuilt")

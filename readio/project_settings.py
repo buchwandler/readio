@@ -166,6 +166,38 @@ def project_pipeline_settings(manifest: ProjectManifest) -> dict[str, dict[str, 
     }
 
 
+def merge_export_options(saved: Any, requested: Any | None = None) -> Any:
+    """Merge invocation-only export overrides over saved project settings."""
+    from .api.types import ExportOptions
+
+    if requested is None:
+        return saved or ExportOptions()
+    if saved is None:
+        return requested
+
+    all_outputs = bool(getattr(requested, "all_outputs", False))
+    requested_format_explicit = bool(getattr(requested, "format_explicit", False))
+    saved_format_explicit = bool(getattr(saved, "format_explicit", False))
+    if all_outputs or requested_format_explicit:
+        audio_format = requested.format
+        format_explicit = requested_format_explicit
+    elif saved_format_explicit:
+        audio_format = saved.format
+        format_explicit = True
+    else:
+        audio_format = requested.format
+        format_explicit = False
+
+    return replace(
+        requested,
+        format=audio_format,
+        output=(requested.output if all_outputs else requested.output or saved.output),
+        bitrate=(requested.bitrate if requested.bitrate is not None else saved.bitrate),
+        profile=requested.profile or saved.profile,
+        format_explicit=format_explicit,
+    )
+
+
 def project_settings_from_manifest(manifest: ProjectManifest, project_root: Path) -> Any:
     """Deserialize supported settings into detached immutable public values."""
     from .api.types import (
@@ -207,20 +239,22 @@ def project_settings_from_manifest(manifest: ProjectManifest, project_root: Path
     if "export" in raw:
         values = raw["export"]
         export = ExportOptions(
-            format=values.get("format", "wav"),
+            format=values.get("format"),
             output=_loaded_path(values.get("output"), project_root),
             bitrate=values.get("bitrate"),
+            profile=_loaded_path(values.get("profile"), project_root),
         )
     audiobook_export = None
     if "audiobook_export" in raw:
         values = raw["audiobook_export"]
         audiobook_export = AudiobookExportOptions(
-            format=values.get("format", "m4b"),
+            format=values.get("format"),
             output=_loaded_path(values.get("output"), project_root),
             title=values.get("title"),
             author=values.get("author"),
             cover=_loaded_path(values.get("cover"), project_root),
             bitrate=values.get("bitrate"),
+            profile=_loaded_path(values.get("profile"), project_root),
         )
     return ProjectSettings(
         synthesis=synthesis,
@@ -262,14 +296,19 @@ def project_settings_to_dict(settings: Any, project_root: Path) -> dict[str, Any
         }
     export = settings.export
     if export is not None:
-        result["export"] = {
+        export_values: dict[str, Any] = {
             "format": export.format,
             "output": _stored_path(export.output, project_root),
             "bitrate": export.bitrate,
         }
+        if export.profile is not None:
+            export_values["profile"] = _stored_path(export.profile, project_root)
+            if not export.format_explicit:
+                export_values.pop("format")
+        result["export"] = export_values
     audiobook_export = settings.audiobook_export
     if audiobook_export is not None:
-        result["audiobook_export"] = {
+        audiobook_values: dict[str, Any] = {
             "format": audiobook_export.format,
             "output": _stored_path(audiobook_export.output, project_root),
             "title": audiobook_export.title,
@@ -277,6 +316,11 @@ def project_settings_to_dict(settings: Any, project_root: Path) -> dict[str, Any
             "cover": _stored_path(audiobook_export.cover, project_root),
             "bitrate": audiobook_export.bitrate,
         }
+        if audiobook_export.profile is not None:
+            audiobook_values["profile"] = _stored_path(audiobook_export.profile, project_root)
+            if not audiobook_export.format_explicit:
+                audiobook_values.pop("format")
+        result["audiobook_export"] = audiobook_values
     return result
 
 

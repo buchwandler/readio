@@ -452,7 +452,7 @@ def _project_build_request(args: argparse.Namespace) -> public_api.ProjectBuildR
             clip_policy=getattr(args, "clip_policy", "clamp"),
             sample_rate=getattr(args, "sample_rate", None),
         ),
-        export=public_api.ExportOptions(format=getattr(args, "format", None) or "wav"),
+        export=public_api.ExportOptions(format=getattr(args, "format", None)),
     )
 
 
@@ -583,12 +583,27 @@ def _cmd_export(args: argparse.Namespace) -> int:
     result = _api_for(args).projects.export(
         args.project or Path.cwd(),
         public_api.ExportOptions(
-            format=args.format,
+            format=getattr(args, "format", None),
             bitrate=args.bitrate,
             output=args.output,
             force=args.force,
+            profile=(
+                args.profile.expanduser().resolve()
+                if getattr(args, "profile", None) is not None
+                else None
+            ),
+            format_explicit=getattr(args, "format", None) is not None,
+            all_outputs=getattr(args, "all_outputs", False),
+            out_dir=args.out_dir,
         ),
     )
+    if isinstance(result, public_api.ProjectBatchExportResult):
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": result.success, **result.to_dict()}, ensure_ascii=False))
+        else:
+            for item in result.outputs:
+                print(f"{item.status}\t{item.format.upper()}\t{item.output_path}")
+        return 0 if result.success else 1
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
     else:
@@ -729,7 +744,7 @@ def _cmd_project_settings(args: argparse.Namespace) -> int:
             (
                 "export",
                 public_api.ExportOptions,
-                ("export_format", "export_output", "export_bitrate"),
+                ("export_format", "export_output", "export_bitrate", "export_profile"),
             ),
             (
                 "audiobook_export",
@@ -740,10 +755,11 @@ def _cmd_project_settings(args: argparse.Namespace) -> int:
                     "audiobook_author",
                     "audiobook_cover",
                     "audiobook_bitrate",
+                    "audiobook_profile",
                 ),
             ),
         )
-        updates = {}
+        updates: dict[str, Any] = {}
         for section, settings_type, fields in groups:
             values = {}
             for name in fields:
@@ -761,6 +777,10 @@ def _cmd_project_settings(args: argparse.Namespace) -> int:
                     }
                 )
             if values:
+                if section in {"export", "audiobook_export"} and "profile" in values:
+                    format_option = "export_format" if section == "export" else None
+                    if format_option is None or getattr(args, format_option, None) is None:
+                        values["format_explicit"] = False
                 existing = getattr(current, section) or settings_type()
                 updates[section] = replace(existing, **values)
         if not updates:
@@ -867,13 +887,19 @@ def _cmd_audiobook_export(args: argparse.Namespace) -> int:
     result = _api_for(args).audiobooks.export(
         args.project or Path.cwd(),
         public_api.AudiobookExportOptions(
-            format=args.format,
+            format=getattr(args, "format", None),
             output=args.output,
             title=args.title,
             author=args.author,
             cover=args.cover,
             bitrate=args.bitrate,
             force=args.force,
+            profile=(
+                args.profile.expanduser().resolve()
+                if getattr(args, "profile", None) is not None
+                else None
+            ),
+            format_explicit=getattr(args, "format", None) is not None,
         ),
     )
     if getattr(args, "json", False):
@@ -2423,11 +2449,13 @@ def build_parser() -> argparse.ArgumentParser:
     settings_set.add_argument("--export-format", choices=public_api.SUPPORTED_AUDIO_FORMATS)
     settings_set.add_argument("--export-output", type=Path)
     settings_set.add_argument("--export-bitrate")
+    settings_set.add_argument("--export-profile", type=Path)
     settings_set.add_argument("--audiobook-output", type=Path)
     settings_set.add_argument("--audiobook-title")
     settings_set.add_argument("--audiobook-author")
     settings_set.add_argument("--audiobook-cover", type=Path)
     settings_set.add_argument("--audiobook-bitrate")
+    settings_set.add_argument("--audiobook-profile", type=Path)
     settings_set.set_defaults(func=_cmd_project_settings, settings_action="set")
     settings_clear = settings_sub.add_parser("clear", help="clear one saved settings section")
     settings_clear.add_argument("project", nargs="?", type=Path)
@@ -2466,8 +2494,9 @@ def build_parser() -> argparse.ArgumentParser:
     audiobook_export.add_argument(
         "--format",
         choices=public_api.SUPPORTED_AUDIOBOOK_FORMATS,
-        default=public_api.AUDIOBOOK_EXPORT_FORMAT,
+        default=None,
     )
+    audiobook_export.add_argument("--profile", type=Path, help="AudioExport TOML profile")
     audiobook_export.add_argument("--title")
     audiobook_export.add_argument("--author")
     audiobook_export.add_argument("--cover", type=Path, help="cover image (.jpg or .png)")
@@ -2504,8 +2533,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_cmd = sub.add_parser("export", help="Encode a composed project master.")
     export_cmd.add_argument("project", nargs="?", type=Path)
-    export_cmd.add_argument("--format", choices=public_api.SUPPORTED_AUDIO_FORMATS, default="wav")
+    export_cmd.add_argument("--format", choices=public_api.SUPPORTED_AUDIO_FORMATS)
     export_cmd.add_argument("--bitrate")
+    export_cmd.add_argument("--profile", type=Path, help="AudioExport TOML profile")
+    export_cmd.add_argument(
+        "--all", action="store_true", dest="all_outputs", help="export every profile output"
+    )
+    export_cmd.add_argument("--out-dir", type=Path, help="directory for --all profile outputs")
     export_cmd.add_argument("-o", "--output", type=Path)
     export_cmd.add_argument("--force", action="store_true", help="replace an existing output")
     export_cmd.add_argument("--json", action="store_true")

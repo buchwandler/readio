@@ -14,17 +14,19 @@ from ..project_model import ProjectFormatError as InternalProjectFormatError
 from ..project_model import ProjectManifest
 from ..project_settings import (
     apply_project_settings_patch,
+    merge_export_options,
     project_settings_from_manifest,
     project_synthesis_request,
     with_project_settings,
 )
 from ..stages.composition import CompositionProgress, compose_project
-from ..stages.export import export_project
+from ..stages.export import export_profile_batch, export_project
 from ..stages.pipeline import _project_request, build_project, preview_project, project_status
 from ..stages.planning import PlanningProgressCallback, ProjectPlanningProgress, plan_project
 from ..stages.synthesis import resolve_project_synthesis, synthesize_project
 from .errors import (
     ExecutionError,
+    InvalidRequestError,
     ProjectConflictError,
     ProjectError,
     ProjectFormatError,
@@ -47,6 +49,8 @@ from .types import (
     NextAction,
     PreviewRequest,
     PreviewResult,
+    ProjectBatchExportItem,
+    ProjectBatchExportResult,
     ProjectBuildRequest,
     ProjectBuildResult,
     ProjectCompositionResult,
@@ -277,6 +281,14 @@ def _plan_repair_result(value: Mapping[str, Any]) -> ProjectPlanRepairResult:
         dry_run=value.get("dry_run") is True,
         source_files_changed=value.get("source_files_changed") is True,
     )
+
+
+def _export_options(
+    internal: project_internal.Project,
+    options: ExportOptions | None,
+) -> ExportOptions:
+    saved = project_settings_from_manifest(internal.manifest, internal.state_root).export
+    return merge_export_options(saved, options)
 
 
 class ProjectService:
@@ -822,16 +834,93 @@ class ProjectService:
         options: ExportOptions | None = None,
         *,
         on_event: EventHandler | None = None,
-    ) -> ProjectExportResult:
+    ) -> ProjectExportResult | ProjectBatchExportResult:
         internal = self._load(project)
-        settings = project_settings_from_manifest(internal.manifest, internal.state_root)
-        options = options or settings.export or ExportOptions()
+        options = _export_options(internal, options)
+        if options.all_outputs:
+            if options.profile is None:
+                raise InvalidRequestError(
+                    "--all requires an AudioExport profile",
+                    code="readio.export.profile_required",
+                )
+            if options.format_explicit:
+                raise InvalidRequestError(
+                    "--format cannot be combined with --all",
+                    code="readio.export.all_format_conflict",
+                )
+            if options.output is not None:
+                raise InvalidRequestError(
+                    "--output cannot be combined with --all; use --out-dir",
+                    code="readio.export.all_output_conflict",
+                )
+        elif options.out_dir is not None:
+            raise InvalidRequestError(
+                "--out-dir requires --all",
+                code="readio.export.out_dir_requires_all",
+            )
+
         handler = self._handler(on_event)
         operation = "projects.export"
         self._notify(handler, ReadioEvent(kind="operation.started", operation=operation))
         self._notify(
             handler, ReadioEvent(kind="stage.started", operation=operation, stage="export")
         )
+        if options.all_outputs:
+            profile_path = options.profile
+            assert profile_path is not None
+            raw = self._call(
+                lambda: export_profile_batch(
+                    internal,
+                    profile=profile_path,
+                    out_dir=options.out_dir,
+                    bitrate=options.bitrate,
+                    force=options.force,
+                )
+            )
+            outputs = raw["outputs"]
+            self._notify(
+                handler,
+                ReadioEvent(
+                    kind="stage.completed",
+                    operation=operation,
+                    stage="export",
+                    details={
+                        "items": len(outputs),
+                        "failed": sum(item.get("status") == "failed" for item in outputs),
+                    },
+                ),
+            )
+            self._notify(handler, ReadioEvent(kind="operation.completed", operation=operation))
+            items = tuple(
+                ProjectBatchExportItem(
+                    format=str(item["format"]),
+                    output_path=Path(item["path"]),
+                    status=cast(Any, item["status"]),
+                    export_id=(
+                        str(item["export_id"]) if item.get("export_id") is not None else None
+                    ),
+                    output_sha256=(
+                        str(item["output_sha256"])
+                        if item.get("output_sha256") is not None
+                        else None
+                    ),
+                    error_code=(
+                        str(item["error_code"]) if item.get("error_code") is not None else None
+                    ),
+                    error_message=(
+                        str(item["error_message"])
+                        if item.get("error_message") is not None
+                        else None
+                    ),
+                )
+                for item in outputs
+            )
+            return ProjectBatchExportResult(
+                project=self._ref(internal),
+                outputs=items,
+                success=raw.get("success") is True,
+            )
+
         raw = self._call(
             lambda: export_project(
                 internal,
@@ -839,6 +928,8 @@ class ProjectService:
                 bitrate=options.bitrate,
                 output=options.output,
                 force=options.force,
+                profile=options.profile,
+                format_explicit=options.format_explicit,
             )
         )
         self._notify(

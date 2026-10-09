@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 from .. import audiobook as audiobook_internal
 from .. import errors as core_errors
@@ -80,6 +80,7 @@ def _export_options(
         author=options.author if options.author is not None else saved.author,
         cover=options.cover if options.cover is not None else saved.cover,
         bitrate=options.bitrate if options.bitrate is not None else saved.bitrate,
+        profile=options.profile if options.profile is not None else saved.profile,
     )
 
 
@@ -191,16 +192,18 @@ class AudiobookService:
         self._notify(
             handler, ReadioEvent(kind="stage.started", operation=operation, stage="export")
         )
+        export_kwargs: dict[str, Any] = {
+            "output": options.output,
+            "title": options.title,
+            "author": options.author,
+            "cover": options.cover,
+            "bitrate": options.bitrate,
+            "force": options.force,
+        }
+        if options.profile is not None:
+            export_kwargs["profile"] = options.profile
         raw = self._call(
-            lambda: audiobook_export_internal.export_audiobook_project(
-                internal,
-                output=options.output,
-                title=options.title,
-                author=options.author,
-                cover=options.cover,
-                bitrate=options.bitrate,
-                force=options.force,
-            )
+            lambda: audiobook_export_internal.export_audiobook_project(internal, **export_kwargs)
         )
         self._notify(
             handler,

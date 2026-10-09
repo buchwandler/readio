@@ -95,15 +95,44 @@ class CatalogListing(Generic[T]):
     discovery: CatalogDiscovery
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class ExportOptions:
     format: AudioFormat = "wav"
     output: Path | None = None
     bitrate: str | None = None
     force: bool = False
+    format_explicit: bool = dataclass_field(default=False, repr=False, compare=False)
+    profile: Path | None = None
+    all_outputs: bool = False
+    out_dir: Path | None = None
+
+    def __init__(
+        self,
+        format: AudioFormat | None = None,
+        output: Path | None = None,
+        bitrate: str | None = None,
+        force: bool = False,
+        profile: Path | None = None,
+        *,
+        format_explicit: bool | None = None,
+        all_outputs: bool = False,
+        out_dir: Path | None = None,
+    ) -> None:
+        object.__setattr__(self, "format", format if format is not None else "wav")
+        object.__setattr__(self, "output", output)
+        object.__setattr__(self, "bitrate", bitrate)
+        object.__setattr__(self, "force", force)
+        object.__setattr__(self, "profile", profile)
+        object.__setattr__(self, "all_outputs", all_outputs)
+        object.__setattr__(self, "out_dir", out_dir)
+        object.__setattr__(
+            self,
+            "format_explicit",
+            format is not None if format_explicit is None else format_explicit,
+        )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class AudiobookExportOptions:
     format: AudiobookExportFormat = AUDIOBOOK_EXPORT_FORMAT
     output: Path | None = None
@@ -112,6 +141,37 @@ class AudiobookExportOptions:
     cover: Path | None = None
     bitrate: str | None = None
     force: bool = False
+    format_explicit: bool = dataclass_field(default=False, repr=False, compare=False)
+    profile: Path | None = None
+
+    def __init__(
+        self,
+        format: AudiobookExportFormat | None = None,
+        output: Path | None = None,
+        title: str | None = None,
+        author: str | None = None,
+        cover: Path | None = None,
+        bitrate: str | None = None,
+        force: bool = False,
+        profile: Path | None = None,
+        *,
+        format_explicit: bool | None = None,
+    ) -> None:
+        object.__setattr__(
+            self, "format", format if format is not None else AUDIOBOOK_EXPORT_FORMAT
+        )
+        object.__setattr__(self, "output", output)
+        object.__setattr__(self, "title", title)
+        object.__setattr__(self, "author", author)
+        object.__setattr__(self, "cover", cover)
+        object.__setattr__(self, "bitrate", bitrate)
+        object.__setattr__(self, "force", force)
+        object.__setattr__(self, "profile", profile)
+        object.__setattr__(
+            self,
+            "format_explicit",
+            format is not None if format_explicit is None else format_explicit,
+        )
 
 
 def _freeze_setting_value(value: Any) -> Any:
@@ -917,6 +977,30 @@ class ProjectExportResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectBatchExportItem:
+    format: str
+    output_path: Path
+    status: Literal["encoded", "reused", "failed", "not_attempted"]
+    export_id: str | None = None
+    output_sha256: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectBatchExportResult:
+    project: ProjectRef
+    outputs: tuple[ProjectBatchExportItem, ...]
+    success: bool
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return cast(dict[str, JsonValue], json_value(self))
+
+
+@dataclass(frozen=True, slots=True)
 class AudiobookExportResult:
     project: ProjectRef
     output_path: Path
@@ -1491,10 +1575,10 @@ __all__ = [
     "PlanRequest",
     "PreviewRequest",
     "PreviewResult",
+    "ProjectBatchExportItem",
+    "ProjectBatchExportResult",
     "ProjectBuildRequest",
     "ProjectBuildResult",
-    "ProjectCompositionResult",
-    "ProjectExportResult",
     "ProjectLike",
     "ProjectPlanAttemptRef",
     "ProjectPlanAttemptScope",
