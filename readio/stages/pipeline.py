@@ -8,7 +8,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+from voicerender import ArtifactError, read_render_manifest
+
 from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
+from ..audioio import write_pcm16_wav
 from ..errors import ProjectPlanAttemptError
 from ..formats import AudioFormat
 from ..integrations.audioexport import AudioExportIntegrationError, AudioExportUnavailableError
@@ -25,9 +28,11 @@ from ..project_settings import (
 from . import audiobook_export as audiobook_export_stage
 from .composition import (
     CompositionProgressCallback,
+    _loudness_payload,
     build_audio_job,
-    compose_artifacts,
+    compose_job,
     compose_project,
+    composition_is_current,
 )
 from .export import (
     export_project,
@@ -227,7 +232,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             current_sha = hash_file(project.state_root / "plan" / scope.path)
             if (
                 recorded.get("plan_id") != plan.plan_id
-                or recorded.get("plan_sha256") != current_sha
+                or recorded.get("sha256", recorded.get("plan_sha256")) != current_sha
             ):
                 return {
                     "stage": "synthesis",
@@ -236,64 +241,93 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                     "scope_id": scope.id,
                 }
 
-    from .speech_identity import segment_route_profile, segment_speech_hash, segment_synthesis_key
-    from .synthesis import _valid_audio
-
-    per_scope: dict[str, dict[str, int]] = {}
-    for scope, plan in scoped_plans:
+    if profile.get("schema_version") == 6:
+        manifest_refs = profile.get("manifest_refs")
+        if not isinstance(manifest_refs, list) or trace.get("manifests") != manifest_refs:
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.trace.manifest_mismatch"}
+        current_plans = {scope.id: (scope, plan) for scope, plan in scoped_plans}
+        per_scope: dict[str, dict[str, int]] = {}
+        required = 0
         reusable = 0
-        for segment in plan.segments:
-            route_identity = segment_route_profile(profile, scope.id, str(segment.id))
-            if route_identity is None:
-                continue
-            route_profile, route_profile_id = route_identity
-            speech_hash = segment_speech_hash(plan, segment, route_profile)
-            key = segment_synthesis_key(speech_hash, route_profile_id)
-            cache_path = project.state_root / "synthesis" / "cache" / f"{key.replace(':', '-')}.wav"
-            sidecar_path = (
-                project.state_root / "synthesis" / "cache" / f"{key.replace(':', '-')}.json"
-            )
-            checked = _valid_audio(cache_path)
-            if checked is None:
-                continue
+        for reference in manifest_refs:
+            if not isinstance(reference, Mapping):
+                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+            scope_id = str(reference.get("scope_id", ""))
+            current = current_plans.get(scope_id)
+            if current is None:
+                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.plan_changed"}
+            scope, plan = current
+            manifest_value = reference.get("path")
+            if not isinstance(manifest_value, str):
+                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+            manifest_path = Path(manifest_value)
+            if not manifest_path.is_absolute():
+                manifest_path = project.state_root / manifest_path
             try:
-                sidecar = read_json(sidecar_path)
-            except (OSError, ValueError):
-                continue
+                manifest = read_render_manifest(manifest_path)
+            except (ArtifactError, OSError, ValueError):
+                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.render_manifest_missing"}
+            plan_path = project.state_root / "plan" / scope.path
+            source = manifest.get("source", {})
+            manifest_profile = manifest.get("profile", {})
+            current_plan_sha = f"sha256:{hash_file(plan_path)}"
             if (
-                sidecar.get("speech_hash") == speech_hash
-                and sidecar.get("synthesis_key") == key
-                and sidecar.get("profile_id") == route_profile_id
-                and sidecar.get("audio_sha256") == checked[3]
+                manifest.get("manifest_id") != reference.get("manifest_id")
+                or source.get("plan_id") != plan.plan_id
+                or source.get("plan_file_sha256") != current_plan_sha
+                or source.get("plan_id") != reference.get("plan_id")
+                or source.get("plan_file_sha256") != reference.get("plan_file_sha256")
+                or manifest_profile.get("effective_profile_sha256")
+                != reference.get("effective_profile_sha256")
             ):
+                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.render_manifest_changed"}
+            entries = manifest.get("segments")
+            if not isinstance(entries, list):
+                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+            scope_counts = per_scope.setdefault(scope_id, {"reusable": 0, "required": 0})
+            for entry in entries:
+                required += 1
+                scope_counts["required"] += 1
+                if not isinstance(entry, Mapping) or entry.get("status") not in {"rendered", "reused"}:
+                    continue
+                audio = entry.get("audio", {})
+                if not isinstance(audio, Mapping) or not isinstance(audio.get("path"), str):
+                    continue
+                audio_path = Path(audio["path"])
+                if not audio_path.is_absolute():
+                    audio_path = manifest_path.parent / audio_path
+                if not audio_path.is_file() or hash_file(audio_path) != audio.get("sha256"):
+                    continue
                 reusable += 1
-        per_scope[scope.id] = {"reusable": reusable, "required": len(plan.segments)}
-
-    reusable = sum(item["reusable"] for item in per_scope.values())
-    required = sum(item["required"] for item in per_scope.values())
-    details = {
-        "reusable": reusable,
-        "required": required,
-        "missing": required - reusable,
-        "total": required,
-        "scopes": len(scoped_plans),
-        "per_scope": per_scope,
-        "profile": profile,
-        "profile_id": profile_id,
-        "plan_ids": [
-            {"scope_id": scope.id, "plan_id": plan.plan_id} for scope, plan in scoped_plans
-        ],
-    }
-    if len(scoped_plans) == 1:
-        details["plan_id"] = scoped_plans[0][1].plan_id
-    if reusable == required:
-        return {"stage": "synthesis", "state": "current", "reason": "current", **details}
-    return {
-        "stage": "synthesis",
-        "state": "stale",
-        "reason": "synthesis.stale.speech_changed",
-        **details,
-    }
+                scope_counts["reusable"] += 1
+        if required != trace.get("selected_segments", required):
+            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.render_manifest_changed"}
+        details = {
+            "reusable": reusable,
+            "required": required,
+            "missing": required - reusable,
+            "total": required,
+            "scopes": len(scoped_plans),
+            "per_scope": per_scope,
+            "profile": profile,
+            "profile_id": profile_id,
+            "manifests": manifest_refs,
+            "plan_ids": [
+                {"scope_id": scope.id, "plan_id": plan.plan_id}
+                for scope, plan in scoped_plans
+            ],
+        }
+        if len(scoped_plans) == 1:
+            details["plan_id"] = scoped_plans[0][1].plan_id
+        if reusable == required:
+            return {"stage": "synthesis", "state": "current", "reason": "current", **details}
+        return {
+            "stage": "synthesis",
+            "state": "stale",
+            "reason": "synthesis.stale.render_artifacts_missing",
+            **details,
+        }
+    return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
 
 
 def _stage_issue(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -400,74 +434,40 @@ def project_status(project: Project) -> dict[str, Any]:
             "blocked_by": "synthesis",
         }
     else:
-        composition = {"stage": "composition", "state": "stale", "reason": "composition.missing"}
         state_path = project.paths["composition_state"]
+        desired_composition = desired_settings.composition
         if state_path.is_file() and project.paths["composition_master"].is_file():
             try:
+                options = {}
+                if desired_composition is not None:
+                    options = {
+                        "mastering": desired_composition.mastering,
+                        "target_lufs": desired_composition.target_lufs,
+                        "true_peak_ceiling_dbtp": desired_composition.true_peak_ceiling_dbtp,
+                        "peak_policy": desired_composition.peak_policy,
+                        "clip_policy": desired_composition.clip_policy,
+                        "output_sample_rate": desired_composition.sample_rate,
+                    }
                 state = read_json(state_path)
-                identity_payload = state.get("identity_payload", {})
-                loudness = (
-                    identity_payload.get("loudness", {})
-                    if isinstance(identity_payload, dict)
-                    else {}
-                )
-                desired_composition = desired_settings.composition
-                if desired_composition is None:
-                    mastering = loudness.get("profile", "spoken-word")
-                    target_lufs = loudness.get("target_lufs")
-                    true_peak_ceiling_dbtp = loudness.get("true_peak_ceiling_dbtp")
-                    peak_policy = loudness.get("peak_policy", "reduce_gain")
-                    clip_policy = (
-                        identity_payload.get("clip_policy", "clamp")
-                        if isinstance(identity_payload, dict)
-                        else "clamp"
-                    )
-                    sample_rate = (
-                        identity_payload.get("sample_rate")
-                        if isinstance(identity_payload, dict)
-                        else None
-                    )
-                else:
-                    mastering = desired_composition.mastering
-                    target_lufs = desired_composition.target_lufs
-                    true_peak_ceiling_dbtp = desired_composition.true_peak_ceiling_dbtp
-                    peak_policy = desired_composition.peak_policy
-                    clip_policy = desired_composition.clip_policy
-                    sample_rate = desired_composition.sample_rate
-                _, current_identity = build_audio_job(
-                    project,
-                    mastering=mastering,
-                    target_lufs=target_lufs,
-                    true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
-                    peak_policy=peak_policy,
-                    clip_policy=clip_policy,
-                    output_sample_rate=sample_rate,
-                )
-                profile_id = read_json(project.paths["synthesis_profile"]).get("profile_id")
-                identity_matches = state.get("composition_id") == current_identity["composition_id"]
-                master_matches = hash_file(project.paths["composition_master"]) == state.get(
-                    "master_sha256"
-                )
-                profile_matches = state.get("synthesis_profile_id") == profile_id
-                if identity_matches and master_matches and profile_matches:
+                if composition_is_current(project, **options):
                     composition = {
                         "stage": "composition",
                         "state": "current",
                         "reason": "current",
-                        "composition_id": current_identity["composition_id"],
+                        "job_id": state.get("job_id"),
+                        "composition_id": state.get("job_id"),
                     }
                 else:
-                    reason = (
-                        "composition.stale.project_settings_changed"
-                        if desired_composition is not None and not identity_matches
-                        else "composition.stale.timing_changed"
-                    )
                     composition = {
                         "stage": "composition",
                         "state": "stale",
-                        "reason": reason,
+                        "reason": (
+                            "composition.stale.project_settings_changed"
+                            if desired_composition is not None
+                            else "composition.stale.timing_changed"
+                        ),
                     }
-            except (OSError, ValueError, KeyError):
+            except (OSError, TypeError, ValueError, KeyError):
                 composition = {
                     "stage": "composition",
                     "state": "stale",
@@ -764,7 +764,10 @@ def build_project(
         return {"project": str(project.root), "operations": operations, "output_path": None}
 
     composition_options = request.composition
-    _, identity = build_audio_job(
+    composition_options = request.composition
+    state_path = project.paths["composition_state"]
+    state = read_json(state_path) if state_path.is_file() else {}
+    composition_current = composition_is_current(
         project,
         mastering=composition_options.mastering,
         target_lufs=composition_options.target_lufs,
@@ -773,18 +776,12 @@ def build_project(
         clip_policy=composition_options.clip_policy,
         output_sample_rate=composition_options.sample_rate,
     )
-    state_path = project.paths["composition_state"]
-    state = read_json(state_path) if state_path.is_file() else {}
-    composition_current = (
-        state.get("composition_id") == identity["composition_id"]
-        and project.paths["composition_master"].is_file()
-    )
     if composition_current:
         operations.append(
             {
                 "stage": "composition",
                 "action": "skipped",
-                "mastering_profile": identity["identity_payload"]["loudness"]["profile"],
+                "mastering_profile": state.get("mastering_profile", composition_options.mastering),
                 "loudness": state.get("loudness"),
             }
         )
@@ -899,49 +896,35 @@ def preview_project(
         activate=activate,
         on_event=on_event,
     )
-    selected_scope_ids = {artifact.scope_id for artifact in synthesis["artifacts"]}
-    scoped_plans = tuple(
-        (scope.id, load_scope_plan(project, scope))
-        for scope in project.load_plan_index().scopes
-        if scope.id in selected_scope_ids
-    )
-    document_scopes = {scope.id: scope for scope in project.document_scopes()}
-    indexed_plans = {scope.id: scope for scope in project.load_plan_index().scopes}
-    scope_metadata = tuple(
-        {
-            "scope_id": scope_id,
-            "kind": document_scopes[scope_id].kind,
-            "title": document_scopes[scope_id].title,
-            "source_number": document_scopes[scope_id].source_number,
-            "plan_id": plan.plan_id,
-            "plan_sha256": hash_file(project.state_root / "plan" / indexed_plans[scope_id].path),
-        }
-        for scope_id, plan in scoped_plans
-    )
     options = composition or CompositionOptions(target_lufs=target_lufs)
-    result = compose_artifacts(
-        synthesis["artifacts"],
-        plans=scoped_plans,
-        scope_metadata=scope_metadata,
+    job, _identity = build_audio_job(
+        project,
         mastering=options.mastering,
         target_lufs=options.target_lufs,
         true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,
         peak_policy=options.peak_policy,
         clip_policy=options.clip_policy,
         output_sample_rate=options.sample_rate,
-        composition=synthesis["profile"].payload.get("composition", {}),
-        synthesis_profile=synthesis["profile"].payload,
-        output=output,
-        on_progress=on_composition_progress,
-        on_phase=on_phase,
     )
+    result = compose_job(job, on_progress=on_composition_progress)
+    if output is not None:
+        if on_phase is not None:
+            on_phase("Writing preview artifacts")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        write_pcm16_wav(output, result.audio, result.sample_rate)
     return {
         "profile_id": synthesis["profile"].profile_id,
         "plan_ids": synthesis["plan_ids"],
         "reused": synthesis["reused"],
         "rendered": synthesis["rendered"],
         "activated": activate,
-        **result,
+        "sample_rate": result.sample_rate,
+        "frames": len(result.audio),
+        "items": len(result.items),
+        "output": output,
+        "composition_id": job.job_id,
+        "warnings": [],
+        "loudness": _loudness_payload(result.loudness, options.mastering),
     }
 
 

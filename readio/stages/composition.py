@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -27,21 +28,32 @@ from audiocompose import (
     OutputPolicy,
     PitchShift,
     RatePitchEnvelope,
+    Silence,
     Tempo,
 )
+from audiocompose.integrations.voicerender import PausePolicy, materialize_voicerender_job
+from voicerender import read_render_manifest
 
 from ..audioio import probe_audio, read_audio, write_pcm16_wav
 from ..errors import InputError
 from ..jsonutil import JsonValue
 from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
-from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
+from ..planning.policy import PlanningPolicy
+from ..project import (
+    Project,
+    atomic_write_bytes,
+    atomic_write_json,
+    canonical_json,
+    hash_file,
+    project_lock,
+    read_json,
+)
 from ..stages.speech_identity import (
     segment_route_profile,
     segment_speech_hash,
     segment_synthesis_key,
 )
 from .planning import load_scope_plan
-from .synthesis import _valid_audio
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -497,6 +509,20 @@ def _marker_sample_offset(marker: Mapping[str, Any], segment: Any, entry: Mappin
     return round(frames * position / len(segment.text))
 
 
+def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
+    if not path.is_file():
+        return None
+    try:
+        info = probe_audio(path)
+        digest = hash_file(path)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if expected_sha is not None and digest != expected_sha:
+        return None
+    if info.frames <= 0 or info.sample_rate <= 0:
+        return None
+    return int(info.sample_rate), int(info.channels), int(info.frames), digest
+
 def _cache_entries(
     project: Project, plan: Any, scope_id: str
 ) -> dict[tuple[str, str], dict[str, Any]]:
@@ -916,6 +942,144 @@ def _build_layout(
     return builder.build_job(clips)
 
 
+def _pause_policy_document() -> dict[str, Any]:
+    planning = PlanningPolicy()
+
+    def duration(seconds: float) -> str:
+        return f"{seconds * 1000:g}ms"
+
+    return {
+        "schema": "audiocompose.pause-policy.v1",
+        "merge": "max",
+        "default": {
+            "none": "0ms",
+            "x-weak": duration(planning.pause_weak / 2),
+            "weak": duration(planning.pause_weak),
+            "medium": duration(planning.pause_clause),
+            "strong": duration(planning.pause_sentence),
+            "x-strong": duration(planning.pause_paragraph),
+            "clause": duration(planning.pause_clause),
+            "sentence": duration(planning.pause_sentence),
+            "paragraph": duration(planning.pause_paragraph),
+            "parenthetical": duration(planning.pause_parenthetical),
+            "voice_change": duration(planning.pause_voice_change),
+        },
+    }
+
+
+def _pause_policy_toml(document: Mapping[str, Any]) -> str:
+    lines = [
+        f"schema = {json.dumps(document['schema'])}",
+        f"merge = {json.dumps(document['merge'])}",
+        "",
+        "[default]",
+    ]
+    lines.extend(
+        f"{name} = {json.dumps(value)}"
+        for name, value in sorted(document["default"].items())
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _output_policy(
+    *,
+    sample_rate: int,
+    mastering: MasteringProfile,
+    target_lufs: float | None,
+    true_peak_ceiling_dbtp: float | None,
+    peak_policy: Literal["reduce_gain", "error"],
+    clip_policy: str,
+) -> OutputPolicy:
+    resolved = resolve_mastering_policy(
+        mastering,
+        target_lufs=target_lufs,
+        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+        peak_policy=peak_policy,
+    )
+    return OutputPolicy(
+        sample_rate=sample_rate,
+        channels=1,
+        loudness=LoudnessPolicy(
+            target_lufs=resolved.target_lufs,
+            true_peak_ceiling_dbtp=resolved.true_peak_ceiling_dbtp,
+            peak_policy=resolved.peak_policy,
+            collect_metrics=resolved.collect_metrics,
+        ),
+        clip_policy=clip_policy,
+    )
+
+
+def _locator_order(plan: Any) -> dict[str, int]:
+    result: dict[str, int] = {}
+    order = 0
+    for flow_index, flow in enumerate(plan.flow):
+        for segment_index, _segment in enumerate(flow.segments):
+            result[f"f{flow_index:06d}.s{segment_index:03d}"] = order
+            order += 1
+    return result
+
+
+def _segment_at_locator(plan: Any, locator: str) -> Any:
+    flow_index, segment_index = map(int, locator[1:].split(".s"))
+    return plan.flow[flow_index].segments[segment_index]
+
+
+def _scoped_audio_item(item: Any, scope_id: str) -> Any:
+    metadata = {**dict(item.metadata), "readio.scope_id": scope_id}
+    if isinstance(item, AudioClip):
+        return replace(
+            item,
+            id=f"{scope_id}:{item.id}",
+            anchors=tuple(replace(anchor, id=f"{scope_id}:{anchor.id}") for anchor in item.anchors),
+            spans=tuple(
+                replace(span, id=f"{scope_id}:{span.id}") if span.id is not None else span
+                for span in item.spans
+            ),
+            metadata=metadata,
+        )
+    return replace(item, id=f"{scope_id}:{item.id}", metadata=metadata)
+
+
+def _pause_boundary(
+    policy: PausePolicy,
+    plan: Any,
+    scope_id: str,
+    left_locator: str,
+    right_locator: str,
+) -> Silence | None:
+    left = _segment_at_locator(plan, left_locator)
+    right = _segment_at_locator(plan, right_locator)
+    left_role = _segment_voice_reference(left) or "narrator"
+    right_role = _segment_voice_reference(right) or "narrator"
+
+    def resolve(intent: Any, role: str, edge: str) -> float:
+        value = intent.to_dict() if hasattr(intent, "to_dict") else intent
+        return policy.resolve(
+            value,
+            voice=role,
+            where=f"{scope_id}:{left_locator}->{right_locator}:{edge}",
+        )
+
+    seconds = max(
+        resolve(left.pause_after, left_role, "pause_after"),
+        resolve(right.pause_before, right_role, "pause_before"),
+    )
+    if seconds <= 0:
+        return None
+    return Silence(
+        id=f"{scope_id}:pause:{left_locator}->{right_locator}",
+        seconds=seconds,
+        metadata={
+            "kind": "pause",
+            "readio.scope_id": scope_id,
+            "utterplan.plan_id": plan.plan_id,
+            "utterplan.left_locator": left_locator,
+            "utterplan.right_locator": right_locator,
+            "audiocompose.pause_policy_id": policy.policy_id,
+        },
+    )
+
+
 def build_audio_job(
     project: Project,
     *,
@@ -926,20 +1090,37 @@ def build_audio_job(
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
 ) -> tuple[AudioJob, dict[str, Any]]:
+    """Materialize project render manifests into one producer-neutral AudioJob."""
+    profile = read_json(project.paths["synthesis_profile"])
+    manifest_refs = profile.get("manifest_refs")
+    if not isinstance(manifest_refs, list) or not manifest_refs:
+        raise ValueError("active synthesis profile has no VoiceRender manifests")
     scoped_plans = tuple(
         (scope, load_scope_plan(project, scope)) for scope in project.load_plan_index().scopes
     )
-    segments = []
-    first_entry: dict[str, Any] | None = None
-    document_scopes = {item.id: item for item in project.document_scopes()}
+    plans_by_scope = {scope.id: (scope, plan) for scope, plan in scoped_plans}
+    plan_order = {scope.id: index for index, (scope, _plan) in enumerate(scoped_plans)}
+    pause_document = _pause_policy_document()
+    pause_policy = PausePolicy.from_mapping(pause_document)
+    ordered_refs = sorted(
+        manifest_refs,
+        key=lambda item: (
+            plan_order.get(str(item.get("scope_id", "")), len(plan_order)),
+            int(item.get("run_index", 0)),
+        ),
+    )
+    manifest_documents: dict[str, Mapping[str, Any]] = {}
+    first_sample_rate: int | None = None
     scope_metadata = []
     for scope, plan in scoped_plans:
-        document_scope = document_scopes.get(scope.id)
+        document_scope = next(
+            (item for item in project.document_scopes() if item.id == scope.id), None
+        )
         scope_metadata.append(
             {
                 "scope_id": scope.id,
                 "kind": document_scope.kind if document_scope is not None else scope.kind,
-                "title": (document_scope.title if document_scope is not None else scope.title),
+                "title": document_scope.title if document_scope is not None else scope.title,
                 "source_number": (
                     document_scope.source_number if document_scope is not None else None
                 ),
@@ -947,26 +1128,113 @@ def build_audio_job(
                 "plan_sha256": hash_file(project.state_root / "plan" / scope.path),
             }
         )
-        entries = _cache_entries(project, plan, scope.id)
-        if first_entry is None and entries:
-            first_entry = next(iter(entries.values()))
-        segments.extend(
-            (segment, entries[(scope.id, str(segment.id))]) for segment in plan.segments
-        )
-    if first_entry is None:
-        raise ValueError("project plans contain no composition segments")
-    return _build_layout(
-        project,
-        segments,
+    for reference in ordered_refs:
+        if not isinstance(reference, Mapping):
+            raise TypeError("synthesis manifest references must be objects")
+        scope_id = str(reference.get("scope_id", ""))
+        current = plans_by_scope.get(scope_id)
+        if current is None:
+            raise ValueError(f"synthesis manifest references unknown scope {scope_id!r}")
+        scope, _plan = current
+        manifest_value = reference.get("path")
+        if not isinstance(manifest_value, str):
+            raise TypeError("synthesis manifest reference is missing its path")
+        manifest_path = project.state_root / manifest_value
+        manifest = read_render_manifest(manifest_path)
+        manifest_documents[scope_id + "|" + manifest_value] = manifest
+        if first_sample_rate is None:
+            for entry in manifest.get("segments", []):
+                audio = entry.get("audio") if isinstance(entry, Mapping) else None
+                if isinstance(audio, Mapping) and isinstance(audio.get("sample_rate"), int):
+                    first_sample_rate = audio["sample_rate"]
+                    break
+    sample_rate = int(output_sample_rate or first_sample_rate or 24000)
+    output = _output_policy(
+        sample_rate=sample_rate,
+        mastering=mastering,
         target_lufs=target_lufs,
         true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
         peak_policy=peak_policy,
         clip_policy=clip_policy,
-        mastering=mastering,
-        composition=first_entry.get("composition", {}),
-        scope_metadata=tuple(scope_metadata),
-        output_sample_rate=output_sample_rate,
     )
+    items = []
+    plan_refs = []
+    selections_by_scope: dict[str, list[tuple[int, str]]] = {}
+    for reference in ordered_refs:
+        scope_id = str(reference["scope_id"])
+        scope, plan = plans_by_scope[scope_id]
+        plan_path = project.state_root / "plan" / scope.path
+        manifest_path = project.state_root / str(reference["path"])
+        job = materialize_voicerender_job(
+            plan=plan_path,
+            render_manifest=manifest_path,
+            pause_policy=pause_policy,
+            output_policy=output,
+        )
+        manifest = manifest_documents[scope_id + "|" + str(reference["path"])]
+        selection = manifest.get("selection", {})
+        locators = selection.get("locators", []) if isinstance(selection, Mapping) else []
+        if not isinstance(locators, list) or not locators:
+            raise ValueError(f"VoiceRender manifest for {scope_id!r} has no selected locators")
+        order = _locator_order(plan)
+        start_locator, end_locator = str(locators[0]), str(locators[-1])
+        prior = selections_by_scope.get(scope_id)
+        if prior:
+            previous_order, previous_locator = prior[-1]
+            next_order = order.get(start_locator)
+            if next_order == previous_order + 1:
+                boundary = _pause_boundary(
+                    pause_policy, plan, scope_id, previous_locator, start_locator
+                )
+                if boundary is not None:
+                    items.append(boundary)
+        items.extend(_scoped_audio_item(item, scope_id) for item in job.items)
+        selections_by_scope.setdefault(scope_id, []).append(
+            (order.get(end_locator, -1), end_locator)
+        )
+        plan_refs.append(
+            {
+                "scope_id": scope_id,
+                "plan_id": plan.plan_id,
+                "path": scope.path,
+                "sha256": hash_file(plan_path),
+            }
+        )
+    if not items:
+        raise ValueError("project plans contain no AudioCompose items")
+    source = {
+        "readio.project_id": project.manifest.project_id,
+        "readio.synthesis_profile_id": profile.get("profile_id"),
+        "readio.plan_refs": plan_refs,
+        "voicerender.manifest_refs": [dict(reference) for reference in ordered_refs],
+        "audiocompose.pause_policy_id": pause_policy.policy_id,
+    }
+    job = AudioJob(
+        items=tuple(items),
+        output=output,
+        producer={"name": "readio.project-composition"},
+        source=source,
+    )
+    job.validate(verify_sources=True)
+    identity = {
+        "job_id": job.job_id,
+        "pause_policy_id": pause_policy.policy_id,
+        "pause_policy": pause_document,
+        "output_policy": {
+            "sample_rate": output.sample_rate,
+            "channels": output.channels,
+            "target_lufs": output.loudness.target_lufs,
+            "true_peak_ceiling_dbtp": output.loudness.true_peak_ceiling_dbtp,
+            "peak_policy": output.loudness.peak_policy,
+            "clip_policy": output.clip_policy,
+        },
+        "scope_metadata": scope_metadata,
+        "manifest_refs": [dict(reference) for reference in ordered_refs],
+        "plan_refs": plan_refs,
+        "mastering_profile": mastering,
+    }
+    return job, identity
+
 
 
 def _loudness_payload(loudness: Mapping[str, Any] | None, profile: str) -> dict[str, Any] | None:
@@ -1009,8 +1277,17 @@ def _write_composition_result(
         on_phase("Writing AudioJob manifest")
     phase_started = time.perf_counter()
     audiojob_manifest = Path(job.save(audiojob_path))
+    persisted_job = AudioJob.load(audiojob_manifest)
+    job_id = str(persisted_job.job_id)
     if on_phase is not None:
         on_phase(f"AudioJob manifest written in {time.perf_counter() - phase_started:.3f}s")
+
+    composition_root = project.state_root / "composition"
+    pause_policy_path = composition_root / "pause-policy.toml"
+    atomic_write_bytes(
+        pause_policy_path,
+        _pause_policy_toml(identity["pause_policy"]).encode("utf-8"),
+    )
     master = project.paths["composition_master"]
     temporary = master.with_name(f".{master.name}.tmp")
     if on_phase is not None:
@@ -1020,50 +1297,53 @@ def _write_composition_result(
     temporary.replace(master)
     if on_phase is not None:
         on_phase(f"Master WAV written in {time.perf_counter() - phase_started:.3f}s")
+
     if on_phase is not None:
         on_phase("Building and writing composition timeline")
     phase_started = time.perf_counter()
-    chapter_metadata = identity.get("identity_payload", {}).get("chapters", [])
-    item_ranges = {
-        item["item_id"]: (item["start_sample"], item["end_sample"]) for item in result.items
-    }
-    layout_items = identity.get("layout", [])
+    item_metadata = {item.id: dict(item.metadata) for item in persisted_job.items}
+    timeline_items = []
+    chapter_ranges: dict[str, list[tuple[int, int]]] = {}
+    for item in result.items:
+        metadata = item_metadata.get(item["item_id"], {})
+        scope_id = str(metadata.get("readio.scope_id", ""))
+        start_sample = int(item["start_sample"])
+        end_sample = int(item["end_sample"])
+        if scope_id:
+            chapter_ranges.setdefault(scope_id, []).append((start_sample, end_sample))
+        timeline_items.append(
+            {
+                "id": item["item_id"],
+                "kind": item["kind"],
+                "scope_id": scope_id or None,
+                "start_sample": start_sample,
+                "end_sample": end_sample,
+                "source_sample_rate": item["source_sample_rate"],
+            }
+        )
     timeline_chapters = []
-    previous_end = 0
-    for chapter in chapter_metadata:
+    for chapter in identity.get("scope_metadata", []):
         scope_id = str(chapter.get("scope_id", ""))
-        ranges = [
-            item_ranges[layout_item["id"]]
-            for layout_item in layout_items
-            if layout_item.get("scope_id") == scope_id and layout_item.get("id") in item_ranges
-        ]
-        start_sample = min((start for start, _ in ranges), default=previous_end)
+        ranges = chapter_ranges.get(scope_id, [])
+        if not ranges:
+            continue
         timeline_chapters.append(
             {
                 "scope_id": scope_id,
                 "source_number": chapter.get("source_number"),
                 "title": chapter.get("title"),
-                "start_sample": start_sample,
+                "start_sample": min(start for start, _end in ranges),
+                "end_sample": max(end for _start, end in ranges),
             }
         )
-        previous_end = max((end for _, end in ranges), default=previous_end)
     timeline = {
         "format": "readio.composition-timeline",
-        "schema_version": 2,
+        "schema_version": 3,
+        "job_id": job_id,
+        "composition_id": job_id,
         "sample_rate": result.sample_rate,
-        "composition_id": identity["composition_id"],
-        "layout": list(identity["layout"]),
-        **({"chapters": timeline_chapters} if timeline_chapters else {}),
-        "items": [
-            {
-                "id": item["item_id"],
-                "kind": item["kind"],
-                "start_sample": item["start_sample"],
-                "end_sample": item["end_sample"],
-                "source_sample_rate": item["source_sample_rate"],
-            }
-            for item in result.items
-        ],
+        "chapters": timeline_chapters,
+        "items": timeline_items,
         "markers": [
             {
                 "id": marker["id"],
@@ -1077,19 +1357,27 @@ def _write_composition_result(
     atomic_write_json(project.paths["composition_timeline"], timeline)
     if on_phase is not None:
         on_phase(f"Composition timeline written in {time.perf_counter() - phase_started:.3f}s")
+
     if on_phase is not None:
         on_phase("Hashing composition artifacts")
     phase_started = time.perf_counter()
     master_sha = hash_file(master)
     audiojob_sha = hash_file(audiojob_manifest)
     timeline_sha = hash_file(project.paths["composition_timeline"])
+    pause_policy_sha = hash_file(pause_policy_path)
     synthesis_trace = project.paths["synthesis_trace"]
     synthesis_trace_sha = hash_file(synthesis_trace) if synthesis_trace.is_file() else None
     if on_phase is not None:
         on_phase(f"Composition artifacts hashed in {time.perf_counter() - phase_started:.3f}s")
-    policy = identity.get("identity_payload", {}).get("loudness", {})
-    profile = policy.get("profile", DEFAULT_MASTERING_PROFILE)
-    loudness_summary = _loudness_payload(result.loudness, str(profile))
+    profile = str(identity.get("mastering_profile", DEFAULT_MASTERING_PROFILE))
+    loudness_summary = _loudness_payload(result.loudness, profile)
+    identity_payload = {
+        "job_id": job_id,
+        "pause_policy_id": identity["pause_policy_id"],
+        "output_policy": identity["output_policy"],
+        "manifest_refs": identity["manifest_refs"],
+        "plan_refs": identity["plan_refs"],
+    }
     if on_phase is not None:
         on_phase("Writing composition state")
     phase_started = time.perf_counter()
@@ -1097,12 +1385,21 @@ def _write_composition_result(
         project.paths["composition_state"],
         {
             "format": "readio.composition-state",
-            "schema_version": 2,
-            "composition_id": identity["composition_id"],
-            "identity_payload": identity["identity_payload"],
-            "warnings": list(identity.get("warnings", [])),
+            "schema_version": 3,
+            "job_id": job_id,
+            "composition_id": job_id,
+            "identity_payload": identity_payload,
+            "pause_policy_path": pause_policy_path.relative_to(project.state_root).as_posix(),
+            "pause_policy_id": identity["pause_policy_id"],
+            "pause_policy_sha256": pause_policy_sha,
+            "output_policy": identity["output_policy"],
+            "mastering_profile": profile,
+            "manifest_refs": identity["manifest_refs"],
+            "plan_refs": identity["plan_refs"],
+            "warnings": [],
             "synthesis_trace_sha256": synthesis_trace_sha,
             "synthesis_profile_id": read_json(project.paths["synthesis_profile"]).get("profile_id"),
+            "audiojob_manifest_path": audiojob_manifest.relative_to(project.state_root).as_posix(),
             "audiojob_sha256": audiojob_sha,
             "master_sha256": master_sha,
             "timeline_sha256": timeline_sha,
@@ -1114,13 +1411,14 @@ def _write_composition_result(
     if on_phase is not None:
         on_phase(f"Composition state written in {time.perf_counter() - phase_started:.3f}s")
     return {
-        "composition_id": identity["composition_id"],
+        "job_id": job_id,
+        "composition_id": job_id,
         "mastering_profile": profile,
         "master": master,
         "sample_rate": result.sample_rate,
         "frames": len(result.audio),
         "items": len(result.items),
-        "warnings": list(identity.get("warnings", [])),
+        "warnings": [],
         "loudness": loudness_summary,
     }
 
@@ -1158,166 +1456,120 @@ def compose_project(
         return _write_composition_result(project, job, identity, result, on_phase=on_phase)
 
 
-def compose_artifacts(
-    artifacts: Any,
+
+
+
+
+
+def composition_is_current(
+    project: Project,
     *,
-    plan: Any | None = None,
-    composition: Mapping[str, Any] | None = None,
-    synthesis_profile: Mapping[str, Any] | None = None,
-    plans: Any | None = None,
-    scope_metadata: tuple[Mapping[str, Any], ...] = (),
     mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
     true_peak_ceiling_dbtp: float | None = None,
     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
     clip_policy: str = "clamp",
     output_sample_rate: int | None = None,
-    output: Path | None = None,
-    on_progress: CompositionProgressCallback | None = None,
-    on_phase: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
-    artifact_list = tuple(artifacts)
-    mastering_policy = resolve_mastering_policy(
-        mastering,
-        target_lufs=target_lufs,
-        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
-        peak_policy=peak_policy,
-    )
-    target_lufs = mastering_policy.target_lufs
-    true_peak_ceiling_dbtp = mastering_policy.true_peak_ceiling_dbtp
-    peak_policy = mastering_policy.peak_policy
-    if not artifact_list:
-        raise ValueError("preview selected no synthesized segments")
-    plan_pairs = (
-        tuple(plans) if plans is not None else (("document", plan),) if plan is not None else ()
-    )
-    if not plan_pairs:
-        clips = []
-        for artifact in artifact_list:
-            scope_id = str(getattr(artifact, "scope_id", "document"))
-            segment_id = artifact.segment_id
-            qualified_id = segment_id if scope_id == "document" else f"{scope_id}:{segment_id}"
-            metadata = {
-                "kind": "speech",
-                "segment_id": segment_id,
-                "speech_hash": artifact.speech_hash or artifact.content_hash,
-                "synthesis_key": artifact.synthesis_key,
-            }
-            if scope_id != "document":
-                metadata["scope_id"] = scope_id
-            clips.append(
-                AudioClip(
-                    id=qualified_id,
-                    source=AudioFileSource(
-                        artifact.cache_path,
-                        expected_sha256=artifact.audio_sha256,
-                        sample_rate=artifact.sample_rate,
-                        channels=artifact.channels,
-                        frames=artifact.frames,
-                    ),
-                    metadata=metadata,
-                )
-            )
-        job = AudioJob(
-            items=tuple(clips),
-            schema_version=2,
-            output=OutputPolicy(
-                sample_rate=output_sample_rate or clips[0].source.sample_rate,
-                channels=1,
-                loudness=LoudnessPolicy(
-                    target_lufs,
-                    true_peak_ceiling_dbtp,
-                    peak_policy,
-                    collect_metrics=mastering_policy.collect_metrics,
-                ),
-                clip_policy=clip_policy,
-            ),
-        )
-        identity_payload = {
-            "schema": "readio.composition.v2",
-            "items": [clip.metadata for clip in clips],
-            "sample_rate": output_sample_rate or clips[0].source.sample_rate,
-            "clip_policy": clip_policy,
-            "loudness": {
-                "profile": mastering_policy.profile,
-                "target_lufs": target_lufs,
-                "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
-                "peak_policy": peak_policy,
-                "collect_metrics": mastering_policy.collect_metrics,
-            },
-        }
-        identity = {
-            "composition_id": composition_id(identity_payload),
-            "identity_payload": identity_payload,
-            "layout": [dict(clip.metadata) for clip in clips],
-        }
-    else:
-        by_id = {
-            (str(getattr(artifact, "scope_id", "document")), artifact.segment_id): artifact
-            for artifact in artifact_list
-        }
-        segments = []
-        for scope_id, scope_plan in plan_pairs:
-            markers_by_segment = _markers_by_segment(scope_plan, str(scope_id))
-            for segment in scope_plan.segments:
-                artifact = by_id.get((str(scope_id), str(segment.id)))
-                if artifact is None:
-                    continue
-                entry = {
-                    "scope_id": str(scope_id),
-                    "cache_path": artifact.cache_path,
-                    "audio_sha256": artifact.audio_sha256,
-                    "sample_rate": artifact.sample_rate,
-                    "channels": artifact.channels,
-                    "word_timings": tuple(artifact.word_timings),
-                    "markers": markers_by_segment[str(segment.id)],
-                    "frames": artifact.frames,
-                    "speech_hash": artifact.speech_hash or artifact.content_hash,
-                    "synthesis_key": artifact.synthesis_key,
-                    "composition": dict(composition or {}),
-                    "prosody_transitions": (
-                        scope_plan.document_metadata.get("prosody_transitions")
-                        if isinstance(getattr(scope_plan, "document_metadata", None), Mapping)
-                        else None
-                    ),
-                    "voice_identity": _segment_voice_identity(
-                        synthesis_profile, scope_plan, str(scope_id), segment
-                    ),
-                }
-                segments.append((segment, entry))
-        job, identity = _build_layout(
-            None,
-            segments,
+) -> bool:
+    """Check persisted composition artifacts against current public inputs."""
+    try:
+        state = read_json(project.paths["composition_state"])
+        profile = read_json(project.paths["synthesis_profile"])
+        if not isinstance(state, Mapping) or not isinstance(profile, Mapping):
+            return False
+        manifest_refs = profile.get("manifest_refs")
+        if not isinstance(manifest_refs, list) or state.get("manifest_refs") != manifest_refs:
+            return False
+        manifest_path_value = state.get("audiojob_manifest_path")
+        if not isinstance(manifest_path_value, str):
+            return False
+        audiojob_manifest = project.state_root / manifest_path_value
+        if not audiojob_manifest.is_file():
+            return False
+        job = AudioJob.load(audiojob_manifest)
+        job_id = job.job_id
+        if not isinstance(job_id, str) or state.get("job_id") != job_id:
+            return False
+        if state.get("composition_id") != job_id:
+            return False
+        if job.source.get("readio.synthesis_profile_id") != profile.get("profile_id"):
+            return False
+        if job.source.get("voicerender.manifest_refs") != manifest_refs:
+            return False
+        expected_pause_policy = PausePolicy.from_mapping(_pause_policy_document())
+        if (
+            state.get("pause_policy_id") != expected_pause_policy.policy_id
+            or job.source.get("audiocompose.pause_policy_id") != expected_pause_policy.policy_id
+        ):
+            return False
+        pause_policy_path = project.state_root / "composition" / "pause-policy.toml"
+        if (
+            state.get("pause_policy_path") != "composition/pause-policy.toml"
+            or not pause_policy_path.is_file()
+            or hash_file(pause_policy_path) != state.get("pause_policy_sha256")
+            or PausePolicy.load(pause_policy_path).policy_id != expected_pause_policy.policy_id
+        ):
+            return False
+        expected_output = _output_policy(
+            sample_rate=int(output_sample_rate or job.output.sample_rate),
+            mastering=mastering,
             target_lufs=target_lufs,
             true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
             peak_policy=peak_policy,
             clip_policy=clip_policy,
-            mastering=mastering,
-            composition=composition,
-            scope_metadata=scope_metadata,
-            output_sample_rate=output_sample_rate,
         )
-    result = compose_job(job, on_progress=on_progress)
-    if output is not None:
-        if on_phase is not None:
-            on_phase("Writing preview artifacts")
-        output.parent.mkdir(parents=True, exist_ok=True)
-        write_pcm16_wav(output, result.audio, result.sample_rate)
-    return {
-        "sample_rate": result.sample_rate,
-        "frames": len(result.audio),
-        "items": len(result.items),
-        "output": output,
-        "composition_id": identity["composition_id"],
-        "warnings": list(identity.get("warnings", [])),
-        "loudness": _loudness_payload(result.loudness, mastering_policy.profile),
-    }
+        if job.output != expected_output:
+            return False
+        expected_output_payload = {
+            "sample_rate": expected_output.sample_rate,
+            "channels": expected_output.channels,
+            "target_lufs": expected_output.loudness.target_lufs,
+            "true_peak_ceiling_dbtp": expected_output.loudness.true_peak_ceiling_dbtp,
+            "peak_policy": expected_output.loudness.peak_policy,
+            "clip_policy": expected_output.clip_policy,
+        }
+        if state.get("output_policy") != expected_output_payload:
+            return False
+        plan_refs = []
+        for scope in project.load_plan_index().scopes:
+            plan = load_scope_plan(project, scope)
+            plan_path = project.state_root / "plan" / scope.path
+            plan_refs.append(
+                {
+                    "scope_id": scope.id,
+                    "plan_id": plan.plan_id,
+                    "path": scope.path,
+                    "sha256": hash_file(plan_path),
+                }
+            )
+        if state.get("plan_refs") != plan_refs or job.source.get("readio.plan_refs") != plan_refs:
+            return False
+        if hash_file(audiojob_manifest) != state.get("audiojob_sha256"):
+            return False
+        if not project.paths["composition_master"].is_file() or hash_file(
+            project.paths["composition_master"]
+        ) != state.get("master_sha256"):
+            return False
+        if not project.paths["composition_timeline"].is_file() or hash_file(
+            project.paths["composition_timeline"]
+        ) != state.get("timeline_sha256"):
+            return False
+        timeline = read_json(project.paths["composition_timeline"])
+        if not isinstance(timeline, Mapping) or timeline.get("job_id") != job_id:
+            return False
+        synthesis_trace = project.paths["synthesis_trace"]
+        current_trace_hash = hash_file(synthesis_trace) if synthesis_trace.is_file() else None
+        return state.get("synthesis_trace_sha256") == current_trace_hash and state.get(
+            "synthesis_profile_id"
+        ) == profile.get("profile_id")
+    except (OSError, TypeError, ValueError, KeyError):
+        return False
 
 
 __all__ = [
     "build_audio_job",
-    "compose_artifacts",
     "compose_project",
     "composition_id",
+    "composition_is_current",
     "seconds_to_frames",
 ]

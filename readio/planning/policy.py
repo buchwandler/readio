@@ -60,12 +60,6 @@ class PlanningPolicy:
             unit=self.unit,
             pauses=PauseConfig(
                 mode=self.pause_mode,
-                weak=self.pause_weak,
-                clause=self.pause_clause,
-                sentence=self.pause_sentence,
-                paragraph=self.pause_paragraph,
-                parenthetical=self.pause_parenthetical,
-                voice_change=self.pause_voice_change,
                 enabled=self.pause_enabled,
             ),
             linguistics=_linguistics_from_spacy_policy(self.spacy_policy),

@@ -1,14 +1,13 @@
-"""Semantic planning for Readio multi-engine architecture.
+"""Semantic planning for Readio using canonical UtterPlan v5 FlowPlans.
 
-This package provides the planning service that compiles UtterancePlans
-from engine-specific planner configurations.
+This package compiles canonical FlowPlans independent of synthesis backends.
 """
 
 from .compiler import (
     CompiledSemanticPlan,
+    FlowPlan,
     LegacyPlanArtifactError,
     PlanSchemaMismatchError,
-    UtterancePlan,
     compile_semantic_plan,
     load_current_utterplan,
     serialize_utterplan,
@@ -19,11 +18,11 @@ from .semantic import SUPPORTED_UTTERPLAN_SCHEMA_VERSION, SemanticPlanningServic
 __all__ = [
     "SUPPORTED_UTTERPLAN_SCHEMA_VERSION",
     "CompiledSemanticPlan",
+    "FlowPlan",
     "LegacyPlanArtifactError",
     "PlanSchemaMismatchError",
     "PlanningPolicy",
     "SemanticPlanningService",
-    "UtterancePlan",
     "compile_semantic_plan",
     "load_current_utterplan",
     "serialize_utterplan",

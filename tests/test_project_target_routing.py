@@ -22,9 +22,8 @@ from readio.project_settings import (
     with_project_role_binding,
 )
 from readio.role_targets import VoiceTarget
-from readio.stages.composition import _cache_entries
 from readio.stages.pipeline import _synthesis_status
-from readio.stages.planning import load_scope_plan, plan_project
+from readio.stages.planning import plan_project
 from readio.stages.synthesis import synthesize_project
 
 
@@ -167,11 +166,161 @@ class _MultilingualTargetAdapter(_PiperTargetAdapter):
         return ()
 
 
+def _install_voicerender_fakes(monkeypatch):
+    import hashlib
+    import json
+
+    from utterplan import FlowPlan
+    from voicerender import EngineDiagnostic, RenderEvent, RenderEventKind, RenderResult
+
+    from readio.integrations import voicerender as voicerender_integration
+    from readio.integrations.voicerender import RenderBundle
+    from readio.stages import pipeline as pipeline_stage
+    from readio.stages import synthesis as synthesis_stage
+
+    resolutions = []
+    rendered_routes = []
+    rendered_cache = set()
+
+    def resolve_voice(request):
+        adapter = _registry._adapters[request.engine]
+        selection, diagnostics = adapter.resolve(request)
+        diagnostics = (*diagnostics, *adapter.validate_selection(selection))
+        public_diagnostics = tuple(
+            EngineDiagnostic(
+                code=item.code,
+                severity=item.severity,
+                message=item.message,
+            )
+            for item in diagnostics
+        )
+        resolutions.append((request.language, request.engine, selection.target_id))
+        return selection, public_diagnostics
+
+    def render_plan(
+        source_plan,
+        *,
+        profile,
+        output_dir,
+        cache_dir,
+        locators,
+        on_event,
+        **_kwargs,
+    ):
+        del cache_dir
+        plan = FlowPlan.load(source_plan)
+        role_identities = {
+            role: {
+                "engine": binding.engine,
+                "target_id": binding.target_id,
+                "voice": binding.voice,
+                "speaker": binding.speaker,
+                "options": dict(binding.options),
+            }
+            for role, binding in profile.roles.items()
+        }
+        profile_payload = json.dumps(role_identities, sort_keys=True, separators=(",", ":"))
+        profile_hash = "sha256:" + hashlib.sha256(profile_payload.encode()).hexdigest()
+        manifest_path = output_dir / "render-manifest.json"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        entries = []
+        rendered_count = 0
+        reused_count = 0
+        for locator in locators:
+            flow_index, segment_index = map(int, locator[1:].split(".s"))
+            segment = plan.flow[flow_index].segments[segment_index]
+            voice = segment.directives.voice
+            role = getattr(voice, "reference", None) or "narrator"
+            binding = profile.roles[role]
+            route_payload = json.dumps(
+                {
+                    "engine": binding.engine,
+                    "target_id": binding.target_id,
+                    "voice": binding.voice,
+                    "speaker": binding.speaker,
+                    "options": dict(binding.options),
+                    "text": segment.text,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            route_hash = hashlib.sha256(route_payload.encode()).hexdigest()
+            cache_key = (locator, route_hash)
+            reused = cache_key in rendered_cache
+            rendered_cache.add(cache_key)
+            status = "reused" if reused else "rendered"
+            reused_count += int(reused)
+            rendered_count += int(not reused)
+            rendered_routes.append((role, binding.engine, binding.target_id, binding.voice, segment.text, status))
+            if on_event is not None:
+                on_event(RenderEvent(RenderEventKind.SEGMENT_STARTED, plan_id=plan.plan_id, locator=locator))
+                event_kind = RenderEventKind.SEGMENT_REUSED if reused else RenderEventKind.SEGMENT_RENDERED
+                on_event(RenderEvent(event_kind, plan_id=plan.plan_id, locator=locator, status=status))
+            semantic_hash = hashlib.sha256(segment.text.encode()).hexdigest()
+            audio_relative = f"segments/{locator.replace('.', '-')}.wav"
+            audio_path = output_dir / audio_relative
+            audio_path.parent.mkdir(parents=True, exist_ok=True)
+            audio_path.write_bytes(segment.text.encode())
+            entries.append(
+                {
+                    "source": {
+                        "locator": locator,
+                        "semantic_segment_hash": "sha256:" + semantic_hash,
+                    },
+                    "status": status,
+                    "acoustic_cache_key": "sha256:" + route_hash,
+                    "synthesis_semantics_sha256": "sha256:" + route_hash,
+                    "audio": {
+                        "path": audio_relative,
+                        "sha256": semantic_hash,
+                        "sample_rate": 22050,
+                        "channels": 1,
+                        "frames": 64,
+                        "encoding": "PCM_16",
+                    },
+                    "timing": {"spans": []},
+                    "text": segment.text,
+                }
+            )
+        manifest = {
+            "manifest_id": "sha256:" + hashlib.sha256(
+                (profile_hash + "|" + "|".join(locators)).encode()
+            ).hexdigest(),
+            "source": {
+                "plan_id": plan.plan_id,
+                "plan_file_sha256": "sha256:" + hashlib.sha256(source_plan.read_bytes()).hexdigest(),
+            },
+            "profile": {"effective_profile_sha256": profile_hash},
+            "segments": entries,
+        }
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return RenderBundle(
+            RenderResult(
+                manifest_path=manifest_path,
+                rendered_count=rendered_count,
+                reused_count=reused_count,
+                failed_count=0,
+                selected_count=len(entries),
+            ),
+            manifest,
+        )
+
+    monkeypatch.setattr(voicerender_integration, "resolve_voice", resolve_voice)
+    monkeypatch.setattr(synthesis_stage, "voicerender_render_plan", render_plan)
+    monkeypatch.setattr(
+        pipeline_stage,
+        "read_render_manifest",
+        lambda path: json.loads(path.read_text(encoding="utf-8")),
+    )
+    return resolutions, rendered_routes
+
+
 def test_project_routes_roles_to_distinct_target_sessions_without_replanning_semantics(
     tmp_path, monkeypatch
 ):
     adapter = _PiperTargetAdapter()
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    resolutions, rendered_routes = _install_voicerender_fakes(monkeypatch)
     cfg = ReadioConfig(
         reader=ReaderSettings(engine=adapter.id, voice=adapter.target_ids[0], spacy="off"),
         roles={},
@@ -207,20 +356,18 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
     result = synthesize_project(project, cfg, request=request)
 
     assert result["rendered"] == 3
-    assert adapter.open_calls == sorted(adapter.target_ids)
-    assert adapter.close_calls == sorted(adapter.target_ids)
-    assert len(adapter.requests) == 3
-    by_target = {target: [] for target in adapter.target_ids}
-    for target, voice, text in adapter.requests:
-        by_target[target].append((voice, text))
-    assert by_target == {
-        adapter.target_ids[0]: [
-            (adapter.target_ids[0], "First line."),
-            (adapter.target_ids[0], "Third line."),
-        ],
-        adapter.target_ids[1]: [(adapter.target_ids[1], "Second line.")],
+    assert {
+        (role, target_id, text)
+        for role, _engine, target_id, _voice, text, status in rendered_routes
+        if status == "rendered"
+    } == {
+        ("host", adapter.target_ids[0], "First line."),
+        ("guest", adapter.target_ids[1], "Second line."),
+        ("host", adapter.target_ids[0], "Third line."),
     }
-
+    assert {(engine, target_id) for _language, engine, target_id in resolutions} == {
+        (adapter.id, target) for target in adapter.target_ids
+    }
     invalid_project = update_project_manifest(
         project,
         lambda manifest: _with_engine_role(
@@ -230,7 +377,7 @@ def test_project_routes_roles_to_distinct_target_sessions_without_replanning_sem
             voice="missing-target",
         ),
     )
-    with pytest.raises(ValueError, match="unavailable target 'missing-target'"):
+    with pytest.raises(ValueError, match="Piper target 'missing-target' is unavailable"):
         synthesize_project(invalid_project, cfg, request=request)
 
     project = update_project_manifest(
@@ -252,6 +399,7 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
     piper = _PiperTargetAdapter()
     monkeypatch.setitem(_registry._adapters, kokoro.id, kokoro)
     monkeypatch.setitem(_registry._adapters, piper.id, piper)
+    _resolutions, rendered_routes = _install_voicerender_fakes(monkeypatch)
     cfg = ReadioConfig(
         reader=ReaderSettings(engine=kokoro.id, voice=kokoro.target_ids[0], spacy="off"),
         roles={},
@@ -291,22 +439,14 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
     first = synthesize_project(project, cfg, request=request)
     assert first["rendered"] == 3
     assert first["reused"] == 0
-    assert len(kokoro.open_calls) == len(piper.open_calls) == 1
 
     second = synthesize_project(project, cfg, request=request)
     assert second["rendered"] == 0
     assert second["reused"] == 3
     initial_profile = first["profile"]
-    initial_routes = initial_profile.payload["canonical"]["routes"]
-    initial_route_ids = initial_profile.payload["canonical"]["route_profile_ids"]
-    kokoro_route_key = next(
-        key
-        for key, identity in initial_routes.items()
-        if identity["target_id"] == kokoro.target_ids[0]
-    )
-    kokoro_route_profile_id = initial_route_ids[kokoro_route_key]
+    initial_ref = initial_profile.payload["manifest_refs"][0]
     assert second["profile"].profile_id == initial_profile.profile_id
-
+    assert second["profile"].payload["manifest_refs"][0] == initial_ref
     project = update_project_manifest(
         project,
         lambda manifest: with_project_role_binding(
@@ -320,18 +460,19 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
     changed = synthesize_project(project, cfg, request=request)
 
     changed_profile = changed["profile"]
-    changed_canonical = changed_profile.payload["canonical"]
     assert changed_profile.profile_id != initial_profile.profile_id
-    assert changed_canonical["route_profile_ids"][kokoro_route_key] == kokoro_route_profile_id
+    changed_ref = changed_profile.payload["manifest_refs"][0]
+    assert changed_profile.profile_id != initial_profile.profile_id
+    assert changed_ref["effective_profile_sha256"] != initial_ref["effective_profile_sha256"]
     assert changed["rendered"] == 1
     assert changed["reused"] == 2
-    assert len(kokoro.open_calls) == 1
-    assert piper.open_calls == list(piper.target_ids)
+    assert [(route[0], route[5]) for route in rendered_routes[-3:]] == [
+        ("guest", "rendered"),
+        ("host", "reused"),
+        ("host", "reused"),
+    ]
     assert _synthesis_status(project)["state"] == "current"
 
-    scope = project.load_plan_index().scopes[0]
-    plan = load_scope_plan(project, scope)
-    assert len(_cache_entries(project, plan, scope.id)) == 3
 
 
 def _multilingual_config(adapter: _MultilingualTargetAdapter) -> ReadioConfig:
@@ -358,6 +499,7 @@ def _multilingual_project(tmp_path):
 def test_semantic_languages_select_language_profiles_before_each_route(tmp_path, monkeypatch):
     adapter = _MultilingualTargetAdapter()
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    resolutions, _rendered_routes = _install_voicerender_fakes(monkeypatch)
     cfg = _multilingual_config(adapter)
     project = _multilingual_project(tmp_path)
     plan_project(project, cfg)
@@ -380,14 +522,22 @@ def test_semantic_languages_select_language_profiles_before_each_route(tmp_path,
     assert [(event.completed, event.total) for event in finished] == [
         (index, result["rendered"]) for index in range(1, result["rendered"] + 1)
     ]
-    assert adapter.resolve_calls[0] == ("de-de", "model-de")
-    assert ("en-us", "model-en") in adapter.resolve_calls
-    assert set(adapter.open_calls) == {"model-en", "model-de"}
+    assert normalize_language_key(adapter.resolve_calls[0][0]) == "de-de"
+    assert adapter.resolve_calls[0][1] == "model-de"
+    assert any(
+        normalize_language_key(language) == "en-us" and target_id == "model-en"
+        for language, target_id in adapter.resolve_calls
+    )
+    assert {target_id for _language, _engine, target_id in resolutions} == {
+        "model-en",
+        "model-de",
+    }
 
 
 def test_explicit_model_incompatible_with_semantic_language_fails(tmp_path, monkeypatch):
     adapter = _MultilingualTargetAdapter()
     monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
+    _install_voicerender_fakes(monkeypatch)
     cfg = _multilingual_config(adapter)
     project = _multilingual_project(tmp_path)
     plan_project(project, cfg)

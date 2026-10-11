@@ -115,14 +115,14 @@ class TestSemanticPlanIdentityAcousticInvariant:
     def test_planner_is_called_once_and_plan_identity_is_canonical(self, monkeypatch) -> None:
         import readio.planning.semantic as semantic_module
 
-        upstream_compile_attempt = semantic_module.compile_attempt
+        upstream_compile_document = semantic_module.compile_document
         calls = []
 
-        def counting_compile_attempt(text, **kwargs):
+        def counting_compile_document(text, **kwargs):
             calls.append((text, kwargs))
-            return upstream_compile_attempt(text, **kwargs)
+            return upstream_compile_document(text, **kwargs)
 
-        monkeypatch.setattr(semantic_module, "compile_attempt", counting_compile_attempt)
+        monkeypatch.setattr(semantic_module, "compile_document", counting_compile_document)
         result = compile_semantic_plan(_make_document("Hello world."), planning=_make_policy())
 
         assert len(calls) == 1
@@ -131,8 +131,8 @@ class TestSemanticPlanIdentityAcousticInvariant:
         assert kwargs["input_format"] == "plain"
         assert kwargs["config"].renderability_mode == "repair"
         assert kwargs["on_progress"] is None
+        assert result.plan.schema_version == 5
         assert result.plan_id == result.plan.plan_id
-
     def test_document_planning_defaults_to_spokenform(self) -> None:
         assert PlanningPolicy().to_planner_config().text_preparation == "spokenform"
 
@@ -149,7 +149,7 @@ def test_semantic_compiler_uses_typed_planner_config() -> None:
         diagnostics=False,
     )
     result = compile_semantic_plan(_make_document("Hello world"), planning=policy)
-    config = result.plan.semantic_dict()["config"]
+    config = result.planning_config
     assert config["pauses"]["mode"] == "manual"
     assert config["linguistics"]["use_spacy"] is False
     assert config["ssmd"]["parse_yaml_header"] is False

@@ -11,16 +11,16 @@ def test_doctor_reports_ssmdconvert_as_a_core_dependency() -> None:
 
 def _incompatible_probe_status():
     return {
-        "adapter": True,
-        "package": True,
-        "version": "0.1.1",
+        "engine": "kitten",
+        "package": "kittensynth",
+        "compatible": False,
+        "status": "api_version_incompatible",
+        "distribution_version": "0.1.1",
         "module_version": "0.1.0",
         "module_path": "/tmp/kittensynth/__init__.py",
-        "request_api_version": 2,
-        "expected_request_api_version": 1,
+        "api_version": 2,
+        "expected_api_version": 1,
         "contract_source": "explicit",
-        "api_compatible": False,
-        "status": "api_version_incompatible",
         "missing_symbols": ("discover_models",),
         "missing_methods": (),
         "failed_stage": None,
@@ -31,9 +31,15 @@ def _incompatible_probe_status():
     }
 
 
+
 def test_doctor_text_reports_structured_engine_probe(monkeypatch) -> None:
     monkeypatch.setattr(
-        "readio.doctor.engine_status", lambda: {"kitten": _incompatible_probe_status()}
+        "readio.doctor.list_engines",
+        lambda: ({"id": "kitten", "installed": True, "installed_version": "0.1.1", "package": "kittensynth"},),
+    )
+    monkeypatch.setattr(
+        "readio.doctor.voicerender_engine_status",
+        lambda _engine: _incompatible_probe_status(),
     )
 
     report = run_doctor()
@@ -51,13 +57,15 @@ def test_doctor_text_reports_structured_engine_probe(monkeypatch) -> None:
 
 def test_doctor_api_json_preserves_structured_probe_fields(monkeypatch) -> None:
     from readio.api import Readio
-    from readio.api import diagnostics as diagnostics_module
     from readio.config import ReadioConfig
 
     monkeypatch.setattr(
-        diagnostics_module,
-        "engine_status",
-        lambda: {"kitten": _incompatible_probe_status()},
+        "readio.doctor.list_engines",
+        lambda: ({"id": "kitten", "installed": True, "installed_version": "0.1.1", "package": "kittensynth"},),
+    )
+    monkeypatch.setattr(
+        "readio.doctor.voicerender_engine_status",
+        lambda _engine: _incompatible_probe_status(),
     )
 
     engine = Readio(ReadioConfig()).diagnostics.engines()[0]

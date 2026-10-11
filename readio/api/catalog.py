@@ -9,9 +9,14 @@ from .. import lexicons as lexicons_internal
 from .. import models as models_internal
 from .. import voices as voices_internal
 from ..catalog_metadata import language_tags_match, normalize_locale_tag
-from ..engines.discovery import discover_targets
-from ..engines.registry import engine_status, get_engine, normalize_engine_id
+from ..engines.registry import get_engine
 from ..errors import ReadioError
+from ..integrations.voicerender import (
+    catalog_engine_status,
+    catalog_engines,
+    discover_catalog_targets,
+    normalize_engine_id,
+)
 from ..jsonutil import JsonValue, json_value
 from ..lexicons import discover_lexicon_catalog
 from ..voice_refs import (
@@ -82,19 +87,23 @@ class CatalogService:
     def engines(self) -> tuple[EngineInfo, ...]:
         try:
             rows: list[EngineInfo] = []
-            for engine_id, status in engine_status().items():
-                adapter = get_engine(engine_id) if status["adapter"] else None
+            for engine in catalog_engines():
+                engine_id = str(engine["id"])
+                status = catalog_engine_status(engine_id)
+                installed = bool(engine.get("installed"))
                 rows.append(
                     EngineInfo(
                         id=engine_id,
-                        version=status["version"],
-                        registered=status["adapter"],
-                        installed=status["package"],
-                        runnable=status["status"] == "ready",
-                        capabilities=adapter.capabilities() if adapter is not None else None,
+                        version=(
+                            status.get("distribution_version") or engine.get("installed_version")
+                        ),
+                        registered=True,
+                        installed=installed,
+                        runnable=bool(status.get("compatible")),
+                        capabilities=None,
                         missing_dependency=(
-                            _ENGINE_PACKAGES.get(engine_id, engine_id)
-                            if not status["package"]
+                            str(engine.get("package") or _ENGINE_PACKAGES.get(engine_id, engine_id))
+                            if not installed
                             else None
                         ),
                     )
@@ -116,7 +125,7 @@ class CatalogService:
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> tuple[SynthesisTargetInfo, ...]:
         try:
-            result = discover_targets(
+            result = discover_catalog_targets(
                 engine=query.engine,
                 language=query.language,
                 offline=discovery.offline,
@@ -151,7 +160,7 @@ class CatalogService:
     ) -> CatalogListing[ModelInfo]:
         try:
             engine = self.normalize_engine(query.engine) if query.engine else None
-            result = discover_targets(
+            result = discover_catalog_targets(
                 engine=engine,
                 language=query.language,
                 offline=discovery.offline,
@@ -190,7 +199,7 @@ class CatalogService:
         discovery: DiscoveryOptions = _DEFAULT_DISCOVERY,
     ) -> CatalogListing[ModelInfo]:
         try:
-            result = discover_targets(
+            result = discover_catalog_targets(
                 engine=self.normalize_engine(engine) if engine else None,
                 offline=discovery.offline,
                 refresh=discovery.refresh,

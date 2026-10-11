@@ -97,6 +97,7 @@ class ResolvedSynthesis:
     discovery_refreshed: bool = False
     engine: str = "kokoro"
     engine_options: Mapping[str, object] = field(default_factory=dict)
+    speaker: str | int | None = None
 
 
 def _raw_synthesis_selection(
@@ -166,6 +167,81 @@ def resolve_synthesis(
     else:
         typed_request = _legacy_synthesis_request(request)
     return resolve_synthesis_request(cfg, typed_request)
+
+
+def resolve_live_synthesis_request(
+    cfg: ReadioConfig, request: SynthesisRequest
+) -> ResolvedSynthesis:
+    """Apply Readio's neutral defaults; VoiceRender resolves the selected target and voice."""
+    if request.voice_file is not None or request.voice_prompt is not None:
+        raise ValueError("Live VoiceRender sessions require a configured voice target, not voice-file input")
+    language, profile, _ = _raw_synthesis_selection(cfg, request)
+    model = request.model or (profile.model if profile is not None else None)
+    source = request.model_source or (profile.source if profile is not None else None)
+    quality = request.quality or (profile.quality if profile is not None else None)
+    voice = request.voice or (profile.voice if profile is not None else None) or cfg.reader.voice
+    lexicons = profile.lexicons if profile is not None else None
+    if request.lexicons is not None:
+        lexicons = tuple(request.lexicons)
+    elif request.clear_lexicons:
+        lexicons = ()
+    elif request.auto_lexicons:
+        lexicons = None
+    engine = request.engine or (
+        profile.engine if profile is not None and profile.engine is not None else cfg.reader.engine
+    )
+    raw_speed = request.speed if request.speed is not None else cfg.reader.speed
+    if isinstance(raw_speed, bool):
+        raise TypeError("synthesis.speed must be numeric")
+    try:
+        speed = float(raw_speed)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("synthesis.speed must be finite and > 0") from exc
+    if not math.isfinite(speed) or speed <= 0:
+        raise ValueError("synthesis.speed must be finite and > 0")
+    detect_languages = (
+        request.detect_languages
+        if request.detect_languages is not None
+        else cfg.reader.detect_languages
+    )
+    language_detection = request.language_detection or cfg.reader.language_detection
+    if language_detection is None and detect_languages is not None:
+        language_detection = "auto"
+    return ResolvedSynthesis(
+        language=language,
+        model=model,
+        source=source,
+        quality=quality,
+        voice=voice,
+        lexicons=lexicons,
+        allow_experimental=(
+            request.allow_experimental
+            or (profile.allow_experimental if profile is not None else False)
+        ),
+        speed=speed,
+        voice_level=normalize_voice_level(
+            request.voice_level if request.voice_level is not None else cfg.reader.voice_level
+        ),
+        pause_mode=request.pause_mode or cfg.reader.pause_mode,
+        unit=request.unit or cfg.reader.unit,
+        g2p_fallback=request.g2p_fallback
+        or (profile.g2p_fallback if profile is not None else None),
+        spacy=normalize_spacy_policy(request.spacy or cfg.reader.spacy),
+        short_sentence=normalize_short_sentence_policy(
+            request.short_sentence
+            if request.short_sentence is not None
+            else cfg.reader.short_sentence
+        ),
+        lexicon_data_policy=request.lexicon_data_policy
+        or (profile.lexicon_data_policy if profile is not None else None),
+        language_detection=language_detection,
+        detect_languages=detect_languages,
+        discovery_offline=request.offline,
+        discovery_refreshed=request.refresh,
+        engine=engine,
+        engine_options=dict(request.engine_options),
+        speaker=request.speaker,
+    )
 
 
 def resolve_synthesis_request(cfg: ReadioConfig, request: SynthesisRequest) -> ResolvedSynthesis:
@@ -350,5 +426,6 @@ __all__ = [
     "ResolvedModel",
     "ResolvedSynthesis",
     "resolve_synthesis",
+    "resolve_live_synthesis_request",
     "resolve_synthesis_request",
 ]

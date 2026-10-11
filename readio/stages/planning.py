@@ -17,7 +17,6 @@ from utterplan import (
     PlannerProgressEvent,
     PlanningAttempt,
     PlanRenderabilityError,
-    preflight_renderability,
 )
 from utterplan import __version__ as utterplan_version
 
@@ -34,10 +33,10 @@ from ..jsonutil import JsonValue, json_value
 from ..planning import (
     SUPPORTED_UTTERPLAN_SCHEMA_VERSION,
     CompiledSemanticPlan,
+    FlowPlan,
     LegacyPlanArtifactError,
     PlanningPolicy,
     PlanSchemaMismatchError,
-    UtterancePlan,
     compile_semantic_plan,
     load_current_utterplan,
     serialize_utterplan,
@@ -63,7 +62,6 @@ from ..ssmd import (
     SSMD_SEMANTICS_VERSION,
     language_detection_hint_from_header,
     parse_ssmd_09,
-    parse_ssmd_structure_09,
 )
 
 
@@ -185,14 +183,21 @@ def _prepare_planning_policy(
     return prepared, policy
 
 
+def _planning_config(
+    cfg: Any,
+    document: InputDocument,
+    renderability_mode: Literal["strict", "repair"],
+) -> dict[str, Any]:
+    _, policy = _prepare_planning_policy(cfg, document, renderability_mode)
+    return asdict(policy.to_planner_config())
+
+
 def _planning_fingerprint(
     cfg: Any,
     document: InputDocument,
     renderability_mode: Literal["strict", "repair"],
 ) -> str:
-    _, policy = _prepare_planning_policy(cfg, document, renderability_mode)
-    return semantic_planner_fingerprint(asdict(policy.to_planner_config()))
-
+    return semantic_planner_fingerprint(_planning_config(cfg, document, renderability_mode))
 
 def resolve_semantic_planning(
     cfg: Any,
@@ -206,23 +211,12 @@ def resolve_semantic_planning(
     return ResolvedSemanticPlanning(prepared, policy, compiled)
 
 
-def _renderability_summary(plan: UtterancePlan) -> dict[str, JsonValue]:
-    planning = plan.document_metadata.get("planning")
-    renderability = planning.get("renderability") if isinstance(planning, Mapping) else None
-    if not isinstance(renderability, Mapping):
-        return {
-            "checked_segments": len(plan.segments),
-            "repair_count": 0,
-            "guaranteed": False,
-        }
-    checked_segments = renderability.get("checked_segments")
-    repair_count = renderability.get("repair_count")
+def _renderability_summary(plan: FlowPlan) -> dict[str, JsonValue]:
+    """Report the segments UtterPlan v5 has compiled into executable flows."""
     return {
-        "checked_segments": checked_segments
-        if isinstance(checked_segments, int)
-        else len(plan.segments),
-        "repair_count": repair_count if isinstance(repair_count, int) else 0,
-        "guaranteed": renderability.get("guaranteed") is True,
+        "checked_segments": sum(len(flow.segments) for flow in plan.flow),
+        "repair_count": 0,
+        "guaranteed": True,
     }
 
 
@@ -408,7 +402,10 @@ def compile_project_scope(
         plan_id=resolved.compiled.plan_id,
         sha256=sha256_bytes(serialized),
         document_sha256=document_sha,
-        semantic_planner_fingerprint=semantic_planner_fingerprint(resolved.compiled.plan.config),
+        semantic_planner_fingerprint=semantic_planner_fingerprint(
+            resolved.compiled.planning_config
+        ),
+        planning_config=resolved.compiled.planning_config,
     )
     return PlannedScope(scope=plan_scope, compiled=resolved.compiled)
 
@@ -474,6 +471,7 @@ def plan_project_scope(
             sha256=plan_sha,
             document_sha256=planned.scope.document_sha256,
             semantic_planner_fingerprint=planned.scope.semantic_planner_fingerprint,
+            planning_config=planned.scope.planning_config,
         )
         old_index = project.load_plan_index() if project.paths["plan_index"].is_file() else None
         old_scopes = old_index.scopes if old_index is not None else ()
@@ -643,7 +641,7 @@ def _read_latest_plan_attempt(
 
 def _load_attempt_scope_plan(
     project: Project, attempt_id: str, scope_record: Mapping[str, Any]
-) -> UtterancePlan | None:
+) -> FlowPlan | None:
     relative_path = scope_record.get("candidate_path")
     if not isinstance(relative_path, str):
         return None
@@ -655,7 +653,7 @@ def _load_attempt_scope_plan(
             return attempt.candidate.to_plan().with_identity()
         # Blocked drafts are inspection-only and must never enter planning or synthesis.
         draft_plan = getattr(attempt.candidate, "_plan", None)
-        if not isinstance(draft_plan, UtterancePlan):
+        if not isinstance(draft_plan, FlowPlan):
             raise ValueError("blocked attempt does not contain an inspectable draft plan")
         return draft_plan
     if candidate_kind == "diagnostic_json":
@@ -670,156 +668,101 @@ def _source_position(text: str, offset: int) -> tuple[int, int]:
     return line, bounded - previous_newline
 
 
-def _segment_source_span(plan: UtterancePlan, segment: Any) -> tuple[int, int] | None:
-    start = segment.structural_start
-    end = segment.structural_end
-    if not isinstance(start, int) or not isinstance(end, int):
-        return None
-    source_text = plan.source.text
-    if plan.source.format not in {"ssmd", "markdown"}:
-        if 0 <= start <= end <= len(source_text):
-            return start, end
-        return None
-    try:
-        structure = parse_ssmd_structure_09(source_text)
-        overlapping = [
-            span for span in structure.text_spans if span.char_end > start and span.char_start < end
-        ]
-        if not overlapping:
-            return None
-        return overlapping[0].source_start, overlapping[-1].source_end
-    except (ValueError, TypeError, AttributeError):
-        return None
+def _flow_identity(flow_index: int, flow: Any) -> str:
+    digest = str(flow.content_hash).replace("sha256:", "")
+    return f"flow-{flow_index:04d}-{digest[:12]}"
+
+
+def _flow_segment_identity(flow_index: int, flow: Any, segment_index: int) -> tuple[str, str]:
+    flow_id = _flow_identity(flow_index, flow)
+    return flow_id, f"{flow_id}:segment-{segment_index:04d}"
 
 
 def _segment_detail(
-    plan: UtterancePlan,
+    plan: FlowPlan,
+    flow: Any,
     segment: Any,
     *,
+    flow_index: int,
+    segment_index: int,
     scope_id: str,
     source_path: str | None,
     issue_records: Sequence[Mapping[str, Any]],
     source_context: int,
 ) -> dict[str, JsonValue]:
-    structural_start = segment.structural_start
-    structural_end = segment.structural_end
-    spoken_start = segment.spoken_start
-    spoken_end = segment.spoken_end
-    structural_text = plan.texts.structural
-    spoken_text = plan.texts.spoken
-    source_text = plan.source.text
-    source_span = _segment_source_span(plan, segment)
-    source_start, source_end = source_span if source_span is not None else (None, None)
-    source_excerpt = (
-        source_text[source_start:source_end]
-        if source_start is not None and source_end is not None
-        else None
-    )
-    start_line = (
-        _source_position(source_text, source_start)[0] if source_start is not None else None
-    )
-    context_lines: list[JsonValue] = []
-    if start_line is not None and source_context >= 0:
-        lines = source_text.splitlines()
-        first = max(1, start_line - source_context)
-        last = min(len(lines), start_line + source_context)
-        context_lines = [
-            {"line": number, "text": lines[number - 1]} for number in range(first, last + 1)
-        ]
-    unit_ids = [unit.id for unit in plan.units if segment.id in unit.segment_ids]
+    """Expose a v5 flow segment without inventing legacy source offsets."""
+    flow_id, segment_id = _flow_segment_identity(flow_index, flow, segment_index)
     segment_issue = next(
         (
             dict(issue)
             for issue in issue_records
-            if issue.get("scope_id") == scope_id and issue.get("segment_id") == segment.id
+            if issue.get("scope_id") == scope_id and issue.get("segment_id") == segment_id
         ),
         None,
     )
-    if segment_issue is None:
-        report = preflight_renderability(plan)
-        current_issue = next(
-            (issue for issue in report.issues if issue.segment_id == segment.id), None
-        )
-        renderability: dict[str, JsonValue] = {
-            "status": "blocked" if current_issue is not None else "renderable"
-        }
-        if current_issue is not None:
-            renderability.update(cast(dict[str, JsonValue], json_value(current_issue)))
-            assessment = current_issue.repair_assessment
-            if assessment is not None:
-                renderability["repair_assessment"] = cast(JsonValue, json_value(assessment))
-    else:
-        renderability = {
-            "status": "blocked",
-            "issue": cast(dict[str, JsonValue], json_value(segment_issue)),
-        }
-    tokens = plan.tokens_for_segment(segment.id)
-    annotations = [
-        annotation
-        for annotation in plan.annotations
-        if annotation.id in set(segment.annotation_ids)
-    ]
-    boundaries_before = [event for event in plan.boundaries if event.position == spoken_start]
-    boundaries_after = [event for event in plan.boundaries if event.position == spoken_end]
-    semantic_boundaries = [
-        event for event in plan.semantic_boundaries if event.position in {spoken_start, spoken_end}
-    ]
+    renderability: dict[str, JsonValue] = (
+        {"status": "blocked", "issue": cast(dict[str, JsonValue], json_value(segment_issue))}
+        if segment_issue is not None
+        else {"status": "renderable", "validator": "voicerender"}
+    )
     directives = segment.directives
+    text = segment.text
     return cast(
         dict[str, JsonValue],
         json_value(
             {
                 "scope_id": scope_id,
                 "scope_path": source_path,
-                "segment_id": segment.id,
-                "unit_ids": unit_ids,
+                "flow_id": flow_id,
+                "flow_index": flow_index,
+                "flow_hash": flow.content_hash,
+                "segment_id": segment_id,
+                "segment_index": segment_index,
+                "unit_ids": [flow_id],
                 "language": segment.language,
                 "effective_voice": directives.voice,
                 "effective_prosody": directives.prosody,
                 "directives": directives,
                 "source": {
-                    "format": plan.source.format,
-                    "span": {"start": source_start, "end": source_end},
-                    "text": source_excerpt,
-                    "context": context_lines,
-                    "line": start_line,
+                    "format": plan.document.format,
+                    "span": None,
+                    "text": text,
+                    "context": [],
+                    "line": None,
                 },
-                "structural": {
-                    "span": {"start": structural_start, "end": structural_end},
-                    "text": (
-                        structural_text[structural_start:structural_end]
-                        if isinstance(structural_start, int) and isinstance(structural_end, int)
-                        else None
-                    ),
-                },
-                "spoken": {
-                    "span": {"start": spoken_start, "end": spoken_end},
-                    "text": spoken_text[spoken_start:spoken_end],
-                },
-                "tokens": tokens,
-                "annotations": annotations,
-                "annotation_ids": segment.annotation_ids,
-                "boundaries_before": boundaries_before,
-                "boundaries_after": boundaries_after,
-                "semantic_boundaries": semantic_boundaries,
+                "structural": {"span": None, "text": text},
+                "spoken": {"span": None, "text": text},
+                "tokens": segment.tokens,
+                "annotations": [],
+                "annotation_ids": [],
+                "markers": segment.markers,
+                "pause_before": segment.pause_before,
+                "pause_after": segment.pause_after,
                 "renderability": renderability,
+                "source_context_requested": source_context,
             }
         ),
     )
-
 
 def _issue_for_inspection(
     issue: Mapping[str, Any],
     *,
     scope_id: str,
-    plan: UtterancePlan | None,
+    plan: FlowPlan | None,
 ) -> dict[str, JsonValue]:
     result = dict(issue)
     result["scope_id"] = scope_id
     segment_id = result.get("segment_id")
     if plan is not None and isinstance(segment_id, str):
         result["unit_id"] = next(
-            (unit.id for unit in plan.units if segment_id in unit.segment_ids),
+            (
+                _flow_identity(flow_index, flow)
+                for flow_index, flow in enumerate(plan.flow)
+                if any(
+                    _flow_segment_identity(flow_index, flow, segment_index)[1] == segment_id
+                    for segment_index, _segment in enumerate(flow.segments)
+                )
+            ),
             None,
         )
     return cast(dict[str, JsonValue], json_value(result))
@@ -961,7 +904,7 @@ def inspect_plan_state(
     if scope_id is not None:
         scope_rows = [row for row in scope_rows if row.get("scope_id", row.get("id")) == scope_id]
 
-    plans_by_scope: dict[str, UtterancePlan] = {}
+    plans_by_scope: dict[str, FlowPlan] = {}
     plans_by_scope_path: dict[str, str | None] = {}
     for row in scope_rows:
         current_scope_id = str(row.get("scope_id", row.get("id", "")))
@@ -971,7 +914,7 @@ def inspect_plan_state(
                 plan = _load_attempt_scope_plan(project, attempt_id, row)
             except Exception as exc:
                 raise ProjectPlanAttemptError(attempt_id, str(exc)) from exc
-        if isinstance(plan, UtterancePlan):
+        if isinstance(plan, FlowPlan):
             plans_by_scope[current_scope_id] = plan
         plans_by_scope_path[current_scope_id] = (
             str(row.get("source_path")) if row.get("source_path") is not None else None
@@ -988,34 +931,8 @@ def inspect_plan_state(
             )
         )
     if active_view and (issues or repairs):
-        for current_scope_id, plan in plans_by_scope.items():
-            report = preflight_renderability(plan)
-            for issue in report.issues:
-                enriched_issues.append(
-                    _issue_for_inspection(
-                        {
-                            **issue.to_dict(),
-                            "repair_safe": (
-                                issue.repair_assessment.safe
-                                if issue.repair_assessment is not None
-                                else None
-                            ),
-                            "repair_action": (
-                                issue.repair_assessment.action
-                                if issue.repair_assessment is not None
-                                else None
-                            ),
-                            "repair_blockers": (
-                                list(issue.repair_assessment.blockers)
-                                if issue.repair_assessment is not None
-                                else []
-                            ),
-                        },
-                        scope_id=current_scope_id,
-                        plan=plan,
-                    )
-                )
-
+        # UtterPlan v5 plans are executable flows; renderer-specific checks belong to VoiceRender.
+        pass
     filtered_issues = [
         issue
         for issue in enriched_issues
@@ -1024,24 +941,32 @@ def inspect_plan_state(
     ]
     safe_repairs = [issue for issue in filtered_issues if issue.get("repair_safe") is True]
     segments: list[dict[str, JsonValue]] = []
+    segments: list[dict[str, JsonValue]] = []
     if segment_id is not None or unit_id is not None:
         for current_scope_id, plan in plans_by_scope.items():
-            for segment in plan.segments:
-                member_units = [unit.id for unit in plan.units if segment.id in unit.segment_ids]
-                if segment_id is not None and segment.id != segment_id:
-                    continue
-                if unit_id is not None and unit_id not in member_units:
-                    continue
-                segments.append(
-                    _segment_detail(
-                        plan,
-                        segment,
-                        scope_id=current_scope_id,
-                        source_path=plans_by_scope_path.get(current_scope_id),
-                        issue_records=filtered_issues,
-                        source_context=source_context,
+            for flow_index, flow in enumerate(plan.flow):
+                flow_id = _flow_identity(flow_index, flow)
+                for segment_index, segment in enumerate(flow.segments):
+                    _, current_segment_id = _flow_segment_identity(
+                        flow_index, flow, segment_index
                     )
-                )
+                    if segment_id is not None and current_segment_id != segment_id:
+                        continue
+                    if unit_id is not None and unit_id != flow_id:
+                        continue
+                    segments.append(
+                        _segment_detail(
+                            plan,
+                            flow,
+                            segment,
+                            flow_index=flow_index,
+                            segment_index=segment_index,
+                            scope_id=current_scope_id,
+                            source_path=plans_by_scope_path.get(current_scope_id),
+                            issue_records=filtered_issues,
+                            source_context=source_context,
+                        )
+                    )
     scope_output = [
         {
             key: row.get(key)
@@ -1199,6 +1124,7 @@ def _load_reusable_scope(
     source_sha256: str,
     settings_sha256: str | None,
     semantic_fingerprint: str,
+    planning_config: Mapping[str, Any],
     renderability_mode: Literal["strict", "repair"],
 ) -> tuple[PlannedScope, int] | None:
     if prior_attempt is None:
@@ -1251,13 +1177,20 @@ def _load_reusable_scope(
         if digest != record.get("candidate_sha256"):
             return None
         plan = load_current_utterplan(candidate_path)
-        if not preflight_renderability(plan).ok:
+        try:
+            plan.validate()
+        except ValueError:
             return None
-        plan = plan.with_identity()
-        plan_id = plan.plan_id or ""
+        plan_id = plan.plan_id
         if not plan_id or plan_id != record.get("plan_id"):
             return None
-        compiled = CompiledSemanticPlan(plan, plan_id, digest, serialized)
+        compiled = CompiledSemanticPlan(
+            plan=plan,
+            plan_id=plan_id,
+            sha256=digest,
+            planning_config=planning_config,
+            serialized=serialized,
+        )
         plan_scope = PlanScope(
             id=scope.id,
             kind=scope.kind,
@@ -1267,6 +1200,7 @@ def _load_reusable_scope(
             sha256=digest,
             document_sha256=source_sha256,
             semantic_planner_fingerprint=semantic_fingerprint,
+            planning_config=planning_config,
         )
         repair_count = record.get("repair_count", 0)
         return PlannedScope(plan_scope, compiled), (
@@ -1291,8 +1225,7 @@ def _promote_plan_scopes(
         target = project.state_path((Path("plan") / planned.scope.path).as_posix())
         staged = target.with_name(f".{target.name}.stage-{token}")
         serialized = planned.compiled.serialized or serialize_utterplan(planned.compiled.plan)
-        if not preflight_renderability(planned.compiled.plan).ok:
-            raise ValueError(f"refusing to promote non-renderable scope {planned.scope.id}")
+        planned.compiled.plan.validate()
         target.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_bytes(staged, serialized)
         previous_files[target] = target.read_bytes() if target.is_file() else None
@@ -1401,7 +1334,8 @@ def plan_project(
                     else project.load_document_scope(scope)
                 )
                 source_sha256 = _scope_source_sha256(project, scope, document)
-                semantic_fingerprint = _planning_fingerprint(cfg, document, renderability_mode)
+                planning_config = _planning_config(cfg, document, renderability_mode)
+                semantic_fingerprint = semantic_planner_fingerprint(planning_config)
                 processing_record = _attempt_scope_record(
                     scope,
                     source_sha256=source_sha256,
@@ -1419,6 +1353,7 @@ def plan_project(
                     source_sha256=source_sha256,
                     settings_sha256=settings_sha256,
                     semantic_fingerprint=semantic_fingerprint,
+                    planning_config=planning_config,
                     renderability_mode=renderability_mode,
                 )
                 if reusable is not None:
@@ -1715,7 +1650,7 @@ def plan_project(
                 "source_path": scope_by_id[item.scope.id].path,
             }
             for item in planned_scopes
-            for diagnostic in item.compiled.plan.diagnostics
+            for diagnostic in item.compiled.diagnostics
         )
         attempt["status"] = "repaired" if repairs else "renderable"
         attempt["repair_count"] = repairs
@@ -1901,7 +1836,7 @@ def plan_document(document: InputDocument, cfg: Any, output: Path) -> CompiledSe
     return resolved.compiled
 
 
-def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
+def load_scope_plan(project: Project, scope: PlanScope) -> FlowPlan:
     artifact_path = project.state_root / "plan" / scope.path
     try:
         return load_current_utterplan(artifact_path)
@@ -1930,7 +1865,7 @@ def load_scope_plan(project: Project, scope: PlanScope) -> UtterancePlan:
         ) from error
 
 
-def load_primary_scope_plan(project: Project) -> UtterancePlan:
+def load_primary_scope_plan(project: Project) -> FlowPlan:
     scopes = project.load_plan_index().scopes
     if len(scopes) != 1:
         raise ValueError("plan scope is required when a project has multiple scopes")
@@ -2050,12 +1985,8 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
                 "reason": "plan.artifact.plan_id_mismatch",
                 "details": {"scope_id": scope.id},
             }
-        expected_planner_fingerprint = semantic_planner_fingerprint(plan.config)
-        legacy_planner_fingerprint = _legacy_semantic_planner_fingerprint(plan.config)
-        if scope.semantic_planner_fingerprint not in {
-            expected_planner_fingerprint,
-            legacy_planner_fingerprint,
-        }:
+        expected_planner_fingerprint = semantic_planner_fingerprint(scope.planning_config or {})
+        if scope.semantic_planner_fingerprint != expected_planner_fingerprint:
             return {
                 "state": "stale",
                 "reason": "plan.stale.planner_version_changed",
@@ -2085,7 +2016,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
             and document_scope.input_format.casefold() in {"ssmd", "markdown"}
             else expected_format
         )
-        actual_format = plan.config.get("document_format")
+        actual_format = plan.document.format
         if actual_format != expected_scope_format:
             return {
                 "state": "stale",

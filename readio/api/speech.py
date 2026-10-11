@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from ..audio import RenderProgress
-from ..engines.registry import get_engine
 from ..errors import ManifestError, ReadioError
 from ..execution import (
     MasterRenderResult,
@@ -32,7 +31,7 @@ from ..manifest import (
 from ..paths import resolve_render_output
 from ..plan import resolve_execution_v2, resolve_plan_v2
 from ..reader import render_live as render_live_internal
-from ..synthesis import resolve_synthesis_request
+from ..synthesis import resolve_live_synthesis_request
 from ..wave import atomic_audio_path, create_audio_sink
 from .errors import (
     ExecutionError,
@@ -202,7 +201,6 @@ class SpeechService:
     ) -> RenderResult:
         """Consume live text without taking ownership of its iterable or sink."""
         resolved_synthesis = self._resolve_live_synthesis(synthesis or SynthesisRequest())
-        self._validate_live_capability(resolved_synthesis.engine)
         return self._render_live_resolved(
             lines,
             sink,
@@ -228,7 +226,6 @@ class SpeechService:
             )
 
         resolved_synthesis = self._resolve_live_synthesis(synthesis or SynthesisRequest())
-        self._validate_live_capability(resolved_synthesis.engine)
 
         try:
             audio_format = resolve_audio_format(
@@ -291,7 +288,7 @@ class SpeechService:
 
     def _resolve_live_synthesis(self, synthesis: SynthesisRequest) -> ResolvedSynthesis:
         try:
-            return resolve_synthesis_request(self._app.config, synthesis)
+            return resolve_live_synthesis_request(self._app.config, synthesis)
         except ReadioError:
             raise
         except Exception as error:
@@ -301,20 +298,6 @@ class SpeechService:
                 code="speech.live_resolution_failed",
             ) from error
 
-    def _validate_live_capability(self, engine: str | None) -> None:
-        engine = engine or self._app.config.reader.engine
-        try:
-            adapter = get_engine(engine)
-        except ValueError as error:
-            raise ResolutionError(
-                str(error),
-                code="speech.engine_unavailable",
-            ) from error
-        if not adapter.capabilities().supports_live:
-            raise InvalidRequestError(
-                f"Live streaming is not supported by engine {engine!r}.",
-                code="speech.live_unsupported",
-            )
 
     def _render_live_resolved(
         self,

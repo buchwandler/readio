@@ -244,33 +244,141 @@ def test_unrepresentable_pronunciation_fails_before_opening_engine(monkeypatch):
     assert adapter.open_selections == []
 
 
-def test_live_path_explicitly_uses_unplanned_capacity_context(monkeypatch) -> None:
-    adapter = _Adapter()
-    adapter.capabilities = lambda: EngineCapabilities(
-        id=adapter.id,
-        supports_named_voices=True,
-        supports_live=True,
+def test_live_path_uses_voice_render_public_session_and_reuses_it(monkeypatch) -> None:
+    from voicerender.engines.registry import _ADAPTERS
+    from voicerender_support import FixtureAdapter
+
+    from readio.reader import render_live
+    adapter = FixtureAdapter()
+    monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
+    monkeypatch.setattr(
+        "readio.engines.registry.get_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Readio engine registry used")),
     )
-    monkeypatch.setitem(_registry._adapters, adapter.id, adapter)
-    from readio import rendering
+    sink = _Sink()
+    summary = render_live(
+        ["First live paragraph.\n", "", "Second live paragraph."],
+        ReaderSettings(engine=adapter.id, voice="fixture-voice"),
+        sink,
+    )
+
+    assert summary.sample_count == 4800
+    assert adapter.session_count == 1
+    assert [request.text for request in adapter.requests] == [
+        "First live paragraph.",
+        "Second live paragraph.",
+    ]
+    assert [request.id for request in adapter.requests] == ["live-1", "live-2"]
+    assert len(sink.writes) == 2
+
+
+
+def test_live_speed_uses_audiocompose_tempo_operation(monkeypatch) -> None:
+    from audiocompose import AudioBufferSource, Composer
+    from voicerender.engines.registry import _ADAPTERS
+    from voicerender_support import FixtureAdapter
+
     from readio.reader import render_live
 
-    original_render = rendering.render_atomic_request
-    contexts = []
+    original_compose = Composer.compose
+    jobs = []
 
-    def capture_render(session, speech_request, **kwargs):
-        contexts.append(kwargs["capacity"])
-        return original_render(session, speech_request, **kwargs)
+    def capture_compose(composer, job, **kwargs):
+        jobs.append(job)
+        return original_compose(composer, job, **kwargs)
 
-    monkeypatch.setattr(rendering, "render_atomic_request", capture_render)
+    monkeypatch.setattr(Composer, "compose", capture_compose)
+    adapter = FixtureAdapter()
+    monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
+    sink = _Sink()
     summary = render_live(
-        ["Live paragraph.\n"],
-        ReaderSettings(engine=adapter.id, voice="fixture-voice"),
-        _Sink(),
+        ["Live paragraph."],
+        ReaderSettings(engine=adapter.id, voice="fixture-voice", speed=1.5),
+        sink,
     )
 
-    assert summary.sample_count == 8
-    assert len(contexts) == 1
-    assert contexts[0].planned_semantics is False
-    assert contexts[0].semantic_boundaries == ()
-    assert contexts[0].linguistic_token_ranges == ()
+    assert len(sink.writes) == 1
+    assert summary.sample_count == len(sink.writes[0][0])
+    assert summary.sample_count != 2400
+    assert jobs[0].items[0].operations == (Tempo(1.5),)
+    assert isinstance(jobs[0].items[0].source, AudioBufferSource)
+
+
+
+def test_plain_render_text_uses_voice_render_session(monkeypatch) -> None:
+    from voicerender.engines.registry import _ADAPTERS
+    from voicerender_support import FixtureAdapter
+
+    from readio.reader import render_text
+
+    adapter = FixtureAdapter()
+    monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
+    monkeypatch.setattr(
+        "readio.engines.registry.get_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Readio engine registry used")),
+    )
+    sink = _Sink()
+    summary = render_text(
+        "Plain interactive text.",
+        ReaderSettings(engine=adapter.id, voice="fixture-voice"),
+        sink,
+    )
+
+    assert summary.sample_count == 2400
+    assert [request.text for request in adapter.requests] == ["Plain interactive text."]
+
+
+
+def test_live_voice_render_errors_are_chained_as_readio_render_errors(monkeypatch) -> None:
+    from voicerender.engines.registry import _ADAPTERS
+    from voicerender.errors import EngineSynthesisError
+    from voicerender_support import FixtureAdapter
+
+    from readio.reader import render_live
+
+    adapter = FixtureAdapter()
+    monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
+
+    def fail_synthesis(*_args, **_kwargs):
+        raise EngineSynthesisError("fixture synthesis failed", engine=adapter.id)
+
+    monkeypatch.setattr("voicerender.synthesize", fail_synthesis)
+    with pytest.raises(RenderError, match="live VoiceRender error") as caught:
+        render_live(
+            ["Failure paragraph."],
+            ReaderSettings(engine=adapter.id, voice="fixture-voice"),
+            _Sink(),
+        )
+
+    assert caught.value.code == "engine.synthesis_failed"
+    assert isinstance(caught.value.__cause__, EngineSynthesisError)
+
+
+
+def test_public_speech_live_path_uses_voice_render_without_readio_engine_registry(monkeypatch) -> None:
+    from voicerender.engines.registry import _ADAPTERS
+    from voicerender_support import FixtureAdapter
+
+    from readio.api import Readio
+    from readio.plan import SynthesisRequest
+
+    adapter = FixtureAdapter()
+    monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
+    monkeypatch.setattr(
+        "readio.engines.registry.get_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Readio engine registry used")),
+    )
+    app = Readio(
+        ReadioConfig(reader=ReaderSettings(engine=adapter.id, voice="fixture-voice"), roles={})
+    )
+    sink = _Sink()
+    result = app.speech.render_live(
+        ["API live paragraph."],
+        sink,
+        synthesis=SynthesisRequest(engine=adapter.id, voice="fixture-voice", speaker=3),
+    )
+
+    assert result.summary.sample_count == 2400
+    assert adapter.session_count == 1
+    assert [request.text for request in adapter.requests] == ["API live paragraph."]
+    assert adapter.requests[0].speaker == 3

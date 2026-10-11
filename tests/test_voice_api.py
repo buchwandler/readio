@@ -119,7 +119,7 @@ def test_public_voice_resolution_infers_engine_and_target(monkeypatch) -> None:
     from readio.engines.catalog import CatalogResult
 
     monkeypatch.setattr(
-        "readio.voices.discover_targets",
+        "readio.voices.discover_catalog_targets",
         lambda **kwargs: CatalogResult(
             targets=(
                 target("pykokoro", "v1.0", "af_heart"),

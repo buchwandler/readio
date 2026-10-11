@@ -90,7 +90,7 @@ def test_catalog_listings_preserve_registry_discovery_metadata(monkeypatch) -> N
         refreshed=True,
     )
     monkeypatch.setattr(
-        "readio.api.catalog.discover_targets",
+        "readio.api.catalog.discover_catalog_targets",
         lambda **_: result,
     )
     monkeypatch.setattr(
@@ -253,7 +253,7 @@ def test_pocket_voice_details_are_normalized_and_filtered_by_locale(monkeypatch)
         ),
     )
     monkeypatch.setattr(
-        "readio.voices.discover_targets",
+        "readio.voices.discover_catalog_targets",
         lambda **_kwargs: CatalogResult(targets=(target,)),
     )
     app = Readio(default_config())
@@ -373,7 +373,7 @@ def test_supertonic_voice_language_capabilities_survive_public_filtering(monkeyp
         metadata={"source": "supertonicsynth"},
     )
     monkeypatch.setattr(
-        "readio.voices.discover_targets",
+        "readio.voices.discover_catalog_targets",
         lambda **_kwargs: CatalogResult(targets=(target,)),
     )
     app = Readio(default_config())
@@ -394,17 +394,21 @@ def test_engine_catalogs_report_inflect_and_supertonic_package_names(monkeypatch
     from readio.api.catalog import CatalogService
     from readio.api.diagnostics import DiagnosticsService
 
+    engine_rows = (
+        {"id": "inflect", "package": "inflectsynth", "installed": False, "installed_version": None},
+        {"id": "supertonic", "package": "supertonicsynth", "installed": False, "installed_version": None},
+    )
     unavailable = {
-        "adapter": False,
-        "package": False,
-        "version": None,
+        "engine": "",
+        "package": "",
+        "compatible": False,
         "status": "package_missing",
+        "distribution_version": None,
         "module_version": None,
         "module_path": None,
-        "request_api_version": None,
-        "expected_request_api_version": None,
+        "api_version": None,
+        "expected_api_version": None,
         "contract_source": None,
-        "api_compatible": None,
         "missing_symbols": (),
         "missing_methods": (),
         "failed_stage": None,
@@ -413,9 +417,10 @@ def test_engine_catalogs_report_inflect_and_supertonic_package_names(monkeypatch
         "error_message": None,
         "warnings": (),
     }
-    statuses = {engine: dict(unavailable) for engine in ("inflect", "supertonic")}
-    monkeypatch.setattr("readio.api.catalog.engine_status", lambda: statuses)
-    monkeypatch.setattr("readio.api.diagnostics.engine_status", lambda: statuses)
+    monkeypatch.setattr("readio.api.catalog.catalog_engines", lambda: engine_rows)
+    monkeypatch.setattr("readio.api.catalog.catalog_engine_status", lambda _engine: unavailable)
+    monkeypatch.setattr("readio.doctor.list_engines", lambda: engine_rows)
+    monkeypatch.setattr("readio.doctor.voicerender_engine_status", lambda _engine: unavailable)
 
     catalog = {item.id: item for item in CatalogService(None).engines()}
     assert catalog["inflect"].missing_dependency == "inflectsynth"

@@ -236,7 +236,7 @@ def test_live_render_consumes_but_does_not_close_inputs_or_sink(monkeypatch) -> 
         on_progress(RenderProgress(2, None, 4, 22050))
         return RenderSummary(sample_rate=22050, sample_count=4, channels=1)
 
-    monkeypatch.setattr(speech, "resolve_synthesis_request", lambda _cfg, request: request)
+    monkeypatch.setattr(speech, "resolve_live_synthesis_request", lambda _cfg, request: request)
     monkeypatch.setattr(speech, "render_live_internal", fake_live)
     lines = _LineStream()
     sink = _Sink()
@@ -266,7 +266,7 @@ def test_live_speak_owns_and_closes_its_playback_sink(monkeypatch) -> None:
         sink.write(np.zeros(4, dtype=np.float32), 22050)
         return RenderSummary(sample_rate=22050, sample_count=4, channels=1)
 
-    monkeypatch.setattr(speech, "resolve_synthesis_request", lambda _cfg, request: request)
+    monkeypatch.setattr(speech, "resolve_live_synthesis_request", lambda _cfg, request: request)
     monkeypatch.setattr(speech, "render_live_internal", fake_live)
     owned_sink = _OwnedPlaybackSink(None)
     monkeypatch.setattr(audio, "PlaybackSink", lambda config: owned_sink)
@@ -365,18 +365,11 @@ class _FileSink(_Sink):
         self.path.write_bytes(b"live audio")
 
 
-def _install_live_file_mocks(monkeypatch, *, supports_live: bool = True, fail: bool = False):
+def _install_live_file_mocks(monkeypatch, *, fail: bool = False):
     from readio.api import speech
 
     sinks: list[_FileSink] = []
-    monkeypatch.setattr(speech, "resolve_synthesis_request", lambda _cfg, request: request)
-    monkeypatch.setattr(
-        speech,
-        "get_engine",
-        lambda _engine: SimpleNamespace(
-            capabilities=lambda: SimpleNamespace(supports_live=supports_live)
-        ),
-    )
+    monkeypatch.setattr(speech, "resolve_live_synthesis_request", lambda _cfg, request: request)
     monkeypatch.setattr(speech, "ensure_audio_format_available", lambda _format: None)
 
     def create_sink(path: Path, _audio_format: str) -> _FileSink:
@@ -526,22 +519,3 @@ def test_render_live_to_file_failure_keeps_final_output_unchanged(
     assert sinks[0].closed
 
 
-def test_live_unsupported_engine_is_rejected_before_synthesis(monkeypatch) -> None:
-    from readio.api import speech
-
-    rendered = False
-
-    def render_live(*_args, **_kwargs):
-        nonlocal rendered
-        rendered = True
-
-    _install_live_file_mocks(monkeypatch, supports_live=False)
-    monkeypatch.setattr(speech, "render_live_internal", render_live)
-
-    with pytest.raises(InvalidRequestError) as error:
-        Readio(ReadioConfig()).speech.render_live(
-            iter(["live"]), _Sink(), synthesis=SynthesisRequest(engine="piper")
-        )
-
-    assert error.value.code == "speech.live_unsupported"
-    assert not rendered

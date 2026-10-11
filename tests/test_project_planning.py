@@ -34,7 +34,7 @@ def test_semantic_planning_does_not_resolve_engine_and_is_acoustic_invariant(mon
         ReadioConfig(reader=ReaderSettings(engine="other", voice="two")), document
     )
     assert first.compiled.plan_id == second.compiled.plan_id
-    assert first.compiled.plan.units
+    assert first.compiled.plan.flow
 
 
 def test_ssmd_language_and_detection_hints_precede_readio_fallback(monkeypatch):
@@ -80,8 +80,8 @@ def test_ssmd_language_and_detection_hints_precede_readio_fallback(monkeypatch):
     assert resolved.policy.language == "de-DE"
     assert resolved.policy.language_detection == "auto"
     assert resolved.policy.detect_languages == ("de", "en")
-    assert resolved.compiled.plan.segments[0].language == "de-DE"
-    assert resolved.compiled.plan.document_metadata["sequence_fallback_mode"] == "preserve"
+    assert resolved.compiled.plan.flow[0].segments[0].language == "de-DE"
+    assert resolved.compiled.plan.document.format == "ssmd"
 
 
 def test_semantic_policy_changes_identity():
@@ -126,14 +126,22 @@ def test_project_ssmd_plan_preserves_semantics_and_conversion_metadata(tmp_path)
     assert document_index.metadata["conversion"]["source_format"] == "ssmd"
     assert not project.paths["document_metadata"].exists()
     assert project.document().format == "ssmd"
-    assert plan.config["document_format"] == "ssmd"
-    spoken_text = "\n".join(segment["text"] for segment in plan.to_dict()["segments"])
+    assert plan.document.format == "ssmd"
+    segments = [segment for flow in plan.flow for segment in flow.segments]
+    spoken_text = "\n".join(segment.text for segment in segments)
     assert "<div" not in spoken_text
     assert "</div>" not in spoken_text
     assert all(value not in spoken_text for value in ("180ms", "450ms", "200ms", "600ms"))
-    assert any(boundary["seconds"] == 0.6 for boundary in plan.to_dict()["boundaries"])
+    assert any(
+        segment.pause_after
+        and segment.pause_after.type == "timed"
+        and segment.pause_after.time == "600ms"
+        for segment in segments
+    )
     assert {
-        segment["directives"]["voice"]["reference"] for segment in plan.to_dict()["segments"]
+        segment.directives.voice.reference
+        for segment in segments
+        if segment.directives.voice is not None
     } == {"narrator", "guest"}
     assert compiled.scopes[0].compiled.plan_id == plan.plan_id
 
@@ -207,20 +215,16 @@ def test_wrong_semantic_plan_format_is_stale_with_actionable_reason(tmp_path):
     project = init_project(source, tmp_path / "episode.readio")
     plan_project(project, ReadioConfig())
     plan_path = project.root / "plan" / "document.utterplan.toml"
-    from utterplan import UtterancePlan
-
-    plan = UtterancePlan.load(plan_path)
-    plan.config["document_format"] = "plain"
-    plan = plan.with_identity()
-    plan_path.write_text(plan.to_toml(), encoding="utf-8")
-    index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
     import hashlib
 
-    index["scopes"][0]["plan_id"] = plan.plan_id
-    index["scopes"][0]["sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-    from readio.stages.planning import semantic_planner_fingerprint
+    from utterplan import FlowPlan
 
-    index["scopes"][0]["semantic_planner_fingerprint"] = semantic_planner_fingerprint(plan.config)
+    plan = FlowPlan.load(plan_path)
+    plan = replace(plan, document=replace(plan.document, format="plain"))
+    plan.validate()
+    plan_path.write_text(plan.to_toml(), encoding="utf-8")
+    index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
+    index["scopes"][0]["sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
     project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
 
     from readio.stages.planning import semantic_status
@@ -274,7 +278,7 @@ def test_project_planning_plans_all_document_scopes_and_tracks_input_hashes(tmp_
     assert [item.id for item in initial] == ["chapter-0002", "chapter-0003"]
     assert all(item.document_sha256 for item in initial)
     assert all(item.plan_id for item in initial)
-    assert all(load_scope_plan(project, item).schema_version == 4 for item in initial)
+    assert all(load_scope_plan(project, item).schema_version == 5 for item in initial)
 
     project.path("document/chapters/chapter-0003.md").write_text(
         "# Chapter Three\n\nUpdated text.", encoding="utf-8"
@@ -365,7 +369,7 @@ def test_planning_progress_does_not_change_plan_artifacts(tmp_path):
     assert progress_events
     assert first_scope.scope.plan_id == second_scope.scope.plan_id
     assert first_scope.scope == second_scope.scope
-    assert first_scope.compiled.plan.units == second_scope.compiled.plan.units
+    assert first_scope.compiled.plan.flow == second_scope.compiled.plan.flow
     assert artifact_path.read_bytes() == artifact_before
     assert project.paths["plan_index"].read_bytes() == index_before
 
@@ -396,57 +400,27 @@ def test_semantic_planner_fingerprint_participates_in_plan_freshness(tmp_path, m
     assert status["scope_id"] == scope.id
 
 
-def test_nonrenderable_stored_plan_status_recommends_rebuild(tmp_path):
+def test_invalid_v5_plan_status_recommends_rebuild(tmp_path):
     import hashlib
 
     config = ReadioConfig(reader=ReaderSettings(spacy="off"))
-    source = tmp_path / "old-plan.txt"
+    source = tmp_path / "invalid-plan.txt"
     source.write_text("A sentence to plan.", encoding="utf-8")
-    project = init_project(source, tmp_path / "old-plan.readio")
+    project = init_project(source, tmp_path / "invalid-plan.readio")
     plan_project(project, config)
     scope = project.load_plan_index().scopes[0]
-    plan = load_scope_plan(project, scope)
-    first = plan.segments[0]
-    spoken = list(plan.texts.spoken)
-    punctuation = "." * (first.spoken_end - first.spoken_start)
-    spoken[first.spoken_start : first.spoken_end] = punctuation
-    tokens = tuple(
-        replace(token, text="." * (token.spoken_end - token.spoken_start)) for token in plan.tokens
-    )
-    invalid_plan = replace(
-        plan,
-        texts=replace(plan.texts, spoken="".join(spoken)),
-        tokens=tokens,
-        segments=(replace(first, text=punctuation), *plan.segments[1:]),
-    ).with_identity()
-    from utterplan.hashing import semantic_hash, unit_hash_payload_from_serialized
-
-    serialized = invalid_plan.to_dict()
-    units = tuple(
-        replace(
-            unit,
-            content_hash=semantic_hash(
-                unit_hash_payload_from_serialized(unit.to_dict(), serialized)
-            ),
-        )
-        for unit in invalid_plan.units
-    )
-    invalid_plan = replace(invalid_plan, units=units).with_identity()
     artifact_path = project.state_root / "plan" / scope.path
-    artifact_path.write_text(invalid_plan.to_toml(), encoding="utf-8")
+    artifact_path.write_text('format = "utterplan"\nschema_version = 5\nflow = [\n', encoding="utf-8")
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
-    index["scopes"][0]["plan_id"] = invalid_plan.plan_id
     index["scopes"][0]["sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
 
     status = Readio(config).projects.status(project.root)
     plan_status = status.stage("plan")
     assert plan_status.state == "invalid"
-    assert plan_status.reason == "plan.invalid.not_renderable"
-    assert plan_status.details["validation_code"] == "segment.not_renderable"
+    assert plan_status.reason == "plan.artifact.invalid"
     assert plan_status.details["action"] == "readio plan build ."
     assert status.next_actions[0].command == "readio plan build ."
-
 
 def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
     import hashlib
@@ -472,7 +446,7 @@ def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
     assert row["reason"] == "plan.artifact.legacy_format"
     assert row["stored_format"] == "json"
     assert row["required_format"] == "toml"
-    assert row["required_schema"] == 4
+    assert row["required_schema"] == 5
     assert row["action"] == "run readio plan"
     assert Readio(config).projects.status(project.root).next_actions[0].command == (
         "readio plan build ."
@@ -485,6 +459,6 @@ def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
     assert scope.path == "document.utterplan.toml"
     assert artifact_path.is_file()
     assert hashlib.sha256(artifact_path.read_bytes()).hexdigest() == scope.sha256
-    assert load_scope_plan(project, scope).schema_version == 4
+    assert load_scope_plan(project, scope).schema_version == 5
     assert legacy_path.read_bytes() == legacy_bytes
     assert semantic_status(project)[-1]["state"] == "current"

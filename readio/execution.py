@@ -17,7 +17,7 @@ from .engines.base import EngineSelection
 from .engines.registry import get_engine
 from .errors import RenderError
 from .plan import ReadioPlanV2
-from .planning.compiler import CompiledSemanticPlan, UtterancePlan
+from .planning.compiler import CompiledSemanticPlan, FlowPlan
 from .stages.composition import (
     CompositionOutcome,
     compose_layout,
@@ -40,7 +40,7 @@ class ResolvedExecutionV2:
     selection: EngineSelection | None
 
     @property
-    def utterance_plan(self) -> UtterancePlan:
+    def utterance_plan(self) -> FlowPlan:
         """Return the compiled semantic plan lowered into Readio requests."""
         if self.semantic is None:
             raise RenderError("resolved v2 execution has no semantic plan")

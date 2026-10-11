@@ -153,7 +153,7 @@ def test_piper_discovery_preserves_target_identity_and_language_metadata(monkeyp
     )
     monkeypatch.setattr(
         voices_module,
-        "discover_targets",
+        "discover_catalog_targets",
         lambda **kwargs: CatalogResult(targets=(target,)),
     )
 

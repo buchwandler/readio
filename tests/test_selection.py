@@ -32,15 +32,11 @@ def _plan(tmp_path):
 
 def test_selectors_cover_ranges_and_paragraphs_over_sentence_units(tmp_path):
     plan = _plan(tmp_path)
-    assert resolve_unit_selection(plan, "all").unit_indices == tuple(
-        unit.index for unit in plan.units
-    )
+    assert resolve_unit_selection(plan, "all").unit_indices == tuple(range(len(plan.flow)))
     assert len(resolve_unit_selection(plan, "first:1").unit_indices) == 1
     assert len(resolve_unit_selection(plan, "last:1").unit_indices) == 1
     assert resolve_unit_selection(plan, "paragraph:1").unit_indices == (0, 1)
-    assert resolve_unit_selection(plan, "paragraph:1-2").unit_indices == tuple(
-        unit.index for unit in plan.units
-    )
+    assert resolve_unit_selection(plan, "paragraph:1-2").unit_indices == tuple(range(len(plan.flow)))
     assert resolve_unit_selection(plan, "sentence:1").unit_indices == (0,)
     assert resolve_unit_selection(plan, "unit:1-2").unit_indices == (0, 1)
     assert resolve_unit_selection(plan, "last-paragraph").unit_indices
@@ -106,5 +102,5 @@ def test_project_selection_delegates_single_scope_and_checks_ranges(tmp_path):
             segment_ids=expected.segment_ids,
         ),
     )
-    with pytest.raises(SelectionError, match="project has 8 units"):
+    with pytest.raises(SelectionError, match="project has 8 flows"):
         resolve_project_selection(plan_scopes, "unit:8-9")

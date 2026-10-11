@@ -5,13 +5,38 @@ from __future__ import annotations
 import importlib.metadata
 from typing import Any
 
+from voicerender import engine_status as voicerender_engine_status
+from voicerender import list_engines
+
 from . import __version__ as readio_version
-from .engines import engine_status
 
 
 def check_engine_status() -> dict[str, dict[str, Any]]:
-    """Return package and adapter status from the unified engine registry."""
-    return engine_status()
+    """Return package and adapter status from VoiceRender's public probes."""
+    statuses: dict[str, dict[str, Any]] = {}
+    for engine in list_engines():
+        engine_id = str(engine["id"])
+        probe = voicerender_engine_status(engine_id)
+        statuses[engine_id] = {
+            "adapter": True,
+            "package": bool(engine.get("installed")),
+            "version": probe.get("distribution_version") or engine.get("installed_version"),
+            "module_version": probe.get("module_version"),
+            "module_path": probe.get("module_path"),
+            "request_api_version": probe.get("api_version"),
+            "expected_request_api_version": probe.get("expected_api_version"),
+            "contract_source": probe.get("contract_source"),
+            "api_compatible": probe.get("compatible"),
+            "missing_symbols": tuple(probe.get("missing_symbols", ())),
+            "missing_methods": tuple(probe.get("missing_methods", ())),
+            "failed_stage": probe.get("failed_stage"),
+            "failed_symbol": probe.get("failed_symbol"),
+            "error_type": probe.get("error_type"),
+            "error_message": probe.get("error_message"),
+            "warnings": tuple(probe.get("warnings", ())),
+            "status": probe.get("status", "unknown"),
+        }
+    return statuses
 
 
 def _check_distribution(distribution: str) -> dict[str, Any]:

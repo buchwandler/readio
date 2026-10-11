@@ -292,6 +292,7 @@ class PlanScope:
     sha256: str | None = None
     document_sha256: str | None = None
     semantic_planner_fingerprint: str | None = None
+    planning_config: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"id": self.id, "kind": self.kind, "path": self.path}
@@ -301,6 +302,7 @@ class PlanScope:
             ("sha256", self.sha256),
             ("document_sha256", self.document_sha256),
             ("semantic_planner_fingerprint", self.semantic_planner_fingerprint),
+            ("planning_config", self.planning_config),
         ):
             if value is not None:
                 result[key] = value
@@ -316,6 +318,9 @@ class PlanScope:
             raise ProjectFormatError(
                 "plan scope semantic_planner_fingerprint must be a sha256 fingerprint"
             )
+        planning_config = data.get("planning_config")
+        if planning_config is not None and not isinstance(planning_config, Mapping):
+            raise ProjectFormatError("plan scope planning_config must be an object")
         return cls(
             id=_require_string(data.get("id"), "scope.id"),
             kind=_require_string(data.get("kind"), "scope.kind"),
@@ -325,6 +330,7 @@ class PlanScope:
             sha256=data.get("sha256"),
             document_sha256=data.get("document_sha256"),
             semantic_planner_fingerprint=fingerprint,
+            planning_config=planning_config,
         )
 
 

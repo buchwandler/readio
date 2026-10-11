@@ -823,6 +823,11 @@ class ProjectSynthesisArtifact:
     profile_id: str | None
     lowering_sha256: str | None
     word_timings: tuple[Mapping[str, JsonValue], ...] = ()
+    manifest_path: Path | None = None
+    manifest_id: str | None = None
+    source_plan_id: str | None = None
+    source_locator: str | None = None
+    acoustic_cache_key: str | None = None
 
     def to_dict(self) -> dict[str, JsonValue]:
         return cast(dict[str, JsonValue], json_value(self))

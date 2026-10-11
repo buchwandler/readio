@@ -59,7 +59,7 @@ def supertonic_multilingual_target() -> SynthesisTarget:
 
 def discover(monkeypatch, targets: tuple[SynthesisTarget, ...]) -> None:
     monkeypatch.setattr(
-        "readio.voices.discover_targets",
+        "readio.voices.discover_catalog_targets",
         lambda **kwargs: CatalogResult(targets=targets),
     )
 

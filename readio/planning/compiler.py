@@ -1,20 +1,20 @@
 """Semantic plan compiler for Readio.
 
-This module provides the explicit compiler boundary that produces one
-``UtterancePlan`` from a prepared document and planning policy.  The
-compiled plan is engine-neutral and reusable across different engines.
+This module is the compiler boundary that emits canonical UtterPlan v5
+``FlowPlan`` artifacts. Plans remain engine-neutral and reusable by the
+standalone VoiceRender CLI.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from utterplan import PlannerProgressEvent, UtterancePlan
+from utterplan import FlowPlan, PlannerProgressEvent
 
 from .semantic import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
 
@@ -27,26 +27,28 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CompiledSemanticPlan:
-    """A compiled semantic plan with identity information."""
+    """A canonical UtterPlan v5 plan and its application-side planning metadata."""
 
-    plan: UtterancePlan
+    plan: FlowPlan
     plan_id: str
     sha256: str
+    planning_config: Mapping[str, Any]
+    diagnostics: tuple[Any, ...] = ()
     serialized: bytes | None = None
 
 
 def _compute_sha256(data: bytes) -> str:
-    """Compute SHA-256 hash of data."""
+    """Compute SHA-256 hash of the exact canonical plan artifact."""
     return hashlib.sha256(data).hexdigest()
 
 
 class PlanSchemaMismatchError(ValueError):
-    """A persisted Readio semantic plan is not the supported UtterPlan schema."""
+    """A persisted Readio plan is not the supported UtterPlan schema."""
 
     def __init__(self, stored: object) -> None:
         self.stored = stored
         super().__init__(
-            f"UtterPlan semantic schema {stored!r} is not supported; "
+            f"UtterPlan schema {stored!r} is not supported; "
             f"expected {SUPPORTED_UTTERPLAN_SCHEMA_VERSION}"
         )
 
@@ -59,16 +61,17 @@ class LegacyPlanArtifactError(ValueError):
         super().__init__(f"legacy JSON UtterPlan artifact requires re-planning: {path}")
 
 
-def serialize_utterplan(plan: UtterancePlan) -> bytes:
-    """Serialize the canonical UtterPlan TOML artifact."""
+def serialize_utterplan(plan: FlowPlan) -> bytes:
+    """Serialize the normal canonical UtterPlan v5 TOML artifact."""
     return plan.to_toml().encode("utf-8")
 
 
-def load_current_utterplan(path: Path) -> UtterancePlan:
-    """Load a current canonical-TOML Readio plan without schema migration."""
+def load_current_utterplan(path: Path) -> FlowPlan:
+    """Load a canonical UtterPlan v5 TOML artifact without schema migration."""
     if path.suffix.lower() == ".json":
         raise LegacyPlanArtifactError(path)
-    plan = UtterancePlan.load(path)
+    plan = FlowPlan.load(path)
+    plan.validate()
     if plan.schema_version != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
         raise PlanSchemaMismatchError(plan.schema_version)
     return plan
@@ -80,19 +83,10 @@ def compile_semantic_plan(
     planning: PlanningPolicy,
     on_progress: Callable[[PlannerProgressEvent], None] | None = None,
 ) -> CompiledSemanticPlan:
-    """Compile a document into a semantic UtterancePlan.
+    """Compile a document into one canonical UtterPlan v5 FlowPlan.
 
-    This is the single compiler boundary.  It produces one immutable
-    ``UtterancePlan`` from the prepared document and planning policy.
-    The plan identity is stable for the same semantic inputs and does
-    NOT change when acoustic choices (engine, model, voice, etc.) change.
-
-    Args:
-        document: The prepared input document.
-        planning: Planning policy (language, unit, pause mode, etc.).
-
-    Returns:
-        A ``CompiledSemanticPlan`` with the plan, plan_id, and sha256.
+    The plan ID is supplied by UtterPlan and represents semantic inputs only;
+    Readio configuration is retained separately for project freshness checks.
     """
     from .semantic import SemanticPlanningService
 
@@ -102,36 +96,35 @@ def compile_semantic_plan(
         if on_progress is None
         else service.compile_from_document(document, planning, on_progress=on_progress)
     )
-    # Compute identity after the compiler has materialized UtterPlan identity.
-    plan = plan.with_identity()
-    plan_id = plan.plan_id or ""
+    plan_id = plan.plan_id
     if not plan_id:
         raise ValueError("semantic compiler returned an empty plan identity")
 
-    # Compute SHA-256 of the exact canonical serialized artifact.
     serialized = serialize_utterplan(plan)
     sha256 = _compute_sha256(serialized)
+    planning_config = asdict(planning.to_planner_config())
     logger.debug(
-        "Compiled semantic plan: plan_id=%s, sha256=%s, segments=%d, units=%d",
+        "Compiled UtterPlan v5: plan_id=%s, sha256=%s, flows=%d, segments=%d",
         plan_id,
         sha256[:16],
-        len(plan.segments),
-        len(plan.units),
+        len(plan.flow),
+        sum(len(flow.segments) for flow in plan.flow),
     )
-
     return CompiledSemanticPlan(
         plan=plan,
         plan_id=plan_id,
         sha256=sha256,
+        planning_config=planning_config,
+        diagnostics=tuple(service.last_provenance.get("diagnostics", ())),
         serialized=serialized,
     )
 
 
 __all__ = [
     "CompiledSemanticPlan",
+    "FlowPlan",
     "LegacyPlanArtifactError",
     "PlanSchemaMismatchError",
-    "UtterancePlan",
     "compile_semantic_plan",
     "load_current_utterplan",
     "serialize_utterplan",

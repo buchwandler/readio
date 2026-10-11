@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import LanguageSettings, normalize_language_key
-from .engines.registry import normalize_engine_id
+from .integrations.voicerender import discover_catalog_targets, normalize_engine_id
 
 logger = logging.getLogger(__name__)
 _RUNTIME_SOURCES = {"github", "huggingface"}
@@ -164,10 +164,9 @@ def discover_model_info(
     engine: str | None = None,
 ) -> tuple[tuple[ModelInfo, ...], Any]:
     """Discover engine targets through the unified synthesis registry."""
-    from .engines.discovery import discover_targets
 
     selected_engine = normalize_engine_id(engine) if engine is not None else "kokoro"
-    discovery = discover_targets(
+    discovery = discover_catalog_targets(
         engine=selected_engine,
         language=language,
         offline=offline,

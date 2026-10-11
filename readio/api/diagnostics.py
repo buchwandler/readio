@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from .. import __version__
 from .. import config as config_internal
-from ..engines.registry import engine_status
+from ..doctor import check_engine_status
 from ..errors import ReadioError
 from . import errors as api_errors
 from .types import (
@@ -83,7 +83,7 @@ class DiagnosticsService:
     def engines(self) -> tuple[EngineDiagnostic, ...]:
         try:
             result = []
-            for engine_id, status in engine_status().items():
+            for engine_id, status in check_engine_status().items():
                 package_available = bool(status["package"])
                 result.append(
                     EngineDiagnostic(

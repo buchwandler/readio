@@ -7,8 +7,7 @@ from typing import Any
 
 from .catalog_metadata import language_tags_match
 from .config import normalize_language_key
-from .engines.discovery import discover_targets
-from .engines.registry import get_engine, normalize_engine_id
+from .integrations.voicerender import discover_catalog_targets, normalize_engine_id
 from .models import ModelDiscoveryError, ModelInfo
 from .voice_refs import (
     VoiceRef,
@@ -245,7 +244,7 @@ def discover_voice_catalog(
     engine: str | None = None,
     language: str | None = None,
 ) -> tuple[tuple[VoiceCatalogEntry, ...], Any]:
-    result = discover_targets(
+    result = discover_catalog_targets(
         engine=engine,
         language=language,
         offline=offline,
@@ -318,7 +317,7 @@ def resolve_voice_reference(
     if voice is None:
         return None
     requested = voice.strip()
-    requested_engine = normalize_engine_id(engine.strip()) if engine is not None else None
+    requested_engine = normalize_engine_id(engine) if engine is not None else None
     reference: VoiceRef | None = None
     if ":" in requested:
         try:
@@ -356,14 +355,6 @@ def resolve_voice_reference(
             and (reference.voice_id is None or entry.id == reference.voice_id)
         )
     else:
-        if requested_engine is not None:
-            try:
-                public_system_for_engine(requested_engine)
-            except ValueError:
-                return None
-            adapter = get_engine(requested_engine)
-            if not callable(getattr(adapter, "discover", None)):
-                return None
         if requested_engine == "pocket" and model is None:
             return None
         entries, _result = discover_voice_catalog(

@@ -42,6 +42,7 @@ def _synthesis_request(synthesis: ResolvedSynthesis) -> SynthesisRequest:
         model_source=synthesis.source,
         quality=synthesis.quality,
         voice=synthesis.voice,
+        speaker=synthesis.speaker,
         lexicons=synthesis.lexicons,
         spacy=synthesis.spacy,
         short_sentence=synthesis.short_sentence,
@@ -106,6 +107,15 @@ def render_text(
     document = prepare_input_document(document)
     if not document.text.strip():
         raise ValueError("no text to read")
+    if document.format == "text" and selector == "all" and not ssmd_voice_bindings:
+        return render_live(
+            document.text.splitlines(keepends=True),
+            config,
+            sink,
+            unit=unit,
+            synthesis=synthesis,
+            on_progress=on_progress,
+        )
     resolved_synthesis = synthesis or resolve_synthesis(config)
     request = PlanRequest(
         operation="render",
@@ -129,6 +139,41 @@ def render_text(
     )
 
 
+def _compose_live_speed(audio: np.ndarray, sample_rate: int, speed: float) -> np.ndarray:
+    if speed == 1.0:
+        return audio
+    from audiocompose import (
+        AudioBufferSource,
+        AudioClip,
+        AudioJob,
+        Composer,
+        LoudnessPolicy,
+        OutputPolicy,
+        Tempo,
+    )
+
+    job = AudioJob(
+        items=(
+            AudioClip(
+                id="live-speech",
+                source=AudioBufferSource(audio=audio, sample_rate=sample_rate),
+                operations=(Tempo(speed),),
+                metadata={"readio.mode": "live"},
+            ),
+        ),
+        output=OutputPolicy(
+            sample_rate=sample_rate,
+            loudness=LoudnessPolicy(
+                target_lufs=None,
+                true_peak_ceiling_dbtp=None,
+                collect_metrics=False,
+            ),
+        ),
+        producer={"name": "readio.live-playback"},
+    )
+    return Composer().compose(job).audio
+
+
 def render_live(
     lines: Iterable[str],
     cfg: ReadioConfig | ReaderSettings,
@@ -138,88 +183,101 @@ def render_live(
     synthesis: ResolvedSynthesis | None = None,
     on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
-    """Stream independent paragraphs through one Readio engine session."""
-    from .engines.base import SpeechRequest
-    from .engines.registry import get_engine
-    from .engines.selection import EngineRequest
-    from .rendering import CapacityContext, render_atomic_request
+    """Stream live text through one VoiceRender session, composing only non-neutral speed."""
+    from voicerender import EngineRequest, SpeechRequest, open_session, resolve_voice, synthesize
+    from voicerender.errors import VoiceRenderError
 
     config = _config(cfg)
-    resolved = synthesis or resolve_synthesis(config)
-    engine_id = resolved.engine or config.reader.engine
-    adapter = get_engine(engine_id)
-    if not adapter.capabilities().supports_live:
-        raise RenderError(f"live rendering is not supported by engine {engine_id!r}")
-    options: dict[str, Any] = {
-        "speed": resolved.speed,
-        "rate": resolved.speed,
-        "pause_mode": resolved.pause_mode,
-        "short_sentence": resolved.short_sentence,
-        "allow_experimental": resolved.allow_experimental,
-    }
-    optional_options = {
-        "model_source": resolved.source,
-        "quality": resolved.quality,
-        "lexicons": resolved.lexicons,
-        "g2p_fallback": resolved.g2p_fallback,
-        "lexicon_data_policy": resolved.lexicon_data_policy,
-        "language_detection": resolved.language_detection,
-        "detect_languages": resolved.detect_languages,
-    }
-    options.update({key: value for key, value in optional_options.items() if value is not None})
-    selection, diagnostics = adapter.resolve(
-        EngineRequest(
-            engine=engine_id,
-            target_id=resolved.model,
-            language=resolved.language,
-            voice=resolved.voice,
-            options=options,
-            engine_options=getattr(resolved, "engine_options", {}),
+
+
+    def translate_voice_error(error: VoiceRenderError) -> RenderError:
+        cause_details = getattr(error, "details", {})
+        return RenderError(
+            f"live VoiceRender error: {error}",
+            code=str(getattr(error, "code", "render.voice_render_failed")),
+            details={
+                "cause_type": type(error).__name__,
+                "cause_code": getattr(error, "code", None),
+                "cause_details": dict(cause_details) if isinstance(cause_details, Mapping) else {},
+            },
         )
-    )
-    validate = getattr(adapter, "validate_selection", None)
-    if validate is not None:
-        diagnostics = (*diagnostics, *validate(selection))
-    errors = [item.message for item in diagnostics if getattr(item, "severity", None) == "error"]
+    if synthesis is None:
+        language = config.reader.lang
+        target_id = None
+        speaker = None
+        voice = config.reader.voice
+        engine = config.reader.engine
+        engine_options: Mapping[str, Any] = {}
+        speed = float(config.reader.speed)
+        offline = False
+        refresh = False
+    else:
+        language = synthesis.language
+        target_id = synthesis.model
+        speaker = synthesis.speaker
+        voice = synthesis.voice
+        engine = synthesis.engine
+        engine_options = synthesis.engine_options
+        speed = synthesis.speed
+        offline = synthesis.discovery_offline
+        refresh = synthesis.discovery_refreshed
+    try:
+        selection, diagnostics = resolve_voice(
+            EngineRequest(
+                engine=engine,
+                target_id=target_id,
+                language=language,
+                voice=voice,
+                speaker=speaker,
+                engine_options=dict(engine_options),
+                offline=offline,
+                refresh=refresh,
+            )
+        )
+    except VoiceRenderError as exc:
+        raise translate_voice_error(exc) from exc
+    errors = [
+        item.message for item in diagnostics if getattr(item, "severity", None) == "error"
+    ]
     if errors:
-        raise RenderError("live synthesis selection failed: " + "; ".join(errors))
-    target_metadata = getattr(adapter, "target_metadata", None)
-    if target_metadata is not None:
-        selection = replace(selection, metadata=dict(target_metadata(selection)))
+        raise RenderError("live VoiceRender selection failed: " + "; ".join(errors))
 
     saw_text = False
     sample_rate = 0
     channels = 0
     sample_count = 0
     completed = 0
-    with adapter.open(selection) as session:
-        for paragraph in iter_live_paragraphs(lines):
-            saw_text = True
-            rendered = render_atomic_request(
-                session,
-                SpeechRequest(
-                    id=f"live-{completed + 1}",
-                    text=paragraph,
-                    language=resolved.language,
-                    voice=selection.voice,
-                    speaker=selection.speaker,
-                    options=dict(selection.options),
-                ),
-                capacity=CapacityContext(planned_semantics=False),
-            ).result
-            audio = np.asarray(rendered.audio)
-            rendered_channels = 1 if audio.ndim == 1 else int(audio.shape[1])
-            if sample_count and (
-                rendered.sample_rate != sample_rate or rendered_channels != channels
-            ):
-                raise RenderError("live chunks must use the same sample rate and channel count")
-            sample_rate = rendered.sample_rate
-            channels = rendered_channels
-            sink.write(audio, rendered.sample_rate)
-            sample_count += int(audio.shape[0])
-            completed += 1
-            if on_progress is not None:
-                on_progress(RenderProgress(completed, None, sample_count, sample_rate))
+    try:
+        with open_session(selection) as session:
+            for paragraph in iter_live_paragraphs(lines):
+                saw_text = True
+                rendered = synthesize(
+                    session,
+                    SpeechRequest(
+                        id=f"live-{completed + 1}",
+                        text=paragraph,
+                        language=language,
+                        voice=selection.voice,
+                        speaker=selection.speaker,
+                        options=dict(selection.options),
+                    ),
+                )
+                audio = np.asarray(rendered.audio, dtype=np.float32)
+                audio = _compose_live_speed(audio, rendered.sample_rate, speed)
+                rendered_channels = 1 if audio.ndim == 1 else int(audio.shape[1])
+                if sample_count and (
+                    rendered.sample_rate != sample_rate or rendered_channels != channels
+                ):
+                    raise RenderError("live chunks must use the same sample rate and channel count")
+                sample_rate = rendered.sample_rate
+                channels = rendered_channels
+                sink.write(audio, sample_rate)
+                sample_count += int(audio.shape[0])
+                completed += 1
+                if on_progress is not None:
+                    on_progress(RenderProgress(completed, None, sample_count, sample_rate))
+    except VoiceRenderError as exc:
+        raise translate_voice_error(exc) from exc
     if not saw_text:
         raise ValueError("no text to read")
     return RenderSummary(
@@ -229,6 +287,7 @@ def render_live(
         document_metadata={},
         markers=(),
     )
+
 
 
 def speak_text(

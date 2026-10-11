@@ -3,32 +3,29 @@
 from __future__ import annotations
 
 import hashlib
-import os
-import secrets
-import shutil
+import re
 import time
 from collections.abc import Callable, Mapping
-from contextlib import ExitStack, nullcontext
-from dataclasses import asdict, dataclass, field, is_dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any
 
-from utterplan import preflight_renderability
-
-from ..audioio import probe_audio, write_pcm16_wav
 from ..config import normalize_language_key
-from ..engines.base import EngineSelection, RequestMeasure
-from ..engines.registry import get_engine
-from ..errors import (
-    EngineBackendError,
-    EngineSynthesisError,
-    InvalidRendererSegmentError,
-    SpeechRequestTooLongError,
-    SynthesisPreflightError,
+from ..errors import EngineSynthesisError
+from ..integrations.voicerender import render_plan as voicerender_render_plan
+from ..integrations.voicerender import resolve_profile as resolve_voicerender_profile
+from ..plan import (
+    InputRequest,
+    OutputRequest,
+    PlanDiagnostic,
+    PlanningPlanV2,
+    PlanRequest,
+    ReadioPlanV2,
+    SynthesisRequest,
 )
-from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest, resolve_execution_v2
-from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock, read_json
+from ..project import Project, atomic_write_json, canonical_json, hash_file, project_lock
 from ..project_settings import (
     effective_project_role_targets,
     merge_project_synthesis_request,
@@ -38,22 +35,10 @@ from ..project_settings import (
     project_voice_namespace,
     synthesis_request_fingerprint,
 )
-from ..rendering.lowering import LoweringError, lower_segment
-from ..role_targets import (
-    VoiceTarget,
-    engine_for_ssmd_namespace,
-    ssmd_namespace_for_engine,
-)
-from ..selection import resolve_project_selection, resolve_unit_selection
+from ..role_targets import VoiceTarget, engine_for_ssmd_namespace, ssmd_namespace_for_engine
+from ..selection import flow_id, flow_segment_id, resolve_project_selection, resolve_unit_selection
 from ..ssmd import resolve_voice_references
 from .planning import load_scope_plan
-from .speech_identity import (
-    CAPACITY_SCHEMA,
-    LOWERING_SCHEMA,
-    canonical_engine_identity,
-    segment_speech_hash,
-    segment_synthesis_key,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,42 +98,13 @@ def _synthesis_progress_details(
     }
 
 
-def _synthesis_failure_scope_label(scope_id: str, scope_metadata: Mapping[str, Any]) -> str:
-    if scope_metadata.get("scope_kind") != "chapter":
-        return scope_id
-
-    parts: list[str] = []
-    scope_index = scope_metadata.get("scope_index")
-    scope_total = scope_metadata.get("scope_total")
-    scope_number = scope_metadata.get("scope_number")
-    title = scope_metadata.get("scope_title")
-    if isinstance(scope_index, int) and isinstance(scope_total, int):
-        parts.append(f"Chapter {scope_index}/{scope_total} selected")
-    if isinstance(scope_number, int) and scope_number != scope_index:
-        parts.append(f"source chapter {scope_number}")
-    if isinstance(title, str) and title:
-        parts.append(f"“{title}”")
-    return " · ".join(parts) or scope_id
 
 
-@dataclass(frozen=True, slots=True)
-class ProjectSynthesisRoute:
-    provider: str | None
-    engine: str
-    mode: str
-    bindings_by_scope: Mapping[str, Mapping[str, VoiceTarget]]
-    selections: Mapping[str, EngineSelection]
-    adapters: Mapping[str, Any]
-    route_profiles: Mapping[str, Mapping[str, Any]]
-    route_profile_ids: Mapping[str, str]
-    segment_routes: Mapping[tuple[str, str], str]
-    default_route_key: str | None
-    default_selection: EngineSelection
 
 
 @dataclass(frozen=True, slots=True)
 class SynthesisArtifact:
-    """A validated canonical speech artifact and its active segment view."""
+    """A speech artifact referenced from a VoiceRender render manifest."""
 
     unit_id: str
     unit_index: int
@@ -168,8 +124,11 @@ class SynthesisArtifact:
     segment_index_value: int | None = None
     text: str | None = None
     profile_id: str | None = None
-    lowering_sha256: str | None = None
-    sidecar_path: Path | None = None
+    manifest_path: Path | None = None
+    manifest_id: str | None = None
+    source_plan_id: str | None = None
+    source_locator: str | None = None
+    acoustic_cache_key: str | None = None
 
     @property
     def segment_id(self) -> str:
@@ -180,12 +139,11 @@ class SynthesisArtifact:
         return self.segment_index_value if self.segment_index_value is not None else self.unit_index
 
     def to_dict(self, root: Path) -> dict[str, Any]:
-        speech_hash = self.speech_hash or self.content_hash
         data: dict[str, Any] = {
             "scope_id": self.scope_id,
             "segment_id": self.segment_id,
             "segment_index": self.segment_index,
-            "speech_hash": speech_hash,
+            "speech_hash": self.speech_hash or self.content_hash,
             "synthesis_key": self.synthesis_key,
             "path": self.path.relative_to(root).as_posix(),
             "cache_path": self.cache_path.relative_to(root).as_posix(),
@@ -193,148 +151,27 @@ class SynthesisArtifact:
             "sample_rate": self.sample_rate,
             "channels": self.channels,
             "frames": self.frames,
-            "markers": list(self.markers),
+            "markers": [dict(item) for item in self.markers],
             "word_timings": [dict(item) for item in self.word_timings],
         }
-        if self.sidecar_path is not None:
-            data["sidecar_path"] = self.sidecar_path.relative_to(root).as_posix()
+        if self.text is not None:
+            data["text"] = self.text
+        if self.manifest_path is not None:
+            data["manifest_path"] = self.manifest_path.relative_to(root).as_posix()
+        for key, value in (
+            ("manifest_id", self.manifest_id),
+            ("source_plan_id", self.source_plan_id),
+            ("source_locator", self.source_locator),
+            ("acoustic_cache_key", self.acoustic_cache_key),
+        ):
+            if value is not None:
+                data[key] = value
         return data
-
 
 def synthesis_profile_id(payload: Mapping[str, Any]) -> str:
     return f"sha256:{hashlib.sha256(canonical_json(payload)).hexdigest()}"
 
 
-def unit_synthesis_key(content_hash: str, profile_id: str) -> str:
-    """Compatibility helper for callers of the former unit cache API."""
-    payload = {
-        "schema": "readio.synthesis-unit.v1",
-        "content_hash": content_hash,
-        "profile_id": profile_id,
-    }
-    return f"sha256:{hashlib.sha256(canonical_json(payload)).hexdigest()}"
-
-
-def _safe_key(key: str) -> str:
-    return key.replace(":", "-")
-
-
-def _fallback_canonical_identity(selection: Any, adapter: Any) -> dict[str, Any]:
-    editorial = {
-        "rate",
-        "volume",
-        "pitch",
-        "emphasis",
-        "pause_mode",
-        "sentence_silence",
-        "pause_sentence",
-        "pause_paragraph",
-        "fade_in",
-        "fade_out",
-        "target_lufs",
-        "true_peak_ceiling_dbtp",
-    }
-    return {
-        "engine": selection.engine,
-        "engine_version": adapter.version(),
-        "target_id": selection.target_id,
-        "language": selection.language,
-        "voice": selection.voice,
-        "speaker": selection.speaker,
-        "options": {key: value for key, value in selection.options.items() if key not in editorial},
-        "metadata": dict(selection.metadata),
-    }
-
-
-def _readio_capabilities(adapter: Any) -> dict[str, bool]:
-    capabilities = adapter.capabilities()
-    return {
-        "linguistic_tokens": capabilities.supports_linguistic_tokens,
-        "pronunciation_overrides": capabilities.supports_pronunciation_overrides,
-        "whole_request_phonemes": capabilities.supports_whole_request_phonemes,
-    }
-
-
-def _selection_identity(adapter: Any, selection: Any) -> dict[str, Any]:
-    identity_method = getattr(adapter, "canonical_synthesis_identity", None)
-    identity = (
-        dict(identity_method(selection))
-        if callable(identity_method)
-        else _fallback_canonical_identity(selection, adapter)
-    )
-    identity["readio_capabilities"] = _readio_capabilities(adapter)
-    identity["readio_lowering"] = {
-        "schema": LOWERING_SCHEMA,
-        "capacity_schema": CAPACITY_SCHEMA,
-    }
-    return canonical_engine_identity(identity)
-
-
-def _profile_from_selection(adapter: Any, selection: Any) -> SynthesisProfile:
-    identity = _selection_identity(adapter, selection)
-    composition = {
-        key: value
-        for key, value in selection.options.items()
-        if key in {"speed", "rate", "pitch", "volume", "emphasis"} and value is not None
-    }
-    identity_payload = {
-        "schema": "readio.synthesis-profile.v3",
-        "canonical": identity,
-    }
-    payload: dict[str, Any] = {
-        **identity_payload,
-        "composition": composition,
-    }
-    return SynthesisProfile(synthesis_profile_id(identity_payload), payload, schema_version=3)
-
-
-def _profile_from_route(
-    route: ProjectSynthesisRoute, profile: SynthesisProfile
-) -> SynthesisProfile:
-    canonical: dict[str, Any] = {
-        "engine": route.engine,
-        "routing_mode": route.mode,
-        "default_route": route.default_route_key,
-        "routes": {key: dict(route.route_profiles[key]) for key in sorted(route.route_profiles)},
-        "route_profile_ids": dict(route.route_profile_ids),
-        "readio_lowering": {
-            "schema": LOWERING_SCHEMA,
-            "capacity_schema": CAPACITY_SCHEMA,
-        },
-    }
-    if len(route.selections) == 1:
-        route_key, selection = next(iter(route.selections.items()))
-        target_key = selection.voice or selection.target_id or route_key
-        canonical["targets"] = {target_key: dict(route.route_profiles[route_key])}
-    identity_payload = {
-        "schema": "readio.synthesis-profile.v5",
-        "canonical": canonical,
-    }
-    payload: dict[str, Any] = {
-        **identity_payload,
-        "composition": profile.payload.get("composition", {}),
-        "route_bindings": {
-            scope_id: {role: target.to_dict() for role, target in sorted(bindings.items())}
-            for scope_id, bindings in sorted(route.bindings_by_scope.items())
-        },
-        "segment_routes": {
-            scope_id: {
-                segment_id: route_key
-                for (route_scope_id, segment_id), route_key in sorted(route.segment_routes.items())
-                if route_scope_id == scope_id
-            }
-            for scope_id in sorted({scope for scope, _segment in route.segment_routes})
-        },
-    }
-    if "voice_binding_namespace" in profile.payload:
-        payload["voice_binding_namespace"] = profile.payload["voice_binding_namespace"]
-    if "project_role_targets" in profile.payload:
-        payload["project_role_targets"] = profile.payload["project_role_targets"]
-    return SynthesisProfile(
-        synthesis_profile_id(identity_payload),
-        payload,
-        schema_version=5,
-    )
 
 
 def _record_project_settings(
@@ -357,33 +194,6 @@ def _record_project_settings(
     )
 
 
-def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int, int, str] | None:
-    if not path.is_file():
-        return None
-    try:
-        info = probe_audio(path)
-        digest = hash_file(path)
-    except (OSError, RuntimeError, ValueError):
-        return None
-    if expected_sha is not None and digest != expected_sha:
-        return None
-    if info.frames <= 0 or info.sample_rate <= 0:
-        return None
-    return int(info.sample_rate), int(info.channels), int(info.frames), digest
-
-
-def _link_or_copy(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f".{destination.name}.tmp-{secrets.token_hex(6)}")
-    temporary.unlink(missing_ok=True)
-    try:
-        try:
-            os.link(source, temporary)
-        except (AttributeError, OSError):
-            shutil.copyfile(source, temporary)
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None) -> PlanRequest:
@@ -449,6 +259,7 @@ def _project_request_with_voice_bindings(
     )
 
 
+
 def _project_scope_voice_targets(
     project: Project,
     cfg: Any,
@@ -490,52 +301,68 @@ def _project_scope_voice_targets(
     return targets_by_scope
 
 
-def _resolve_profile(
-    project: Project, cfg: Any, request: PlanRequest
-) -> tuple[Any, Any, SynthesisProfile]:
-    if not request.scope_voice_targets:
-        request = _project_request_with_voice_bindings(project, cfg, request)
-    requested_engine = request.synthesis.engine
-    if requested_engine is not None and request.synthesis.voice is None:
-        try:
-            requested_adapter = get_engine(requested_engine)
-        except (ImportError, ValueError):
-            requested_adapter = None
-        if requested_adapter is not None and requested_adapter.capabilities().supports_named_voices:
-            seed_voice = next(
-                (
-                    target.voice
-                    for bindings in request.scope_voice_targets.values()
-                    for target in bindings.values()
-                    if target.engine == requested_engine
-                ),
-                None,
-            )
-            if seed_voice is not None:
-                request = replace(
-                    request,
-                    synthesis=replace(request.synthesis, voice=seed_voice),
-                )
-    resolved = resolve_execution_v2(cfg, request)
-    if not resolved.plan.ok or resolved.selection is None:
-        diagnostics = "; ".join(item.message for item in resolved.plan.diagnostics)
-        raise ValueError(f"cannot resolve synthesis profile: {diagnostics}")
-    adapter = get_engine(resolved.selection.engine)
-    profile = _profile_from_selection(adapter, resolved.selection)
 
-    namespace = adapter.capabilities().voice_binding_namespace or ssmd_namespace_for_engine(
-        resolved.selection.engine
+
+def _language_defaults(cfg: Any, language: str) -> Any | None:
+    requested = normalize_language_key(language)
+    for key, settings in getattr(cfg, "languages", {}).items():
+        try:
+            candidate = normalize_language_key(str(key))
+        except (TypeError, ValueError):
+            continue
+        if candidate == requested or candidate.split("-", 1)[0] == requested.split("-", 1)[0]:
+            return settings
+    return None
+
+
+def _voice_binding_request(
+    cfg: Any,
+    request: PlanRequest,
+    language: str,
+    target: VoiceTarget | None = None,
+) -> dict[str, Any]:
+    synthesis = request.synthesis
+    language_defaults = _language_defaults(cfg, language)
+    reader = cfg.reader
+    default_engine = (
+        synthesis.engine
+        or getattr(language_defaults, "engine", None)
+        or reader.engine
     )
-    role_targets = project_role_targets_provenance(project.manifest)
-    profile = replace(
-        profile,
-        payload={
-            **profile.payload,
-            "voice_binding_namespace": namespace,
-            "project_role_targets": role_targets,
-        },
+    engine = target.engine if target is not None else default_engine
+    target_id = target.target_id if target is not None else None
+    if target_id is None and engine == default_engine:
+        target_id = synthesis.model or getattr(language_defaults, "model", None)
+    voice = target.voice if target is not None else (
+        synthesis.voice
+        or getattr(language_defaults, "voice", None)
+        or reader.voice
     )
-    return resolved, adapter, profile
+    options = dict(synthesis.engine_options)
+    speed = synthesis.speed if synthesis.speed is not None else reader.speed
+    if speed is not None:
+        options["speed"] = speed
+    voice_level = synthesis.voice_level or reader.voice_level
+    if voice_level and voice_level != "off":
+        options["voice_level"] = voice_level
+    for key in ("quality", "model_source", "lexicons", "g2p_fallback"):
+        value = getattr(synthesis, key, None) or getattr(language_defaults, key, None)
+        if value is not None:
+            options[key] = value
+    if synthesis.voice_prompt is not None:
+        options["voice_source"] = {"kind": "prompt", "value": synthesis.voice_prompt}
+    return {
+        "engine": engine,
+        "target_id": target_id,
+        "language": language,
+        "voice": voice,
+        "speaker": synthesis.speaker,
+        "options": options,
+        "engine_options": dict(synthesis.engine_options),
+        "offline": synthesis.offline,
+        "refresh": synthesis.refresh,
+        "reference_audio": synthesis.voice_file,
+    }
 
 
 def resolve_project_synthesis(
@@ -545,7 +372,7 @@ def resolve_project_synthesis(
     *,
     merge_saved_settings: bool = True,
 ) -> tuple[PlanRequest, Any, Any, SynthesisProfile]:
-    """Resolve a project's effective engine selection without synthesis side effects."""
+    """Resolve default project voice settings through VoiceRender's public API."""
     saved = (
         project_settings_from_manifest(project.manifest, project.state_root).synthesis
         if merge_saved_settings
@@ -560,53 +387,78 @@ def resolve_project_synthesis(
             synthesis=merge_project_synthesis_request(saved, effective_request.synthesis),
         )
     effective_request = _project_request_with_voice_bindings(project, cfg, effective_request)
-    resolved, adapter, profile = _resolve_profile(project, cfg, effective_request)
-    return effective_request, resolved, adapter, profile
-
+    language = effective_request.synthesis.language
+    if language is None:
+        try:
+            plan_scopes = project.load_plan_index().scopes
+            language = next(
+                (
+                    segment.language
+                    for scope in plan_scopes
+                    for flow in load_scope_plan(project, scope).flow
+                    for segment in flow.segments
+                ),
+                cfg.reader.lang,
+            )
+        except (OSError, KeyError, ValueError):
+            language = cfg.reader.lang
+    binding = _voice_binding_request(cfg, effective_request, language)
+    resolved_profile = resolve_voicerender_profile(
+        {"narrator": binding},
+        name=f"Readio project {project.manifest.name}",
+        default_role="narrator",
+        language=language,
+    )
+    selection = resolved_profile.selections["narrator"]
+    identity = {
+        "engine": selection.engine,
+        "target_id": selection.target_id,
+        "voice": selection.voice,
+        "language": selection.language,
+        "options": dict(selection.options),
+    }
+    profile = SynthesisProfile(
+        synthesis_profile_id({"schema": "voicerender.selection.v1", **identity}),
+        {
+            "schema": "readio.synthesis-profile.v6",
+            "canonical": identity,
+            "composition": {},
+        },
+        schema_version=6,
+    )
+    planning = PlanningPlanV2(
+        language=language,
+        unit=effective_request.synthesis.unit or cfg.reader.unit,
+        pause_mode=effective_request.synthesis.pause_mode or cfg.reader.pause_mode,
+        spacy=effective_request.synthesis.spacy or cfg.reader.spacy,
+        language_detection=(
+            effective_request.synthesis.language_detection or cfg.reader.language_detection
+        ),
+        detect_languages=(
+            effective_request.synthesis.detect_languages or cfg.reader.detect_languages
+        ),
+    )
+    diagnostics = tuple(
+        PlanDiagnostic(
+            code=item.code,
+            severity=item.severity,
+            message=item.message,
+            field=getattr(item, "field", None),
+        )
+        for item in resolved_profile.diagnostics
+    )
+    resolved_plan = ReadioPlanV2(
+        operation=effective_request.operation,
+        planning=planning,
+        diagnostics=diagnostics,
+    )
+    return effective_request, SimpleNamespace(selection=selection, plan=resolved_plan), None, profile
 
 def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEvent) -> None:
     if on_event is not None:
         on_event(event)
 
 
-def _validate_renderable_segments(
-    plan: Any,
-    *,
-    scope: Any,
-    selected_segment_ids: set[str],
-) -> None:
-    renderability = preflight_renderability(plan)
-    issues_by_segment_id = {issue.segment_id: issue for issue in renderability.issues}
-    units_by_segment: dict[str, Any] = {}
-    for unit in getattr(plan, "units", ()):
-        for segment_id in getattr(unit, "segment_ids", ()):
-            units_by_segment.setdefault(str(segment_id), unit)
-
-    for segment in getattr(plan, "segments", ()):
-        segment_id = str(getattr(segment, "id", ""))
-        if segment_id not in selected_segment_ids:
-            continue
-        issue = issues_by_segment_id.get(segment_id)
-        if issue is None:
-            continue
-        unit = units_by_segment.get(segment_id)
-        raise InvalidRendererSegmentError(
-            scope_id=scope.id,
-            unit_id=str(getattr(unit, "id", "unknown")),
-            segment_id=segment_id,
-            segment_index=issue.segment_index,
-            text=issue.text,
-            token_pos=list(issue.token_pos),
-            renderability_reason=issue.reason,
-            plan_id=getattr(plan, "plan_id", None),
-            scope_title=getattr(scope, "title", None),
-            scope_number=getattr(scope, "source_number", None),
-        )
-
-
-def _segment_progress_text(segment: Any) -> str:
-    """Return the exact renderer-facing text used by synthesis requests."""
-    return str(getattr(segment, "text", ""))
 
 
 def _segment_voice_reference(segment: Any) -> str | None:
@@ -618,956 +470,6 @@ def _segment_voice_reference(segment: Any) -> str | None:
     return reference if isinstance(reference, str) and reference else None
 
 
-def _resolve_project_voice_target(
-    cfg: Any,
-    request: PlanRequest,
-    default_selection: EngineSelection,
-    target: VoiceTarget,
-    language: str,
-    adapters: dict[str, Any],
-) -> tuple[Any, EngineSelection]:
-    from ..engines.selection import EngineRequest
-
-    adapter = adapters.get(target.engine)
-    if adapter is None:
-        adapter = get_engine(target.engine)
-        adapters[target.engine] = adapter
-    capabilities = adapter.capabilities()
-    if not capabilities.supports_named_voices:
-        raise ValueError(f"engine {target.engine!r} does not support named voice targets")
-    same_engine = target.engine == default_selection.engine
-    if capabilities.voice_binding_scope == "target":
-        target_id = target.target_id or target.voice
-    else:
-        target_id = target.target_id or (
-            default_selection.target_id if same_engine else request.synthesis.model
-        )
-    if same_engine:
-        selection = replace(
-            default_selection,
-            target_id=target_id,
-            language=language,
-            voice=target.voice,
-        )
-    else:
-        options = {
-            "speed": request.synthesis.speed or cfg.reader.speed,
-            "voice_level": request.synthesis.voice_level or cfg.reader.voice_level,
-            "pause_mode": request.synthesis.pause_mode or cfg.reader.pause_mode,
-            "short_sentence": request.synthesis.short_sentence or cfg.reader.short_sentence,
-            "allow_experimental": request.synthesis.allow_experimental,
-        }
-        selection, diagnostics = adapter.resolve(
-            EngineRequest(
-                engine=target.engine,
-                target_id=target_id,
-                language=language,
-                voice=target.voice,
-                speaker=request.synthesis.speaker,
-                options=options,
-                offline=request.synthesis.offline,
-                refresh=request.synthesis.refresh,
-                engine_options=request.synthesis.engine_options,
-            )
-        )
-        errors = [
-            diagnostic
-            for diagnostic in diagnostics
-            if getattr(diagnostic, "severity", "error") == "error"
-        ]
-        if errors:
-            raise ValueError("; ".join(item.message for item in errors))
-    validator = getattr(adapter, "validate_selection", None)
-    if validator is not None:
-        errors = [
-            diagnostic
-            for diagnostic in validator(selection)
-            if getattr(diagnostic, "severity", "error") == "error"
-        ]
-        if errors:
-            raise ValueError("; ".join(item.message for item in errors))
-    metadata_loader = getattr(adapter, "target_metadata", None)
-    if metadata_loader is not None:
-        metadata = metadata_loader(selection)
-        if metadata:
-            selection = replace(selection, metadata=dict(metadata))
-    return adapter, selection
-
-
-def _route_profile_identity(
-    adapter: Any, selection: EngineSelection
-) -> tuple[str, dict[str, Any], str]:
-    identity = _selection_identity(adapter, selection)
-    route_key = f"sha256:{hashlib.sha256(canonical_json(identity)).hexdigest()}"
-    route_profile_id = synthesis_profile_id(
-        {"schema": "readio.synthesis-route-profile.v1", "canonical": identity}
-    )
-    return route_key, identity, route_profile_id
-
-
-def _resolve_project_default_language_target(
-    cfg: Any,
-    request: PlanRequest,
-    default_adapter: Any,
-    default_selection: EngineSelection,
-    language: str,
-    adapters: dict[str, Any],
-) -> tuple[Any, EngineSelection]:
-    if normalize_language_key(language) == normalize_language_key(default_selection.language):
-        return default_adapter, default_selection
-    language_request = replace(
-        request,
-        synthesis=replace(request.synthesis, language=language),
-    )
-    resolved = resolve_execution_v2(cfg, language_request)
-    if not resolved.plan.ok or resolved.selection is None:
-        details = "; ".join(item.message for item in resolved.plan.diagnostics)
-        raise ValueError(
-            f"cannot resolve a synthesis target for language {language!r}"
-            + (f": {details}" if details else "")
-        )
-    route_adapter = adapters.get(resolved.selection.engine)
-    if route_adapter is None:
-        route_adapter = get_engine(resolved.selection.engine)
-        adapters[resolved.selection.engine] = route_adapter
-    return route_adapter, resolved.selection
-
-
-def _build_project_synthesis_route(
-    project: Project,
-    cfg: Any,
-    request: PlanRequest,
-    adapter: Any,
-    default_selection: EngineSelection,
-    scoped_plans: tuple[tuple[Any, Any], ...],
-    selected_by_scope: Mapping[str, Any],
-) -> ProjectSynthesisRoute:
-    adapters: dict[str, Any] = {default_selection.engine: adapter}
-    bindings_by_scope = request.scope_voice_targets
-    selections: dict[str, EngineSelection] = {}
-    route_adapters: dict[str, Any] = {}
-    route_profiles: dict[str, Mapping[str, Any]] = {}
-    route_profile_ids: dict[str, str] = {}
-    segment_routes: dict[tuple[str, str], str] = {}
-    default_route_key: str | None = None
-    route_engines: set[str] = set()
-    route_providers: set[str] = set()
-    target_selections: dict[tuple[VoiceTarget, str], tuple[Any, EngineSelection]] = {}
-    default_target_selections: dict[str, tuple[Any, EngineSelection]] = {
-        normalize_language_key(default_selection.language): (adapter, default_selection)
-    }
-
-    def register(route_adapter: Any, selection: EngineSelection) -> str:
-        route_key, identity, profile_id = _route_profile_identity(route_adapter, selection)
-        selections[route_key] = selection
-        route_adapters[route_key] = route_adapter
-        route_profiles[route_key] = identity
-        route_profile_ids[route_key] = profile_id
-        route_engines.add(selection.engine)
-        provider = route_adapter.capabilities().voice_binding_namespace
-        if provider is not None:
-            route_providers.add(provider)
-        return route_key
-
-    for scope, plan in scoped_plans:
-        scope_id = scope.id
-        selected_ids = set(selected_by_scope[scope_id].segment_ids)
-        scope_bindings = bindings_by_scope.get(scope_id, {})
-        for segment in plan.segments:
-            segment_id = str(segment.id)
-            if segment_id not in selected_ids:
-                continue
-            language = getattr(segment, "language", None) or default_selection.language
-            reference = _segment_voice_reference(segment)
-            target = scope_bindings.get(reference) if reference is not None else None
-            if target is None:
-                route_language = normalize_language_key(language)
-                resolved_default = default_target_selections.get(route_language)
-                if resolved_default is None:
-                    resolved_default = _resolve_project_default_language_target(
-                        cfg,
-                        request,
-                        adapter,
-                        default_selection,
-                        language,
-                        adapters,
-                    )
-                    default_target_selections[route_language] = resolved_default
-                route_adapter, selection = resolved_default
-                route_key = register(route_adapter, selection)
-                if default_route_key is None:
-                    default_route_key = route_key
-            else:
-                target_key = (target, language)
-                resolved_target = target_selections.get(target_key)
-                if resolved_target is None:
-                    resolved_target = _resolve_project_voice_target(
-                        cfg, request, default_selection, target, language, adapters
-                    )
-                    target_selections[target_key] = resolved_target
-                route_adapter, selection = resolved_target
-                route_key = register(route_adapter, selection)
-            segment_routes[(scope_id, segment_id)] = route_key
-
-    if not selections:
-        raise ValueError("selected segments contain no synthesis routes")
-    mode = "mixed" if len(route_engines) > 1 else "target" if len(selections) > 1 else "default"
-    engine = next(iter(route_engines)) if len(route_engines) == 1 else "mixed"
-    provider = next(iter(route_providers)) if len(route_providers) == 1 else None
-    return ProjectSynthesisRoute(
-        provider=provider,
-        engine=engine,
-        mode=mode,
-        bindings_by_scope=bindings_by_scope,
-        selections=selections,
-        adapters=route_adapters,
-        route_profiles=route_profiles,
-        route_profile_ids=route_profile_ids,
-        segment_routes=segment_routes,
-        default_route_key=default_route_key,
-        default_selection=default_selection,
-    )
-
-
-def _result_details(result: Any) -> dict[str, Any]:
-    metadata = getattr(result, "metadata", {}) or {}
-    details: dict[str, Any] = {}
-    if isinstance(metadata, Mapping):
-        for key in ("voice", "role", "speaker", "warnings", "fallback_reason"):
-            value = metadata.get(key)
-            if value is not None and isinstance(value, (str, int, float, bool, list, tuple)):
-                details[key] = list(value) if isinstance(value, tuple) else value
-    for key in ("voice", "role"):
-        value = getattr(result, key, None)
-        if value is not None and key not in details and isinstance(value, (str, int, float, bool)):
-            details[key] = value
-    return details
-
-
-def _write_cache_artifact(
-    project: Project,
-    item: Mapping[str, Any],
-    result: Any,
-    profile: SynthesisProfile,
-    lowering: Mapping[str, Any],
-) -> tuple[int, int, int, str, Path]:
-    cache_path = item["cache_path"]
-    sidecar_path = item["sidecar_path"]
-    temporary = cache_path.with_name(f".tmp-{secrets.token_hex(8)}.wav")
-    try:
-        write_pcm16_wav(temporary, result.audio, int(result.sample_rate))
-        checked = _valid_audio(temporary)
-        if checked is None:
-            raise ValueError(f"engine produced invalid audio for {item['segment_id']}")
-        rate, channels, frames, digest = checked
-        os.replace(temporary, cache_path)
-        atomic_write_json(
-            sidecar_path,
-            {
-                "format": "readio.synthesis-artifact",
-                "schema_version": 3,
-                "segment_id_at_creation": item["segment_id"],
-                "speech_hash": item["speech_hash"],
-                "synthesis_key": item["synthesis_key"],
-                "profile_id": item["profile_id"],
-                "lowering": dict(lowering),
-                "lowering_sha256": hashlib.sha256(canonical_json(lowering)).hexdigest(),
-                "audio_sha256": digest,
-                "sample_rate": rate,
-                "channels": channels,
-                "frames": frames,
-                "word_timings": [
-                    asdict(cast(Any, timing)) if is_dataclass(timing) else dict(timing)
-                    for timing in getattr(result, "word_timings", ())
-                ],
-            },
-        )
-        return rate, channels, frames, digest, sidecar_path
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _render_missing(
-    project: Project,
-    plan: Any,
-    adapter: Any,
-    selection: Any,
-    stale: list[dict[str, Any]],
-    profile: SynthesisProfile,
-    *,
-    on_event: Callable[[SynthesisEvent], None] | None = None,
-    session: Any | None = None,
-    progress: RenderProgressState,
-    scope_metadata: Mapping[str, Any],
-    scope_id: str = "document",
-) -> dict[int, Mapping[str, Any]]:
-    if not stale:
-        return {}
-    details_by_index: dict[int, Mapping[str, Any]] = {}
-    render_total = len(stale)
-    if session is None:
-        _emit(
-            on_event, SynthesisEvent("engine_open_started", scope_id=scope_id, total=render_total)
-        )
-        engine_started = time.monotonic()
-        session_context = adapter.open(selection)
-    else:
-        session_context = nullcontext(session)
-    from ..rendering import CapacityContext, render_atomic_request
-
-    with session_context as active_session:
-        if session is None:
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "engine_open_finished",
-                    scope_id=scope_id,
-                    total=render_total,
-                    details={"elapsed_ms": round((time.monotonic() - engine_started) * 1000, 3)},
-                ),
-            )
-        for item in stale:
-            segment = item["segment"]
-            unit = item["unit"]
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "segment_started",
-                    scope_id=scope_id,
-                    unit_id=unit.id,
-                    unit_index=int(unit.index),
-                    segment_id=item["segment_id"],
-                    segment_index=item["segment_index"],
-                    completed=progress.completed,
-                    total=progress.total,
-                    text=_segment_progress_text(segment),
-                    details={
-                        "segment_ids": [item["segment_id"]],
-                        **_synthesis_progress_details(
-                            progress,
-                            scope_id=scope_id,
-                            scope_metadata=scope_metadata,
-                            scope_completed=progress.scope_completed.get(scope_id, 0),
-                        ),
-                    },
-                ),
-            )
-            render_started = time.monotonic()
-            lowered = item["lowered"]
-            segment_text = _segment_progress_text(segment)
-            try:
-                atomic = render_atomic_request(
-                    active_session,
-                    lowered.request,
-                    capacity=CapacityContext(
-                        semantic_boundaries=lowered.semantic_boundaries,
-                        linguistic_token_ranges=lowered.capacity_token_ranges,
-                        planned_semantics=True,
-                    ),
-                )
-            except Exception as error:
-                context = {
-                    **{key: value for key, value in scope_metadata.items() if value is not None},
-                    "scope_id": scope_id,
-                    "unit_id": unit.id,
-                    "segment_id": item["segment_id"],
-                    "segment_index": item["segment_index"],
-                    "text": segment_text,
-                    "engine": selection.engine,
-                    "target_id": selection.target_id,
-                }
-                raise EngineBackendError(
-                    f"readio: synthesis failed in "
-                    f"{_synthesis_failure_scope_label(scope_id, scope_metadata)} "
-                    f"({unit.id}, {item['segment_id']}, text={segment_text!r}): {error}",
-                    engine=selection.engine,
-                    target_id=selection.target_id,
-                    request_id=item["segment_id"],
-                    details=context,
-                    code=(error.code if isinstance(error, EngineSynthesisError) else None),
-                ) from error
-            result = atomic.result
-            if result.id != item["segment_id"]:
-                raise ValueError(
-                    f"engine returned request {result.id!r}; expected {item['segment_id']!r}"
-                )
-            try:
-                rate, channels, frames, digest, sidecar = _write_cache_artifact(
-                    project, item, result, profile, atomic.manifest
-                )
-                item["rendered"] = (rate, channels, frames, digest, sidecar)
-                details = _result_details(result)
-                if lowered.diagnostics:
-                    details["lowering_diagnostics"] = [
-                        diagnostic.to_dict() for diagnostic in lowered.diagnostics
-                    ]
-                details_by_index[item["segment_index"]] = details
-                progress.completed += 1
-                scope_completed = progress.scope_completed.get(scope_id, 0) + 1
-                progress.scope_completed[scope_id] = scope_completed
-                _emit(
-                    on_event,
-                    SynthesisEvent(
-                        "segment_finished",
-                        scope_id=scope_id,
-                        unit_id=unit.id,
-                        unit_index=int(unit.index),
-                        segment_id=item["segment_id"],
-                        segment_index=item["segment_index"],
-                        completed=progress.completed,
-                        total=progress.total,
-                        text=_segment_progress_text(segment),
-                        details={
-                            **details,
-                            **_synthesis_progress_details(
-                                progress,
-                                scope_id=scope_id,
-                                scope_metadata=scope_metadata,
-                                scope_completed=scope_completed,
-                            ),
-                            "render_ms": round((time.monotonic() - render_started) * 1000, 3),
-                        },
-                    ),
-                )
-            finally:
-                release = getattr(result, "release_audio", None)
-                if callable(release):
-                    release()
-    return details_by_index
-
-
-def _render_all_missing(
-    project: Project,
-    route: ProjectSynthesisRoute,
-    work: list[dict[str, Any]],
-    profile: SynthesisProfile,
-    *,
-    on_event: Callable[[SynthesisEvent], None] | None = None,
-) -> tuple[dict[tuple[str, int], Mapping[str, Any]], float | None]:
-    total = sum(len(item["stale"]) for item in work)
-    checked_total = sum(len(item["items"]) for item in work)
-    if not total:
-        _emit(
-            on_event,
-            SynthesisEvent(
-                "preflight_completed",
-                completed=checked_total,
-                total=checked_total,
-                details={"phase": "synthesis_preflight"},
-            ),
-        )
-        return {}, None
-
-    progress = RenderProgressState(
-        completed=0,
-        total=total,
-        scope_totals={scope_work["scope"].id: len(scope_work["stale"]) for scope_work in work},
-    )
-    details: dict[tuple[str, int], Mapping[str, Any]] = {}
-    total_open_ms = 0.0
-    preflight_sessions: dict[str, Any] = {}
-    issues: list[dict[str, Any]] = []
-
-    def add_issue(
-        item: Mapping[str, Any],
-        selection: EngineSelection,
-        reason: str,
-        message: str,
-        **extra: Any,
-    ) -> None:
-        lowered = item["lowered"]
-        issues.append(
-            _target_preflight_issue(
-                scope=item["scope"],
-                scope_metadata=item["scope_metadata"],
-                segment=item["segment"],
-                segment_index=item["segment_index"],
-                unit=item["unit"],
-                source_path=item.get("source_path"),
-                selection=selection,
-                reason=reason,
-                message=message,
-                request_text=lowered.request.text,
-                **extra,
-            )
-        )
-
-    with ExitStack() as session_stack:
-        _emit(
-            on_event,
-            SynthesisEvent(
-                "preflight_measurement_started",
-                completed=0,
-                total=checked_total,
-                details={"phase": "synthesis_preflight"},
-            ),
-        )
-        for route_key, selection in route.selections.items():
-            route_items = [
-                item
-                for scope_work in work
-                for item in scope_work["items"]
-                if item["route_key"] == route_key
-            ]
-            if not route_items or not route_items[0]["capabilities"].supports_request_measurement:
-                continue
-            adapter = route.adapters[route_key]
-            target_started = time.monotonic()
-            try:
-                session = session_stack.enter_context(adapter.open(selection))
-            except (
-                EngineSynthesisError,
-                ImportError,
-                OSError,
-                RuntimeError,
-                TypeError,
-                ValueError,
-            ) as error:
-                for item in route_items:
-                    add_issue(
-                        item,
-                        selection,
-                        "synthesis.preflight.measurement_unavailable",
-                        f"Could not initialize request measurement for target {selection.target_id!r}: {error}",
-                    )
-                continue
-            preflight_sessions[route_key] = session
-            measure = getattr(session, "measure", None)
-            if not callable(measure):
-                continue
-            for item in route_items:
-                request = item["lowered"].request
-                try:
-                    result = measure(request)
-                except SpeechRequestTooLongError as error:
-                    add_issue(
-                        item,
-                        selection,
-                        error.code,
-                        str(error),
-                        actual=getattr(error, "amount", None),
-                        maximum=getattr(error, "maximum", None),
-                        limit_unit=getattr(error, "unit", "unknown"),
-                    )
-                except (
-                    EngineSynthesisError,
-                    ImportError,
-                    OSError,
-                    RuntimeError,
-                    TypeError,
-                    ValueError,
-                ) as error:
-                    add_issue(
-                        item,
-                        selection,
-                        "synthesis.preflight.measurement_failed",
-                        f"Could not measure the selected request: {error}",
-                    )
-                else:
-                    if isinstance(result, RequestMeasure) and result.fits is False:
-                        add_issue(
-                            item,
-                            selection,
-                            "synthesis.request_too_long",
-                            (
-                                f"Request exceeds the known target limit: {result.amount} "
-                                f"{result.unit} > {result.maximum}."
-                            ),
-                            actual=result.amount,
-                            maximum=result.maximum,
-                            limit_unit=result.unit,
-                            measurement_source=result.source,
-                        )
-            total_open_ms += (time.monotonic() - target_started) * 1000
-
-        if issues:
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "preflight_failed",
-                    completed=checked_total,
-                    total=checked_total,
-                    details={
-                        "phase": "synthesis_preflight",
-                        "issues": issues,
-                        "rendered_new_segments": 0,
-                        "synthesis_requests": 0,
-                        "audio_artifacts_written": 0,
-                    },
-                ),
-            )
-            raise SynthesisPreflightError(tuple(issues))
-
-        _emit(
-            on_event,
-            SynthesisEvent(
-                "preflight_completed",
-                completed=checked_total,
-                total=checked_total,
-                details={"phase": "synthesis_preflight"},
-            ),
-        )
-
-        for route_key, selection in route.selections.items():
-            route_adapter = route.adapters[route_key]
-            grouped_work = [
-                (
-                    scope_work,
-                    [item for item in scope_work["stale"] if item["route_key"] == route_key],
-                )
-                for scope_work in work
-            ]
-            grouped_work = [(scope_work, items) for scope_work, items in grouped_work if items]
-            group_total = sum(len(items) for _, items in grouped_work)
-            if not group_total:
-                continue
-
-            target_details = {
-                "engine": selection.engine,
-                "target_id": selection.target_id,
-                "voice": selection.voice,
-                "language": selection.language,
-            }
-
-            def render_grouped(
-                active_session: Any,
-                *,
-                current_grouped_work: list[
-                    tuple[dict[str, Any], list[dict[str, Any]]]
-                ] = grouped_work,
-                current_route_adapter: Any = route_adapter,
-                current_selection: EngineSelection = selection,
-            ) -> None:
-                for scope_work, stale in current_grouped_work:
-                    scope_id = scope_work["scope"].id
-                    rendered = _render_missing(
-                        project,
-                        scope_work["plan"],
-                        current_route_adapter,
-                        current_selection,
-                        stale,
-                        profile,
-                        on_event=on_event,
-                        session=active_session,
-                        progress=progress,
-                        scope_metadata=scope_work["scope_metadata"],
-                        scope_id=scope_id,
-                    )
-                    details.update({(scope_id, index): value for index, value in rendered.items()})
-
-            if route_key in preflight_sessions:
-                render_grouped(preflight_sessions[route_key])
-                continue
-
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "engine_open_started",
-                    total=group_total,
-                    details=target_details,
-                ),
-            )
-            engine_started = time.monotonic()
-            with route_adapter.open(selection) as session:
-                elapsed_ms = round((time.monotonic() - engine_started) * 1000, 3)
-                total_open_ms += elapsed_ms
-                _emit(
-                    on_event,
-                    SynthesisEvent(
-                        "engine_open_finished",
-                        total=group_total,
-                        details={"elapsed_ms": elapsed_ms, **target_details},
-                    ),
-                )
-                render_grouped(session)
-    return details, total_open_ms
-
-
-def _valid_lowering_manifest(lowering: Any, item: Mapping[str, Any]) -> bool:
-    if not isinstance(lowering, Mapping):
-        return False
-    if (
-        lowering.get("schema") != LOWERING_SCHEMA
-        or lowering.get("capacity_schema") != CAPACITY_SCHEMA
-    ):
-        return False
-    requests = lowering.get("requests")
-    if not isinstance(requests, list) or not requests:
-        return False
-    parent_text = str(item["segment"].text)
-    offset = 0
-    for index, child in enumerate(requests):
-        if not isinstance(child, Mapping):
-            return False
-        start = child.get("char_start")
-        end = child.get("char_end")
-        child_id = child.get("id")
-        text = child.get("text")
-        request = child.get("request")
-        if (
-            isinstance(start, bool)
-            or not isinstance(start, int)
-            or isinstance(end, bool)
-            or not isinstance(end, int)
-            or not isinstance(child_id, str)
-            or not isinstance(text, str)
-            or not isinstance(request, Mapping)
-        ):
-            return False
-        if (
-            child.get("index") != index
-            or start != offset
-            or end <= start
-            or end > len(parent_text)
-            or parent_text[start:end] != text
-            or request.get("id") != child_id
-            or request.get("text") != text
-        ):
-            return False
-        offset = end
-    return offset == len(parent_text)
-
-
-def _artifact_from_item(project: Project, item: Mapping[str, Any]) -> SynthesisArtifact | None:
-    checked = _valid_audio(item["cache_path"])
-    if checked is None:
-        return None
-    rate, channels, frames, digest = checked
-    try:
-        sidecar = read_json(item["sidecar_path"])
-    except (OSError, ValueError):
-        return None
-    lowering = sidecar.get("lowering")
-    if (
-        sidecar.get("schema_version") != 3
-        or sidecar.get("lowering_sha256") != hashlib.sha256(canonical_json(lowering)).hexdigest()
-        or not _valid_lowering_manifest(lowering, item)
-    ):
-        return None
-    if (
-        sidecar.get("speech_hash") != item["speech_hash"]
-        or sidecar.get("synthesis_key") != item["synthesis_key"]
-        or sidecar.get("profile_id") != item["profile_id"]
-        or sidecar.get("audio_sha256") != digest
-    ):
-        return None
-    return SynthesisArtifact(
-        unit_id=item["unit"].id,
-        unit_index=int(item["unit"].index),
-        scope_id=item["scope_id"],
-        content_hash=item["speech_hash"],
-        synthesis_key=item["synthesis_key"],
-        path=item["path"],
-        cache_path=item["cache_path"],
-        audio_sha256=digest,
-        sample_rate=rate,
-        channels=channels,
-        frames=frames,
-        word_timings=tuple(sidecar.get("word_timings", ())),
-        speech_hash=item["speech_hash"],
-        segment_id_value=item["segment_id"],
-        segment_index_value=item["segment_index"],
-        text=str(item["segment"].text),
-        profile_id=str(item["profile_id"]),
-        lowering_sha256=str(sidecar["lowering_sha256"]),
-        sidecar_path=item["sidecar_path"],
-    )
-
-
-def _target_preflight_issue(
-    *,
-    scope: Any,
-    scope_metadata: Mapping[str, Any],
-    segment: Any,
-    segment_index: int,
-    unit: Any,
-    source_path: str | None,
-    selection: EngineSelection | None,
-    reason: str,
-    message: str,
-    **extra: Any,
-) -> dict[str, Any]:
-    issue: dict[str, Any] = {
-        "scope_id": scope.id,
-        "unit_id": getattr(unit, "id", None),
-        "unit_index": getattr(unit, "index", None),
-        "segment_id": str(segment.id),
-        "segment_index": segment_index,
-        "source_path": source_path,
-        "engine": selection.engine if selection is not None else None,
-        "target_id": selection.target_id if selection is not None else None,
-        "voice": selection.voice if selection is not None else None,
-        "source_start": getattr(segment, "structural_start", None),
-        "source_end": getattr(segment, "structural_end", None),
-        "language": segment.language,
-        "text": segment.text,
-        "request_text": extra.pop("request_text", segment.text),
-        "reason": reason,
-        "message": message,
-    }
-    issue.update({key: value for key, value in scope_metadata.items() if value is not None})
-    issue.update(extra)
-    return issue
-
-
-def _preflight_project_segments(
-    scoped_plans: tuple[tuple[Any, Any], ...],
-    document_scopes_by_id: Mapping[str, Any],
-    selected_by_scope: Mapping[str, Any],
-    route: ProjectSynthesisRoute,
-    on_event: Callable[[SynthesisEvent], None] | None,
-) -> tuple[dict[tuple[str, str], Any], dict[str, Any]]:
-    lowered_by_segment: dict[tuple[str, str], Any] = {}
-    capabilities_by_route: dict[str, Any] = {}
-    capability_failures: dict[str, Exception] = {}
-    issues: list[dict[str, Any]] = []
-    total = sum(
-        len(selected_by_scope[scope.id].segment_ids)
-        for scope, _plan in scoped_plans
-        if scope.id in selected_by_scope
-    )
-    checked = 0
-    _emit(
-        on_event,
-        SynthesisEvent(
-            "preflight_started",
-            completed=0,
-            total=total,
-            details={"phase": "synthesis_preflight"},
-        ),
-    )
-    for scope, plan in scoped_plans:
-        scoped_selection = selected_by_scope.get(scope.id)
-        if scoped_selection is None:
-            continue
-        selected_segment_ids = set(scoped_selection.segment_ids)
-        selected_unit_indices = set(scoped_selection.unit_indices)
-        units_by_segment: dict[str, Any] = {}
-        for unit in plan.units:
-            if int(unit.index) not in selected_unit_indices:
-                continue
-            for segment_id in unit.segment_ids:
-                units_by_segment.setdefault(str(segment_id), unit)
-        document_scope = document_scopes_by_id.get(scope.id)
-        source_path = str(document_scope.path) if document_scope is not None else None
-        scope_metadata = {
-            "scope_kind": getattr(document_scope, "kind", None),
-            "scope_title": getattr(document_scope, "title", None),
-            "scope_number": getattr(document_scope, "source_number", None),
-        }
-        for segment_index, segment in enumerate(plan.segments):
-            segment_id = str(segment.id)
-            if segment_id not in selected_segment_ids:
-                continue
-            unit = units_by_segment.get(segment_id)
-            route_key = route.segment_routes.get((scope.id, segment_id))
-            selection = route.selections.get(route_key) if route_key is not None else None
-            if route_key is None or selection is None:
-                issues.append(
-                    _target_preflight_issue(
-                        scope=scope,
-                        scope_metadata=scope_metadata,
-                        segment=segment,
-                        segment_index=segment_index,
-                        unit=unit,
-                        source_path=source_path,
-                        selection=selection,
-                        reason="synthesis.route_missing",
-                        message=f"No resolved synthesis target is available for segment {segment_id!r}.",
-                    )
-                )
-            else:
-                if route_key not in capabilities_by_route and route_key not in capability_failures:
-                    try:
-                        capabilities_by_route[route_key] = route.adapters[route_key].capabilities()
-                    except (
-                        EngineSynthesisError,
-                        ImportError,
-                        OSError,
-                        RuntimeError,
-                        TypeError,
-                        ValueError,
-                    ) as error:
-                        capability_failures[route_key] = error
-                capability_error = capability_failures.get(route_key)
-                if capability_error is not None:
-                    issues.append(
-                        _target_preflight_issue(
-                            scope=scope,
-                            scope_metadata=scope_metadata,
-                            segment=segment,
-                            segment_index=segment_index,
-                            unit=unit,
-                            source_path=source_path,
-                            selection=selection,
-                            reason="synthesis.capabilities_unavailable",
-                            message=(
-                                f"Could not inspect capabilities for target "
-                                f"{selection.target_id!r}: {capability_error}"
-                            ),
-                        )
-                    )
-                else:
-                    capabilities = capabilities_by_route[route_key]
-                    try:
-                        lowered = lower_segment(plan, segment, selection, capabilities)
-                    except LoweringError as error:
-                        diagnostic = error.diagnostic
-                        issues.append(
-                            _target_preflight_issue(
-                                scope=scope,
-                                scope_metadata=scope_metadata,
-                                segment=segment,
-                                segment_index=segment_index,
-                                unit=unit,
-                                source_path=source_path,
-                                selection=selection,
-                                reason=diagnostic.code,
-                                message=diagnostic.message,
-                                field=diagnostic.field,
-                            )
-                        )
-                    else:
-                        lowered_by_segment[(scope.id, segment_id)] = lowered
-            checked += 1
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "preflight_segment_checked",
-                    scope_id=scope.id,
-                    unit_id=getattr(unit, "id", None),
-                    unit_index=getattr(unit, "index", None),
-                    segment_id=segment_id,
-                    segment_index=segment_index,
-                    completed=checked,
-                    total=total,
-                    text=_segment_progress_text(segment),
-                    details={
-                        "phase": "synthesis_preflight",
-                        "engine": selection.engine if selection is not None else None,
-                        "target_id": selection.target_id if selection is not None else None,
-                        "voice": selection.voice if selection is not None else None,
-                    },
-                ),
-            )
-    if issues:
-        _emit(
-            on_event,
-            SynthesisEvent(
-                "preflight_failed",
-                completed=checked,
-                total=total,
-                details={
-                    "phase": "synthesis_preflight",
-                    "issues": issues,
-                    "rendered_new_segments": 0,
-                    "synthesis_requests": 0,
-                    "audio_artifacts_written": 0,
-                },
-            ),
-        )
-        raise SynthesisPreflightError(tuple(issues))
-    return lowered_by_segment, capabilities_by_route
 
 
 def synthesize_project(
@@ -1579,34 +481,28 @@ def synthesize_project(
     activate: bool = True,
     on_event: Callable[[SynthesisEvent], None] | None = None,
 ) -> dict[str, Any]:
-    """Synthesize selected stale segments across all ordered project scopes."""
+    """Render selected project flows through VoiceRender's public v5 contract."""
     started_at = time.monotonic()
     started_wall = datetime.now(timezone.utc).isoformat()
     with project_lock(project, operation="synth"):
         plan_scopes = project.load_plan_index().scopes
         scoped_plans = tuple((scope, load_scope_plan(project, scope)) for scope in plan_scopes)
-        document_scopes_by_id = {scope.id: scope for scope in project.document_scopes()}
+        document_scopes = {scope.id: scope for scope in project.document_scopes()}
         selection = resolve_project_selection(scoped_plans, selector)
         selected_by_scope = {item.scope_id: item for item in selection.scopes}
         selected_scope_ids = [item.scope_id for item in selection.scopes if item.segment_ids]
-        scope_total = len(selected_scope_ids)
         scope_metadata_by_id: dict[str, dict[str, Any]] = {}
         for scope_index, scope_id in enumerate(selected_scope_ids, 1):
-            document_scope = document_scopes_by_id.get(scope_id)
+            document_scope = document_scopes.get(scope_id)
             if document_scope is not None:
                 scope_metadata_by_id[scope_id] = {
                     "scope_kind": document_scope.kind,
                     "scope_title": document_scope.title,
                     "scope_number": document_scope.source_number,
                     "scope_index": scope_index,
-                    "scope_total": scope_total,
+                    "scope_total": len(selected_scope_ids),
                 }
-        for scope, plan in scoped_plans:
-            _validate_renderable_segments(
-                plan,
-                scope=document_scopes_by_id.get(scope.id, scope),
-                selected_segment_ids=set(selected_by_scope[scope.id].segment_ids),
-            )
+
         saved_synthesis = project_settings_from_manifest(
             project.manifest, project.state_root
         ).synthesis
@@ -1617,123 +513,51 @@ def synthesize_project(
             if saved_synthesis is not None
             else None
         )
-        request, resolved, adapter, profile = resolve_project_synthesis(project, cfg, request)
-        route = _build_project_synthesis_route(
-            project,
-            cfg,
-            request,
-            adapter,
-            resolved.selection,
-            scoped_plans,
-            selected_by_scope,
-        )
-        lowered_by_segment, capabilities_by_route = _preflight_project_segments(
-            scoped_plans,
-            document_scopes_by_id,
-            selected_by_scope,
-            route,
-            on_event,
-        )
-        profile = _profile_from_route(route, profile)
-        cache_dir = project.state_root / "synthesis" / "cache"
-        if requested_synthesis is not None:
-            profile = _record_project_settings(profile, project, requested_synthesis)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        work: list[dict[str, Any]] = []
+        request, resolved, _adapter, profile = resolve_project_synthesis(project, cfg, request)
+
         items: list[dict[str, Any]] = []
-        cached: dict[tuple[str, str], SynthesisArtifact] = {}
-        stale: list[dict[str, Any]] = []
-        selected_units_count = 0
-        pending_keys: set[str] = set()
-
+        selected_units_count = sum(len(item.unit_indices) for item in selection.scopes)
+        work_by_scope: dict[str, dict[str, Any]] = {}
         for scope, plan in scoped_plans:
-            scoped_selection = selected_by_scope[scope.id]
-            selected_indices = set(scoped_selection.unit_indices)
-            selected_units = [unit for unit in plan.units if int(unit.index) in selected_indices]
-            selected_units_count += len(selected_units)
-            units_by_segment: dict[str, Any] = {}
-            for unit in selected_units:
-                for segment_id in unit.segment_ids:
-                    units_by_segment.setdefault(str(segment_id), unit)
-            selected_segment_ids = set(scoped_selection.segment_ids)
-            scope_work = {
-                "scope": scope,
-                "scope_metadata": scope_metadata_by_id.get(scope.id, {}),
-                "plan": plan,
-                "selection": scoped_selection,
-                "selected_units": selected_units,
-                "items": [],
-                "cached": {},
-                "stale": [],
-            }
-            for segment_index, segment in enumerate(plan.segments):
-                segment_id = str(segment.id)
-                if segment_id not in selected_segment_ids:
-                    continue
-                route_key = route.segment_routes.get((scope.id, segment_id))
-                if route_key is None:
-                    raise ValueError(f"no synthesis route for {scope.id}:{segment_id}")
-                unit = units_by_segment[segment_id]
-                route_profile = route.route_profiles[route_key]
-                route_profile_id = route.route_profile_ids[route_key]
-                speech_hash = segment_speech_hash(plan, segment, route_profile)
-                key = segment_synthesis_key(speech_hash, route_profile_id)
-                item: dict[str, Any] = {
-                    "scope_id": scope.id,
-                    "lowered": lowered_by_segment[(scope.id, segment_id)],
-                    "capabilities": capabilities_by_route[route_key],
-                    "scope": scope,
-                    "scope_metadata": scope_work["scope_metadata"],
-                    "source_path": (
-                        str(document_scopes_by_id[scope.id].path)
-                        if scope.id in document_scopes_by_id
-                        else None
-                    ),
-                    "route_key": route_key,
-                    "segment": segment,
-                    "segment_id": segment_id,
-                    "segment_index": segment_index,
-                    "render_index": segment_index,
-                    "unit": unit,
-                    "speech_hash": speech_hash,
-                    "synthesis_key": key,
-                    "profile_id": route_profile_id,
-                    "cache_path": cache_dir / f"{_safe_key(key)}.wav",
-                    "sidecar_path": cache_dir / f"{_safe_key(key)}.json",
-                    "path": (
-                        project.state_root
-                        / "synthesis"
-                        / "segments"
-                        / (
-                            f"seg-{segment_index:06d}.wav"
-                            if scope.id == "document"
-                            and scope.kind == "document"
-                            and len(scoped_plans) == 1
-                            else Path(scope.id) / f"seg-{segment_index:06d}.wav"
+            selected = selected_by_scope[scope.id]
+            selected_ids = set(selected.segment_ids)
+            scope_items: list[dict[str, Any]] = []
+            for flow_index, flow in enumerate(plan.flow):
+                current_flow_id = flow_id(flow_index, flow)
+                for segment_index, segment in enumerate(flow.segments):
+                    segment_id = flow_segment_id(flow_index, flow, segment_index)
+                    if segment_id not in selected_ids:
+                        continue
+                    item = {
+                        "scope": scope,
+                        "plan": plan,
+                        "scope_id": scope.id,
+                        "scope_metadata": scope_metadata_by_id.get(scope.id, {}),
+                        "flow": flow,
+                        "flow_index": flow_index,
+                        "flow_id": current_flow_id,
+                        "flow_hash": flow.content_hash,
+                        "segment": segment,
+                        "segment_id": segment_id,
+                        "segment_index": segment_index,
+                        "source_order": sum(
+                            len(previous_flow.segments)
+                            for previous_flow in plan.flow[:flow_index]
                         )
-                    ),
-                }
-                items.append(item)
-                scope_work["items"].append(item)
-                artifact = _artifact_from_item(project, item)
-                key_by_scope = (scope.id, segment_id)
-                if artifact is None:
-                    if key not in pending_keys:
-                        pending_keys.add(key)
-                        stale.append(item)
-                        scope_work["stale"].append(item)
-                else:
-                    cached[key_by_scope] = artifact
-                    scope_work["cached"][segment_id] = artifact
-            work.append(scope_work)
-
+                        + segment_index,
+                        "locator": f"f{flow_index:06d}.s{segment_index:03d}",
+                        "language": segment.language,
+                    }
+                    scope_items.append(item)
+                    items.append(item)
+            work_by_scope[scope.id] = {
+                "scope": scope,
+                "plan": plan,
+                "items": scope_items,
+            }
         if not items:
-            raise ValueError("selected units contain no readable plan segments")
-        included_work = [
-            item
-            for item in work
-            if item["items"] or (selection.description == "all" and not item["plan"].units)
-        ]
+            raise ValueError("selected flows contain no readable plan segments")
+
         _emit(
             on_event,
             SynthesisEvent(
@@ -1741,8 +565,6 @@ def synthesize_project(
                 total=len(items),
                 details={
                     "project": str(project.root),
-                    "source": str(project.manifest.source_path),
-                    "source_format": project.manifest.source_format,
                     "plans": [
                         {"scope_id": scope.id, "plan_id": plan.plan_id}
                         for scope, plan in scoped_plans
@@ -1750,168 +572,309 @@ def synthesize_project(
                     "selected_units": selected_units_count,
                     "selected_segments": len(items),
                     "profile_id": profile.profile_id,
-                    "engine": route.engine,
+                    "engine": resolved.selection.engine,
                     "engines": sorted(
-                        {selection.engine for selection in route.selections.values()}
-                    ),
-                    "provider": route.provider,
-                    "routing_mode": route.mode,
-                    "targets": [
-                        {
-                            "engine": selection.engine,
-                            "id": selection.target_id,
-                            "voice": selection.voice,
-                            "language": selection.language,
+                        {resolved.selection.engine}
+                        | {
+                            target.engine
+                            for bindings in request.scope_voice_targets.values()
+                            for target in bindings.values()
                         }
-                        for _key, selection in sorted(route.selections.items())
-                    ],
+                    ),
+                    "routing_mode": "voice-render-profile",
                     "voice_bindings": [
                         {"scope_id": scope_id, "role": role, **target.to_dict()}
-                        for scope_id, bindings in sorted(route.bindings_by_scope.items())
+                        for scope_id, bindings in sorted(request.scope_voice_targets.items())
                         for role, target in sorted(bindings.items())
                     ],
-                    "target": {
-                        "engine": resolved.selection.engine,
-                        "id": resolved.selection.target_id,
-                        "voice": resolved.selection.voice,
-                        "language": resolved.selection.language,
-                    },
                 },
             ),
         )
-        per_scope = {
-            scope_work["scope"].id: {
-                "required": len(scope_work["items"]),
-                "reused": len(scope_work["items"]) - len(scope_work["stale"]),
-                "rendered": len(scope_work["stale"]),
-            }
-            for scope_work in included_work
+
+        cache_dir = project.state_root / "synthesis" / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        progress = RenderProgressState(
+            total=len(items),
+            scope_totals={scope_id: len(work["items"]) for scope_id, work in work_by_scope.items()},
+        )
+        artifacts_by_key: dict[tuple[str, str], SynthesisArtifact] = {}
+        manifest_refs: list[dict[str, Any]] = []
+        render_counts = {"rendered": 0, "reused": 0}
+        counts_by_scope = {
+            scope_id: {"rendered": 0, "reused": 0}
+            for scope_id in work_by_scope
         }
+
+        def voice_binding(item: Mapping[str, Any], language: str) -> dict[str, Any]:
+            reference = _segment_voice_reference(item["segment"])
+            target = (
+                request.scope_voice_targets.get(item["scope_id"], {}).get(reference)
+                if reference is not None
+                else None
+            )
+            return _voice_binding_request(cfg, request, language, target)
+
+        for (scope_id, language, run_index), group_items_iter in _group_items(items).items():
+            group_items = list(group_items_iter)
+            scope_work = work_by_scope[scope_id]
+            plan = scope_work["plan"]
+            role_bindings: dict[str, dict[str, Any]] = {}
+            for item in group_items:
+                reference = _segment_voice_reference(item["segment"])
+                role = reference or "narrator"
+                binding = voice_binding(item, language)
+                prior = role_bindings.get(role)
+                if prior is not None and prior != binding:
+                    raise ValueError(
+                        f"logical voice {role!r} resolves to multiple VoiceRender targets "
+                        f"in project scope {scope_id!r}"
+                    )
+                role_bindings[role] = binding
+            default_role = "narrator" if "narrator" in role_bindings else next(iter(role_bindings))
+            resolved_profile = resolve_voicerender_profile(
+                role_bindings,
+                name=f"Readio project {project.manifest.name}",
+                default_role=default_role,
+                language=language,
+            )
+            items_by_locator = {item["locator"]: item for item in group_items}
+
+            group_progress = {"completed": 0}
+            group_counts = {"rendered": 0, "reused": 0}
+            scope_completed_before = progress.scope_completed.get(scope_id, 0)
+            on_render_event = _make_voice_render_event_handler(
+                scope_id=scope_id,
+                language=language,
+                items_by_locator=items_by_locator,
+                progress=progress,
+                scope_completed_before=scope_completed_before,
+                group_progress=group_progress,
+                render_counts=render_counts,
+                group_counts=group_counts,
+                counts_by_scope=counts_by_scope,
+                on_event=on_event,
+            )
+            scope_hash = hashlib.sha256(scope_id.encode("utf-8")).hexdigest()[:12]
+            language_key = re.sub(r"[^a-z0-9-]+", "-", language.lower()).strip("-") or "und"
+            output_dir = (
+                project.state_root
+                / "synthesis"
+                / "renders"
+                / f"scope-{scope_hash}"
+                / language_key
+                / f"run-{run_index:06d}"
+            )
+            source_plan_path = project.state_root / "plan" / scope_work["scope"].path
+            try:
+                bundle = voicerender_render_plan(
+                    source_plan_path,
+                    profile=resolved_profile.profile,
+                    output_dir=output_dir,
+                    cache_dir=cache_dir,
+                    locators=[item["locator"] for item in group_items],
+                    on_event=on_render_event,
+                )
+            except Exception as error:
+                if type(error).__module__.startswith("voicerender"):
+                    error_code = getattr(error, "code", "synthesis.voicerender_error")
+                    details = {
+                        "scope_id": scope_id,
+                        "language": language,
+                        "voicerender_error": type(error).__name__,
+                        "voicerender_code": error_code,
+                        "voicerender_details": dict(getattr(error, "details", {}) or {}),
+                    }
+                    raise EngineSynthesisError(
+                        f"VoiceRender failed in project scope {scope_id!r}: {error}",
+                        engine=getattr(error, "engine", None),
+                        target_id=getattr(error, "target_id", None),
+                        details=details,
+                        code=str(error_code),
+                    ) from error
+                raise
+
+            for status in ("rendered", "reused"):
+                missing_count = getattr(bundle.result, f"{status}_count") - group_counts[status]
+                if missing_count > 0:
+                    group_counts[status] += missing_count
+                    render_counts[status] += missing_count
+                    counts_by_scope[scope_id][status] += missing_count
+                    group_progress["completed"] += missing_count
+                    progress.completed += missing_count
+                    progress.scope_completed[scope_id] = (
+                        scope_completed_before + group_progress["completed"]
+                    )
+            manifest_path = bundle.result.manifest_path
+            manifest = bundle.manifest
+            manifest_refs.append(
+                {
+                    "scope_id": scope_id,
+                    "language": language,
+                    "run_index": run_index,
+                    "path": manifest_path.relative_to(project.state_root).as_posix(),
+                    "manifest_id": manifest["manifest_id"],
+                    "plan_id": manifest["source"]["plan_id"],
+                    "plan_file_sha256": manifest["source"]["plan_file_sha256"],
+                    "effective_profile_sha256": manifest["profile"]["effective_profile_sha256"],
+                }
+            )
+            entries_by_locator = {
+                entry["source"]["locator"]: entry for entry in manifest["segments"]
+            }
+            for item in group_items:
+                item_role = _segment_voice_reference(item["segment"]) or default_role
+                entry = entries_by_locator.get(item["locator"])
+                if entry is None or entry.get("status") not in {"rendered", "reused"}:
+                    raise EngineSynthesisError(
+                        f"VoiceRender did not produce {scope_id}:{item['segment_id']}",
+                        engine=resolved_profile.selections[item_role].engine,
+                        request_id=item["segment_id"],
+                        details={"manifest_path": str(manifest_path), "source_locator": item["locator"]},
+                    )
+                audio = entry["audio"]
+                audio_path = manifest_path.parent / audio["path"]
+                source = entry["source"]
+                profile_id = manifest["profile"]["effective_profile_sha256"]
+                marker_values = tuple(
+                    {"marker": marker} for marker in item["segment"].markers
+                )
+                artifact = SynthesisArtifact(
+                    unit_id=item["flow_id"],
+                    unit_index=item["flow_index"],
+                    content_hash=source["semantic_segment_hash"],
+                    scope_id=scope_id,
+                    synthesis_key=entry["acoustic_cache_key"],
+                    path=audio_path,
+                    cache_path=audio_path,
+                    audio_sha256=audio["sha256"],
+                    sample_rate=audio["sample_rate"],
+                    channels=audio["channels"],
+                    frames=audio["frames"],
+                    markers=marker_values,
+                    word_timings=tuple(entry["timing"]["spans"]),
+                    speech_hash=entry["synthesis_semantics_sha256"],
+                    segment_id_value=item["segment_id"],
+                    segment_index_value=item["segment_index"],
+                    text=item["segment"].text,
+                    profile_id=profile_id,
+                    manifest_path=manifest_path,
+                    manifest_id=manifest["manifest_id"],
+                    source_plan_id=manifest["source"]["plan_id"],
+                    source_locator=item["locator"],
+                    acoustic_cache_key=entry["acoustic_cache_key"],
+                )
+                artifacts_by_key[(scope_id, item["segment_id"])] = artifact
+
         _emit(
             on_event,
             SynthesisEvent(
                 "cache_scanned",
-                completed=len(items) - len(stale),
+                completed=render_counts["reused"],
                 total=len(items),
                 details={
-                    "reused": len(items) - len(stale),
-                    "rendered": len(stale),
+                    "reused": render_counts["reused"],
+                    "rendered": render_counts["rendered"],
                     "required": len(items),
-                    "missing": len(stale),
-                    "scopes": len(included_work),
-                    "per_scope": per_scope,
+                    "manifests": len(manifest_refs),
                 },
             ),
         )
-        render_details, engine_open_ms = _render_all_missing(
-            project,
-            route,
-            work,
-            profile,
-            on_event=on_event,
+        artifacts = tuple(
+            artifacts_by_key[(item["scope_id"], item["segment_id"])] for item in items
         )
-        for item in items:
-            key_by_scope = (item["scope_id"], item["segment_id"])
-            if key_by_scope in cached:
-                continue
-            artifact = _artifact_from_item(project, item)
-            if artifact is None:
-                raise ValueError(
-                    f"synthesis did not persist valid audio for {item['scope_id']}:{item['segment_id']}"
-                )
-            cached[key_by_scope] = artifact
+        identities = sorted(
+            {str(item["effective_profile_sha256"]) for item in manifest_refs}
+        )
+        canonical_profiles: dict[str, Any] = {
+            "schema": "voicerender.effective-profile-set.v1",
+            "profiles": identities,
+        }
+        profile_id = (
+            identities[0]
+            if len(identities) == 1
+            else "sha256:" + hashlib.sha256(canonical_json(canonical_profiles)).hexdigest()
+        )
+        profile = SynthesisProfile(
+            profile_id=profile_id,
+            schema_version=6,
+            payload={
+                "schema": "readio.synthesis-profile.v6",
+                "canonical": canonical_profiles,
+                "composition": dict(profile.payload.get("composition", {})),
+                "manifest_refs": manifest_refs,
+                "project_role_targets": project_role_targets_provenance(project.manifest),
+            },
+        )
+        if requested_synthesis is not None:
+            profile = _record_project_settings(profile, project, requested_synthesis)
 
+        included_work = [work for work in work_by_scope.values() if work["items"]]
+        per_scope = {
+            work["scope"].id: {
+                "required": len(work["items"]),
+                **counts_by_scope[work["scope"].id],
+            }
+            for work in included_work
+        }
         if activate:
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "activation_started",
-                    completed=0,
-                    total=len(cached),
-                    details={"scopes": len(included_work)},
-                ),
-            )
-            for artifact in cached.values():
-                _link_or_copy(artifact.cache_path, artifact.path)
             atomic_write_json(project.paths["synthesis_profile"], profile.to_dict())
             segment_rows = []
             compatibility_units = []
-            for scope_work in included_work:
-                scope_id = scope_work["scope"].id
-                plan = scope_work["plan"]
-                for item in scope_work["items"]:
-                    artifact = cached[(scope_id, item["segment_id"])]
+            for work in included_work:
+                scope_id = work["scope"].id
+                for item in work["items"]:
+                    artifact = artifacts_by_key[(scope_id, item["segment_id"])]
                     segment_rows.append(
                         {
                             **artifact.to_dict(project.state_root),
-                            "unit_id": item["unit"].id,
-                            "unit_index": int(item["unit"].index),
-                            **(
-                                {
-                                    "diagnostics": dict(
-                                        render_details[(scope_id, item["segment_index"])]
-                                    )
-                                }
-                                if (scope_id, item["segment_index"]) in render_details
-                                else {}
-                            ),
+                            "unit_id": item["flow_id"],
+                            "unit_index": item["flow_index"],
                         }
                     )
-                for unit in scope_work["selected_units"]:
-                    unit_items = [
-                        item for item in scope_work["items"] if item["unit"].id == unit.id
+                for flow_index in selected_by_scope[scope_id].unit_indices:
+                    flow = work["plan"].flow[flow_index]
+                    flow_segments = [
+                        item for item in work["items"] if item["flow_index"] == flow_index
                     ]
-                    if len(unit_items) == 1:
-                        item = unit_items[0]
+                    if len(flow_segments) == 1:
+                        item = flow_segments[0]
+                        artifact = artifacts_by_key[(scope_id, item["segment_id"])]
                         compatibility_units.append(
                             {
-                                **cached[(scope_id, item["segment_id"])].to_dict(
-                                    project.state_root
-                                ),
-                                "unit_id": unit.id,
-                                "unit_index": int(unit.index),
-                                "content_hash": unit.content_hash,
+                                **artifact.to_dict(project.state_root),
+                                "unit_id": flow_id(flow_index, flow),
+                                "unit_index": flow_index,
+                                "content_hash": flow.content_hash,
                             }
                         )
-
-            finished_wall = datetime.now(timezone.utc).isoformat()
+            plan_refs = [
+                {
+                    "scope_id": work["scope"].id,
+                    "plan_id": work["plan"].plan_id,
+                    "path": work["scope"].path,
+                    "sha256": hash_file(project.state_root / "plan" / work["scope"].path),
+                }
+                for work in included_work
+            ]
             trace = {
                 "format": "readio.synthesis-trace",
-                "schema_version": 3,
+                "schema_version": 4,
                 "started_at": started_wall,
-                "finished_at": finished_wall,
-                "engine_open_ms": engine_open_ms,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
                 "render_ms": round((time.monotonic() - started_at) * 1000, 3),
                 "selected_units": selected_units_count,
                 "selected_segments": len(items),
-                "reused_segments": len(cached) - len(stale),
-                "rendered_segments": len(stale),
-                "diagnostics": {"short_sentence_fallbacks": 0, "timing_failures": 0},
+                "reused_segments": render_counts["reused"],
+                "rendered_segments": render_counts["rendered"],
+                "diagnostics": {"voicerender": []},
                 "profile": {"profile_id": profile.profile_id, **dict(profile.payload)},
-                "plans": [
-                    {
-                        "scope_id": scope_work["scope"].id,
-                        "plan_id": scope_work["plan"].plan_id,
-                        "plan_sha256": hash_file(
-                            project.state_root / "plan" / scope_work["scope"].path
-                        ),
-                    }
-                    for scope_work in included_work
-                ],
+                "plans": plan_refs,
+                "manifests": manifest_refs,
                 "per_scope": per_scope,
                 "segments": segment_rows,
                 "units": compatibility_units,
             }
             atomic_write_json(project.paths["synthesis_trace"], trace)
-            _emit(
-                on_event,
-                SynthesisEvent(
-                    "activation_finished",
-                    completed=len(cached),
-                    total=len(cached),
-                    details={"profile_id": profile.profile_id},
-                ),
-            )
 
         _emit(
             on_event,
@@ -1921,9 +884,10 @@ def synthesize_project(
                 total=len(items),
                 details={
                     "profile_id": profile.profile_id,
-                    "reused": len(cached) - len(stale),
-                    "rendered": len(stale),
+                    "reused": render_counts["reused"],
+                    "rendered": render_counts["rendered"],
                     "activated": activate,
+                    "manifests": len(manifest_refs),
                 },
             ),
         )
@@ -1939,24 +903,160 @@ def synthesize_project(
             "selection": output_selection,
             "plan_id": only_plan,
             "plan_ids": [
-                {"scope_id": item["scope"].id, "plan_id": item["plan"].plan_id}
-                for item in included_work
+                {"scope_id": work["scope"].id, "plan_id": work["plan"].plan_id}
+                for work in included_work
             ],
             "scope": only_scope,
-            "reused": len(cached) - len(stale),
-            "rendered": len(stale),
-            "artifacts": tuple(cached.values()),
+            "reused": render_counts["reused"],
+            "rendered": render_counts["rendered"],
+            "artifacts": artifacts,
+            "manifests": tuple(manifest_refs),
             "activated": activate,
         }
 
+
+def _group_items(
+    items: list[dict[str, Any]],
+) -> dict[tuple[str, str, int], list[dict[str, Any]]]:
+    groups: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    next_run_by_scope: dict[str, int] = {}
+    previous_by_scope: dict[str, tuple[str, int, int]] = {}
+    for item in items:
+        scope_id = item["scope_id"]
+        language = item["language"]
+        source_order = item["source_order"]
+        previous = previous_by_scope.get(scope_id)
+        if previous is not None and previous[0] == language and previous[1] + 1 == source_order:
+            run_index = previous[2]
+        else:
+            run_index = next_run_by_scope.get(scope_id, 0)
+            next_run_by_scope[scope_id] = run_index + 1
+        key = (scope_id, language, run_index)
+        groups.setdefault(key, []).append(item)
+        previous_by_scope[scope_id] = (language, source_order, run_index)
+    return groups
+
+
+def _make_voice_render_event_handler(
+    *,
+    scope_id: str,
+    language: str,
+    items_by_locator: Mapping[str, Mapping[str, Any]],
+    progress: RenderProgressState,
+    scope_completed_before: int,
+    group_progress: dict[str, int],
+    render_counts: dict[str, int],
+    group_counts: dict[str, int],
+    counts_by_scope: dict[str, dict[str, int]],
+    on_event: Callable[[SynthesisEvent], None] | None,
+) -> Callable[[Any], None]:
+    def handle(event: Any) -> None:
+        kind = getattr(event.kind, "value", str(event.kind))
+        if kind in {
+            "preflight_started",
+            "preflight_finished",
+            "engine_open_started",
+            "engine_open_finished",
+        }:
+            _emit(
+                on_event,
+                SynthesisEvent(
+                    kind,
+                    scope_id=scope_id,
+                    completed=progress.completed,
+                    total=progress.total,
+                    details={"phase": "voicerender", "language": language},
+                ),
+            )
+            return
+        item = items_by_locator.get(getattr(event, "locator", None))
+        if item is None:
+            return
+        if kind == "segment_started":
+            _emit(
+                on_event,
+                SynthesisEvent(
+                    "segment_started",
+                    scope_id=scope_id,
+                    unit_id=item["flow_id"],
+                    unit_index=item["flow_index"],
+                    segment_id=item["segment_id"],
+                    segment_index=item["segment_index"],
+                    completed=progress.completed,
+                    total=progress.total,
+                    text=item["segment"].text,
+                    details={
+                        **_synthesis_progress_details(
+                            progress,
+                            scope_id=scope_id,
+                            scope_metadata=item["scope_metadata"],
+                            scope_completed=scope_completed_before + group_progress["completed"],
+                        ),
+                        "source_locator": item["locator"],
+                    },
+                ),
+            )
+        elif kind in {"segment_rendered", "segment_reused"}:
+            group_progress["completed"] += 1
+            progress.completed += 1
+            progress.scope_completed[scope_id] = (
+                scope_completed_before + group_progress["completed"]
+            )
+            status = "rendered" if kind == "segment_rendered" else "reused"
+            render_counts[status] += 1
+            group_counts[status] += 1
+            counts_by_scope[scope_id][status] += 1
+            _emit(
+                on_event,
+                SynthesisEvent(
+                    "segment_finished",
+                    scope_id=scope_id,
+                    unit_id=item["flow_id"],
+                    unit_index=item["flow_index"],
+                    segment_id=item["segment_id"],
+                    segment_index=item["segment_index"],
+                    completed=progress.completed,
+                    total=progress.total,
+                    text=item["segment"].text,
+                    details={
+                        "voicerender_status": kind,
+                        "source_locator": item["locator"],
+                        **_synthesis_progress_details(
+                            progress,
+                            scope_id=scope_id,
+                            scope_metadata=item["scope_metadata"],
+                            scope_completed=progress.scope_completed[scope_id],
+                        ),
+                    },
+                ),
+            )
+        elif kind == "segment_failed":
+            _emit(
+                on_event,
+                SynthesisEvent(
+                    "segment_failed",
+                    scope_id=scope_id,
+                    unit_id=item["flow_id"],
+                    unit_index=item["flow_index"],
+                    segment_id=item["segment_id"],
+                    segment_index=item["segment_index"],
+                    completed=progress.completed,
+                    total=progress.total,
+                    text=item["segment"].text,
+                    details={
+                        "error_type": getattr(event, "error_type", None),
+                        "error_code": getattr(event, "error_code", None),
+                        "source_locator": item["locator"],
+                    },
+                ),
+            )
+
+    return handle
 
 __all__ = [
     "SynthesisArtifact",
     "SynthesisEvent",
     "SynthesisProfile",
-    "segment_speech_hash",
-    "segment_synthesis_key",
     "synthesis_profile_id",
     "synthesize_project",
-    "unit_synthesis_key",
 ]

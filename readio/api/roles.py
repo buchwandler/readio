@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 from .. import config as config_internal
 from .. import project as project_internal
-from ..engines.registry import normalize_engine_id
+from ..integrations.voicerender import normalize_engine_id
 from ..jsonutil import JsonValue, json_value
 from ..project_roles import ProjectRoleError as InternalProjectRoleError
 from ..project_roles import (

@@ -496,7 +496,7 @@ class ProjectService:
                 scope_id=planned.scope.id,
                 plan_id=planned.compiled.plan_id,
                 sha256=planned.compiled.sha256,
-                units=len(planned.compiled.plan.units),
+                units=sum(len(flow.segments) for flow in planned.compiled.plan.flow),
             )
             for planned in result.scopes
         )
@@ -764,6 +764,11 @@ class ProjectService:
                         cast(Mapping[str, JsonValue], json_value(item))
                         for item in artifact.word_timings
                     ),
+                    manifest_path=artifact.manifest_path,
+                    manifest_id=artifact.manifest_id,
+                    source_plan_id=artifact.source_plan_id,
+                    source_locator=artifact.source_locator,
+                    acoustic_cache_key=artifact.acoustic_cache_key,
                 )
                 for artifact in raw["artifacts"]
             ),
