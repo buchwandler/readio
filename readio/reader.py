@@ -184,11 +184,21 @@ def render_live(
     on_progress: RenderProgressCallback | None = None,
 ) -> RenderSummary:
     """Stream live text through one VoiceRender session, composing only non-neutral speed."""
-    from voicerender import EngineRequest, SpeechRequest, open_session, resolve_voice, synthesize
+    from contextlib import ExitStack
+
+    from voicerender import (
+        EngineApiIncompatibleError,
+        EngineRequest,
+        EngineUnavailableError,
+        SpeechRequest,
+        open_session,
+        synthesize,
+    )
     from voicerender.errors import VoiceRenderError
 
-    config = _config(cfg)
+    from .integrations.voicerender import _resolve_readio_request, _resolve_voice_request
 
+    config = _config(cfg)
 
     def translate_voice_error(error: VoiceRenderError) -> RenderError:
         cause_details = getattr(error, "details", {})
@@ -201,6 +211,7 @@ def render_live(
                 "cause_details": dict(cause_details) if isinstance(cause_details, Mapping) else {},
             },
         )
+
     if synthesis is None:
         language = config.reader.lang
         target_id = None
@@ -221,46 +232,62 @@ def render_live(
         speed = synthesis.speed
         offline = synthesis.discovery_offline
         refresh = synthesis.discovery_refreshed
+    request = EngineRequest(
+        engine=engine,
+        target_id=target_id,
+        language=language,
+        voice=voice,
+        speaker=speaker,
+        options={"speed": speed},
+        engine_options=dict(engine_options),
+        offline=offline,
+        refresh=refresh,
+    )
     try:
-        selection, diagnostics = resolve_voice(
-            EngineRequest(
-                engine=engine,
-                target_id=target_id,
-                language=language,
-                voice=voice,
-                speaker=speaker,
-                engine_options=dict(engine_options),
-                offline=offline,
-                refresh=refresh,
-            )
-        )
-    except VoiceRenderError as exc:
+        selection, diagnostics, adapter = _resolve_voice_request(request)
+    except Exception as exc:
         raise translate_voice_error(exc) from exc
-    errors = [
-        item.message for item in diagnostics if getattr(item, "severity", None) == "error"
-    ]
+    errors = [item.message for item in diagnostics if getattr(item, "severity", None) == "error"]
     if errors:
         raise RenderError("live VoiceRender selection failed: " + "; ".join(errors))
-
     saw_text = False
     sample_rate = 0
     channels = 0
     sample_count = 0
     completed = 0
     try:
-        with open_session(selection) as session:
+        with ExitStack() as stack:
+            try:
+                session_context = (
+                    adapter.open(selection) if adapter is not None else open_session(selection)
+                )
+                session = stack.enter_context(session_context)
+            except (EngineApiIncompatibleError, EngineUnavailableError):
+                if adapter is not None:
+                    raise
+                selection, diagnostics, adapter = _resolve_readio_request(request)
+                errors = [
+                    item.message
+                    for item in diagnostics
+                    if getattr(item, "severity", None) == "error"
+                ]
+                if errors:
+                    raise RenderError("live engine selection failed: " + "; ".join(errors))
+                session = stack.enter_context(adapter.open(selection))
             for paragraph in iter_live_paragraphs(lines):
                 saw_text = True
-                rendered = synthesize(
-                    session,
-                    SpeechRequest(
-                        id=f"live-{completed + 1}",
-                        text=paragraph,
-                        language=language,
-                        voice=selection.voice,
-                        speaker=selection.speaker,
-                        options=dict(selection.options),
-                    ),
+                speech_request = SpeechRequest(
+                    id=f"live-{completed + 1}",
+                    text=paragraph,
+                    language=language,
+                    voice=selection.voice,
+                    speaker=selection.speaker,
+                    options=dict(selection.options),
+                )
+                rendered = (
+                    session.synthesize(speech_request)
+                    if adapter is not None
+                    else synthesize(session, speech_request)
                 )
                 audio = np.asarray(rendered.audio, dtype=np.float32)
                 audio = _compose_live_speed(audio, rendered.sample_rate, speed)
@@ -276,7 +303,7 @@ def render_live(
                 completed += 1
                 if on_progress is not None:
                     on_progress(RenderProgress(completed, None, sample_count, sample_rate))
-    except VoiceRenderError as exc:
+    except (VoiceRenderError, EngineApiIncompatibleError, EngineUnavailableError) as exc:
         raise translate_voice_error(exc) from exc
     if not saw_text:
         raise ValueError("no text to read")
@@ -287,7 +314,6 @@ def render_live(
         document_metadata={},
         markers=(),
     )
-
 
 
 def speak_text(

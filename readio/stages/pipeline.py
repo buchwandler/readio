@@ -8,11 +8,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
-from voicerender import ArtifactError, read_render_manifest
-
 from ..api.types import CompositionOptions, ExportOptions, ProjectBuildRequest
 from ..audioio import write_pcm16_wav
-from ..errors import ProjectPlanAttemptError
+from ..errors import InputError, ProjectPlanAttemptError
 from ..formats import AudioFormat
 from ..integrations.audioexport import AudioExportIntegrationError, AudioExportUnavailableError
 from ..plan import InputRequest, OutputRequest, PlanRequest, SynthesisRequest
@@ -33,6 +31,7 @@ from .composition import (
     compose_job,
     compose_project,
     composition_is_current,
+    read_render_manifest,
 )
 from .export import (
     export_project,
@@ -244,29 +243,49 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
     if profile.get("schema_version") == 6:
         manifest_refs = profile.get("manifest_refs")
         if not isinstance(manifest_refs, list) or trace.get("manifests") != manifest_refs:
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.trace.manifest_mismatch"}
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.trace.manifest_mismatch",
+            }
         current_plans = {scope.id: (scope, plan) for scope, plan in scoped_plans}
         per_scope: dict[str, dict[str, int]] = {}
         required = 0
         reusable = 0
         for reference in manifest_refs:
             if not isinstance(reference, Mapping):
-                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.profile.invalid",
+                }
             scope_id = str(reference.get("scope_id", ""))
             current = current_plans.get(scope_id)
             if current is None:
-                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.plan_changed"}
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.stale.plan_changed",
+                }
             scope, plan = current
             manifest_value = reference.get("path")
             if not isinstance(manifest_value, str):
-                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.profile.invalid",
+                }
             manifest_path = Path(manifest_value)
             if not manifest_path.is_absolute():
                 manifest_path = project.state_root / manifest_path
             try:
                 manifest = read_render_manifest(manifest_path)
-            except (ArtifactError, OSError, ValueError):
-                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.render_manifest_missing"}
+            except (InputError, OSError, ValueError):
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.stale.render_manifest_missing",
+                }
             plan_path = project.state_root / "plan" / scope.path
             source = manifest.get("source", {})
             manifest_profile = manifest.get("profile", {})
@@ -280,15 +299,26 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                 or manifest_profile.get("effective_profile_sha256")
                 != reference.get("effective_profile_sha256")
             ):
-                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.render_manifest_changed"}
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.stale.render_manifest_changed",
+                }
             entries = manifest.get("segments")
             if not isinstance(entries, list):
-                return {"stage": "synthesis", "state": "stale", "reason": "synthesis.profile.invalid"}
+                return {
+                    "stage": "synthesis",
+                    "state": "stale",
+                    "reason": "synthesis.profile.invalid",
+                }
             scope_counts = per_scope.setdefault(scope_id, {"reusable": 0, "required": 0})
             for entry in entries:
                 required += 1
                 scope_counts["required"] += 1
-                if not isinstance(entry, Mapping) or entry.get("status") not in {"rendered", "reused"}:
+                if not isinstance(entry, Mapping) or entry.get("status") not in {
+                    "rendered",
+                    "reused",
+                }:
                     continue
                 audio = entry.get("audio", {})
                 if not isinstance(audio, Mapping) or not isinstance(audio.get("path"), str):
@@ -301,7 +331,11 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
                 reusable += 1
                 scope_counts["reusable"] += 1
         if required != trace.get("selected_segments", required):
-            return {"stage": "synthesis", "state": "stale", "reason": "synthesis.stale.render_manifest_changed"}
+            return {
+                "stage": "synthesis",
+                "state": "stale",
+                "reason": "synthesis.stale.render_manifest_changed",
+            }
         details = {
             "reusable": reusable,
             "required": required,
@@ -313,8 +347,7 @@ def _synthesis_status(project: Project) -> dict[str, Any]:
             "profile_id": profile_id,
             "manifests": manifest_refs,
             "plan_ids": [
-                {"scope_id": scope.id, "plan_id": plan.plan_id}
-                for scope, plan in scoped_plans
+                {"scope_id": scope.id, "plan_id": plan.plan_id} for scope, plan in scoped_plans
             ],
         }
         if len(scoped_plans) == 1:
@@ -438,7 +471,7 @@ def project_status(project: Project) -> dict[str, Any]:
         desired_composition = desired_settings.composition
         if state_path.is_file() and project.paths["composition_master"].is_file():
             try:
-                options = {}
+                options = {"use_stored_output_policy": True}
                 if desired_composition is not None:
                     options = {
                         "mastering": desired_composition.mastering,
@@ -473,6 +506,13 @@ def project_status(project: Project) -> dict[str, Any]:
                     "state": "stale",
                     "reason": "composition.invalid",
                 }
+        else:
+            composition = {
+                "stage": "composition",
+                "state": "stale",
+                "reason": "composition.missing",
+                "blocked_by": "synthesis",
+            }
     if composition["state"] != "current":
         output = {
             "stage": "output",
@@ -899,6 +939,7 @@ def preview_project(
     options = composition or CompositionOptions(target_lufs=target_lufs)
     job, _identity = build_audio_job(
         project,
+        synthesis_profile=synthesis["profile"].to_dict(),
         mastering=options.mastering,
         target_lufs=options.target_lufs,
         true_peak_ceiling_dbtp=options.true_peak_ceiling_dbtp,

@@ -52,6 +52,160 @@ class LoweringError(ValueError):
         self.diagnostic = diagnostic
 
 
+def _flow_pause_seconds(pause: Any) -> float:
+    if pause is None:
+        return 0.0
+    value = pause.to_dict() if hasattr(pause, "to_dict") else getattr(pause, "value", pause)
+    if isinstance(value, Mapping):
+        if value.get("type") != "timed":
+            return 0.0
+        value = value.get("time")
+    if isinstance(value, str):
+        defaults = {
+            "none": 0.0,
+            "x-weak": 0.075,
+            "weak": 0.15,
+            "medium": 0.3,
+            "strong": 0.6,
+            "x-strong": 1.0,
+        }
+        if value in defaults:
+            return defaults[value]
+        import re
+
+        match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(ms|s)?\s*", value, re.IGNORECASE)
+        if match is not None:
+            seconds = float(match.group(1))
+            return seconds / 1000 if match.group(2) and match.group(2).lower() == "ms" else seconds
+    return 0.0
+
+
+def _lower_flow_segment(
+    plan: Any,
+    segment_ref: Any,
+    target: EngineSelection,
+    capabilities: EngineCapabilities,
+    *,
+    strict: bool,
+) -> LoweredSegment:
+    segment = segment_ref.segment
+    _require_compatible_language(segment.language, target)
+    voice = target.voice
+    voice_directive = segment.directives.voice
+    if voice_directive is not None and voice is None:
+        _fail(
+            "render.voice_unresolved",
+            f"Voice directive on segment {segment_ref.id!r} has no resolved concrete voice target.",
+            "render.target.voice",
+        )
+
+    diagnostics: list[PlanDiagnostic] = []
+    source_tokens = tuple(segment.tokens)
+    if source_tokens and not capabilities.supports_linguistic_tokens:
+        tokens = ()
+        diagnostics.append(
+            PlanDiagnostic(
+                code="render.linguistic_tokens_unsupported",
+                severity="warning",
+                message=f"Engine {capabilities.id!r} cannot consume linguistic tokens for segment {segment_ref.id!r}.",
+                field="render.segment.tokens",
+            )
+        )
+    else:
+        tokens = tuple(
+            SpeechToken(
+                start=token.start,
+                end=token.end,
+                text=token.surface(segment.text),
+                pos=token.pos,
+                tag=token.tag,
+                lemma=token.lemma,
+                morph=token.morph,
+                language=segment.language,
+            )
+            for token in source_tokens
+        )
+
+    pronunciation = segment.directives.pronunciation
+    overrides: tuple[PronunciationSpan, ...] = ()
+    whole_phonemes: str | None = None
+    if pronunciation is not None:
+        if pronunciation.alphabet not in capabilities.pronunciation_alphabets:
+            _fail(
+                "render.pronunciation_alphabet_unsupported",
+                f"Engine {capabilities.id!r} does not support pronunciation alphabet {pronunciation.alphabet!r}.",
+                "render.segment.pronunciation.alphabet",
+            )
+        if capabilities.supports_pronunciation_overrides:
+            overrides = (
+                PronunciationSpan(
+                    start=0,
+                    end=len(segment.text),
+                    phonemes=pronunciation.phonemes,
+                    language=segment.language,
+                    alphabet=pronunciation.alphabet,
+                ),
+            )
+        elif capabilities.supports_whole_request_phonemes:
+            whole_phonemes = pronunciation.phonemes
+        else:
+            _fail(
+                "render.pronunciation_unsupported",
+                f"Engine {capabilities.id!r} cannot represent pronunciation on segment {segment_ref.id!r}.",
+                "render.segment.pronunciation",
+            )
+
+    if segment.directives.audio is not None:
+        _fail(
+            "render.external_audio_unsupported",
+            f"External audio on segment {segment_ref.id!r} must be handled by composition, not speech synthesis.",
+            "render.segment.audio",
+        )
+    if segment.directives.emphasis is not None:
+        diagnostics.append(
+            PlanDiagnostic(
+                code="render.emphasis_unmapped",
+                severity="warning",
+                message=f"Emphasis on segment {segment_ref.id!r} has no configured composition mapping.",
+                field="render.segment.emphasis",
+            )
+        )
+    for extension in segment.directives.extensions:
+        diagnostic = PlanDiagnostic(
+            code="render.extension_unsupported",
+            severity="error" if strict else "warning",
+            message=f"Unknown SSMD extension {extension.name!r} is not interpreted by the selected synthesis engine.",
+            field="render.segment.extensions",
+        )
+        if strict:
+            raise LoweringError(diagnostic)
+        diagnostics.append(diagnostic)
+
+    request = SpeechRequest(
+        id=segment_ref.id,
+        text=segment.text,
+        language=segment.language,
+        voice=voice,
+        speaker=target.speaker,
+        pronunciation_overrides=overrides,
+        tokens=tokens,
+        whole_request_phonemes=whole_phonemes,
+        options=dict(target.options),
+    )
+    return LoweredSegment(
+        request=request,
+        segment_id=segment_ref.id,
+        unit_id=segment_ref.unit_id,
+        pause_before=_flow_pause_seconds(segment.pause_before),
+        pause_after=_flow_pause_seconds(segment.pause_after),
+        directives=segment.directives.to_dict(),
+        marker_ids=tuple(segment.markers),
+        semantic_boundaries=(),
+        capacity_token_ranges=tuple((token.start, token.end) for token in source_tokens),
+        diagnostics=tuple(diagnostics),
+    )
+
+
 def lower_segment(
     plan: UtterancePlan,
     segment: PlanSegment,
@@ -65,6 +219,8 @@ def lower_segment(
     UtterPlan offsets are global to the spoken document. Request annotations are
     rebased to the segment's text and checked against the exact source slice.
     """
+    if hasattr(plan, "flow") and hasattr(segment, "segment"):
+        return _lower_flow_segment(plan, segment, target, capabilities, strict=strict)
     _require_compatible_language(segment.language, target)
     voice = target.voice
     voice_directive = segment.directives.voice

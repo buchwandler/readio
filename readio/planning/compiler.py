@@ -103,6 +103,17 @@ def compile_semantic_plan(
     serialized = serialize_utterplan(plan)
     sha256 = _compute_sha256(serialized)
     planning_config = asdict(planning.to_planner_config())
+    planning_config["unit"] = planning.unit
+    planning_config["pauses"] = {
+        "mode": planning.pause_mode,
+        "enabled": planning.pause_enabled,
+        "weak": planning.pause_weak,
+        "clause": planning.pause_clause,
+        "sentence": planning.pause_sentence,
+        "paragraph": planning.pause_paragraph,
+        "parenthetical": planning.pause_parenthetical,
+        "voice_change": planning.pause_voice_change,
+    }
     logger.debug(
         "Compiled UtterPlan v5: plan_id=%s, sha256=%s, flows=%d, segments=%d",
         plan_id,

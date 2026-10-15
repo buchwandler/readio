@@ -34,7 +34,7 @@ sections:
     heading_slug: documentation-map
     line_span:
       - 5
-      - 20
+      - 21
     section_hash: 0377987389542525ab3490a753dbd2cba4cb71c034769de7d8e4b2668ed695cf
     summary: Documentation map
     text: "## Documentation map
@@ -66,6 +66,25 @@ sections:
       - [Agent Skill](https://github.com/buchwandler/readio/blob/main/skill/readio/SKILL.md),
       instructions for using Readio from an agent workflow."
     links: []
+  - section_id: md:section:docs/index.md::native-audiobook-workspaces
+    doc_path: docs/index.md
+    heading_path:
+      - Readio documentation
+      - Native audiobook workspaces
+    heading_slug: native-audiobook-workspaces
+    line_span:
+      - 22
+      - 25
+    section_hash: 8e4095af2820bbe1ae65bf2c3d4829b181c6b8b977fc65ee60c3c9e29123f17b
+    summary: Native audiobook workspaces
+    text: "## Native audiobook workspaces
+
+
+      Chapter-aware audiobooks use SSMDConvert `.ssmdbook` directories directly; Readio
+      adds no `project.json` or `.readio/` state. Start with the [audiobook CLI workflow](cli.md),
+      see the [Python API](api.md), and review [project boundaries](projects.md). Generic
+      document projects and `readio speak` remain separate."
+    links: []
   - section_id: md:section:docs/index.md::installation
     doc_path: docs/index.md
     heading_path:
@@ -73,8 +92,8 @@ sections:
       - Installation
     heading_slug: installation
     line_span:
-      - 21
-      - 38
+      - 26
+      - 43
     section_hash: 7212846190cf9f8e4729e26f50fbed5830668786d415fca977e5952a566c4d0b
     summary: Installation
     text: '## Installation
@@ -116,8 +135,8 @@ sections:
       - Quick start
     heading_slug: quick-start
     line_span:
-      - 39
-      - 70
+      - 44
+      - 75
     section_hash: 06858c83a41630343c0a70a0bb17c739a2f03b4f5ad142e32fae6ca9c5b3c5de
     summary: Quick start
     text: '## Quick start
@@ -190,9 +209,9 @@ sections:
       - Persistent project exports
     heading_slug: persistent-project-exports
     line_span:
-      - 71
-      - 94
-    section_hash: 02c02e3763b873927d5d1c3a0f1fbd9c6135f1de091650a950914df1c4cb4711
+      - 76
+      - 99
+    section_hash: d1daf8ff9a5a314afa02d773ceb6c25dea2072f87091972eb8e578350d1f1076
     summary: Persistent project exports
     text: "## Persistent project exports
 
@@ -208,14 +227,16 @@ sections:
 
       readio export novel.readio --format opus --bitrate 96k
 
-      readio audiobook export novel.ssmdbook --format m4b --cover cover.jpg
+      readio audiobook export novel.ssmdbook --variant NARRATION_VARIANT --cover cover.jpg
 
       ```
 
 
-      M4B is available only for audiobook projects through `readio audiobook export`.
-      It muxes AAC audio and embedded chapters; title/author default from project metadata
-      and cover art is explicit-only (JPEG/PNG). Readio's M4B AAC default is 192k.
+      M4B is an audiobook-only format handled by `readio audiobook export WORKSPACE
+      --variant ID`. AudioExport consumes the composed variant and writes a chaptered
+      M4B to its package-owned output path; pass title, author, cover, bitrate, or an
+      AudioExport profile as needed. Generic project exports remain in the Readio project
+      workflow.
 
 
       Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`,
@@ -254,9 +275,9 @@ sections:
       - Input and rendering
     heading_slug: input-and-rendering
     line_span:
-      - 95
-      - 173
-    section_hash: a579e634da5ca919b16f3c99c566768abf17057081fb1d34ec4d7305cc1ddf39
+      - 100
+      - 178
+    section_hash: b8762b249a1fca5ef59dd60e4be30248197a5fd7da1c8a53cc5b52de5937f012
     summary: Input and rendering
     text: '## Input and rendering
 
@@ -343,15 +364,19 @@ sections:
       Readio''s short-sentence default is `phrase`; Readio resolves the policy before
       engine adapters translate it to engine-native settings.
 
-      Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5. Project plans use
-      canonical UtterPlan schema-v4 TOML artifacts; the `readio.plan.v2` response remains
-      JSON. It supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth
+      Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2,
+      AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3.
+      Generic project semantic plans use the current UtterPlan package API. Native `.ssmdbook`
+      workflows delegate to package-root book APIs and keep artifacts in the specialist-owned
+      workspace; they use the specialist packages'' workspace contracts instead of a
+      Readio-specific book schema. The `readio.plan.v2` response remains JSON. Engine
+      packages include PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth
       >=0.2.5,<0.3, SupertonicSynth >=0.1.2,<0.2, KittenSynth >=0.1.1,<0.2, and InflectSynth
-      >=0.1.1,<0.2; each engine package owns its own runtime dependencies and Readio
-      does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`,
-      `supertonic`, `kitten`, and `inflect`; package names such as `inflectsynth` are
-      input aliases. Install engines with the matching optional extra; `readio doctor`
-      checks each installed package''s public request API without downloading models.
+      >=0.1.1,<0.2; each owns its runtime dependencies and Readio does not require OnnxVoice.
+      Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`,
+      and `inflect`; package names such as `inflectsynth` are input aliases. Install
+      engines with the matching optional extra; `readio doctor` checks public request
+      APIs without downloading models.
 
 
 
@@ -450,8 +475,8 @@ sections:
       - Synthesis planning
     heading_slug: synthesis-planning
     line_span:
-      - 174
-      - 197
+      - 179
+      - 202
     section_hash: f4b22a021fac606ca00cf6956c7bbf35ec36199b15e6ccb6cd2dd1b2bfdfa22e
     summary: Synthesis planning
     text: "## Synthesis planning
@@ -520,8 +545,8 @@ sections:
       - Durable render manifests
     heading_slug: durable-render-manifests
     line_span:
-      - 198
-      - 210
+      - 203
+      - 215
     section_hash: 37478e58ac2ca7a3198b2b7be0b26277edb99dd301393f274e84287d5dedcf12
     summary: Durable render manifests
     text: "## Durable render manifests
@@ -559,8 +584,8 @@ sections:
       - Render progress
     heading_slug: render-progress
     line_span:
-      - 211
-      - 221
+      - 216
+      - 226
     section_hash: fea59c3b5423c6e6239bf32e720b989c629e96fab3cc76ef0d88f36b23ee5761
     summary: Render progress
     text: "## Render progress
@@ -593,8 +618,8 @@ sections:
       - Verbose diagnostics
     heading_slug: verbose-diagnostics
     line_span:
-      - 222
-      - 233
+      - 227
+      - 238
     section_hash: 62fd0654366f0d45aeaa3be847df9e5bb5bbf80d6c8d158cb700ffa6ff1577c7
     summary: Verbose diagnostics
     text: '## Verbose diagnostics
@@ -633,8 +658,8 @@ sections:
       - Configuration
     heading_slug: configuration
     line_span:
-      - 234
-      - 255
+      - 239
+      - 260
     section_hash: 1b00470d101af3b55c70e6c38c855420d799bc676eaedbd4903c1d62e07c48f0
     summary: Configuration
     text: "## Configuration
@@ -693,9 +718,9 @@ sections:
       - Create SSMD with SSMDStudio
     heading_slug: create-ssmd-with-ssmdstudio
     line_span:
-      - 256
-      - 284
-    section_hash: cb2db34ac5e712d45d5d368f6021a99be35c600cee37f9010a9c272a24315e0b
+      - 261
+      - 289
+    section_hash: 98f72b7a0d76e8102d74f62630da558e3e9720303088947414020b67b58ba723
     summary: Create SSMD with SSMDStudio
     text: '## Create SSMD with SSMDStudio
 
@@ -736,30 +761,32 @@ sections:
       ```
 
 
-      | Former Readio command | SSMDStudio 0.1.1 replacement / boundary |
+      | Former Readio command                             | SSMDStudio 0.1.1 replacement
+      / boundary                                                          |
 
-      |---|---|
-
-      | `readio template list/show/add/remove/reset` | Corresponding `ssmdstudio template`
-      command |
-
-      | `readio template validate --all` | `ssmdstudio template validate --all --roundtrip`
+      | ------------------------------------------------- | ------------------------------------------------------------------------------------------------
       |
 
-      | `readio template use NAME --name FILE` | `ssmdstudio template use NAME --output
-      FILE` |
+      | `readio template list/show/add/remove/reset`      | Corresponding `ssmdstudio
+      template` command                                                      |
+
+      | `readio template validate --all`                  | `ssmdstudio template validate
+      --all --roundtrip`                                                 |
+
+      | `readio template use NAME --name FILE`            | `ssmdstudio template use
+      NAME --output FILE`                                                     |
 
       | `readio ingest new --name FILE [--template NAME]` | `ssmdstudio draft new --output
-      FILE [--template NAME]` |
+      FILE [--template NAME]`                                           |
 
-      | `readio ingest path/list` | No managed ingest directory; use filesystem paths.
-      Existing data is untouched. |
+      | `readio ingest path/list`                         | No managed ingest directory;
+      use filesystem paths. Existing data is untouched.                   |
 
-      | `readio ssmd bind ...` | `ssmdstudio ssmd bind ...`; this writes the source
-      but does not verify local voice availability. |
+      | `readio ssmd bind ...`                            | `ssmdstudio ssmd bind ...`;
+      this writes the source but does not verify local voice availability. |
 
-      | `readio ssmd check FILE --roundtrip` | `ssmdstudio ssmd lint FILE --roundtrip`;
-      Readio check remains consumer-only. |'
+      | `readio ssmd check FILE --roundtrip`              | `ssmdstudio ssmd lint FILE
+      --roundtrip`; Readio check remains consumer-only.                     |'
     links: []
   - section_id: md:section:docs/index.md::ssmd-consumer-checks
     doc_path: docs/index.md
@@ -768,8 +795,8 @@ sections:
       - SSMD consumer checks
     heading_slug: ssmd-consumer-checks
     line_span:
-      - 285
-      - 297
+      - 290
+      - 302
     section_hash: fe3f662cfe554700a6daeaac70cfd19ec5f132b1ee5f05e6e0515192c739f3b6
     summary: SSMD consumer checks
     text: "## SSMD consumer checks
@@ -807,8 +834,8 @@ sections:
       - Spotify publishing
     heading_slug: spotify-publishing
     line_span:
-      - 298
-      - 315
+      - 303
+      - 320
     section_hash: b486f0d0c0cd04186657a458023748fc515ae4b0c9156be763f9796e6936b2d9
     summary: Spotify publishing
     text: '## Spotify publishing
@@ -857,9 +884,9 @@ sections:
       - Diagnostics and development
     heading_slug: diagnostics-and-development
     line_span:
-      - 316
-      - 335
-    section_hash: dbdbf237954516c6b36b57570461d307157c1f8a958526bdbf723614a3bcb19d
+      - 321
+      - 342
+    section_hash: ae0bdd81301e49480538b625270a398b33e2baf92413aa90c7eb8254aebc60d3
     summary: Diagnostics and development
     text: "## Diagnostics and development
 
@@ -900,11 +927,17 @@ sections:
       ```
 
 
-      The main execution path is `readio/cli.py`. Project SSMD role discovery and binding
-      settings live in `readio/project_roles.py` and `readio/project_settings.py`; project
-      synthesis orchestration is in `readio/stages/synthesis.py`. Input normalization
+      The main CLI entry point is `readio/cli.py`. Generic project SSMD role discovery
+      and binding settings live in `readio/project_roles.py` and `readio/project_settings.py`;
+      project synthesis orchestration is in `readio/stages/synthesis.py`. Input normalization
       is in `readio/document.py`, configuration in `readio/config.py`, audio sinks in
-      `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`."
+      `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
+
+
+      Native audiobook API orchestration lives in `readio/api/audiobooks.py` and `readio/book_pipeline.py`;
+      `readio/integrations/ssmdconvert.py` adapts SSMDConvert's public workspace API.
+      Specialist packages own the workspace artifacts. The separate `readio/reader.py`
+      path handles one-shot and live speech, not audiobook projects."
     links:
       - source_id: py:class:readio/audio.py::AudioSink
         source_path: readio/audio.py
@@ -1003,7 +1036,7 @@ sections:
         impact: unknown
         reason: Code contains exact source path `readio/cli.py`.
         tracked_hashes:
-          body_hash: dc2258b4dd5af77fedcc53fddd95ec56bb00d36e80a19b1ad193f25377298e36
+          body_hash: ae6bd37ad1834af1e721286a82cb3663853f5a8a720f9c50c5ea42fddcda3ca3
       - source_id: py:function:readio/cli.py::_add_input_options
         source_path: readio/cli.py
         coverage: implementation-note
@@ -1066,7 +1099,7 @@ sections:
         impact: unknown
         reason: Code contains exact source path `readio/cli.py`.
         tracked_hashes:
-          body_hash: 6dffad7e58edf9db0b2045a15500cc9c79ab9c55ff2438634bcba22390b67d0b
+          body_hash: 6d40de612aff3e3a3862cea32500b030e35ef9f0a59a36e8e3162576fb800dc4
       - source_id: py:function:readio/cli.py::_read_input
         source_path: readio/cli.py
         coverage: implementation-note
@@ -1094,21 +1127,21 @@ sections:
         impact: unknown
         reason: Code contains exact source path `readio/cli.py`.
         tracked_hashes:
-          body_hash: ff3ef15fb5cdd3e0d2c9aa35e1067e5076c7d4879a103702ab632489e1e9ea92
+          body_hash: 001992df1488d7bbd87ec78679289b3aab027ef1038b60048bdd01f1e907ee24
       - source_id: py:function:readio/cli.py::main
         source_path: readio/cli.py
         coverage: implementation-note
         impact: unknown
         reason: Code contains exact source path `readio/cli.py`.
         tracked_hashes:
-          body_hash: 8a0e0bb51b3e27efae2ebce5f9d1c4f7c52e27b971df9c16c5a6001fc44caa96
+          body_hash: a771a7dde6e7454b139897c83e29fd5b4de29955d36c25967c731bd2579b9134
       - source_id: py:module:readio/cli.py
         source_path: readio/cli.py
         coverage: implementation-note
         impact: unknown
         reason: Code contains exact source path `readio/cli.py`.
         tracked_hashes:
-          body_hash: 68249cc2558ba2d0b168a1b0ddedb1d54ab98e85a338ee3790044adfb3077538
+          body_hash: d5b038d4270c19a2d7ecc4b729d2fbc8c63c8e9ca59300c2722dab0a66453c74
       - source_id: py:class:readio/config.py::PathSettings
         source_path: readio/config.py
         coverage: implementation-note
@@ -1304,21 +1337,21 @@ sections:
         impact: unknown
         reason: Code contains exact source path `readio/reader.py`.
         tracked_hashes:
-          body_hash: de16a2b57e4a69015a274ea8f16e79a7d6bf0b907e04fab032aa6698b4bf8ccb
+          body_hash: b76bdac4fb4188f0bc3f0a5b6146b964a51505a89fad9e9c222f0294ff134dde
       - source_id: py:function:readio/reader.py::render_live
         source_path: readio/reader.py
         coverage: implementation-note
         impact: unknown
         reason: Code contains exact source path `readio/reader.py`.
         tracked_hashes:
-          body_hash: 9651e66e5ea05229a2901e0d8db47af16e646fa6ddb907ba17bf42220f3f9534
+          body_hash: a7338e7ca9bb7edf48b37c7c7ab76a67fd70862ffae5db2d843dade525ababc2
       - source_id: py:function:readio/reader.py::render_text
         source_path: readio/reader.py
         coverage: implementation-note
         impact: unknown
         reason: Code contains exact source path `readio/reader.py`.
         tracked_hashes:
-          body_hash: da8adf02e7e3a35f39287f4e0da19644772210702ec6ab40972078a7e4480860
+          body_hash: d6d75f303140a1fd1f9ddfff1e6cec5432701977baf0974847d2b4ea44d6b44c
       - source_id: py:function:readio/reader.py::speak_live
         source_path: readio/reader.py
         coverage: implementation-note
@@ -1339,7 +1372,7 @@ sections:
         impact: unknown
         reason: Code contains exact source path `readio/reader.py`.
         tracked_hashes:
-          body_hash: 38ba495cabaaa531e54dd9e24c5c1133b15b8a2b61c764ab40cf702ee12cb621
+          body_hash: 7a08dd0a13f0e4a8b855dd354e286d6106860079347d64bb7034b786b5c7cea7
       - source_id: py:class:readio/spotify.py::SpotifyError
         source_path: readio/spotify.py
         coverage: implementation-note
@@ -1459,8 +1492,8 @@ sections:
       - SSMD voice resolution
     heading_slug: ssmd-voice-resolution
     line_span:
-      - 336
-      - 355
+      - 343
+      - 362
     section_hash: 71cab42bd2c32bfc75ad69bc6cd1d1f7274d295e6c5825eed6e107bb1bce75f5
     summary: SSMD voice resolution
     text:
@@ -1487,10 +1520,11 @@ sections:
       \ ssmd bind FILE --provider PROVIDER --voice-bind ROLE=REF --output OUTPUT`; Readio\
       \ does not write SSMD source."
     links: []
-last_fresh_scan_version: 8
-last_fresh_hash: b6fd6001580b1a913cdd5f146b2d88cb1f37d942b3b7fe25407fb5086d29632d
+last_fresh_scan_version: 13
+last_fresh_hash: 01665bb497953b81166a512f6df842c68a9e1de8380e82485c16eb45c492ca24
 notes:
-  Updated doctor documentation to match runtime diagnostics after removing Readio
-  authoring paths; focused tests, CLI help, Ruff, and a warning-free Sphinx build
-  passed.
-version: 40
+  Reviewed audiobook orchestration and one-shot speech paths against current
+  source; strict Sphinx build and documentation regression test passed after scan
+  13.
+coverage_resolution: null
+version: 51

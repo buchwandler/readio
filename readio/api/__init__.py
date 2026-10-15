@@ -5,6 +5,13 @@ package. Modules outside ``readio.api`` are implementation details unless a
 symbol is deliberately promoted as a public extension contract.
 """
 
+from ..book_pipeline import (
+    BookBuildRequest,
+    BookBuildResult,
+    BookPipelineError,
+    BookPipelineEvent,
+    BookWorkspace,
+)
 from ..config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,
@@ -223,6 +230,11 @@ __all__ = [
     "AudiobookProjectChapter",
     "AudiobookProjectDescription",
     "AudiobookProjectResult",
+    "BookBuildRequest",
+    "BookBuildResult",
+    "BookPipelineError",
+    "BookPipelineEvent",
+    "BookWorkspace",
     "CatalogDiscovery",
     "CatalogListing",
     "CatalogRequest",

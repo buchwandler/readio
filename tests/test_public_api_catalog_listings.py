@@ -396,7 +396,12 @@ def test_engine_catalogs_report_inflect_and_supertonic_package_names(monkeypatch
 
     engine_rows = (
         {"id": "inflect", "package": "inflectsynth", "installed": False, "installed_version": None},
-        {"id": "supertonic", "package": "supertonicsynth", "installed": False, "installed_version": None},
+        {
+            "id": "supertonic",
+            "package": "supertonicsynth",
+            "installed": False,
+            "installed_version": None,
+        },
     )
     unavailable = {
         "engine": "",

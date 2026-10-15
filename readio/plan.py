@@ -41,6 +41,7 @@ from .formats import (
 )
 from .jsonutil import JsonValue
 from .planning import SUPPORTED_UTTERPLAN_SCHEMA_VERSION
+from .planning.flow import document_semantics, iter_flow_segments
 from .role_targets import VoiceTarget, ssmd_namespace_for_engine
 from .voices import resolve_voice_reference
 
@@ -1458,7 +1459,7 @@ def _resolve_v2_ssmd_roles(
     from .voice_refs import public_system_for_engine
 
     references: dict[str, str] = {}
-    for segment in semantic.plan.segments:
+    for segment in iter_flow_segments(semantic.plan):
         directive = segment.directives.voice
         if directive is not None and directive.reference:
             references.setdefault(directive.reference, segment.id)
@@ -1494,7 +1495,7 @@ def _resolve_v2_ssmd_roles(
             target_id=resolved.target_id,
         )
 
-    metadata = semantic.plan.document_metadata
+    metadata = document_semantics(semantic.plan)
     raw_document_bindings = metadata.get("voice_bindings", {})
     document_candidates: dict[str, list[tuple[str, str]]] = {}
     if isinstance(raw_document_bindings, Mapping):
@@ -1767,10 +1768,12 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     semantic = compile_semantic(policy)
     header: Mapping[str, Any] = {}
     if semantic is not None and effective_doc.format == "ssmd":
-        raw_header = semantic.plan.document_metadata.get("header", {})
+        raw_header = document_semantics(semantic.plan).get("header", {})
         if isinstance(raw_header, Mapping):
             header = raw_header
-        header_language = header.get("language", semantic.plan.document_metadata.get("language"))
+        header_language = header.get(
+            "language", document_semantics(semantic.plan).get("language", semantic.plan.language)
+        )
         if isinstance(header_language, str) and header_language.strip():
             document_language = header_language.strip()
             if request.synthesis.language is None:
@@ -1808,7 +1811,7 @@ def resolve_execution_v2(cfg: ReadioConfig, request: PlanRequest) -> Any:
     semantic_language = next(
         (
             segment.language.strip()
-            for segment in (semantic.plan.segments if semantic is not None else ())
+            for segment in (iter_flow_segments(semantic.plan) if semantic is not None else ())
             if isinstance(segment.language, str) and segment.language.strip()
         ),
         document_language,

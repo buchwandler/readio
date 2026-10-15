@@ -15,9 +15,9 @@ from ssmdconvert import (
     SSMDConvertError,
     UnsupportedBookSourceError,
     UnsupportedInputError,
-    convert,
     convert_book,
     convert_content,
+    convert_document,
     inspect_book,
     load_book_bundle,
     write_book_bundle,
@@ -25,12 +25,12 @@ from ssmdconvert import (
 
 
 def test_readio_public_ssmdconvert_contract_is_available_in_supported_release_family() -> None:
-    assert version("ssmdconvert").startswith("0.1.")
+    assert version("ssmdconvert").startswith("0.2.")
     assert ssmdconvert.__version__ == version("ssmdconvert")
     assert all(
         callable(operation)
         for operation in (
-            convert,
+            convert_document,
             convert_book,
             convert_content,
             inspect_book,
@@ -75,10 +75,10 @@ def test_readio_keeps_parser_and_private_conversion_imports_outside_its_boundary
 def test_minimum_ssmdconvert_release_contract_when_requested() -> None:
     if os.environ.get("READIO_TEST_SSMD_CONVERT_MINIMUM") != "1":
         pytest.skip("run this assertion in the minimum-release contract job")
-    assert version("ssmdconvert") == "0.1.3"
+    assert version("ssmdconvert") == "0.2.0"
 
 
 def test_minimum_utterplan_release_contract_when_requested() -> None:
     if os.environ.get("READIO_TEST_UTTERPLAN_MINIMUM") != "1":
         pytest.skip("run this assertion in the minimum-release contract job")
-    assert version("utterplan") == "0.3.6"
+    assert version("utterplan") == "0.6.0"

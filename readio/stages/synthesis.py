@@ -98,10 +98,6 @@ def _synthesis_progress_details(
     }
 
 
-
-
-
-
 @dataclass(frozen=True, slots=True)
 class SynthesisArtifact:
     """A speech artifact referenced from a VoiceRender render manifest."""
@@ -138,6 +134,11 @@ class SynthesisArtifact:
     def segment_index(self) -> int:
         return self.segment_index_value if self.segment_index_value is not None else self.unit_index
 
+    @property
+    def lowering_sha256(self) -> None:
+        """No separate Readio lowering artifact exists for VoiceRender requests."""
+        return None
+
     def to_dict(self, root: Path) -> dict[str, Any]:
         data: dict[str, Any] = {
             "scope_id": self.scope_id,
@@ -168,10 +169,9 @@ class SynthesisArtifact:
                 data[key] = value
         return data
 
+
 def synthesis_profile_id(payload: Mapping[str, Any]) -> str:
     return f"sha256:{hashlib.sha256(canonical_json(payload)).hexdigest()}"
-
-
 
 
 def _record_project_settings(
@@ -192,8 +192,6 @@ def _record_project_settings(
         profile_id=synthesis_profile_id(identity),
         payload={**profile.payload, "project_settings": provenance},
     )
-
-
 
 
 def _request_for_project(project: Project, cfg: Any, request: PlanRequest | None) -> PlanRequest:
@@ -259,7 +257,6 @@ def _project_request_with_voice_bindings(
     )
 
 
-
 def _project_scope_voice_targets(
     project: Project,
     cfg: Any,
@@ -301,8 +298,6 @@ def _project_scope_voice_targets(
     return targets_by_scope
 
 
-
-
 def _language_defaults(cfg: Any, language: str) -> Any | None:
     requested = normalize_language_key(language)
     for key, settings in getattr(cfg, "languages", {}).items():
@@ -324,19 +319,15 @@ def _voice_binding_request(
     synthesis = request.synthesis
     language_defaults = _language_defaults(cfg, language)
     reader = cfg.reader
-    default_engine = (
-        synthesis.engine
-        or getattr(language_defaults, "engine", None)
-        or reader.engine
-    )
+    default_engine = synthesis.engine or getattr(language_defaults, "engine", None) or reader.engine
     engine = target.engine if target is not None else default_engine
     target_id = target.target_id if target is not None else None
     if target_id is None and engine == default_engine:
         target_id = synthesis.model or getattr(language_defaults, "model", None)
-    voice = target.voice if target is not None else (
-        synthesis.voice
-        or getattr(language_defaults, "voice", None)
-        or reader.voice
+    voice = (
+        target.voice
+        if target is not None
+        else (synthesis.voice or getattr(language_defaults, "voice", None) or reader.voice)
     )
     options = dict(synthesis.engine_options)
     speed = synthesis.speed if synthesis.speed is not None else reader.speed
@@ -345,8 +336,22 @@ def _voice_binding_request(
     voice_level = synthesis.voice_level or reader.voice_level
     if voice_level and voice_level != "off":
         options["voice_level"] = voice_level
-    for key in ("quality", "model_source", "lexicons", "g2p_fallback"):
-        value = getattr(synthesis, key, None) or getattr(language_defaults, key, None)
+    for key in (
+        "quality",
+        "model_source",
+        "lexicons",
+        "g2p_fallback",
+        "lexicon_data_policy",
+        "language_detection",
+        "detect_languages",
+        "allow_experimental",
+        "short_sentence",
+    ):
+        value = getattr(synthesis, key, None)
+        if key == "model_source" and value is None:
+            value = getattr(language_defaults, "source", None)
+        if value is None:
+            value = getattr(language_defaults, key, None)
         if value is not None:
             options[key] = value
     if synthesis.voice_prompt is not None:
@@ -402,7 +407,9 @@ def resolve_project_synthesis(
             )
         except (OSError, KeyError, ValueError):
             language = cfg.reader.lang
-    binding = _voice_binding_request(cfg, effective_request, language)
+    first_scope_targets = next(iter(effective_request.scope_voice_targets.values()), {})
+    binding_target = next(iter(first_scope_targets.values()), None)
+    binding = _voice_binding_request(cfg, effective_request, language, binding_target)
     resolved_profile = resolve_voicerender_profile(
         {"narrator": binding},
         name=f"Readio project {project.manifest.name}",
@@ -452,13 +459,17 @@ def resolve_project_synthesis(
         planning=planning,
         diagnostics=diagnostics,
     )
-    return effective_request, SimpleNamespace(selection=selection, plan=resolved_plan), None, profile
+    return (
+        effective_request,
+        SimpleNamespace(selection=selection, plan=resolved_plan),
+        None,
+        profile,
+    )
+
 
 def _emit(on_event: Callable[[SynthesisEvent], None] | None, event: SynthesisEvent) -> None:
     if on_event is not None:
         on_event(event)
-
-
 
 
 def _segment_voice_reference(segment: Any) -> str | None:
@@ -468,8 +479,6 @@ def _segment_voice_reference(segment: Any) -> str | None:
         voice.get("reference") if isinstance(voice, Mapping) else getattr(voice, "reference", None)
     )
     return reference if isinstance(reference, str) and reference else None
-
-
 
 
 def synthesize_project(
@@ -541,8 +550,7 @@ def synthesize_project(
                         "segment_id": segment_id,
                         "segment_index": segment_index,
                         "source_order": sum(
-                            len(previous_flow.segments)
-                            for previous_flow in plan.flow[:flow_index]
+                            len(previous_flow.segments) for previous_flow in plan.flow[:flow_index]
                         )
                         + segment_index,
                         "locator": f"f{flow_index:06d}.s{segment_index:03d}",
@@ -600,10 +608,7 @@ def synthesize_project(
         artifacts_by_key: dict[tuple[str, str], SynthesisArtifact] = {}
         manifest_refs: list[dict[str, Any]] = []
         render_counts = {"rendered": 0, "reused": 0}
-        counts_by_scope = {
-            scope_id: {"rendered": 0, "reused": 0}
-            for scope_id in work_by_scope
-        }
+        counts_by_scope = {scope_id: {"rendered": 0, "reused": 0} for scope_id in work_by_scope}
 
         def voice_binding(item: Mapping[str, Any], language: str) -> dict[str, Any]:
             reference = _segment_voice_reference(item["segment"])
@@ -668,7 +673,7 @@ def synthesize_project(
             try:
                 bundle = voicerender_render_plan(
                     source_plan_path,
-                    profile=resolved_profile.profile,
+                    profile=resolved_profile,
                     output_dir=output_dir,
                     cache_dir=cache_dir,
                     locators=[item["locator"] for item in group_items],
@@ -729,15 +734,16 @@ def synthesize_project(
                         f"VoiceRender did not produce {scope_id}:{item['segment_id']}",
                         engine=resolved_profile.selections[item_role].engine,
                         request_id=item["segment_id"],
-                        details={"manifest_path": str(manifest_path), "source_locator": item["locator"]},
+                        details={
+                            "manifest_path": str(manifest_path),
+                            "source_locator": item["locator"],
+                        },
                     )
                 audio = entry["audio"]
                 audio_path = manifest_path.parent / audio["path"]
                 source = entry["source"]
                 profile_id = manifest["profile"]["effective_profile_sha256"]
-                marker_values = tuple(
-                    {"marker": marker} for marker in item["segment"].markers
-                )
+                marker_values = tuple({"marker": marker} for marker in item["segment"].markers)
                 artifact = SynthesisArtifact(
                     unit_id=item["flow_id"],
                     unit_index=item["flow_index"],
@@ -782,9 +788,7 @@ def synthesize_project(
         artifacts = tuple(
             artifacts_by_key[(item["scope_id"], item["segment_id"])] for item in items
         )
-        identities = sorted(
-            {str(item["effective_profile_sha256"]) for item in manifest_refs}
-        )
+        identities = sorted({str(item["effective_profile_sha256"]) for item in manifest_refs})
         canonical_profiles: dict[str, Any] = {
             "schema": "voicerender.effective-profile-set.v1",
             "profiles": identities,
@@ -831,7 +835,7 @@ def synthesize_project(
                             "unit_index": item["flow_index"],
                         }
                     )
-                for flow_index in selected_by_scope[scope_id].unit_indices:
+                for flow_index in sorted({item["flow_index"] for item in work["items"]}):
                     flow = work["plan"].flow[flow_index]
                     flow_segments = [
                         item for item in work["items"] if item["flow_index"] == flow_index
@@ -1052,6 +1056,7 @@ def _make_voice_render_event_handler(
             )
 
     return handle
+
 
 __all__ = [
     "SynthesisArtifact",

@@ -22,7 +22,10 @@ def test_render_rebuilds_only_stale_stages(tmp_path, monkeypatch):
     plan_project(project, cfg)
     first = render_project(project, cfg, audio_format="wav")
     trace = __import__("json").loads(project.paths["synthesis_trace"].read_text(encoding="utf-8"))
-    assert all(row["path"].startswith("synthesis/segments/seg-") for row in trace["segments"])
+    assert all(
+        row["path"].startswith("synthesis/") and "/segments/" in row["path"]
+        for row in trace["segments"]
+    )
     assert [row["action"] for row in first["operations"]] == [
         "skipped",
         "rebuilt",

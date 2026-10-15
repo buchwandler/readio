@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from utterplan import LinguisticsConfig, PauseConfig, PlannerConfig, SSMDConfig
+from utterplan import LinguisticsConfig, PlannerConfig, SSMDConfig
 
 
 def _linguistics_from_spacy_policy(policy: str | None) -> LinguisticsConfig:
@@ -57,11 +57,6 @@ class PlanningPolicy:
             language=self.language,
             document_format=self.document_format,
             text_preparation=self.text_preparation,
-            unit=self.unit,
-            pauses=PauseConfig(
-                mode=self.pause_mode,
-                enabled=self.pause_enabled,
-            ),
             linguistics=_linguistics_from_spacy_policy(self.spacy_policy),
             ssmd=self.ssmd,
             overlap_mode=self.overlap_mode,

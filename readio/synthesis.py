@@ -174,7 +174,9 @@ def resolve_live_synthesis_request(
 ) -> ResolvedSynthesis:
     """Apply Readio's neutral defaults; VoiceRender resolves the selected target and voice."""
     if request.voice_file is not None or request.voice_prompt is not None:
-        raise ValueError("Live VoiceRender sessions require a configured voice target, not voice-file input")
+        raise ValueError(
+            "Live VoiceRender sessions require a configured voice target, not voice-file input"
+        )
     language, profile, _ = _raw_synthesis_selection(cfg, request)
     model = request.model or (profile.model if profile is not None else None)
     source = request.model_source or (profile.source if profile is not None else None)

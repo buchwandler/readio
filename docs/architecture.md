@@ -1,15 +1,19 @@
 # Readio architecture
 
-Persistent projects separate semantic planning, canonical speech, editorial composition, and export:
+Readio has two separate project boundaries. Generic document projects persist Readio-owned stages and caches; native audiobook workspaces are owned by SSMDConvert and the specialist stage packages. The audiobook workflow does not attach a Readio project manifest or stage store to `.ssmdbook`.
+
+## Generic document-project pipeline
+
+Persistent document projects retain Readio's plan, synthesis, composition, and export graph:
 
 ```text
 source/document
       |
       | semantic policy and linguistic enrichment
       v
-UtterancePlan schema v4
+UtterPlan semantic plan
       |\
-      | \
+      | \\
       |  +--> resolved pauses, segment order, presentation directives
       |                 |
       |                 v
@@ -35,26 +39,34 @@ UtterancePlan schema v4
                               codec-specific export
 ```
 
-## Canonical audiobook workspace and Readio state
+This graph applies to Readio's generic `*.readio` document projects and one-shot speech. It is not the audiobook execution path.
 
-An attached audiobook uses a dual-root layout:
+## Native audiobook workspace and stage ownership
+
+A valid `.ssmdbook` is the audiobook project. SSMDConvert owns conversion, the editable manifest, and canonical chapter files. Readio's in-memory `book_pipeline` forwards operations to package-root public APIs; it does not call specialist CLIs, persist a second schema, or duplicate stage implementations.
 
 ```text
-Novel.ssmdbook/                  # canonical, editable book
+EPUB / existing .ssmdbook
+          |
+          v
+SSMDConvert conversion and editable workspace
+BOOK.ssmdbook/
   manifest.json
   chapters/*.ssmd.md
-  .readio/                       # disposable Readio state
-    project.json
-    document/index.json          # chapter selection and local index
-    plan/                        # active plan and durable planning attempts
-      index.json                 # active, synthesis-eligible scopes
-      attempts/                  # isolated candidates and diagnostics
-    synthesis/                   # cache and trace
-    composition/                 # timeline and master
-    output/
+  utterplan/                 # UtterPlan compile-book artifacts/reports
+  renderplan/<variant>/      # UtterPlan profile projection
+  voicerender/<variant>/     # VoiceRender speech and reports
+  audiocompose/<variant>/    # AudioCompose chapter compositions
+  audioexport/<variant>/     # AudioExport outputs and sidecars
 ```
 
-`Project.root` and public project references identify the `.ssmdbook` workspace; `Project.state_root` is `.readio/`. Chapter scope paths resolve against the workspace, so Readio plans from current chapter bytes without copying them. The public ssmdconvert workspace API reports manifest/chapter dirtiness; Readio may refresh its local index but never rewrites canonical chapter files or manifest hashes. Run `ssmdconvert book refresh` explicitly after editing when you want a clean manifest. Portable `.ssmdbook.zip` archives omit `.readio/`, and deleting that directory removes only Readio-derived state. Standalone schema-v3 document projects remain self-contained and retain their existing layout.
+Readio delegates conversion and workspace loading to SSMDConvert, semantic compilation and profile projection to UtterPlan, profile creation and synthesis to VoiceRender, chapter composition to AudioCompose, and M4B export to AudioExport. Chapter selectors and the exact returned variant ID flow through later stages. The packages' artifacts are the resume boundary: users can continue with a specialist CLI after Readio, or open manually produced artifacts in Readio, without initialization or migration.
+
+`readio audiobook convert` (also `init`) materializes EPUB input as an editable `.ssmdbook`; opening an existing workspace is read-only. `readio audiobook status` derives status from the package-owned artifacts. A dirty manifest/chapter state is reported without automatic refresh or recompilation; use `ssmdconvert book refresh WORKSPACE` explicitly when the canonical manifest should be refreshed. Existing `.readio/` files inside a book workspace are legacy user data: native audiobook commands warn, ignore them, and leave them unchanged. Fresh book workflows never create `.readio/` or a Readio `project.json`.
+
+## Generic project state is separate
+
+Only generic Readio document projects use Readio-owned persistent state and locking. Standalone `*.readio` projects remain self-contained. Older attached-book state, where present, is not read or migrated by the native audiobook pipeline. Keep generic document persistence and streaming `readio speak` independent from the package-owned book stages.
 
 ## Semantic plan and speech cache
 
@@ -92,7 +104,7 @@ sidecars cause only the affected segment to render again.
 
 ## UtterPlan persistence and semantic capacity
 
-Readio targets UtterPlan 0.4 schema v4. Current project plans are stored as canonical `.utterplan.toml` artifacts and loaded through `UtterancePlan.load()`. An indexed legacy `.utterplan.json` artifact is stale and actionable; Readio re-plans from its source instead of silently migrating that file.
+`Readio's generic document-project path uses the UtterPlan package API declared in `pyproject.toml`and persists canonical`.utterplan.toml`plans. Native book workspaces keep package-owned`utterplan/\*.utterplan.toml`artifacts and use UtterPlan's book APIs directly; Readio does not serialize or migrate those plans itself. Legacy`.utterplan.json` files in generic projects remain stale and actionable rather than silently migrated.
 
 During lowering, Readio rebases the public clause and parenthetical semantic boundaries once into request-local hints and retains linguistic token ranges independently of engine token support. These hints stay in `CapacityContext`; `SpeechRequest` and engine APIs remain UtterPlan-neutral.
 

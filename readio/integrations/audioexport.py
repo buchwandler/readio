@@ -63,7 +63,7 @@ def load_audioexport() -> ModuleType:
         if error.name != "audioexport":
             raise
         raise AudioExportUnavailableError(
-            "AudioExport profiles require the optional dependency; install readio[audioexport]."
+            "AudioExport is a core dependency; reinstall Readio with its declared dependencies."
         ) from error
 
 

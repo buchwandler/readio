@@ -139,10 +139,6 @@ from pathlib import Path
 from readio.api import (
     CompositionOptions,
     ExportOptions,
-    AUDIOBOOK_EXPORT_FORMAT,
-    SUPPORTED_AUDIOBOOK_FORMATS,
-    AudiobookExportOptions,
-    ProjectBuildRequest,
     Readio,
 )
 
@@ -216,16 +212,42 @@ app.projects.update_settings(project, ProjectSettingsPatch(composition=None, exp
 
 `configure()` replaces supported sections while retaining `settings.ssmd` and unknown namespaces. `update_settings()` patches sections independently. Relative paths resolve from the project root. Saved synthesis settings are applied before global and engine defaults; explicit invocation requests override saved values without persisting those overrides. `force` and synthesis `refresh` remain invocation-only.
 
-Requestless `synthesize()`, `compose()`, `export()`, and `build()` use saved settings. Status compares built provenance to desired settings: synthesis changes invalidate downstream stages, composition changes invalidate composition/output, and export changes invalidate output only. Caches and previous outputs remain available. Supplying `ExportOptions(profile=Path("export.toml"))` opts that file export into the optional `readio[audioexport]` integration. Profile-only edits stale and rebuild only the export; Readio retains ownership of its state and overwrite authorization, and no-profile exports keep the legacy backend.
+Requestless `synthesize()`, `compose()`, `export()`, and `build()` use saved generic-project settings. Status compares built provenance to desired settings: synthesis changes invalidate downstream stages, composition changes invalidate composition/output, and export changes invalidate output only. Caches and previous outputs remain available. AudioExport is a core dependency; `ExportOptions(profile=Path("export.toml"))` selects a profile for a generic project file export. Profile-only edits stale and rebuild only the export; Readio retains generic project state and overwrite authorization.
 
 `ProjectCompositionResult.loudness` is a typed `LoudnessSummary` with before/after integrated LUFS, sample peak and true peak, requested/applied gain, target status, warning, and analysis/gain/post-gain metric timings. The mastering operation is transparent constant gain: `reduce_gain` may stop short of the LUFS target to honor the true-peak ceiling; this is not a true-peak limiter or ACX compliance check.
 
-`app.audiobooks.inspect(source)` accepts an EPUB file, an `.ssmdbook` directory, or an `.ssmdbook.zip` bundle and returns typed book metadata plus a chapter inventory. Each `AudiobookChapter.number` is its original 1-based source chapter number. `create_project()` materializes EPUB and ZIP inputs as a full `.ssmdbook` workspace before attaching Readio state; an existing directory is attached in place. `create_project_result()` additionally returns selected chapter numbers and scope IDs. Selection is Readio-local under `.readio/` and does not remove chapters from the canonical workspace. `app.audiobooks.export(project, AudiobookExportOptions(...))` writes M4B with chapters using the audiobook-specific API. `SUPPORTED_AUDIOBOOK_FORMATS` contains `m4b`; it is intentionally not in generic `SUPPORTED_AUDIO_FORMATS`.
+`app.audiobooks.inspect(source)` accepts an EPUB, `.ssmdbook` directory, or `.ssmdbook.zip` bundle and returns typed metadata and original 1-based source chapter numbers. `convert()` materializes an editable workspace or opens the supplied existing `.ssmdbook`; `open_workspace()` reopens it without attaching state. These operations return `BookWorkspace`, a path view over SSMDConvert's workspace API, not a Readio `ProjectRef`.
 
-For attached projects, `ProjectRef.root` identifies the canonical `.ssmdbook` workspace and Readio state is under `.readio/`. Chapter `DocumentScope.path` values resolve against the workspace, so edits are immediately visible; refresh diagnostics update only Readio indexes and do not rewrite the book manifest. Delete `.readio/` to remove derived state without deleting the book, then call `create_project()` on the workspace to recreate it. A portable ssmdbook ZIP excludes Readio state.
-Unsupported document formats, missing converter adapters, conversion failures, invalid bundle sources, and invalid chapter selections are translated to Readio API errors with stable codes and the original source path where applicable. Common codes include `input.format_unsupported`, `input.converter_dependency_missing`, `input.conversion_failed`, `input.book_bundle_invalid`, and `request.chapter_selection_invalid`.
-`describe_project(project)` describes an existing audiobook after reopening it. The immutable `AudiobookProjectDescription` contains its `ProjectRef`, persisted source path, and persisted `AudiobookProjectChapter` values (chapter number, scope ID, title, and level). Readio loads the project and validates its kind; consumers do not need to inspect project files.
-`create_project(..., settings=ProjectSettings(audiobook_export=...))` can save output, metadata, cover, bitrate, and AudioExport profile defaults at creation time. Set `AudiobookExportOptions(profile=Path("audiobook.toml"))` to opt into profile-based M4B encoding (install `readio[audioexport]` first). Omitted export options use saved values; explicitly supplied non-`None` values override them for one invocation without mutating the manifest. `app.audiobooks.build(project)` runs the ordinary plan, synthesis, and composition services before M4B export. It respects the project's stored chapter scope and returns an `AudiobookExportResult`.
+`BookBuildRequest` configures the in-memory native stages. `build()` returns the exact profile-fingerprinted variant and each stage result; all resulting files remain in the package-owned `utterplan/`, `renderplan/`, `voicerender/`, `audiocompose/`, and `audioexport/` directories. Continue through the API or specialist CLIs using that same workspace and variant. `create_project()`, `create_project_result()`, and `describe_project()` are compatibility aliases returning `BookWorkspace`; Readio project settings are rejected for native workspaces.
+
+```python
+from pathlib import Path
+from readio.api import AudiobookExportOptions, BookBuildRequest, Readio
+
+app = Readio()
+book = app.audiobooks.convert(
+    Path("novel.epub"), chapters="5-17", output=Path("novel.ssmdbook")
+)
+result = app.audiobooks.build(
+    BookBuildRequest(
+        workspace=book.root,
+        profile=Path("narration.renderprofile.toml"),
+        chapters="5-17",
+        stop_after="render-plan",
+    )
+)
+print(result.variant)  # Pass this exact value to every later stage.
+app.audiobooks.synthesize(book, variant=result.variant, chapters="5-17")
+app.audiobooks.compose(book, variant=result.variant, chapters="5-17")
+app.audiobooks.export(
+    book,
+    AudiobookExportOptions(output=Path("novel.m4b"), cover=Path("cover.jpg")),
+    variant=result.variant,
+    chapters="5-17",
+)
+```
+
+`status(workspace, variant=...)` reads specialist-owned artifacts and reports workspace dirtiness without refreshing or recompiling. New audiobook workflows never create `.readio/` or a Readio `project.json`; if legacy `.readio/` data exists, it is warned about, ignored, and left untouched. Refresh canonical hashes explicitly with `ssmdconvert book refresh WORKSPACE` when desired. Unsupported inputs, conversion errors, invalid bundles, and chapter selection failures retain stable public error codes.
 
 `app.projects.resolve_synthesis(project, request=None, *, voice_bindings=None, use_saved_settings=True)` returns a typed `SynthesisResolution` with effective engine, language, voice, model, model source, quality, speed, unit, pause mode, voice level, planning settings, and pronunciation/resource policies: lexicons, G2P fallback, lexicon data policy, language-detection mode and languages, and experimental-option permission. It uses the same project synthesis resolver as `synthesize()`: fatal choices raise public API errors, and non-fatal resolver diagnostics are returned on the result.
 `use_saved_settings=True` preserves saved project synthesis precedence for existing callers. Set it to `False` when a configuration editor or guided frontend is replacing saved engine, model, or voice choices. Fresh resolution ignores only persisted `ProjectSynthesisSettings`; request values, current Readio configuration and language defaults, and call-scoped `voice_bindings` still participate. It does not change sparse request semantics or make incomplete Piper/Pocket selections valid. Both modes remain non-rendering and non-mutating and perform no acoustic inference.
@@ -233,37 +255,6 @@ Unsupported document formats, missing converter adapters, conversion failures, i
 `lexicons` preserves three states: `None` means automatic or inherited behavior, an empty tuple means static lexicon layers were explicitly disabled, and a non-empty tuple lists selected layers. These fields expose resolved request/profile values; preflight does not materialize backend runtime defaults that were not resolved.
 
 Resolution is read-only and intended for preflight, validation, and UI display. It does not render audio, open an engine session, activate a profile, or mutate project configuration, profile files, manifests, caches, audio, role bindings, or persistent synthesis/build state. It reports the same effective selection semantics used by actual project synthesis.
-
-```python
-from pathlib import Path
-from readio.api import Readio, SynthesisRequest
-
-app = Readio()
-project = app.projects.open(Path("novel.ssmdbook"))
-book = app.audiobooks.describe_project(project)
-for chapter in book.chapters:
-    print(chapter.number, chapter.title, chapter.scope_id)
-
-request = SynthesisRequest(voice="af_heart", speed=1.0)
-resolved = app.projects.resolve_synthesis(project, request)
-print(resolved.engine, resolved.language, resolved.voice)
-print(resolved.model, resolved.model_source, resolved.quality)
-```
-
-```python
-book = app.projects.open(Path("novel.ssmdbook"))
-m4b = app.audiobooks.export(
-    book,
-    AudiobookExportOptions(
-        format=AUDIOBOOK_EXPORT_FORMAT,
-        cover=Path("cover.jpg"),  # optional explicit JPEG/PNG
-        bitrate="96k",
-    ),
-    on_event=handle_event,
-)
-```
-
-Title and author default from the project's persisted book metadata and can be overridden. The audiobook M4B AAC bitrate defaults to 192k; generic M4A also defaults to 192k and generic Opus to 96k. These are Readio defaults, not a claim of TTSForge default parity. M4B identity includes the master/timeline, resolved metadata, explicit cover hash, and effective bitrate. Automatic source cover extraction is not part of the current ssmdconvert integration; pass an explicit JPEG/PNG cover.
 
 ## Discovery and roles
 

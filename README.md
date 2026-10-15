@@ -28,7 +28,7 @@ python -m pip install "readio[spacy]"
 
 Install a compatible local spaCy language model separately. Readio never downloads models implicitly. The default `reader.spacy = "auto"` tries the best locally installed model and falls back to Utterplan's analyzer when none is available. The explicit `sm`, `md`, `lg`, and `trf` settings require the selected local model tier and fail if it is unavailable. `off` disables spaCy analysis.
 
-`readio plan` stores token annotations and linguistic provenance in the canonical UtterPlan 0.4 schema-v4 `.utterplan.toml` artifact. Rendering an existing project plan consumes those stored annotations and does not rerun spaCy when the engine, voice, or acoustic settings change. Direct one-shot commands such as `readio speak` may use the selected engine's local frontend because they do not consume a persisted semantic plan.
+`readio plan` uses the UtterPlan package API declared in Readio's dependency constraints for generic document projects. Their semantic artifacts are separate from native audiobook workspaces. Direct one-shot commands such as `readio speak` retain their own streaming path and do not create persistent project plans.
 
 `readio plan build` reports planning phases on interactive terminals; force this with `--progress` or suppress it with `--no-progress`. Progress is written to stderr, so JSON stdout stays machine-readable. The phase details can identify a spaCy model and linguistic-analysis passes; the existing `reader.spacy` configuration still controls analysis. See the [CLI guide](docs/cli.md#planning-progress).
 `readio plan inspect` reviews persisted planning attempts and active plans; `readio plan repair` retries blocked work with safe automatic repairs (the default for planning) and never edits source files. Blocked/incomplete candidates stay isolated from the active synthesis plan. See [Planning attempts and repair](docs/cli.md#planning-attempts-inspection-and-repair).
@@ -353,17 +353,17 @@ readio export project.readio --format flac
 readio export project.readio --format opus --bitrate 96k
 ```
 
-For profile-driven **file exports**, install the optional integration with `pip install 'readio[audioexport]'` and pass an AudioExport `export.toml`:
+AudioExport is a core dependency for profile-driven file exports. Pass an AudioExport `export.toml` to generic project `readio export` or an AudioExport profile to native `readio audiobook export WORKSPACE --variant ID`:
 
 ```bash
 readio export project.readio --profile export.toml --format mp3
 readio export project.readio --profile export.toml --all --out-dir output/
-readio audiobook export project.readio --profile audiobook.toml
+readio audiobook export novel.ssmdbook --variant EXACT_VARIANT \
+  --profile audiobook.toml -o novel.m4b
 readio project settings set project.readio --export-profile export.toml
-readio project settings set project.readio --audiobook-profile audiobook.toml
 ```
 
-A profile supplies encoder options and metadata through AudioExport's public Python API; Readio continues to own output authorization, state, and reuse. Saved profiles are checked by `readio status` and used by incremental project builds, so profile-only changes rebuild the export without re-synthesis or recomposition. Without a profile, existing project export behavior remains the default. `readio speak` keeps its current PCM streaming sink and does not use the file-based AudioExport path; M4B profile exports still require Readio's verified composition timeline.
+AudioExport is a core dependency. Generic project profiles are saved in the Readio project and used by incremental project builds. Native audiobook profiles are passed to the stage command with an exact variant ID and remain owned by AudioExport; they are not saved as Readio project settings. `readio speak` keeps its current PCM streaming sink and does not use the file-based export path.
 
 `.ogg` remains Ogg/Vorbis; `.opus` selects Opus and is a separate format. Readio's generic Opus default is 96k; this is Readio's setting, not a claim of TTSForge default parity.
 
@@ -403,7 +403,7 @@ M4A and Opus require an `ffmpeg` executable on `PATH`. WAV and FLAC use PCM16; M
 
 For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD. Readio always performs consumer compatibility and voice checks during planning; the explicit check is a no-audio preflight:
 
-Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5/schema v4. SSMD 0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not rewritten or migrated. Indexed legacy UtterPlan JSON artifacts (including schema v1–3) are reported stale and require source re-planning with `readio plan`; normal loading does not migrate them. This does not change Readio's own `readio.plan.v2` response schema.
+Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2, AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3. Generic document projects continue to use Readio-owned project state. Native `.ssmdbook` workflows delegate each stage to the specialist package public APIs and keep their artifacts in the workspace; they do not rely on a Readio UtterPlan schema assumption. This does not change Readio's own `readio.plan.v2` response schema.
 
 ```bash
 readio ssmd check episode.ssmd
@@ -501,29 +501,36 @@ readio status manuscript.readio --json
 readio render manuscript.readio --format mp3  # build stale stages
 ```
 
-Chapter-aware audiobook projects accept EPUB files and `.ssmdbook` directories or `.ssmdbook.zip` bundles produced by ssmdconvert. EPUB and ZIP inputs are materialized as standalone editable `.ssmdbook` directories. Readio attaches disposable project state under `.readio/` and indexes the canonical chapter files in place instead of copying them.
+## Native `.ssmdbook` audiobook workflow
+
+For chapter-aware audiobook work, the SSMDConvert `.ssmdbook` workspace is the project. Readio orchestrates the specialist public APIs and writes no Readio `project.json` or `.readio/` state. Existing `.readio/` data inside a workspace is ignored with a warning and left unchanged.
 
 ```bash
 readio audiobook chapters novel.epub
-readio audiobook init novel.epub --chapters 2-20
-readio audiobook chapters novel.ssmdbook.zip
-readio audiobook init novel.ssmdbook --chapters 3-4,7
-cd novel.ssmdbook
-readio plan roles
-readio plan
-readio synth --voice en-ko-01
-readio compose
-readio export --format m4a
-readio audiobook export . --format m4b --cover cover.jpg
-# Or build all stale stages with:
-readio render novel.ssmdbook --format m4a
+readio audiobook convert novel.epub --chapters 5-17 -o novel.ssmdbook
+readio audiobook profile create narration.renderprofile.toml \
+  --engine piper --target-id en_US-amy-medium --language en-US
+readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
+  --chapters 5-17 --stop-after render-plan --json
+readio audiobook status novel.ssmdbook --json
+# Copy the exact profile-fingerprinted variant from the build result/status:
+readio audiobook synth novel.ssmdbook --variant EXACT_VARIANT --chapters 5-17
+readio audiobook compose novel.ssmdbook --variant EXACT_VARIANT --chapters 5-17
+readio audiobook export novel.ssmdbook --variant EXACT_VARIANT \
+  --title "Optional title" --author "Optional author" --cover cover.jpg \
+  --bitrate 96k -o novel.m4b
 ```
 
-Chapter selectors use the available 1-based source chapter numbers reported by `readio audiobook chapters` and preserve source order, including non-contiguous bundle subsets. Edit canonical chapter files under `chapters/` (or paths listed in `manifest.json`). Readio reads edits immediately, refreshes only its local index, and replans/resynthesizes affected content. After chapter edits, run `ssmdconvert book refresh novel.ssmdbook` to update canonical manifest hashes; Readio never does this automatically. Deleting `.readio/` removes local plans, caches, and outputs but leaves the editable book intact; `readio audiobook init novel.ssmdbook` can recreate that state. Generic EPUB rendering remains one combined document, so use audiobook commands for chapter-aware processing.
+Alternatively, drive a fresh EPUB through specialist CLIs only, or resume at any stage:
 
-Audiobook projects can be exported as M4B with embedded chapters: `readio audiobook export . --format m4b`. Title and author default from the book's metadata and can be overridden with `--title` and `--author`. Readio's AAC bitrate default is 192k; use `--bitrate` to choose another supported bitrate.
+```bash
+ssmdconvert book convert novel.epub -o novel.ssmdbook --chapters 5-17
+utterplan compile-book novel.ssmdbook --chapters 5-17
+utterplan render-book novel.ssmdbook --profile narration.renderprofile.toml --chapters 5-17
+# Set VARIANT to the exact returned RenderPlan directory name.
+voicerender render-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
+audiocompose compose-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
+audioexport export-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17 -o novel.m4b
+```
 
-Cover art is explicit-only: pass `--cover cover.jpg` or a PNG path. Readio validates, hashes, attaches, and tracks the image. Automatic source cover extraction is not part of the current ssmdconvert integration; provide a JPEG/PNG cover explicitly. M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus, never M4B.
-
-See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout, cache identities, status diagnostics, and invalidation matrix.
-Project synthesis, composition, and export defaults can be saved before execution with `readio project settings set PROJECT ...`; inspect with `readio project settings show PROJECT --json`. Requestless project operations use saved settings, while explicit invocation overrides remain transient. Audiobook M4B output, metadata, cover, and bitrate can also be saved and are checked by `readio status`. See [project settings](docs/projects.md#desired-pipeline-settings), [CLI reference](docs/cli.md#saved-project-pipeline-settings), and [Python API](docs/api.md#projects-and-audiobooks).
+Artifacts are owned by their stage packages under `utterplan/`, `renderplan/<variant>/`, `voicerender/<variant>/`, `audiocompose/<variant>/`, and `audioexport/<variant>/`. A specialist CLI can continue Readio-produced work without conversion or migration. Chapter edits make workspace dirtiness visible; Readio does not silently refresh the manifest or recompile. Run `ssmdconvert book refresh novel.ssmdbook` explicitly when you want to update canonical hashes. Generic EPUB input through `readio project init` remains one combined document; use `readio audiobook` for per-chapter processing. See the [CLI workflow](docs/cli.md#native-ssmdbook-audiobook-workflows), [Python API](docs/api.md#projects-and-audiobooks), and [project boundary](docs/projects.md#native-ssmdbook-audiobook-workspaces).

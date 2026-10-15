@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from voicerender import EngineSelection, RenderResult, VoiceBinding, VoiceProfile
+import json
+from contextlib import contextmanager
+
+import numpy as np
+from utterplan import LinguisticsConfig, PlannerConfig, compile_document
+
+from voicerender import EngineSelection, RenderedSpeech, VoiceBinding, VoiceProfile
 
 from readio.integrations import voicerender as integration
 
@@ -44,58 +50,69 @@ def test_resolve_profile_uses_voice_render_public_resolution(monkeypatch) -> Non
     assert resolved.selections["narrator"] == selection
 
 
-def test_render_plan_delegates_source_selection_manifest_and_progress(monkeypatch, tmp_path):
-    plan = tmp_path / "plan.utterplan.toml"
-    source_plan = object()
-    profile = VoiceProfile(name="test", roles={"narrator": VoiceBinding("fixture", "model")})
-    selection = object()
-    manifest_path = tmp_path / "render-manifest.json"
-    result = RenderResult(
-        manifest_path=manifest_path,
-        rendered_count=1,
-        reused_count=0,
-        failed_count=0,
-        selected_count=1,
+def test_render_plan_uses_public_resolution_and_writes_stage_manifest(
+    monkeypatch, tmp_path
+) -> None:
+    plan = compile_document(
+        "Hello from the generic VoiceRender adapter.",
+        input_format="plain",
+        config=PlannerConfig(
+            language="en-us",
+            document_format="plain",
+            linguistics=LinguisticsConfig(use_spacy=False),
+        ),
+    ).plan
+    profile = VoiceProfile(
+        name="test",
+        roles={"narrator": VoiceBinding("fixture", "fixture-model", voice="fixture-voice")},
     )
-    manifest = {"manifest_id": "sha256:identity"}
-    calls = {}
+    selection = EngineSelection(
+        engine="fixture",
+        target_id="fixture-model",
+        language="en-us",
+        voice="fixture-voice",
+    )
+    requests = []
 
-    def select_segments(received_plan, *, select):
-        calls["selection"] = (received_plan, select)
-        return selection
+    class Session:
+        def synthesize(self, request):
+            requests.append(request)
+            return RenderedSpeech(
+                id=request.id,
+                audio=np.ones(240, dtype=np.float32),
+                sample_rate=24_000,
+            )
 
-    def render_utterplan(received_plan, **kwargs):
-        calls["render"] = (received_plan, kwargs)
-        return result
+    monkeypatch.setattr(integration, "resolve_voice", lambda _request: (selection, ()))
 
-    def read_manifest(path):
-        calls["manifest"] = path
-        return manifest
+    @contextmanager
+    def open_session(_selection):
+        yield Session()
 
-    monkeypatch.setattr(integration, "select_segments", select_segments)
-    monkeypatch.setattr(integration, "load_source_plan", lambda received: source_plan)
-    monkeypatch.setattr(integration, "render_utterplan", render_utterplan)
-    monkeypatch.setattr(integration, "read_render_manifest", read_manifest)
-    progress = lambda event: None
+    monkeypatch.setattr("voicerender.open_session", open_session)
+    events = []
+    output_dir = tmp_path / "render"
     bundle = integration.render_plan(
         plan,
         profile=profile,
-        output_dir=tmp_path / "bundle",
+        output_dir=output_dir,
         cache_dir=tmp_path / "cache",
         locators=("f000000.s000",),
-        on_event=progress,
+        on_event=events.append,
     )
 
-    assert calls["selection"] == (source_plan, ("f000000.s000",))
-    received_plan, kwargs = calls["render"]
-    assert received_plan is plan
-    assert kwargs["profile"] is profile
-    assert kwargs["selection"] is selection
-    assert kwargs["on_event"] is progress
-    assert calls["manifest"] == manifest_path
-    assert bundle.result is result
-    assert bundle.manifest is manifest
-
+    manifest = json.loads(bundle.result.manifest_path.read_text(encoding="utf-8"))
+    assert len(requests) == 1
+    assert requests[0].text == "Hello from the generic VoiceRender adapter."
+    assert bundle.result.rendered_count == 1
+    assert manifest["schema"] == "readio.voicerender-compat.v1"
+    assert manifest["segments"][0]["source"]["locator"] == "f000000.s000"
+    assert {event.kind for event in events} >= {
+        "preflight_started",
+        "segment_started",
+        "segment_rendered",
+        "preflight_finished",
+    }
 
 
 def test_all_engine_catalog_skips_unavailable_but_explicit_request_preserves_error(monkeypatch):

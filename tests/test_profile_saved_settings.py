@@ -97,6 +97,11 @@ def _mock_current_composition(monkeypatch: pytest.MonkeyPatch) -> None:
         "build_audio_job",
         lambda *_args, **_kwargs: (None, {"composition_id": "composition-id"}),
     )
+    monkeypatch.setattr(
+        pipeline,
+        "composition_is_current",
+        lambda *_args, **_kwargs: True,
+    )
 
 
 def test_saved_profile_status_tracks_identity_and_custom_target(
@@ -164,6 +169,11 @@ def test_build_reexports_saved_profile_without_rebuilding_upstream_stages(
                 "identity_payload": {"loudness": {"profile": "spoken-word"}},
             },
         ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "composition_is_current",
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         pipeline,

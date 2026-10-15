@@ -334,8 +334,15 @@ def test_ssmd_role_plan_serializes_engine_qualified_targets_across_precedence():
 
     semantic = SimpleNamespace(
         plan=SimpleNamespace(
-            segments=[segment("guest"), segment("host"), segment("announcer")],
-            document_metadata={"voice_bindings": {"piper": {"guest": "en_US-amy-medium"}}},
+            flow=(
+                SimpleNamespace(
+                    segments=(segment("guest"), segment("host"), segment("announcer")),
+                    content_hash="fixture-flow-hash",
+                ),
+            ),
+            document=SimpleNamespace(
+                semantics={"voice_bindings": {"piper": {"guest": "en_US-amy-medium"}}}
+            ),
         )
     )
     cfg = ReadioConfig(roles={"announcer": VoiceTarget("kokoro", "af_sarah")})

@@ -71,7 +71,7 @@ sections:
     line_span:
       - 21
       - 35
-    section_hash: db8859e99793105617bd0ad4b7d968ae2ba60a4eb5ae16be0727c67b18c838ed
+    section_hash: 5db44237843ec04fe408707befcc7f2731a9eb9811143cf1c67c3f438a9494bb
     summary: Optional spaCy linguistic planning
     text: '### Optional spaCy linguistic planning
 
@@ -94,12 +94,10 @@ sections:
       tier and fail if it is unavailable. `off` disables spaCy analysis.
 
 
-      `readio plan` stores token annotations and linguistic provenance in the canonical
-      UtterPlan 0.4 schema-v4 `.utterplan.toml` artifact. Rendering an existing project
-      plan consumes those stored annotations and does not rerun spaCy when the engine,
-      voice, or acoustic settings change. Direct one-shot commands such as `readio speak`
-      may use the selected engine''s local frontend because they do not consume a persisted
-      semantic plan.
+      `readio plan` uses the UtterPlan package API declared in Readio''s dependency
+      constraints for generic document projects. Their semantic artifacts are separate
+      from native audiobook workspaces. Direct one-shot commands such as `readio speak`
+      retain their own streaming path and do not create persistent project plans.
 
 
       `readio plan build` reports planning phases on interactive terminals; force this
@@ -619,36 +617,39 @@ sections:
     line_span:
       - 237
       - 250
-    section_hash: e7e4d3a864d35f2c6e2c48c267c07e60170eafee7b58666050f75eb59b324a93
+    section_hash: 4282b4197d14ca199455603944d72f7a92878de1aed5c3a876751df0b0e4185d
     summary: Command migration
     text: "### Command migration
 
 
-      | Former Readio command | SSMDStudio 0.1.1 replacement / boundary |
+      | Former Readio command                             | SSMDStudio 0.1.1 replacement
+      / boundary                                                                                           |
 
-      |---|---|
+      | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------
+      |
 
       | `readio template path/list/show/add/remove/reset` | Corresponding `ssmdstudio
-      template` command (`path`, `list`, `show`, `add`, `remove`, `reset`) |
+      template` command (`path`, `list`, `show`, `add`, `remove`, `reset`)                                    |
 
-      | `readio template validate [NAME]` / `--all` | `ssmdstudio template validate
-      [NAME]` / `--all`; `--roundtrip` is optional structural validation |
+      | `readio template validate [NAME]` / `--all`       | `ssmdstudio template validate
+      [NAME]` / `--all`; `--roundtrip` is optional structural validation                                  |
 
-      | `readio template use NAME --name FILE` | `ssmdstudio template use NAME --output
-      FILE` |
+      | `readio template use NAME --name FILE`            | `ssmdstudio template use
+      NAME --output FILE`                                                                                      |
 
       | `readio ingest new --name FILE [--template NAME]` | `ssmdstudio draft new --output
-      FILE [--template NAME]` |
+      FILE [--template NAME]`                                                                            |
 
-      | `readio ingest path/list` | Studio has no managed ingest directory; use filesystem
-      paths. Existing user files and directories are left untouched. |
+      | `readio ingest path/list`                         | Studio has no managed ingest
+      directory; use filesystem paths. Existing user files and directories are left
+      untouched.             |
 
-      | `readio ssmd bind FILE --voice-bind ROLE=ID` | `ssmdstudio ssmd bind FILE --provider
-      PROVIDER --voice-bind ROLE=ID [--output FILE]` |
+      | `readio ssmd bind FILE --voice-bind ROLE=ID`      | `ssmdstudio ssmd bind FILE
+      --provider PROVIDER --voice-bind ROLE=ID [--output FILE]`                                              |
 
-      | `readio ssmd check FILE --roundtrip` | `ssmdstudio ssmd lint FILE --roundtrip`
-      for authoring lint; `readio ssmd check` remains consumer preflight without `--roundtrip`.
-      |
+      | `readio ssmd check FILE --roundtrip`              | `ssmdstudio ssmd lint FILE
+      --roundtrip` for authoring lint; `readio ssmd check` remains consumer preflight
+      without `--roundtrip`. |
 
 
       `readio config init` initializes Readio configuration and its runtime output location
@@ -762,45 +763,31 @@ sections:
     heading_slug: multi-format-audio-output
     line_span:
       - 337
-      - 357
-    section_hash: ec724cabdbfc3ff762e283e862e2adf981fdcb3b18c5ebcc5c5393a9c8c5a759
+      - 369
+    section_hash: 520786a536c6ca6f755b71563053579a3a70cfb34ece22ce7ce6026c093252ae
     summary: Multi-format audio output
-    text: '## Multi-format audio output
-
-
-      The output path is optional and WAV remains the default:
-
-
-      ```bash
-
-      readio render "Hello from a file."
-
-      readio render --file "$draft" -o episode.wav
-
-      readio render "Hello" -o episode.mp3
-
-      readio render --file episode.ssmd --format m4a
-
-      readio render "Hello" --format ogg
-
-      ```
-
-
-      Project exports support lossless FLAC and Opus in addition to the existing formats:
-
-
-      ```bash
-
-      readio export project.readio --format flac
-
-      readio export project.readio --format opus --bitrate 96k
-
-      ```
-
-
-      `.ogg` remains Ogg/Vorbis; `.opus` selects Opus and is a separate format. Readio''s
-      generic Opus default is 96k; this is Readio''s setting, not a claim of TTSForge
-      default parity.'
+    text:
+      "## Multi-format audio output\n\nThe output path is optional and WAV remains\
+      \ the default:\n\n```bash\nreadio render \"Hello from a file.\"\nreadio render\
+      \ --file \"$draft\" -o episode.wav\nreadio render \"Hello\" -o episode.mp3\nreadio\
+      \ render --file episode.ssmd --format m4a\nreadio render \"Hello\" --format ogg\n\
+      ```\n\nProject exports support lossless FLAC and Opus in addition to the existing\
+      \ formats:\n\n```bash\nreadio export project.readio --format flac\nreadio export\
+      \ project.readio --format opus --bitrate 96k\n```\n\nAudioExport is a core dependency\
+      \ for profile-driven file exports. Pass an AudioExport `export.toml` to generic\
+      \ project `readio export` or an AudioExport profile to native `readio audiobook\
+      \ export WORKSPACE --variant ID`:\n\n```bash\nreadio export project.readio --profile\
+      \ export.toml --format mp3\nreadio export project.readio --profile export.toml\
+      \ --all --out-dir output/\nreadio audiobook export novel.ssmdbook --variant EXACT_VARIANT\
+      \ \\\n  --profile audiobook.toml -o novel.m4b\nreadio project settings set project.readio\
+      \ --export-profile export.toml\n```\n\nAudioExport is a core dependency. Generic\
+      \ project profiles are saved in the Readio project and used by incremental project\
+      \ builds. Native audiobook profiles are passed to the stage command with an exact\
+      \ variant ID and remain owned by AudioExport; they are not saved as Readio project\
+      \ settings. `readio speak` keeps its current PCM streaming sink and does not use\
+      \ the file-based export path.\n\n`.ogg` remains Ogg/Vorbis; `.opus` selects Opus\
+      \ and is a separate format. Readio's generic Opus default is 96k; this is Readio's\
+      \ setting, not a claim of TTSForge default parity."
     links: []
   - section_id: md:section:README.md::progress
     doc_path: README.md
@@ -809,8 +796,8 @@ sections:
       - Progress
     heading_slug: progress
     line_span:
-      - 358
-      - 374
+      - 370
+      - 386
     section_hash: ffafaf5c2db2c93d4f5040cd5facd00899a0bbcc4431ae1d4803dfcad88a13cc
     summary: Progress
     text: '## Progress
@@ -857,8 +844,8 @@ sections:
       - Verbose diagnostics
     heading_slug: verbose-diagnostics
     line_span:
-      - 375
-      - 389
+      - 387
+      - 401
     section_hash: 61a30112ca540ec9dbb7daae1393fca564feee31856ead61347910f89500f953
     summary: Verbose diagnostics
     text: '## Verbose diagnostics
@@ -906,9 +893,9 @@ sections:
       - SSMD consumer checks
     heading_slug: ssmd-consumer-checks
     line_span:
-      - 390
-      - 403
-    section_hash: 2a670ea7adcc8480d4eafb2f782945297fe5002e43b636fd5f5ef60f67393353
+      - 402
+      - 414
+    section_hash: 66e7bb0d5f4ce04e72d5d491f12ac09f5cb722c6c03eef6706b9b5c08e7defcd
     summary: SSMD consumer checks
     text: "## SSMD consumer checks
 
@@ -922,12 +909,12 @@ sections:
       the explicit check is a no-audio preflight:
 
 
-      Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5/schema v4. SSMD
-      0.8 syntax, raw `<div>` directives, and legacy prosody aliases are rejected, not
-      rewritten or migrated. Indexed legacy UtterPlan JSON artifacts (including schema
-      v1–3) are reported stale and require source re-planning with `readio plan`; normal
-      loading does not migrate them. This does not change Readio's own `readio.plan.v2`
-      response schema.
+      Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2,
+      AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3.
+      Generic document projects continue to use Readio-owned project state. Native `.ssmdbook`
+      workflows delegate each stage to the specialist package public APIs and keep their
+      artifacts in the workspace; they do not rely on a Readio UtterPlan schema assumption.
+      This does not change Readio's own `readio.plan.v2` response schema.
 
 
       ```bash
@@ -950,8 +937,8 @@ sections:
       - Spotify publishing
     heading_slug: spotify-publishing
     line_span:
-      - 404
-      - 422
+      - 415
+      - 433
     section_hash: d20762ba3d24bcdb106b470a78ee3a8d60a3031579feaa8b5451abb45fc3095a
     summary: Spotify publishing
     text: '## Spotify publishing
@@ -1004,8 +991,8 @@ sections:
       - Doctor
     heading_slug: doctor
     line_span:
-      - 423
-      - 430
+      - 434
+      - 441
     section_hash: 68ebe4f88bfc02fe55f445f50801ed24ec27313bca3b453c9b1127a656b7d093
     summary: Doctor
     text: "## Doctor
@@ -1034,8 +1021,8 @@ sections:
       - Agent Skill
     heading_slug: agent-skill
     line_span:
-      - 431
-      - 434
+      - 442
+      - 445
     section_hash: 272c7694e9aca409365139aaeb4f27abc7dfb8660ccda0107611fce28232bc02
     summary: Agent Skill
     text: "## Agent Skill
@@ -1052,8 +1039,8 @@ sections:
       - SSMD voice resolution and project role targets
     heading_slug: ssmd-voice-resolution-and-project-role-targets
     line_span:
-      - 435
-      - 476
+      - 446
+      - 487
     section_hash: 0a8e95ddea89302297b43eb8ea4176eb367895ad57bb5143e4be3d6c29231b20
     summary: SSMD voice resolution and project role targets
     text:
@@ -1113,9 +1100,9 @@ sections:
       - Persistent incremental projects
     heading_slug: persistent-incremental-projects
     line_span:
-      - 477
-      - 518
-    section_hash: 80c7835efdf7fc02a3273fc51e22a6db2de4b9bf8bfc3f47858dc92fe66e5a14
+      - 488
+      - 503
+    section_hash: e800a5ef95591e796326e4f0ef7b1bfa789929702e8daebdd6443c3e49f99789
     summary: Persistent incremental projects
     text: "## Persistent incremental projects
 
@@ -1143,86 +1130,56 @@ sections:
 
       readio render manuscript.readio --format mp3  # build stale stages
 
-      ```
-
-
-      Chapter-aware audiobook projects accept EPUB files and `.ssmdbook` directories
-      or `.ssmdbook.zip` bundles produced by ssmdconvert. EPUB and ZIP inputs are materialized
-      as standalone editable `.ssmdbook` directories. Readio attaches disposable project
-      state under `.readio/` and indexes the canonical chapter files in place instead
-      of copying them.
-
-
-      ```bash
-
-      readio audiobook chapters novel.epub
-
-      readio audiobook init novel.epub --chapters 2-20
-
-      readio audiobook chapters novel.ssmdbook.zip
-
-      readio audiobook init novel.ssmdbook --chapters 3-4,7
-
-      cd novel.ssmdbook
-
-      readio plan roles
-
-      readio plan
-
-      readio synth --voice en-ko-01
-
-      readio compose
-
-      readio export --format m4a
-
-      readio audiobook export . --format m4b --cover cover.jpg
-
-      # Or build all stale stages with:
-
-      readio render novel.ssmdbook --format m4a
-
-      ```
-
-
-      Chapter selectors use the available 1-based source chapter numbers reported by
-      `readio audiobook chapters` and preserve source order, including non-contiguous
-      bundle subsets. Edit canonical chapter files under `chapters/` (or paths listed
-      in `manifest.json`). Readio reads edits immediately, refreshes only its local
-      index, and replans/resynthesizes affected content. After chapter edits, run `ssmdconvert
-      book refresh novel.ssmdbook` to update canonical manifest hashes; Readio never
-      does this automatically. Deleting `.readio/` removes local plans, caches, and
-      outputs but leaves the editable book intact; `readio audiobook init novel.ssmdbook`
-      can recreate that state. Generic EPUB rendering remains one combined document,
-      so use audiobook commands for chapter-aware processing.
-
-
-      Audiobook projects can be exported as M4B with embedded chapters: `readio audiobook
-      export . --format m4b`. Title and author default from the book's metadata and
-      can be overridden with `--title` and `--author`. Readio's AAC bitrate default
-      is 192k; use `--bitrate` to choose another supported bitrate.
-
-
-      Cover art is explicit-only: pass `--cover cover.jpg` or a PNG path. Readio validates,
-      hashes, attaches, and tracks the image. Automatic source cover extraction is not
-      part of the current ssmdconvert integration; provide a JPEG/PNG cover explicitly.
-      M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis,
-      and Opus, never M4B.
-
-
-      See `docs/projects.md` and `docs/incremental-rendering.md` for the project layout,
-      cache identities, status diagnostics, and invalidation matrix.
-
-      Project synthesis, composition, and export defaults can be saved before execution
-      with `readio project settings set PROJECT ...`; inspect with `readio project settings
-      show PROJECT --json`. Requestless project operations use saved settings, while
-      explicit invocation overrides remain transient. Audiobook M4B output, metadata,
-      cover, and bitrate can also be saved and are checked by `readio status`. See [project
-      settings](docs/projects.md#desired-pipeline-settings), [CLI reference](docs/cli.md#saved-project-pipeline-settings),
-      and [Python API](docs/api.md#projects-and-audiobooks)."
+      ```"
+    links: []
+  - section_id: md:section:README.md::native-ssmdbook-audiobook-workflow
+    doc_path: README.md
+    heading_path:
+      - readio
+      - Native `.ssmdbook` audiobook workflow
+    heading_slug: native-ssmdbook-audiobook-workflow
+    line_span:
+      - 504
+      - 536
+    section_hash: 0cb6bdd8553a8aabedea568300a227bbdddadf7cf4b7a4f7d54cdeac67214981
+    summary: Native `.ssmdbook` audiobook workflow
+    text:
+      "## Native `.ssmdbook` audiobook workflow\n\nFor chapter-aware audiobook work,\
+      \ the SSMDConvert `.ssmdbook` workspace is the project. Readio orchestrates the\
+      \ specialist public APIs and writes no Readio `project.json` or `.readio/` state.\
+      \ Existing `.readio/` data inside a workspace is ignored with a warning and left\
+      \ unchanged.\n\n```bash\nreadio audiobook chapters novel.epub\nreadio audiobook\
+      \ convert novel.epub --chapters 5-17 -o novel.ssmdbook\nreadio audiobook profile\
+      \ create narration.renderprofile.toml \\\n  --engine piper --target-id en_US-amy-medium\
+      \ --language en-US\nreadio audiobook build novel.ssmdbook --profile narration.renderprofile.toml\
+      \ \\\n  --chapters 5-17 --stop-after render-plan --json\nreadio audiobook status\
+      \ novel.ssmdbook --json\n# Copy the exact profile-fingerprinted variant from the\
+      \ build result/status:\nreadio audiobook synth novel.ssmdbook --variant EXACT_VARIANT\
+      \ --chapters 5-17\nreadio audiobook compose novel.ssmdbook --variant EXACT_VARIANT\
+      \ --chapters 5-17\nreadio audiobook export novel.ssmdbook --variant EXACT_VARIANT\
+      \ \\\n  --title \"Optional title\" --author \"Optional author\" --cover cover.jpg\
+      \ \\\n  --bitrate 96k -o novel.m4b\n```\n\nAlternatively, drive a fresh EPUB through\
+      \ specialist CLIs only, or resume at any stage:\n\n```bash\nssmdconvert book convert\
+      \ novel.epub -o novel.ssmdbook --chapters 5-17\nutterplan compile-book novel.ssmdbook\
+      \ --chapters 5-17\nutterplan render-book novel.ssmdbook --profile narration.renderprofile.toml\
+      \ --chapters 5-17\n# Set VARIANT to the exact returned RenderPlan directory name.\n\
+      voicerender render-book novel.ssmdbook --variant \"$VARIANT\" --chapters 5-17\n\
+      audiocompose compose-book novel.ssmdbook --variant \"$VARIANT\" --chapters 5-17\n\
+      audioexport export-book novel.ssmdbook --variant \"$VARIANT\" --chapters 5-17\
+      \ -o novel.m4b\n```\n\nArtifacts are owned by their stage packages under `utterplan/`,\
+      \ `renderplan/<variant>/`, `voicerender/<variant>/`, `audiocompose/<variant>/`,\
+      \ and `audioexport/<variant>/`. A specialist CLI can continue Readio-produced\
+      \ work without conversion or migration. Chapter edits make workspace dirtiness\
+      \ visible; Readio does not silently refresh the manifest or recompile. Run `ssmdconvert\
+      \ book refresh novel.ssmdbook` explicitly when you want to update canonical hashes.\
+      \ Generic EPUB input through `readio project init` remains one combined document;\
+      \ use `readio audiobook` for per-chapter processing. See the [CLI workflow](docs/cli.md#native-ssmdbook-audiobook-workflows),\
+      \ [Python API](docs/api.md#projects-and-audiobooks), and [project boundary](docs/projects.md#native-ssmdbook-audiobook-workspaces)."
     links: []
 last_fresh_scan_version: 2
 last_fresh_hash: 1790d1c9c40fa7c163d050806d2360a345ee2fb6369b94dca6a91116eb8c7695
 notes:
   Documentation baseline created in docs/index.md; generated changelog retained
   and remaining source units are intentionally unlinked. (intentionally unlinked)
-version: 38
+coverage_resolution: null
+version: 44

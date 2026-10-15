@@ -37,14 +37,15 @@ def test_malformed_and_traversal_manifests_are_rejected(tmp_path):
 
 
 def test_plan_artifacts_are_valid_utterplan(tmp_path):
-    from utterplan import UtterancePlan
+    from utterplan import FlowPlan
 
     source = tmp_path / "book.txt"
     source.write_text("First sentence.\n\nSecond sentence.", encoding="utf-8")
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, default_config())
-    plan = UtterancePlan.load(project.root / "plan" / "document.utterplan.toml")
+    plan = FlowPlan.load(project.root / "plan" / "document.utterplan.toml")
     assert plan.plan_id
+    assert plan.schema_version == 7
     assert project.load_plan_index().scopes[0].path == "document.utterplan.toml"
 
 

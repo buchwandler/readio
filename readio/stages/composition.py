@@ -31,13 +31,12 @@ from audiocompose import (
     Silence,
     Tempo,
 )
-from audiocompose.integrations.voicerender import PausePolicy, materialize_voicerender_job
-from voicerender import read_render_manifest
 
 from ..audioio import probe_audio, read_audio, write_pcm16_wav
 from ..errors import InputError
 from ..jsonutil import JsonValue
 from ..plan import DEFAULT_MASTERING_PROFILE, MasteringProfile, resolve_mastering_policy
+from ..planning.flow import document_semantics, iter_flow_segments
 from ..planning.policy import PlanningPolicy
 from ..project import (
     Project,
@@ -48,14 +47,62 @@ from ..project import (
     project_lock,
     read_json,
 )
-from ..stages.speech_identity import (
-    segment_route_profile,
-    segment_speech_hash,
-    segment_synthesis_key,
-)
 from .planning import load_scope_plan
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PausePolicy:
+    policy_id: str
+    durations: Mapping[str, float]
+
+    @classmethod
+    def from_mapping(cls, document: Mapping[str, Any]) -> PausePolicy:
+        defaults = document.get("default", {})
+        if not isinstance(defaults, Mapping):
+            raise TypeError("pause policy default must be a mapping")
+        durations = {
+            str(name): _duration_seconds(value, f"pause policy {name}")
+            for name, value in defaults.items()
+        }
+        identifier = "sha256:" + hashlib.sha256(canonical_json(dict(document))).hexdigest()
+        return cls(policy_id=identifier, durations=durations)
+
+    @classmethod
+    def load(cls, path: Path) -> PausePolicy:
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+            import tomli as tomllib
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        return cls.from_mapping(document)
+
+    def resolve(self, intent: Any, *, voice: str, where: str) -> float:
+        del voice, where
+        if intent is None:
+            return 0.0
+        value = intent.to_dict() if hasattr(intent, "to_dict") else intent
+        if isinstance(value, Mapping):
+            kind = value.get("type")
+            if kind == "timed":
+                return _duration_seconds(value.get("time"), "timed pause")
+        else:
+            kind = value
+        return self.durations.get(str(kind), 0.0)
+
+
+def read_render_manifest(path: Path) -> Mapping[str, Any]:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise InputError(f"cannot read Readio VoiceRender manifest {path}: {error}") from error
+    if (
+        not isinstance(manifest, Mapping)
+        or manifest.get("schema") != "readio.voicerender-compat.v1"
+    ):
+        raise InputError(f"unsupported Readio VoiceRender compatibility manifest: {path}")
+    return manifest
 
 
 def composition_id(payload: Mapping[str, Any]) -> str:
@@ -375,7 +422,10 @@ def _segment_voice_identity(
     reference = _segment_voice_reference(segment)
     segment_routes = profile_payload.get("segment_routes", {})
     scope_routes = segment_routes.get(scope_id, {}) if isinstance(segment_routes, Mapping) else {}
-    route_key = scope_routes.get(str(segment.id)) if isinstance(scope_routes, Mapping) else None
+    segment_id = getattr(segment, "id", None)
+    if segment_id is None:
+        segment_id = hashlib.sha256(canonical_json(segment.to_dict())).hexdigest()
+    route_key = scope_routes.get(str(segment_id)) if isinstance(scope_routes, Mapping) else None
     if isinstance(route_key, str):
         return f"route:{route_key}"
     if reference is not None:
@@ -385,7 +435,7 @@ def _segment_voice_identity(
             if isinstance(bindings, Mapping) and isinstance(bindings.get(reference), str):
                 return f"target:{bindings[reference]}"
         namespace = profile_payload.get("voice_binding_namespace")
-        metadata = getattr(plan, "document_metadata", {})
+        metadata = document_semantics(plan)
         document_bindings = (
             metadata.get("voice_bindings", {}) if isinstance(metadata, Mapping) else {}
         )
@@ -458,32 +508,16 @@ def _operation_payload(operations: tuple[Any, ...]) -> list[dict[str, Any]]:
 def _pause_seconds(pause: Any) -> tuple[float, tuple[str, ...]]:
     if pause is None:
         return 0.0, ()
-    return float(getattr(pause, "seconds", 0.0)), tuple(getattr(pause, "events", ()) or ())
-
-
-def _markers_by_segment(
-    plan: Any, scope_id: str = "document"
-) -> dict[str, tuple[dict[str, Any], ...]]:
-    markers: dict[str, list[dict[str, Any]]] = {str(segment.id): [] for segment in plan.segments}
-    for marker in plan.markers:
-        owner = next(
-            (
-                segment
-                for segment in plan.segments
-                if segment.spoken_start <= marker.spoken_position <= segment.spoken_end
-            ),
-            None,
-        )
-        if owner is not None:
-            value = marker.to_dict()
-            if scope_id != "document":
-                value["id"] = f"{scope_id}:{marker.id}"
-            markers[str(owner.id)].append(value)
-    return {segment_id: tuple(values) for segment_id, values in markers.items()}
+    seconds = getattr(pause, "seconds", None)
+    if seconds is not None:
+        return float(seconds), tuple(getattr(pause, "events", ()) or ())
+    policy = PausePolicy.from_mapping(_pause_policy_document())
+    return policy.resolve(pause, voice="narrator", where="composition"), ()
 
 
 def _marker_sample_offset(marker: Mapping[str, Any], segment: Any, entry: Mapping[str, Any]) -> int:
-    position = max(0, min(len(segment.text), int(marker["spoken_position"]) - segment.spoken_start))
+    segment_start = getattr(segment, "spoken_start", 0)
+    position = max(0, min(len(segment.text), int(marker["spoken_position"]) - segment_start))
     frames = int(entry["frames"])
     timings = entry.get("word_timings", ())
     for timing in timings:
@@ -522,67 +556,6 @@ def _valid_audio(path: Path, expected_sha: str | None = None) -> tuple[int, int,
     if info.frames <= 0 or info.sample_rate <= 0:
         return None
     return int(info.sample_rate), int(info.channels), int(info.frames), digest
-
-def _cache_entries(
-    project: Project, plan: Any, scope_id: str
-) -> dict[tuple[str, str], dict[str, Any]]:
-    profile = read_json(project.paths["synthesis_profile"])
-    canonical = profile.get("canonical")
-    profile_id = str(profile.get("profile_id", ""))
-    if not isinstance(canonical, dict) or not profile_id:
-        raise ValueError("synthesis profile is missing canonical identity")
-    entries: dict[tuple[str, str], dict[str, Any]] = {}
-    cache_dir = project.state_root / "synthesis" / "cache"
-    markers_by_segment = _markers_by_segment(plan, scope_id)
-    for segment in plan.segments:
-        route_identity = segment_route_profile(profile, scope_id, str(segment.id))
-        if route_identity is None:
-            raise ValueError(f"synthesis route is missing for {scope_id}:{segment.id}")
-        route_profile, route_profile_id = route_identity
-        speech_hash = segment_speech_hash(plan, segment, route_profile)
-        key = segment_synthesis_key(speech_hash, route_profile_id)
-        cache_path = cache_dir / f"{key.replace(':', '-')}.wav"
-        sidecar_path = cache_dir / f"{key.replace(':', '-')}.json"
-        checked = _valid_audio(cache_path)
-        if checked is None:
-            raise ValueError(f"synthesis audio is missing or corrupt for {scope_id}:{segment.id}")
-        try:
-            sidecar = read_json(sidecar_path)
-        except (OSError, ValueError) as exc:
-            raise ValueError(
-                f"synthesis sidecar is missing or corrupt for {scope_id}:{segment.id}"
-            ) from exc
-        if (
-            sidecar.get("speech_hash") != speech_hash
-            or sidecar.get("synthesis_key") != key
-            or sidecar.get("profile_id") != route_profile_id
-            or sidecar.get("audio_sha256") != checked[3]
-        ):
-            raise ValueError(
-                f"synthesis sidecar does not match current speech for {scope_id}:{segment.id}"
-            )
-        entries[(scope_id, str(segment.id))] = {
-            "scope_id": scope_id,
-            "segment": segment,
-            "speech_hash": speech_hash,
-            "synthesis_key": key,
-            "profile_id": route_profile_id,
-            "cache_path": cache_path,
-            "audio_sha256": checked[3],
-            "sample_rate": checked[0],
-            "channels": checked[1],
-            "frames": checked[2],
-            "word_timings": tuple(sidecar.get("word_timings", ())),
-            "markers": markers_by_segment[str(segment.id)],
-            "composition": dict(profile.get("composition", {})),
-            "prosody_transitions": (
-                plan.document_metadata.get("prosody_transitions")
-                if isinstance(getattr(plan, "document_metadata", None), Mapping)
-                else None
-            ),
-            "voice_identity": _segment_voice_identity(profile, plan, scope_id, segment),
-        }
-    return entries
 
 
 def _write_silence(project: Project | None, sample_rate: int, frames: int) -> tuple[Any, str]:
@@ -975,8 +948,7 @@ def _pause_policy_toml(document: Mapping[str, Any]) -> str:
         "[default]",
     ]
     lines.extend(
-        f"{name} = {json.dumps(value)}"
-        for name, value in sorted(document["default"].items())
+        f"{name} = {json.dumps(value)}" for name, value in sorted(document["default"].items())
     )
     return "\n".join(lines) + "\n"
 
@@ -1020,8 +992,102 @@ def _locator_order(plan: Any) -> dict[str, int]:
 
 
 def _segment_at_locator(plan: Any, locator: str) -> Any:
-    flow_index, segment_index = map(int, locator[1:].split(".s"))
-    return plan.flow[flow_index].segments[segment_index]
+    return next(reference for reference in iter_flow_segments(plan) if reference.id == locator)
+
+
+def _materialize_project_render_manifest(
+    project: Project,
+    plan: Any,
+    manifest_path: Path,
+    *,
+    pause_policy: PausePolicy,
+    output_policy: OutputPolicy,
+    scope_id: str,
+    composition: Mapping[str, Any] | None,
+) -> AudioJob:
+    manifest = read_render_manifest(manifest_path)
+    selection = manifest.get("selection", {})
+    locators = selection.get("locators", []) if isinstance(selection, Mapping) else []
+    if not isinstance(locators, list) or not locators:
+        raise ValueError(f"VoiceRender manifest for {scope_id!r} has no selected locators")
+    sample_rate = output_policy.sample_rate
+    builder = LayoutBuilder(
+        project,
+        sample_rate=sample_rate,
+        target_lufs=output_policy.loudness.target_lufs,
+        true_peak_ceiling_dbtp=output_policy.loudness.true_peak_ceiling_dbtp,
+        peak_policy=output_policy.loudness.peak_policy,
+        clip_policy=output_policy.clip_policy,
+        composition=composition,
+    )
+    entries = {
+        str(item.get("source", {}).get("locator")): item
+        for item in manifest.get("segments", [])
+        if isinstance(item, Mapping) and isinstance(item.get("source"), Mapping)
+    }
+    clips: list[AudioClip] = []
+    previous_locator: str | None = None
+    previous_segment: Any | None = None
+    locator_order = _locator_order(plan)
+    for locator_value in locators:
+        locator = str(locator_value)
+        item = entries.get(locator)
+        if item is None or not isinstance(item.get("audio"), Mapping):
+            raise ValueError(f"VoiceRender manifest is missing selected locator {locator!r}")
+        audio = item["audio"]
+        audio_path = manifest_path.parent / str(audio.get("path", ""))
+        checked = _valid_audio(audio_path, str(audio.get("sha256", "")))
+        if checked is None:
+            raise ValueError(f"VoiceRender audio artifact is missing or invalid: {audio_path}")
+        segment = _segment_at_locator(plan, locator)
+        timing = item.get("timing", {})
+        spans = timing.get("spans", []) if isinstance(timing, Mapping) else []
+        entry = {
+            "scope_id": "document",
+            "cache_path": audio_path,
+            "audio_sha256": checked[3],
+            "sample_rate": checked[0],
+            "channels": checked[1],
+            "frames": checked[2],
+            "speech_hash": str(item.get("synthesis_semantics_sha256", "")),
+            "synthesis_key": str(item.get("acoustic_cache_key", "")),
+            "word_timings": tuple(spans) if isinstance(spans, list) else (),
+            "markers": (),
+            "composition": dict(composition or {}),
+            "voice_identity": _segment_voice_identity(None, None, scope_id, segment),
+        }
+        if previous_locator is not None and previous_segment is not None:  # noqa: SIM102
+            if locator_order.get(locator) == locator_order.get(previous_locator, -2) + 1:
+                explicit_seconds = max(
+                    _pause_seconds(previous_segment.pause_after)[0],
+                    _pause_seconds(segment.pause_before)[0],
+                )
+                if explicit_seconds <= 0.0:
+                    semantic_kinds = (*previous_segment.boundary_after, *segment.boundary_before)
+                    semantic_seconds = max(
+                        (
+                            pause_policy.resolve(
+                                kind,
+                                voice="narrator",
+                                where=f"{scope_id}:{previous_locator}->{locator}:boundary",
+                            )
+                            for kind in semantic_kinds
+                        ),
+                        default=0.0,
+                    )
+                    if semantic_seconds > 0.0:
+                        builder._append_silence(
+                            segment,
+                            entry,
+                            "before",
+                            {"type": "timed", "time": f"{semantic_seconds}s"},
+                            clips,
+                        )
+        clips.extend(builder.append(segment, entry))
+        previous_locator = locator
+        previous_segment = segment
+    job, _identity = builder.build_job(clips)
+    return job
 
 
 def _scoped_audio_item(item: Any, scope_id: str) -> Any:
@@ -1052,6 +1118,19 @@ def _pause_boundary(
     left_role = _segment_voice_reference(left) or "narrator"
     right_role = _segment_voice_reference(right) or "narrator"
 
+    semantic_boundaries = (*left.boundary_after, *right.boundary_before)
+    semantic_seconds = max(
+        (
+            policy.resolve(
+                kind,
+                voice="narrator",
+                where=f"{scope_id}:{left_locator}->{right_locator}:boundary",
+            )
+            for kind in semantic_boundaries
+        ),
+        default=0.0,
+    )
+
     def resolve(intent: Any, role: str, edge: str) -> float:
         value = intent.to_dict() if hasattr(intent, "to_dict") else intent
         return policy.resolve(
@@ -1061,6 +1140,7 @@ def _pause_boundary(
         )
 
     seconds = max(
+        semantic_seconds,
         resolve(left.pause_after, left_role, "pause_after"),
         resolve(right.pause_before, right_role, "pause_before"),
     )
@@ -1080,9 +1160,22 @@ def _pause_boundary(
     )
 
 
+def _stable_manifest_refs(references: Any) -> list[dict[str, Any]] | None:
+    """Drop volatile manifest IDs while retaining the synthesis artifact identity."""
+    if not isinstance(references, (list, tuple)):
+        return None
+    if any(not isinstance(reference, Mapping) for reference in references):
+        return None
+    return [
+        {key: value for key, value in reference.items() if key != "manifest_id"}
+        for reference in references
+    ]
+
+
 def build_audio_job(
     project: Project,
     *,
+    synthesis_profile: Mapping[str, Any] | None = None,
     mastering: MasteringProfile = DEFAULT_MASTERING_PROFILE,
     target_lufs: float | None = None,
     true_peak_ceiling_dbtp: float | None = None,
@@ -1091,7 +1184,11 @@ def build_audio_job(
     output_sample_rate: int | None = None,
 ) -> tuple[AudioJob, dict[str, Any]]:
     """Materialize project render manifests into one producer-neutral AudioJob."""
-    profile = read_json(project.paths["synthesis_profile"])
+    profile = (
+        dict(synthesis_profile)
+        if synthesis_profile is not None
+        else read_json(project.paths["synthesis_profile"])
+    )
     manifest_refs = profile.get("manifest_refs")
     if not isinstance(manifest_refs, list) or not manifest_refs:
         raise ValueError("active synthesis profile has no VoiceRender manifests")
@@ -1165,11 +1262,16 @@ def build_audio_job(
         scope, plan = plans_by_scope[scope_id]
         plan_path = project.state_root / "plan" / scope.path
         manifest_path = project.state_root / str(reference["path"])
-        job = materialize_voicerender_job(
-            plan=plan_path,
-            render_manifest=manifest_path,
+        job = _materialize_project_render_manifest(
+            project,
+            plan,
+            manifest_path,
             pause_policy=pause_policy,
             output_policy=output,
+            scope_id=scope_id,
+            composition=profile.get("composition")
+            if isinstance(profile.get("composition"), Mapping)
+            else None,
         )
         manifest = manifest_documents[scope_id + "|" + str(reference["path"])]
         selection = manifest.get("selection", {})
@@ -1206,7 +1308,7 @@ def build_audio_job(
         "readio.project_id": project.manifest.project_id,
         "readio.synthesis_profile_id": profile.get("profile_id"),
         "readio.plan_refs": plan_refs,
-        "voicerender.manifest_refs": [dict(reference) for reference in ordered_refs],
+        "voicerender.manifest_refs": _stable_manifest_refs(ordered_refs),
         "audiocompose.pause_policy_id": pause_policy.policy_id,
     }
     job = AudioJob(
@@ -1229,12 +1331,11 @@ def build_audio_job(
             "clip_policy": output.clip_policy,
         },
         "scope_metadata": scope_metadata,
-        "manifest_refs": [dict(reference) for reference in ordered_refs],
+        "manifest_refs": _stable_manifest_refs(ordered_refs),
         "plan_refs": plan_refs,
         "mastering_profile": mastering,
     }
     return job, identity
-
 
 
 def _loudness_payload(loudness: Mapping[str, Any] | None, profile: str) -> dict[str, Any] | None:
@@ -1456,11 +1557,6 @@ def compose_project(
         return _write_composition_result(project, job, identity, result, on_phase=on_phase)
 
 
-
-
-
-
-
 def composition_is_current(
     project: Project,
     *,
@@ -1469,6 +1565,7 @@ def composition_is_current(
     true_peak_ceiling_dbtp: float | None = None,
     peak_policy: Literal["reduce_gain", "error"] = "reduce_gain",
     clip_policy: str = "clamp",
+    use_stored_output_policy: bool = False,
     output_sample_rate: int | None = None,
 ) -> bool:
     """Check persisted composition artifacts against current public inputs."""
@@ -1478,7 +1575,10 @@ def composition_is_current(
         if not isinstance(state, Mapping) or not isinstance(profile, Mapping):
             return False
         manifest_refs = profile.get("manifest_refs")
-        if not isinstance(manifest_refs, list) or state.get("manifest_refs") != manifest_refs:
+        if not isinstance(manifest_refs, list) or (
+            _stable_manifest_refs(state.get("manifest_refs"))
+            != _stable_manifest_refs(manifest_refs)
+        ):
             return False
         manifest_path_value = state.get("audiojob_manifest_path")
         if not isinstance(manifest_path_value, str):
@@ -1494,7 +1594,9 @@ def composition_is_current(
             return False
         if job.source.get("readio.synthesis_profile_id") != profile.get("profile_id"):
             return False
-        if job.source.get("voicerender.manifest_refs") != manifest_refs:
+        if _stable_manifest_refs(
+            job.source.get("voicerender.manifest_refs")
+        ) != _stable_manifest_refs(manifest_refs):
             return False
         expected_pause_policy = PausePolicy.from_mapping(_pause_policy_document())
         if (
@@ -1510,13 +1612,17 @@ def composition_is_current(
             or PausePolicy.load(pause_policy_path).policy_id != expected_pause_policy.policy_id
         ):
             return False
-        expected_output = _output_policy(
-            sample_rate=int(output_sample_rate or job.output.sample_rate),
-            mastering=mastering,
-            target_lufs=target_lufs,
-            true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
-            peak_policy=peak_policy,
-            clip_policy=clip_policy,
+        expected_output = (
+            job.output
+            if use_stored_output_policy
+            else _output_policy(
+                sample_rate=int(output_sample_rate or job.output.sample_rate),
+                mastering=mastering,
+                target_lufs=target_lufs,
+                true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+                peak_policy=peak_policy,
+                clip_policy=clip_policy,
+            )
         )
         if job.output != expected_output:
             return False
@@ -1557,11 +1663,7 @@ def composition_is_current(
         timeline = read_json(project.paths["composition_timeline"])
         if not isinstance(timeline, Mapping) or timeline.get("job_id") != job_id:
             return False
-        synthesis_trace = project.paths["synthesis_trace"]
-        current_trace_hash = hash_file(synthesis_trace) if synthesis_trace.is_file() else None
-        return state.get("synthesis_trace_sha256") == current_trace_hash and state.get(
-            "synthesis_profile_id"
-        ) == profile.get("profile_id")
+        return state.get("synthesis_profile_id") == profile.get("profile_id")
     except (OSError, TypeError, ValueError, KeyError):
         return False
 

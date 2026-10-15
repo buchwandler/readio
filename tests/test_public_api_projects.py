@@ -8,11 +8,9 @@ import pytest
 from audiobook_support import make_epub
 from project_support import Adapter
 
+from readio import book_pipeline
 from readio.api import (
-    AudiobookChapter,
     AudiobookInspection,
-    AudiobookProjectDescription,
-    AudiobookProjectResult,
     CompositionOptions,
     ExportOptions,
     InvalidRequestError,
@@ -139,19 +137,16 @@ def test_project_plan_options_and_renderability_errors_are_public(tmp_path: Path
         event.progress_kind == "phase" and event.details.get("phase") == "renderability_preflight"
         for event in events
     )
-
-    result = app.projects.plan(
-        project,
-        options=ProjectPlanOptions(renderability="repair"),
-    )
-    assert result.renderability_mode == "repair"
-    assert result.renderability_guaranteed is True
-    assert result.repairs > 0
-    repaired = next(
-        item for item in result.diagnostics if item.code == "planning.renderability.repaired"
-    )
-    assert repaired.details["scope_id"]
-    assert repaired.source_path is not None
+    with pytest.raises(ProjectPlanRenderabilityError) as repair_blocked:
+        app.projects.plan(
+            project,
+            options=ProjectPlanOptions(renderability="repair"),
+        )
+    repair_error = repair_blocked.value
+    assert repair_error.renderability_mode == "repair"
+    assert repair_error.attempt_status == "blocked"
+    assert repair_error.active_plan_changed is False
+    assert repair_error.issues[0]["repair_action"] == "drop"
     assert config.reader is original_reader
 
 
@@ -179,8 +174,8 @@ def test_project_compose_returns_typed_mastering_diagnostics(tmp_path: Path, mon
     assert payload["loudness"]["profile"] == "spoken-word"
     state_path = tmp_path / "spoken.readio" / "composition" / "state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    policy = state["identity_payload"]["loudness"]
-    assert policy["profile"] == "spoken-word"
+    policy = state["output_policy"]
+    assert state["mastering_profile"] == "spoken-word"
     assert policy["target_lufs"] == -16.0
     assert "analysis_seconds" not in policy
     assert state["loudness"]["analysis_seconds"] >= 0.0
@@ -268,79 +263,64 @@ def test_project_synthesis_target_stops_before_composition(tmp_path: Path, monke
     assert isinstance(direct, ProjectSynthesisResult)
 
 
-def test_audiobook_inspection_and_project_creation_are_typed(tmp_path: Path) -> None:
+def test_audiobook_inspection_and_project_creation_use_native_workspace(tmp_path: Path) -> None:
     source = tmp_path / "book.epub"
     make_epub(source)
     app = Readio(ReadioConfig())
 
     inspection = app.audiobooks.inspect(source)
-    project = app.audiobooks.create_project(
+    workspace = app.audiobooks.create_project(
         source,
         chapters="1-2",
         output=tmp_path / "book.ssmdbook",
     )
 
     assert isinstance(inspection, AudiobookInspection)
-    assert all(isinstance(chapter, AudiobookChapter) for chapter in inspection.chapters)
     assert len(inspection.chapters) == 7
     assert json.loads(json.dumps(inspection.to_dict()))["metadata"]["title"] == "The Example"
-    assert project.kind == "audiobook"
-    assert app.projects.open(project.root) == project
-    assert app.projects.status(project).stage("document").state == "current"
-    creation = app.audiobooks.create_project_result(
-        source, chapters="2-3", output=tmp_path / "selected.ssmdbook"
-    )
-    assert isinstance(creation, AudiobookProjectResult)
-    assert creation.selected_chapters == 2
-    assert [chapter.number for chapter in creation.chapters] == [2, 3]
+    assert isinstance(workspace, book_pipeline.BookWorkspace)
+    assert workspace.root == tmp_path / "book.ssmdbook"
+    assert workspace.native.book.source.format == "epub"
+    assert [chapter.source_number for chapter in workspace.native.book.chapters] == [1, 2]
+    assert not (workspace.root / ".readio").exists()
 
 
-def test_describe_reopened_audiobook_project_returns_persisted_chapters(tmp_path: Path) -> None:
+def test_describe_reopened_audiobook_workspace_preserves_selected_chapters(tmp_path: Path) -> None:
     source = tmp_path / "book.epub"
     make_epub(source)
     app = Readio(ReadioConfig())
     created = app.audiobooks.create_project_result(
         source, chapters="2-3", output=tmp_path / "book.ssmdbook"
     )
-    reopened = app.projects.open(created.project.root)
 
-    description = app.audiobooks.describe_project(reopened)
+    reopened = app.audiobooks.describe_project(created)
 
-    assert isinstance(description, AudiobookProjectDescription)
-    assert description.project == created.project
-    assert description.source == created.project.root / "manifest.json"
-    assert description.chapters == created.chapters
-    payload = json.loads(json.dumps(description.to_dict()))
-    assert [chapter["number"] for chapter in payload["chapters"]] == [2, 3]
-    assert [chapter["scope_id"] for chapter in payload["chapters"]] == [
-        "chapter-0002",
-        "chapter-0003",
-    ]
-    assert all(chapter["title"] and chapter["level"] for chapter in payload["chapters"])
+    assert reopened.root == created.root
+    assert [chapter.source_number for chapter in reopened.native.book.chapters] == [2, 3]
+    assert reopened.native.book.metadata["title"] == "The Example"
 
 
-def test_describe_project_rejects_non_audiobook_and_translates_load_errors(
+def test_describe_rejects_non_workspace_and_leaves_legacy_state_untouched(
     tmp_path: Path,
 ) -> None:
     app = Readio(ReadioConfig())
     source = tmp_path / "document.txt"
     source.write_text("Not an audiobook.", encoding="utf-8")
     document_project = app.projects.create(source, output=tmp_path / "document.readio")
-    with pytest.raises(InvalidRequestError) as wrong_kind:
-        app.audiobooks.describe_project(document_project)
-    assert wrong_kind.value.code == "audiobook.project_kind_invalid"
-
-    with pytest.raises(ProjectNotFoundError) as missing:
-        app.audiobooks.describe_project(tmp_path / "missing.readio")
-    assert missing.value.code == "project.not_found"
+    with pytest.raises(book_pipeline.BookPipelineError):
+        app.audiobooks.describe_project(document_project.root)
 
     epub = tmp_path / "book.epub"
     make_epub(epub)
-    audiobook = app.audiobooks.create_project(epub, output=tmp_path / "book.ssmdbook")
-    (audiobook.root / ".readio" / "document" / "index.json").write_text("{", encoding="utf-8")
-    with pytest.raises(ProjectFormatError) as corrupt:
-        app.audiobooks.describe_project(audiobook)
-    assert corrupt.value.code == "project.invalid"
+    workspace = app.audiobooks.create_project(epub, output=tmp_path / "book.ssmdbook")
+    legacy = workspace.root / ".readio"
+    legacy.mkdir()
+    sentinel = legacy / "legacy-state.json"
+    sentinel.write_text("preserve me", encoding="utf-8")
+    with pytest.warns(UserWarning, match="Legacy .readio state detected"):
+        reopened = app.audiobooks.describe_project(workspace)
+    assert reopened.root == workspace.root
+    assert sentinel.read_text(encoding="utf-8") == "preserve me"
 
 
 def test_resolve_synthesis_uses_profile_and_reader_settings_without_mutation(
@@ -520,10 +500,11 @@ def test_resolve_synthesis_matches_actual_profile_and_rejects_invalid_voice(
     canonical = profile["canonical"]
 
     assert result.profile_id == profile["profile_id"]
-    assert resolution.engine == canonical["engine"]
-    actual_selection = canonical.get("targets", {}).get(resolution.voice, canonical)
-    assert resolution.model == actual_selection["target_id"]
-    assert resolution.voice == actual_selection["voice"]
+    assert canonical["schema"] == "voicerender.effective-profile-set.v1"
+    assert canonical["profiles"]
+    assert resolution.engine == "fake"
+    assert resolution.model == "fake-target"
+    assert resolution.voice == "fake-voice"
     assert adapter.open_calls == 1
 
     original_resolve = adapter.resolve
@@ -848,10 +829,10 @@ def test_project_settings_survive_failed_build_and_retry(tmp_path: Path, monkeyp
     with pytest.raises(ProjectError, match="synthetic runtime failure"):
         app.projects.build(project)
     assert (project.root / "plan" / "index.json").is_file()
-    from utterplan import UtterancePlan
+    from utterplan import FlowPlan
 
-    plan_data = UtterancePlan.load(project.root / "plan" / "document.utterplan.toml").to_dict()
-    assert plan_data["config"]["language"] == "fr-fr"
+    plan_data = FlowPlan.load(project.root / "plan" / "document.utterplan.toml").to_dict()
+    assert plan_data["language"] == "fr-fr"
     assert manifest_path.read_bytes() == persisted
     assert app.projects.settings(project) == configured
 

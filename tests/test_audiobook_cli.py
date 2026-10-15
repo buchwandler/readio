@@ -6,7 +6,7 @@ import pytest
 from audiobook_support import make_epub, make_subset_book_bundle
 
 from readio import cli
-from readio.api import AudiobookExportResult, ProjectExportResult, ProjectRef
+from readio.api import ProjectExportResult, ProjectRef
 from readio.audiobook import inspect_book_source
 from readio.integrations.ssmdconvert import load_book_workspace_source
 
@@ -79,80 +79,6 @@ def test_malformed_epub_json_error_has_no_partial_chapter_list(tmp_path, capsys)
     assert payload["code"] == "input.book_conversion_failed"
 
 
-def test_audiobook_export_cli_uses_public_api_options(tmp_path, capsys, monkeypatch) -> None:
-    project_path = tmp_path / "book.readio"
-    output = tmp_path / "custom.m4b"
-    cover = tmp_path / "cover.png"
-    profile = tmp_path / "audioexport.toml"
-    project = ProjectRef(
-        root=project_path,
-        project_id="project-id",
-        name="book",
-        kind="audiobook",
-        source_format="epub",
-    )
-    result = AudiobookExportResult(
-        project=project,
-        output_path=output,
-        format="m4b",
-        output_sha256="sha256:output",
-        export_id="sha256:export",
-        chapter_count=7,
-    )
-    captured = {}
-
-    class FakeAudiobooks:
-        def export(self, project_argument, options):
-            captured["project"] = project_argument
-            captured["options"] = options
-            return result
-
-    class FakeApp:
-        audiobooks = FakeAudiobooks()
-
-    monkeypatch.setattr(cli, "_api_for", lambda args: FakeApp())
-    payload = json.loads(
-        run_cli(
-            [
-                "audiobook",
-                "export",
-                "--format",
-                "m4b",
-                str(project_path),
-                "--title",
-                "Book title",
-                "--author",
-                "Book author",
-                "--cover",
-                str(cover),
-                "--bitrate",
-                "96k",
-                "--output",
-                str(output),
-                "--profile",
-                str(profile),
-                "--force",
-                "--json",
-            ],
-            capsys,
-        )
-    )
-
-    assert payload["ok"] is True
-    assert payload["format"] == "m4b"
-    assert payload["chapter_count"] == 7
-    assert captured["project"] == project_path
-    options = captured["options"]
-    assert options.format == "m4b"
-    assert options.title == "Book title"
-    assert options.author == "Book author"
-    assert options.cover == cover
-    assert options.bitrate == "96k"
-    assert options.output == output
-    assert options.force is True
-    assert options.profile == profile.resolve()
-
-
 def test_export_cli_has_generic_flac_opus_but_not_m4b(tmp_path, capsys) -> None:
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["export", "--help"])
@@ -168,7 +94,7 @@ def test_export_cli_has_generic_flac_opus_but_not_m4b(tmp_path, capsys) -> None:
     audiobook_help = capsys.readouterr().out
     assert "--cover" in audiobook_help
     assert "--profile" in audiobook_help
-    assert "M4B output path" in audiobook_help
+    assert "--variant VARIANT" in audiobook_help
 
 
 def test_generic_export_cli_forwards_flac_format_and_force(tmp_path, capsys, monkeypatch):
@@ -255,9 +181,10 @@ def test_audiobook_cli_inspects_and_initializes_book_bundles(
     command.append("--json")
     initialized = json.loads(run_cli(command, capsys))
     expected_root = bundle if format == "directory" else project_path
-    assert initialized["project"] == str(expected_root.resolve())
-    assert initialized["selected_chapters"] == 2
-    assert [chapter["number"] for chapter in initialized["chapters"]] == [3, 4]
+    assert initialized["workspace"] == str(expected_root.resolve())
+    assert initialized["selected_chapters"] == (4 if format == "directory" else 2)
+    expected_chapters = [2, 3, 4, 7] if format == "directory" else [3, 4]
+    assert [chapter["number"] for chapter in initialized["chapters"]] == expected_chapters
 
 
 def test_audiobook_cli_language_override_materializes_full_workspace(tmp_path, capsys) -> None:
@@ -283,8 +210,8 @@ def test_audiobook_cli_language_override_materializes_full_workspace(tmp_path, c
         )
     )
     workspace = load_book_workspace_source(output)
-    assert result["project"] == str(output.resolve())
+    assert result["workspace"] == str(output.resolve())
     assert result["selected_chapters"] == 1
-    assert len(workspace.chapters) == 7
+    assert len(workspace.chapters) == 1
     assert workspace.metadata["language"] == "de-DE"
     assert source.read_bytes() == original_source

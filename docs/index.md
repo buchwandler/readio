@@ -18,6 +18,10 @@ projects
 - [Project README](https://github.com/buchwandler/readio/blob/main/README.md), quick-start commands and feature overview.
 - [Agent Skill](https://github.com/buchwandler/readio/blob/main/skill/readio/SKILL.md), instructions for using Readio from an agent workflow.
 
+## Native audiobook workspaces
+
+Chapter-aware audiobooks use SSMDConvert `.ssmdbook` directories directly; Readio adds no `project.json` or `.readio/` state. Start with the [audiobook CLI workflow](cli.md), see the [Python API](api.md), and review [project boundaries](projects.md). Generic document projects and `readio speak` remain separate.
+
 ## Installation
 
 Readio requires Python 3.10 or newer.
@@ -75,10 +79,10 @@ Generic project export supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus. `.ogg
 ```bash
 readio export novel.readio --format flac
 readio export novel.readio --format opus --bitrate 96k
-readio audiobook export novel.ssmdbook --format m4b --cover cover.jpg
+readio audiobook export novel.ssmdbook --variant NARRATION_VARIANT --cover cover.jpg
 ```
 
-M4B is available only for audiobook projects through `readio audiobook export`. It muxes AAC audio and embedded chapters; title/author default from project metadata and cover art is explicit-only (JPEG/PNG). Readio's M4B AAC default is 192k.
+M4B is an audiobook-only format handled by `readio audiobook export WORKSPACE --variant ID`. AudioExport consumes the composed variant and writes a chaptered M4B to its package-owned output path; pass title, author, cover, bitrate, or an AudioExport profile as needed. Generic project exports remain in the Readio project workflow.
 
 Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`, or `.mkd` are parsed before synthesis; `.ssmd.md` is detected as SSMD before its `.md` suffix. Use `--input-format markdown` for Markdown from stdin or literal text:
 
@@ -134,7 +138,7 @@ Synthesis options are available on all three commands:
 --unit UNIT               sentence or paragraph
 
 Readio's short-sentence default is `phrase`; Readio resolves the policy before engine adapters translate it to engine-native settings.
-Readio requires SSMD >=0.9.3,<0.10 and UtterPlan >=0.4.0,<0.5. Project plans use canonical UtterPlan schema-v4 TOML artifacts; the `readio.plan.v2` response remains JSON. It supports PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.5,<0.3, SupertonicSynth >=0.1.2,<0.2, KittenSynth >=0.1.1,<0.2, and InflectSynth >=0.1.1,<0.2; each engine package owns its own runtime dependencies and Readio does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; package names such as `inflectsynth` are input aliases. Install engines with the matching optional extra; `readio doctor` checks each installed package's public request API without downloading models.
+Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2, AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3. Generic project semantic plans use the current UtterPlan package API. Native `.ssmdbook` workflows delegate to package-root book APIs and keep artifacts in the specialist-owned workspace; they use the specialist packages' workspace contracts instead of a Readio-specific book schema. The `readio.plan.v2` response remains JSON. Engine packages include PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth >=0.2.5,<0.3, SupertonicSynth >=0.1.2,<0.2, KittenSynth >=0.1.1,<0.2, and InflectSynth >=0.1.1,<0.2; each owns its runtime dependencies and Readio does not require OnnxVoice. Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; package names such as `inflectsynth` are input aliases. Install engines with the matching optional extra; `readio doctor` checks public request APIs without downloading models.
 
 
 InflectSynth uses public metadata discovery for current targets including `nano-v2` and `micro-v2`, each with the fixed `default` voice. It is English-only; unsupported languages and explicit speaker selection, reference voices, pronunciation overrides, or native word timings are rejected. Readio owns request boundaries and capacity policy; InflectSynth owns G2P and model/runtime internals, while ONNXVoice remains a transitive dependency rather than a Readio import. InflectSynth 0.1.1's public capacity contract does not report a trustworthy maximum, so Readio treats capacity as unknown and does not guess a token limit. Shared speed and voice-level calibration are available in the CLI; API clients can also pass variation and seed through `SynthesisRequest.engine_options`.
@@ -331,7 +335,9 @@ pytest
 ruff check .
 ```
 
-The main execution path is `readio/cli.py`. Project SSMD role discovery and binding settings live in `readio/project_roles.py` and `readio/project_settings.py`; project synthesis orchestration is in `readio/stages/synthesis.py`. Input normalization is in `readio/document.py`, configuration in `readio/config.py`, audio sinks in `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
+The main CLI entry point is `readio/cli.py`. Generic project SSMD role discovery and binding settings live in `readio/project_roles.py` and `readio/project_settings.py`; project synthesis orchestration is in `readio/stages/synthesis.py`. Input normalization is in `readio/document.py`, configuration in `readio/config.py`, audio sinks in `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
+
+Native audiobook API orchestration lives in `readio/api/audiobooks.py` and `readio/book_pipeline.py`; `readio/integrations/ssmdconvert.py` adapts SSMDConvert's public workspace API. Specialist packages own the workspace artifacts. The separate `readio/reader.py` path handles one-shot and live speech, not audiobook projects.
 
 ## SSMD voice resolution
 

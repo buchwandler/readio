@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from ebooklib import epub
-from ssmdconvert import convert_book, write_book_bundle
+from ssmdconvert import BookConversionOptions, convert_book, write_book_bundle
 
 
 def make_epub(path: Path, *, with_navigation: bool = True) -> None:
@@ -65,5 +65,5 @@ def make_subset_book_bundle(
     *,
     format: Literal["directory", "zip"],
 ) -> Path:
-    book = convert_book(epub_source, chapters="2-4,7")
-    return write_book_bundle(book, output, format=format)
+    result = convert_book(epub_source, options=BookConversionOptions(chapters="2-4,7"))
+    return write_book_bundle(result.book, output, format=format)

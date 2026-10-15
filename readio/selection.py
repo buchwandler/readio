@@ -49,20 +49,30 @@ def flow_segment_id(index: int, flow: Any, segment_index: int) -> str:
 
 
 def _flow_units(plan: Any) -> tuple[_FlowUnit, ...]:
-    units = []
-    for index, flow in enumerate(getattr(plan, "flow", ())):
-        identity = flow_id(index, flow)
-        units.append(
+    """Expose atomic flow segments as the user-selectable project units."""
+    if not hasattr(plan, "flow"):
+        units = tuple(getattr(plan, "units", ()))
+        return tuple(
             _FlowUnit(
                 index=index,
-                id=identity,
-                kind=str(getattr(plan, "unit", "flow")),
-                segment_ids=tuple(
-                    flow_segment_id(index, flow, segment_index)
-                    for segment_index, _segment in enumerate(flow.segments)
-                ),
+                id=str(getattr(unit, "id", f"unit-{index:04d}")),
+                kind=str(getattr(unit, "kind", "unit")),
+                segment_ids=tuple(getattr(unit, "segment_ids", ())),
             )
+            for index, unit in enumerate(units)
         )
+    units = []
+    for flow_index, flow in enumerate(plan.flow):
+        for segment_index, _segment in enumerate(flow.segments):
+            identity = flow_segment_id(flow_index, flow, segment_index)
+            units.append(
+                _FlowUnit(
+                    index=len(units),
+                    id=identity,
+                    kind="segment",
+                    segment_ids=(identity,),
+                )
+            )
     return tuple(units)
 
 
@@ -90,30 +100,51 @@ def _with_segments(plan: Any, indices: tuple[int, ...], description: str) -> Uni
 
 
 def _groups(plan: Any, kind: str) -> list[tuple[int, tuple[int, ...]]]:
-    """Return ordered logical groups and their containing flow indices."""
-    flows = tuple(getattr(plan, "flow", ()))
-    configured_unit = getattr(plan, "unit", None)
-    if kind == "sentence" and configured_unit != "sentence":
-        groups: list[tuple[int, tuple[int, ...]]] = []
-        for flow_index, flow in enumerate(flows):
-            for _segment in flow.segments:
-                groups.append((len(groups), (flow_index,)))
-        return groups
-    if kind == "paragraph" and configured_unit == "sentence":
-        groups = []
-        current: list[int] = []
-        for flow_index, flow in enumerate(flows):
-            current.append(flow_index)
-            if any(
-                getattr(getattr(segment, "pause_after", None), "type", None) == "paragraph"
-                for segment in flow.segments
-            ):
-                groups.append((len(groups), tuple(current)))
-                current.clear()
-        if current:
-            groups.append((len(groups), tuple(current)))
-        return groups
-    return [(index, (index,)) for index, _flow in enumerate(flows)]
+    """Return ordered logical groups as selectable segment-unit indices."""
+    units = _flow_units(plan)
+    if not units:
+        return []
+    if not hasattr(plan, "flow"):
+        segments = {
+            str(getattr(segment, "id", "")): segment for segment in getattr(plan, "segments", ())
+        }
+        if kind == "sentence":
+            return [(index, (index,)) for index in range(len(units))]
+        groups: list[list[int]] = []
+        previous_paragraph: Any = object()
+        for unit in units:
+            segment = segments.get(unit.segment_ids[0] if unit.segment_ids else "")
+            paragraph = getattr(segment, "paragraph", 0)
+            if groups and paragraph != previous_paragraph:
+                groups.append([])
+            if not groups:
+                groups.append([])
+            groups[-1].append(unit.index)
+            previous_paragraph = paragraph
+        return [(index, tuple(group)) for index, group in enumerate(groups)]
+
+    segments = [segment for flow in plan.flow for segment in flow.segments]
+    if kind == "sentence" and not any(
+        {"sentence", "paragraph"}.intersection(getattr(segment, "boundary_after", ()))
+        for segment in segments
+    ):
+        return [(index, (index,)) for index in range(len(units))]
+    groups: list[list[int]] = []
+    current: list[int] = []
+    boundary_kind = "sentence" if kind == "sentence" else "paragraph"
+    for unit, segment in zip(units, segments, strict=True):
+        current.append(unit.index)
+        boundaries = set(getattr(segment, "boundary_after", ()))
+        closes_group = boundary_kind in boundaries or (
+            kind == "sentence" and "paragraph" in boundaries
+        )
+        if closes_group:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+    return [(index, tuple(group)) for index, group in enumerate(groups)]
+
 
 def _selected_flow_indices(plan: Any, kind: str, start: int, end: int) -> tuple[int, ...]:
     groups = _groups(plan, kind)
@@ -171,11 +202,7 @@ def resolve_project_selection(
     if not plan_scopes:
         raise SelectionError("the project contains no plan scopes")
     scopes = tuple((str(getattr(scope, "id", scope)), plan) for scope, plan in plan_scopes)
-    entries = [
-        (scope_id, plan, unit)
-        for scope_id, plan in scopes
-        for unit in _flow_units(plan)
-    ]
+    entries = [(scope_id, plan, unit) for scope_id, plan in scopes for unit in _flow_units(plan)]
     if not entries:
         raise SelectionError("the project contains no readable flows")
     normalized = (selector or "all").strip().lower()
@@ -183,9 +210,7 @@ def resolve_project_selection(
         scope_id, plan = scopes[0]
         selection = resolve_unit_selection(plan, normalized)
         return ProjectUnitSelection(
-            scopes=(
-                ScopedUnitSelection(scope_id, selection.unit_indices, selection.segment_ids),
-            ),
+            scopes=(ScopedUnitSelection(scope_id, selection.unit_indices, selection.segment_ids),),
             description=selection.description,
         )
 
@@ -219,7 +244,9 @@ def resolve_project_selection(
                 selected_entries = entries[-end:]
             else:
                 if end > len(entries):
-                    raise SelectionError(f"unit {end} is out of range; project has {len(entries)} flows")
+                    raise SelectionError(
+                        f"unit {end} is out of range; project has {len(entries)} flows"
+                    )
                 selected_entries = entries[start - 1 : end]
         elif kind in {"paragraph", "sentence"}:
             groups = [
@@ -228,7 +255,9 @@ def resolve_project_selection(
                 for _, indices in _groups(plan, kind)
             ]
             if end > len(groups):
-                raise SelectionError(f"{kind} {end} is out of range; project has {len(groups)} {kind}s")
+                raise SelectionError(
+                    f"{kind} {end} is out of range; project has {len(groups)} {kind}s"
+                )
             selected_keys = {
                 (scope_id, index)
                 for scope_id, indices in groups[start - 1 : end]

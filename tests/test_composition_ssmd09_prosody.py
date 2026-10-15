@@ -10,12 +10,13 @@ import numpy as np
 import pytest
 import soundfile as sf
 from audiocompose import AudioJob, Composer, Gain, PitchShift, RatePitchEnvelope, Tempo
-from utterplan import Marker, ResolvedPause
+from utterplan import FlowUnit, PauseIntent
 
 from readio.document import document_from_text
 from readio.engines.base import SpeechWordTiming
 from readio.errors import InputError
 from readio.planning.compiler import compile_semantic_plan
+from readio.planning.flow import document_semantics, iter_flow_segments
 from readio.planning.policy import PlanningPolicy
 from readio.stages.composition import (
     LayoutBuilder,
@@ -60,13 +61,24 @@ Second utterance.
     ).plan
 
 
+def _replace_flow_segments(plan, replacements):
+    flows = []
+    for flow_index, flow in enumerate(plan.flow):
+        segments = tuple(
+            replacements.get(f"f{flow_index:06d}.s{segment_index:03d}", segment)
+            for segment_index, segment in enumerate(flow.segments)
+        )
+        flows.append(FlowUnit(segments=segments))
+    return replace(plan, flow=tuple(flows), plan_id="")
+
+
 def _entries(plan, tmp_path: Path, profile, *, scopes: tuple[str, str] = ("document", "document")):
     audio = np.zeros(1200, dtype=np.float32)
     path = tmp_path / "segment.wav"
     sf.write(path, audio, 24000, subtype="PCM_16")
     audio_hash = hashlib.sha256(path.read_bytes()).hexdigest()
     entries = []
-    for segment, scope_id in zip(plan.segments, scopes, strict=True):
+    for segment, scope_id in zip(iter_flow_segments(plan), scopes, strict=True):
         entries.append(
             (
                 segment,
@@ -79,7 +91,7 @@ def _entries(plan, tmp_path: Path, profile, *, scopes: tuple[str, str] = ("docum
                     "frames": len(audio),
                     "speech_hash": f"speech:{segment.id}",
                     "synthesis_key": f"synthesis:{segment.id}",
-                    "prosody_transitions": plan.document_metadata["prosody_transitions"],
+                    "prosody_transitions": document_semantics(plan)["prosody_transitions"],
                     "voice_identity": _segment_voice_identity(profile, plan, scope_id, segment),
                 },
             )
@@ -161,13 +173,14 @@ def test_unsupported_legacy_or_invalid_prosody_is_rejected(converter, value):
         converter(value)
 
 
-def test_utterplan_v3_defaults_drive_audiojob_v2_envelopes(tmp_path):
+def test_utterplan_v7_flow_defaults_drive_audiojob_v2_envelopes(tmp_path):
     plan = _plan()
-    assert len(plan.segments) == 2
-    assert plan.segments[0].directives.prosody.rate == "brisk"
-    assert plan.segments[0].directives.prosody.pitch == "+12%"
-    assert plan.segments[1].directives.prosody.rate == "very-fast"
-    assert plan.segments[1].directives.prosody.pitch == "-6%"
+    segments = tuple(iter_flow_segments(plan))
+    assert len(segments) == 2
+    assert segments[0].directives.prosody.rate == "brisk"
+    assert segments[0].directives.prosody.pitch == "+12%"
+    assert segments[1].directives.prosody.rate == "very-fast"
+    assert segments[1].directives.prosody.pitch == "-6%"
 
     profile = {
         "canonical": {
@@ -258,28 +271,21 @@ def test_transition_voice_gate_and_scope_boundary_use_resolved_voice_identity(tm
 
 def test_incremental_layout_builder_preserves_state_across_segment_jobs(tmp_path):
     plan = _plan()
-    first, second = plan.segments
+    first_ref, second_ref = tuple(iter_flow_segments(plan))
     first = replace(
-        first,
-        pause_after=ResolvedPause(seconds=0.05, events=("same-pause",)),
+        first_ref.segment,
+        pause_after=PauseIntent("timed", "50ms"),
+        markers=("marker-1",),
     )
-    second = replace(
-        second,
-        pause_before=ResolvedPause(seconds=0.05, events=("same-pause",)),
-    )
-    marker = Marker(
-        id="marker-1",
-        name="chapter-one",
-        spoken_position=first.spoken_start + 5,
-    )
-    plan = replace(plan, segments=(first, second), markers=(marker,))
+    second = replace(second_ref.segment, pause_before=None)
+    plan = _replace_flow_segments(plan, {first_ref.id: first, second_ref.id: second})
     profile = {
         "canonical": {
             "bindings_by_scope": {"document": {"narrator": "voice-a", "guest": "voice-a"}}
         }
     }
     entries = _entries(plan, tmp_path, profile)
-    entries[0][1]["markers"] = _markers_by_segment(plan)[first.id]
+    entries[0][1]["markers"] = _markers_by_segment(plan)[first_ref.id]
     builder = LayoutBuilder(
         None,
         sample_rate=16000,
@@ -321,7 +327,11 @@ def test_zero_duration_transition_is_deterministic_and_affects_identity(tmp_path
         }
     }
     entries = _entries(plan, tmp_path, profile)
-    zero_duration = {**plan.document_metadata["prosody_transitions"], "rate": "0ms", "pitch": "0ms"}
+    zero_duration = {
+        **document_semantics(plan)["prosody_transitions"],
+        "rate": "0ms",
+        "pitch": "0ms",
+    }
     for _, entry in entries:
         entry["prosody_transitions"] = zero_duration
 
@@ -343,17 +353,14 @@ def test_zero_duration_transition_is_deterministic_and_affects_identity(tmp_path
 
 def test_plan_aware_job_preserves_timing_anchor_and_resamples_output_rate():
     plan = _plan()
-    segment = plan.segments[0]
-    segment = replace(
-        segment,
-        directives=replace(segment.directives, prosody=None),
+    source_ref = next(iter(iter_flow_segments(plan)))
+    updated = replace(
+        source_ref.segment,
+        directives=replace(source_ref.segment.directives, prosody=None),
+        markers=("marker-1",),
     )
-    marker = Marker(
-        id="marker-1",
-        name="chapter-one",
-        spoken_position=segment.spoken_start + 5,
-    )
-    plan = replace(plan, segments=(segment, *plan.segments[1:]), markers=(marker,))
+    plan = _replace_flow_segments(plan, {source_ref.id: updated})
+    segment = next(iter(iter_flow_segments(plan)))
     audio = np.sin(np.linspace(0.0, 8.0 * math.pi, 22050, dtype=np.float32))
     entry = {
         "scope_id": "document",
@@ -376,7 +383,7 @@ def test_plan_aware_job_preserves_timing_anchor_and_resamples_output_rate():
                 end_sample=len(audio),
             ),
         ),
-        "markers": _markers_by_segment(plan)[segment.id],
+        "markers": ({"id": "marker-1", "name": "marker-1", "spoken_position": 5},),
     }
 
     job, _identity = _build_layout(

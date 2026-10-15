@@ -355,6 +355,11 @@ def resolve_voice_reference(
             and (reference.voice_id is None or entry.id == reference.voice_id)
         )
     else:
+        if requested_engine is not None:
+            try:
+                public_system_for_engine(requested_engine)
+            except ValueError:
+                return None
         if requested_engine == "pocket" and model is None:
             return None
         entries, _result = discover_voice_catalog(

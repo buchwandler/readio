@@ -32,11 +32,12 @@ def _plan(tmp_path):
 
 def test_selectors_cover_ranges_and_paragraphs_over_sentence_units(tmp_path):
     plan = _plan(tmp_path)
-    assert resolve_unit_selection(plan, "all").unit_indices == tuple(range(len(plan.flow)))
+    segment_count = sum(len(flow.segments) for flow in plan.flow)
+    assert resolve_unit_selection(plan, "all").unit_indices == tuple(range(segment_count))
     assert len(resolve_unit_selection(plan, "first:1").unit_indices) == 1
     assert len(resolve_unit_selection(plan, "last:1").unit_indices) == 1
     assert resolve_unit_selection(plan, "paragraph:1").unit_indices == (0, 1)
-    assert resolve_unit_selection(plan, "paragraph:1-2").unit_indices == tuple(range(len(plan.flow)))
+    assert resolve_unit_selection(plan, "paragraph:1-2").unit_indices == tuple(range(segment_count))
     assert resolve_unit_selection(plan, "sentence:1").unit_indices == (0,)
     assert resolve_unit_selection(plan, "unit:1-2").unit_indices == (0, 1)
     assert resolve_unit_selection(plan, "last-paragraph").unit_indices

@@ -72,7 +72,7 @@ def test_plan_v2_compiles_semantics_without_opening_a_synthesis_runtime(monkeypa
     assert resolved.plan.schema == "readio.plan.v2"
     assert resolved.semantic is not None
     assert resolved.plan.planning.text_preparation == "spokenform"
-    assert resolved.semantic.plan.units
+    assert resolved.semantic.plan.flow
     assert resolved.plan.render.default_target.id == "fixture-model"
 
 
@@ -96,4 +96,4 @@ def test_plan_v2_routes_explicit_markdown_through_ssmdconvert(monkeypatch):
     assert resolved.document.format == "ssmd"
     assert resolved.document.text == document_from_text(document.text, input_format="markdown").text
     assert resolved.semantic is not None
-    assert resolved.semantic.plan.units
+    assert resolved.semantic.plan.flow

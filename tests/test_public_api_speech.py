@@ -517,5 +517,3 @@ def test_render_live_to_file_failure_keeps_final_output_unchanged(
     assert output.read_bytes() == b"original"
     assert not tuple(tmp_path.glob(".live.*.wav"))
     assert sinks[0].closed
-
-

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from utterplan import preflight_renderability
 
 from readio.config import ReaderSettings, ReadioConfig
 from readio.errors import ProjectPlanRenderabilityError
@@ -119,7 +118,7 @@ def test_strict_project_failure_aggregates_issues_without_replacing_plans(tmp_pa
     ]
 
 
-def test_repair_mode_is_one_shot_reports_diagnostics_and_persists_strict_valid_plan(tmp_path):
+def test_repair_mode_keeps_unsupported_drop_repair_blocked(tmp_path):
     source = tmp_path / "repair.txt"
     source.write_text("First sentence.\n\n.\n\nSecond sentence.", encoding="utf-8")
     project = init_project(source, tmp_path / "repair.readio")
@@ -127,35 +126,29 @@ def test_repair_mode_is_one_shot_reports_diagnostics_and_persists_strict_valid_p
     original_reader = config.reader
     progress = []
 
-    result = plan_project(
-        project,
-        config,
-        renderability_mode="repair",
-        on_progress=progress.append,
-    )
+    with pytest.raises(ProjectPlanRenderabilityError) as caught:
+        plan_project(
+            project,
+            config,
+            renderability_mode="repair",
+            on_progress=progress.append,
+        )
 
-    assert result.renderability_mode == "repair"
-    assert result.renderability_guaranteed is True
-    assert result.repairs > 0
-    assert any(item["code"] == "planning.renderability.repaired" for item in result.diagnostics)
-    assert result.attempt_id is not None
+    error = caught.value
+    assert error.renderability_mode == "repair"
+    assert error.active_plan_changed is False
+    assert error.issues[0]["repair_action"] == "drop"
+    assert error.issues[0]["reason"] == "punctuation_only"
+    assert not project.paths["plan_index"].exists()
+    assert config.reader is original_reader
+    assert any(event.kind == "renderability.failed" for event in progress)
     attempt = json.loads(
-        (project.state_root / "plan" / "attempts" / result.attempt_id / "attempt.json").read_text(
+        (project.state_root / "plan" / "attempts" / error.attempt_id / "attempt.json").read_text(
             encoding="utf-8"
         )
     )
-    assert attempt["status"] == "repaired"
-    assert attempt["activated"] is True
-    assert config.reader is original_reader
-    plan = load_primary_scope_plan(project)
-    assert plan.config["renderability_mode"] == "repair"
-    assert plan.document_metadata["planning"]["renderability"]["guaranteed"] is True
-    assert preflight_renderability(plan).ok
-    assert source.read_text(encoding="utf-8") == "First sentence.\n\n.\n\nSecond sentence."
-    assert any(event.kind == "renderability.started" for event in progress)
-    completed = [event for event in progress if event.kind == "renderability.completed"]
-    assert completed and completed[0].details["mode"] == "repair"
-    assert completed[0].details["repair_count"] == result.repairs
+    assert attempt["status"] == "blocked"
+    assert attempt["activated"] is False
 
 
 def test_unsafe_repair_failure_is_structured_and_writes_no_plan(tmp_path):
@@ -217,10 +210,12 @@ def test_unicode_lexical_numbers_remain_renderable(tmp_path):
     plan_project(project, ReadioConfig(reader=ReaderSettings(spacy="off")))
     plan = load_primary_scope_plan(project)
 
-    assert preflight_renderability(plan).ok
-    assert "Café" in plan.texts.spoken
-    assert "thirty one" in plan.texts.spoken
-    assert all("Unicode lexical content" not in segment.text for segment in plan.segments)
+    plan.validate()
+    segments = [segment for flow in plan.flow for segment in flow.segments]
+    spoken = "".join(segment.text for segment in segments)
+    assert "Café" in spoken
+    assert "thirty one" in spoken
+    assert all("Unicode lexical content" not in segment.text for segment in segments)
     assert source.read_text(encoding="utf-8") == original
 
 
@@ -240,9 +235,10 @@ def test_scene_break_forms_do_not_create_unrenderable_segments(tmp_path, name, s
     plan_project(project, ReadioConfig(reader=ReaderSettings(spacy="off")))
     plan = load_primary_scope_plan(project)
 
-    assert preflight_renderability(plan).ok
-    assert [segment.text for segment in plan.segments] == ["Before scene.", "After scene."]
-    assert all("Scene-boundary regression" not in segment.text for segment in plan.segments)
+    plan.validate()
+    segments = [segment for flow in plan.flow for segment in flow.segments]
+    assert [segment.text for segment in segments] == ["Before scene.", "After scene."]
+    assert all("Scene-boundary regression" not in segment.text for segment in segments)
     assert source.read_text(encoding="utf-8") == original
 
 
@@ -294,7 +290,7 @@ def test_failed_scope_leaves_completed_attempt_scopes_available(tmp_path, monkey
     assert not project.paths["plan_index"].exists()
 
 
-def test_legacy_mode_sensitive_plan_fingerprints_remain_current(tmp_path):
+def test_legacy_mode_sensitive_plan_fingerprints_are_marked_stale(tmp_path):
     source = tmp_path / "legacy-plan.txt"
     source.write_text("A spoken sentence.", encoding="utf-8")
     project = init_project(source, tmp_path / "legacy-plan.readio")
@@ -303,13 +299,14 @@ def test_legacy_mode_sensitive_plan_fingerprints_remain_current(tmp_path):
         ReadioConfig(reader=ReaderSettings(spacy="off")),
         renderability_mode="strict",
     )
-    plan = load_primary_scope_plan(project)
 
     index_path = project.paths["plan_index"]
     index = json.loads(index_path.read_text(encoding="utf-8"))
     index["scopes"][0]["semantic_planner_fingerprint"] = _legacy_semantic_planner_fingerprint(
-        plan.config
+        index["scopes"][0]["planning_config"]
     )
     index_path.write_text(json.dumps(index), encoding="utf-8")
 
-    assert _plan_artifact_status(project, "text")["state"] == "current"
+    status = _plan_artifact_status(project, "text")
+    assert status["state"] == "stale"
+    assert status["reason"] == "plan.stale.planner_version_changed"

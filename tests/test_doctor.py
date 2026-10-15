@@ -31,11 +31,17 @@ def _incompatible_probe_status():
     }
 
 
-
 def test_doctor_text_reports_structured_engine_probe(monkeypatch) -> None:
     monkeypatch.setattr(
         "readio.doctor.list_engines",
-        lambda: ({"id": "kitten", "installed": True, "installed_version": "0.1.1", "package": "kittensynth"},),
+        lambda: (
+            {
+                "id": "kitten",
+                "installed": True,
+                "installed_version": "0.1.1",
+                "package": "kittensynth",
+            },
+        ),
     )
     monkeypatch.setattr(
         "readio.doctor.voicerender_engine_status",
@@ -61,7 +67,14 @@ def test_doctor_api_json_preserves_structured_probe_fields(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "readio.doctor.list_engines",
-        lambda: ({"id": "kitten", "installed": True, "installed_version": "0.1.1", "package": "kittensynth"},),
+        lambda: (
+            {
+                "id": "kitten",
+                "installed": True,
+                "installed_version": "0.1.1",
+                "package": "kittensynth",
+            },
+        ),
     )
     monkeypatch.setattr(
         "readio.doctor.voicerender_engine_status",

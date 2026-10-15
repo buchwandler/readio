@@ -80,7 +80,7 @@ def test_ssmd_role_binding_comes_from_compiled_semantic_metadata(monkeypatch):
 
     assert resolved.plan.ok
     assert resolved.semantic is not None
-    assert resolved.semantic.plan.document_metadata["voice_bindings"] == {
+    assert resolved.semantic.plan.document.semantics["voice_bindings"] == {
         "kokoro": {"host": "af_bella"}
     }
     binding = resolved.plan.render.role_bindings[0]

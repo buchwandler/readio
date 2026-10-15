@@ -6,6 +6,7 @@ import pytest
 from audiobook_support import make_epub, make_subset_book_bundle
 from ssmdconvert import MissingDependencyError
 
+from readio.book_pipeline import BookPipelineError
 from readio.audiobook import init_audiobook_project
 from readio.errors import InputError
 from readio.integrations import ssmdconvert as integration
@@ -140,10 +141,11 @@ def test_book_boundary_translates_unsupported_bundle_and_selection_errors(
 
     bundle = tmp_path / "novel.ssmdbook.zip"
     make_subset_book_bundle(epub, bundle, format="zip")
-    with pytest.raises(BookSelectionError) as bundle_selection_error:
+    with pytest.raises(BookPipelineError) as bundle_selection_error:
         init_audiobook_project(bundle, tmp_path / "invalid.ssmdbook", chapters="5")
-    assert bundle_selection_error.value.code == "input.book_selection_invalid"
-    assert bundle_selection_error.value.source_path == bundle.resolve()
+    assert bundle_selection_error.value.code == "request.chapter_selection_invalid"
+    assert bundle_selection_error.value.stage == "convert"
+    assert bundle_selection_error.value.details["source_path"] == bundle.resolve().as_posix()
 
 
 def test_document_boundary_translates_unsupported_input(tmp_path: Path) -> None:

@@ -189,7 +189,19 @@ def _planning_config(
     renderability_mode: Literal["strict", "repair"],
 ) -> dict[str, Any]:
     _, policy = _prepare_planning_policy(cfg, document, renderability_mode)
-    return asdict(policy.to_planner_config())
+    planning = asdict(policy.to_planner_config())
+    planning["unit"] = policy.unit
+    planning["pauses"] = {
+        "mode": policy.pause_mode,
+        "enabled": policy.pause_enabled,
+        "weak": policy.pause_weak,
+        "clause": policy.pause_clause,
+        "sentence": policy.pause_sentence,
+        "paragraph": policy.pause_paragraph,
+        "parenthetical": policy.pause_parenthetical,
+        "voice_change": policy.pause_voice_change,
+    }
+    return planning
 
 
 def _planning_fingerprint(
@@ -198,6 +210,7 @@ def _planning_fingerprint(
     renderability_mode: Literal["strict", "repair"],
 ) -> str:
     return semantic_planner_fingerprint(_planning_config(cfg, document, renderability_mode))
+
 
 def resolve_semantic_planning(
     cfg: Any,
@@ -384,7 +397,7 @@ def compile_project_scope(
     serialized = resolved.compiled.serialized or serialize_utterplan(resolved.compiled.plan)
     input_path = (
         project.workspace_path(scope.path)
-        if project.manifest.schema_version == 4
+        if project.manifest.layout_mode == "attached-ssmdbook"
         else project.path(scope.path)
     )
     document_sha = document_sha256
@@ -422,7 +435,7 @@ def plan_project_scope(
     on_progress: PlanningProgressCallback | None = None,
 ) -> CompiledSemanticPlan:
     """Compile and replace one independent plan scope while preserving others."""
-    if project.manifest.schema_version == 4:
+    if project.manifest.layout_mode == "attached-ssmdbook":
         refresh_audiobook_index(project)
     scope = DocumentScope(
         id=scope_id,
@@ -744,6 +757,7 @@ def _segment_detail(
         ),
     )
 
+
 def _issue_for_inspection(
     issue: Mapping[str, Any],
     *,
@@ -947,9 +961,7 @@ def inspect_plan_state(
             for flow_index, flow in enumerate(plan.flow):
                 flow_id = _flow_identity(flow_index, flow)
                 for segment_index, segment in enumerate(flow.segments):
-                    _, current_segment_id = _flow_segment_identity(
-                        flow_index, flow, segment_index
-                    )
+                    _, current_segment_id = _flow_segment_identity(flow_index, flow, segment_index)
                     if segment_id is not None and current_segment_id != segment_id:
                         continue
                     if unit_id is not None and unit_id != flow_id:
@@ -1053,7 +1065,7 @@ def _new_plan_attempt(
 
 
 def _scope_source_path(project: Project, scope: DocumentScope) -> Path:
-    if project.manifest.schema_version == 4:
+    if project.manifest.layout_mode == "attached-ssmdbook":
         return project.workspace_path(scope.path)
     return project.state_path(scope.path)
 
@@ -1266,7 +1278,7 @@ def plan_project(
     parent_attempt_id: str | None = None,
 ) -> ProjectPlanningResult:
     """Persist a plan attempt incrementally, then promote only a complete valid plan."""
-    if project.manifest.schema_version == 4:
+    if project.manifest.layout_mode == "attached-ssmdbook":
         refresh_audiobook_index(project)
     with project_lock(project, operation="plan"):
         document_scopes = project.document_scopes()
@@ -2001,7 +2013,7 @@ def _plan_artifact_status(project: Project, document_format: str) -> dict[str, A
         if document_scope is not None and scope.document_sha256 is not None:
             document_path = (
                 project.workspace_path(document_scope.path)
-                if project.manifest.schema_version == 4
+                if project.manifest.layout_mode == "attached-ssmdbook"
                 else project.path(document_scope.path)
             )
             if not document_path.is_file() or hash_file(document_path) != scope.document_sha256:
@@ -2044,7 +2056,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
 
     workspace_book: Any = None
     workspace_details: dict[str, Any] | None = None
-    if project.manifest.schema_version == 4:
+    if project.manifest.layout_mode == "attached-ssmdbook":
         refresh_command = f"ssmdconvert book refresh {project.workspace_root}"
         try:
             workspace_book = refresh_audiobook_index(project)
@@ -2088,7 +2100,7 @@ def semantic_status(project: Project) -> list[dict[str, Any]]:
             for scope in document_index.scopes:
                 scope_path = (
                     project.workspace_path(scope.path)
-                    if project.manifest.schema_version == 4
+                    if project.manifest.layout_mode == "attached-ssmdbook"
                     else project.state_path(scope.path)
                 )
                 if not scope_path.is_file():

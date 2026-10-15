@@ -35,7 +35,7 @@ The high-level command rebuilds only stale stages. Typical decisions are:
 
 `readio export` tracks each output independently. Its identity includes the master, format, and normalized effective encoder options: M4A defaults to 192k and Opus defaults to 96k. WAV and FLAC do not accept bitrate options. `.ogg` remains Ogg/Vorbis; `.opus` is separate.
 
-Audiobook M4B is a separate output identity created by `readio audiobook export PROJECT --format m4b`. It includes the composition master and timeline, resolved title/author, explicit cover hash, and AAC bitrate (192k by default). Changing only metadata, cover, or bitrate requires a new M4B encode, not replanning, resynthesis, or recomposition. A master/timeline change follows the normal composition invalidation path. Automatic cover extraction is not supported; pass a JPEG/PNG with `--cover`.
+Native audiobook M4B export is separate from the generic Readio project graph. Use `readio audiobook export WORKSPACE --variant ID`; AudioExport consumes the selected composed variant and owns its output sidecar. Metadata, cover, bitrate, or profile changes are export-stage concerns and do not require planning, synthesis, or composition. `readio audiobook status` reports the package-owned output artifacts. Automatic cover extraction is not supported; pass a JPEG/PNG with `--cover`.
 
 `readio preview PROJECT --select paragraph:1-3 --voice VOICE -o preview.wav`
 uses the same synthesis and composition primitives for a selected range. It

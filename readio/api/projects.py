@@ -663,6 +663,15 @@ class ProjectService:
         if selection is None:
             raise ValueError("project synthesis has no effective engine selection")
         options = selection.options
+        synthesis = _effective_request.synthesis
+
+        def resolved_option(name: str) -> Any:
+            requested = getattr(synthesis, name, None)
+            return options.get(name) if requested is None else requested
+
+        speed = resolved_option("speed")
+        if speed is None:
+            speed = self._app.config.reader.speed
         diagnostics = tuple(
             Diagnostic.from_plan(item)
             for item in resolved.plan.diagnostics
@@ -673,20 +682,20 @@ class ProjectService:
             language=selection.language,
             voice=selection.voice,
             model=str(selection.metadata.get("model") or selection.target_id),
-            model_source=cast(str | None, options.get("model_source")),
-            quality=cast(str | None, options.get("quality")),
-            speed=float(options.get("speed", self._app.config.reader.speed)),
-            unit=resolved.plan.planning.unit,
-            pause_mode=resolved.plan.planning.pause_mode,
-            voice_level=cast(str | None, options.get("voice_level")),
-            spacy=resolved.plan.planning.spacy,
-            short_sentence=cast(str | None, options.get("short_sentence")),
-            lexicons=_optional_string_tuple(options.get("lexicons")),
-            g2p_fallback=cast(str | None, options.get("g2p_fallback")),
-            lexicon_data_policy=cast(str | None, options.get("lexicon_data_policy")),
-            language_detection=cast(str | None, options.get("language_detection")),
-            detect_languages=_optional_string_tuple(options.get("detect_languages")),
-            allow_experimental=bool(options.get("allow_experimental", False)),
+            model_source=cast(str | None, resolved_option("model_source")),
+            quality=cast(str | None, resolved_option("quality")),
+            speed=float(speed),
+            unit=synthesis.unit or resolved.plan.planning.unit,
+            pause_mode=synthesis.pause_mode or resolved.plan.planning.pause_mode,
+            voice_level=cast(str | None, resolved_option("voice_level")),
+            spacy=synthesis.spacy or resolved.plan.planning.spacy,
+            short_sentence=cast(str | None, resolved_option("short_sentence")),
+            lexicons=_optional_string_tuple(resolved_option("lexicons")),
+            g2p_fallback=cast(str | None, resolved_option("g2p_fallback")),
+            lexicon_data_policy=cast(str | None, resolved_option("lexicon_data_policy")),
+            language_detection=cast(str | None, resolved_option("language_detection")),
+            detect_languages=_optional_string_tuple(resolved_option("detect_languages")),
+            allow_experimental=bool(resolved_option("allow_experimental") or False),
             diagnostics=diagnostics,
         )
 

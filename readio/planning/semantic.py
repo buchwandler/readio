@@ -1,4 +1,4 @@
-"""Semantic planning service for Readio using UtterPlan's public v5 API."""
+"""Semantic planning service for Readio using UtterPlan's public v7 API."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from utterplan import CURRENT_SCHEMA_VERSION, FlowPlan, PlannerProgressEvent, co
 
 from .policy import PlanningPolicy
 
-SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 5
+SUPPORTED_UTTERPLAN_SCHEMA_VERSION = 7
 if CURRENT_SCHEMA_VERSION != SUPPORTED_UTTERPLAN_SCHEMA_VERSION:
     raise RuntimeError(
-        "Readio requires UtterPlan schema v5; "
+        "Readio requires UtterPlan schema v7; "
         f"installed UtterPlan reports schema {CURRENT_SCHEMA_VERSION}"
     )
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class SemanticPlanningService:
-    """Compile prepared text exactly once into a canonical UtterPlan v5 FlowPlan."""
+    """Compile prepared text exactly once into a canonical UtterPlan v7 FlowPlan."""
 
     def __init__(self) -> None:
         self._last_plan: FlowPlan | None = None
@@ -55,7 +55,7 @@ class SemanticPlanningService:
             "schema_version": plan.schema_version,
             "producer": dict(plan.producer),
             "language": plan.language,
-            "unit": plan.unit,
+            "unit": policy.unit,
             "diagnostics": tuple(result.diagnostics),
         }
         logger.debug(

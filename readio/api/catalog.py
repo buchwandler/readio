@@ -9,7 +9,7 @@ from .. import lexicons as lexicons_internal
 from .. import models as models_internal
 from .. import voices as voices_internal
 from ..catalog_metadata import language_tags_match, normalize_locale_tag
-from ..engines.registry import get_engine
+from ..engines.registry import get_engine, iter_engines
 from ..errors import ReadioError
 from ..integrations.voicerender import (
     catalog_engine_status,
@@ -106,6 +106,26 @@ class CatalogService:
                             if not installed
                             else None
                         ),
+                    )
+                )
+            known = {row.id for row in rows}
+            for adapter in iter_engines():
+                if adapter.id in known:
+                    continue
+                probe = adapter.probe_api()
+                try:
+                    engine_version = probe.distribution_version or adapter.version()
+                except Exception:
+                    engine_version = probe.distribution_version
+                rows.append(
+                    EngineInfo(
+                        id=adapter.id,
+                        version=engine_version,
+                        registered=True,
+                        installed=probe.status != "package_missing",
+                        runnable=probe.compatible,
+                        capabilities=adapter.capabilities(),
+                        missing_dependency=(probe.package if not probe.compatible else None),
                     )
                 )
             return tuple(rows)

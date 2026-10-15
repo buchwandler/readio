@@ -385,7 +385,7 @@ def test_batch_export_cli_prints_ordered_rows_and_returns_failure_status(
     ]
 
 
-def test_audioexport_import_is_lazy_and_missing_extra_is_actionable(
+def test_audioexport_import_is_lazy_and_missing_dependency_is_actionable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sentinel = ModuleType("audioexport")
@@ -406,7 +406,7 @@ def test_audioexport_import_is_lazy_and_missing_extra_is_actionable(
 
     monkeypatch.setattr(audioexport_loader, "import_module", raise_missing)
     with pytest.raises(
-        audioexport_loader.AudioExportUnavailableError, match=r"readio\[audioexport\]"
+        audioexport_loader.AudioExportUnavailableError, match="core dependency"
     ) as error:
         audioexport_loader.load_audioexport()
     assert error.value.code == "audioexport.dependency_missing"

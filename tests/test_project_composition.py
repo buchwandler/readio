@@ -1,45 +1,13 @@
 from __future__ import annotations
 
-from audiocompose import AudioClip, AudioFileSource, AudioJob
-from voicerender import read_render_manifest
 from voicerender.engines.registry import _ADAPTERS
 from voicerender_support import FixtureAdapter
 
 from readio.config import ReaderSettings, ReadioConfig
 from readio.project import hash_file, init_project, read_json
-from readio.stages import composition as composition_stage
 from readio.stages.composition import build_audio_job, compose_project, composition_is_current
 from readio.stages.planning import plan_project
 from readio.stages.synthesis import synthesize_project
-
-
-def _materialize_for_test(*, plan, render_manifest, pause_policy, output_policy):
-    manifest_path = render_manifest
-    manifest = read_render_manifest(manifest_path)
-    plan_id = manifest["source"]["plan_id"]
-    clips = []
-    for entry in manifest["segments"]:
-        audio = entry["audio"]
-        locator = entry["source"]["locator"]
-        clips.append(
-            AudioClip(
-                id=f"speech:{locator}",
-                source=AudioFileSource(
-                    manifest_path.parent / audio["path"],
-                    expected_sha256=audio["sha256"],
-                    sample_rate=audio["sample_rate"],
-                    channels=audio["channels"],
-                    frames=audio["frames"],
-                ),
-                metadata={
-                    "utterplan.plan_id": plan_id,
-                    "utterplan.locator": locator,
-                },
-            )
-        )
-    assert pause_policy.policy_id
-    return AudioJob(items=tuple(clips), output=output_policy)
-
 
 
 def _project(tmp_path, monkeypatch, *, text="Alpha.\n\nBeta."):
@@ -57,7 +25,6 @@ def _project(tmp_path, monkeypatch, *, text="Alpha.\n\nBeta."):
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, config)
     synthesize_project(project, config)
-    monkeypatch.setattr(composition_stage, "materialize_voicerender_job", _materialize_for_test)
     return project, config
 
 
@@ -90,7 +57,9 @@ def test_composition_uses_audiojob_and_mastering_rebuilds_without_tts(tmp_path, 
     assert not composition_is_current(project, target_lufs=-18)
     assert (project.state_root / "composition" / "pause-policy.toml").is_file()
     assert job.items
-    assert all("composition" in str(item.source.path) for item in job.items if hasattr(item, "source"))
+    assert all(
+        "composition" in str(item.source.path) for item in job.items if hasattr(item, "source")
+    )
 
 
 def test_compose_project_forwards_progress_and_outer_phases(tmp_path, monkeypatch):
@@ -151,7 +120,6 @@ def test_project_composition_honors_requested_sample_rate(tmp_path, monkeypatch)
     result = compose_project(project, output_sample_rate=16000)
     assert result["sample_rate"] == 16000
     assert read_json(project.paths["composition_state"])["output_policy"]["sample_rate"] == 16000
-
 
 
 def test_project_status_reuses_audiojob_identity(tmp_path, monkeypatch):

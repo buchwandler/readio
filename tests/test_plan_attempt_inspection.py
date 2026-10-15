@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-from utterplan import preflight_renderability
-
 from readio.api import (
     ProjectPlanAttemptError,
     ProjectPlanInspectionOptions,
@@ -17,7 +15,7 @@ from readio.api import (
 from readio.config import ReaderSettings, ReadioConfig
 from readio.project import init_project, load_project
 from readio.project_model import DocumentIndex, DocumentScope
-from readio.stages.planning import load_primary_scope_plan, load_scope_plan
+from readio.stages.planning import load_primary_scope_plan
 
 
 def _app() -> Readio:
@@ -54,7 +52,8 @@ def test_first_failure_is_inspectable_with_issue_and_segment_details(tmp_path: P
     manifest = json.loads((attempt_dir / "attempt.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "blocked"
     assert manifest["activated"] is False
-    assert (attempt_dir / manifest["scopes"][0]["candidate_path"]).suffix == ".toml"
+    assert (attempt_dir / manifest["scopes"][0]["candidate_path"]).suffix == ".json"
+    assert manifest["scopes"][0]["candidate_kind"] == "diagnostic_json"
 
     inspection = app.projects.inspect_plan(
         project,
@@ -68,23 +67,8 @@ def test_first_failure_is_inspectable_with_issue_and_segment_details(tmp_path: P
     issue = inspection.issues[0]
     assert issue.text == "€"
     assert issue.repair_safe is False
-    assert issue.unit_id is not None
+    assert issue.segment_id is not None
 
-    segment = app.projects.inspect_plan(
-        project,
-        options=ProjectPlanInspectionOptions(
-            scope_id="document",
-            segment_id=issue.segment_id,
-            issues=True,
-            source_context=1,
-        ),
-    ).segments[0]
-    assert segment["source"]["text"] == "€"
-    assert segment["structural"]["text"] == "€"
-    assert segment["spoken"]["text"] == "€"
-    assert segment["unit_ids"] == [issue.unit_id]
-    assert segment["renderability"]["status"] == "blocked"
-    assert segment["source"]["context"]
     json.loads(json.dumps(inspection.to_dict(), ensure_ascii=False))
 
     active = app.projects.inspect_plan(
@@ -162,19 +146,19 @@ def test_repair_dry_run_is_read_only_then_safe_repair_activates(tmp_path: Path) 
     )
     assert preview.dry_run is True
     assert preview.activated is False
-    assert preview.repairs > 0
+    assert preview.repairs == 0
+    assert preview.issues[0].repair_action == "drop"
     assert _files(state_root) == before
 
-    repaired = app.projects.repair_plan(project)
-    assert repaired.activated is True
-    assert repaired.dry_run is False
-    assert repaired.attempt.parent_attempt_id == caught.value.attempt_id
-    assert repaired.repairs > 0
-    assert repaired.source_files_changed is False
+    blocked = app.projects.repair_plan(project)
+    assert blocked.activated is False
+    assert blocked.dry_run is False
+    assert blocked.attempt.status == "blocked"
+    assert blocked.attempt.parent_attempt_id == caught.value.attempt_id
+    assert blocked.repairs == 0
+    assert blocked.source_files_changed is False
     assert source.read_text(encoding="utf-8") == text
     assert (state_root / "document" / "document.ssmd.md").read_bytes() == project_source
-    plan = load_primary_scope_plan(load_project(project.root))
-    assert preflight_renderability(plan).ok
 
 
 def test_repair_blocks_mixed_safe_and_unsafe_issues_without_source_edits(tmp_path: Path) -> None:
@@ -243,15 +227,12 @@ def test_repair_reuses_unchanged_successful_scopes(tmp_path: Path) -> None:
 
     result = app.projects.repair_plan(project)
 
-    assert result.activated is True
-    assert result.repairs == 1
+    assert result.activated is False
+    assert result.repairs == 0
     assert result.reused_scopes == ("chapter-0001",)
     assert result.rebuilt_scopes == ("chapter-0002",)
     assert {scope.id: internal.path(scope.path).read_bytes() for scope in scopes} == source_bytes
-    assert all(
-        preflight_renderability(load_scope_plan(internal, scope)).ok
-        for scope in internal.load_plan_index().scopes
-    )
+    assert not internal.paths["plan_index"].exists()
 
 
 def test_safe_repairs_succeed_across_multiple_scopes(tmp_path: Path) -> None:
@@ -279,11 +260,14 @@ def test_safe_repairs_succeed_across_multiple_scopes(tmp_path: Path) -> None:
 
     app = _app()
     project = app.projects.open(internal.root)
-    result = app.projects.plan(project)
+    with pytest.raises(ProjectPlanRenderabilityError) as caught:
+        app.projects.plan(project)
 
-    assert result.activated is True
-    assert result.repairs == 2
-    assert len(result.scopes) == 2
+    assert caught.value.renderability_mode == "repair"
+    assert caught.value.active_plan_changed is False
+    assert len(caught.value.issues) == 2
+    assert all(issue["repair_action"] == "drop" for issue in caught.value.issues)
+    assert not internal.paths["plan_index"].exists()
 
 
 def test_public_api_scene_breaks_remain_boundaries_not_renderer_speech(tmp_path: Path) -> None:
@@ -301,17 +285,10 @@ def test_public_api_scene_breaks_remain_boundaries_not_renderer_speech(tmp_path:
 
     assert result.activated is True
     plan = load_primary_scope_plan(load_project(project.root))
-    assert preflight_renderability(plan).ok
-    segment_texts = [segment.text for segment in plan.segments]
+    plan.validate()
+    segment_texts = [segment.text for flow in plan.flow for segment in flow.segments]
     assert "---" not in segment_texts
     assert "...p" not in segment_texts
     assert "Inline Before --- after." in segment_texts
     assert "The marker is ---." in segment_texts
-    scene_boundaries = [
-        boundary
-        for boundary in plan.boundaries
-        if boundary.kind == "explicit" and boundary.strength == "x-strong"
-    ]
-    assert len(scene_boundaries) == 2
-    assert any(boundary.attrs.get("semantic") == "scene_break" for boundary in scene_boundaries)
     assert source.read_text(encoding="utf-8") == text

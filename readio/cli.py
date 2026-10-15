@@ -850,62 +850,290 @@ def _cmd_audiobook_chapters(args: argparse.Namespace) -> int:
     return 0
 
 
+def _book_pipeline_module() -> Any:
+    from . import book_pipeline
+
+    return book_pipeline
+
+
+def _book_progress_handler(args: argparse.Namespace) -> Callable[[Any], None] | None:
+    if not progress_enabled(args):
+        return None
+
+    def report(event: Any) -> None:
+        chapter = f" chapter={event.chapter_id}" if event.chapter_id else ""
+        variant = f" variant={event.variant}" if event.variant else ""
+        print(
+            f"[{event.stage}] {event.kind} {event.phase}{chapter}{variant}",
+            file=sys.stderr,
+        )
+
+    return report
+
+
+def _emit_book_result(
+    args: argparse.Namespace,
+    operation: str,
+    result: object,
+    *,
+    workspace: Path | None = None,
+    variant: str | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "ok": True,
+        "operation": operation,
+        "result": _json_value(result),
+    }
+    if workspace is not None:
+        payload["workspace"] = workspace.as_posix()
+    if variant is not None:
+        payload["variant"] = variant
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False))
+        return
+    if workspace is not None:
+        print(f"Workspace: {workspace}")
+    if variant is not None:
+        print(f"Variant: {variant}")
+    for attribute, label in (
+        ("report_path", "Report"),
+        ("output", "Output"),
+        ("output_path", "Output"),
+    ):
+        value = getattr(result, attribute, None)
+        if value is not None:
+            print(f"{label}: {value}")
+    if (
+        workspace is None
+        and variant is None
+        and not any(
+            getattr(result, attribute, None) is not None
+            for attribute in ("report_path", "output", "output_path")
+        )
+    ):
+        print(f"{operation} completed")
+
+
 def _cmd_audiobook_init(args: argparse.Namespace) -> int:
-    app = _api_for(args)
-    result = app.audiobooks.create_project_result(
-        args.source, chapters=args.chapters, language=args.language, output=args.output
+    pipeline = _book_pipeline_module()
+    workspace = pipeline.convert_book_source(
+        args.source,
+        args.output,
+        chapters=args.chapters,
+        language=args.language,
+        on_progress=_book_progress_handler(args),
     )
-    project = result.project
+    chapters = [
+        {
+            "id": chapter.id,
+            "number": chapter.source_number,
+            "title": chapter.title,
+            "level": chapter.level,
+        }
+        for chapter in workspace.native.book.chapters
+    ]
     payload = {
         "ok": True,
-        "project": str(project.root),
-        "source": str(result.source),
-        "selected_chapters": result.selected_chapters,
-        "chapters": [
-            {
-                "number": chapter.number,
-                "scope_id": chapter.scope_id,
-                "title": chapter.title,
-            }
-            for chapter in result.chapters
-        ],
+        "workspace": workspace.root.as_posix(),
+        "source": Path(args.source).expanduser().resolve().as_posix(),
+        "manifest": workspace.manifest.as_posix(),
+        "dirty": workspace.dirty,
+        "selected_chapters": len(chapters),
+        "chapters": chapters,
     }
     if getattr(args, "json", False):
         print(json.dumps(payload, ensure_ascii=False))
     else:
-        print(f"Project: {project.root}")
-        print(f"Source:  {result.source}")
-        print(f"Selected chapters: {result.selected_chapters}")
-        print()
-        for chapter in result.chapters:
+        print(f"Workspace: {workspace.root}")
+        print(f"Source: {payload['source']}")
+        print(f"Selected chapters: {len(chapters)}")
+        for chapter in workspace.native.book.chapters:
             indentation = "  " * max(0, chapter.level - 1)
-            print(f"  {chapter.number:>2} {indentation}{chapter.title}")
+            print(f"  {chapter.source_number:>2} {indentation}{chapter.title}")
+    return 0
+
+
+def _cmd_audiobook_compile(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    result = pipeline.compile_book(
+        args.workspace,
+        chapters=args.chapters,
+        force=args.force,
+        fail_fast=args.fail_fast,
+        on_progress=_book_progress_handler(args),
+    )
+    _emit_book_result(args, "compile", result, workspace=args.workspace)
+    return 0
+
+
+def _cmd_audiobook_render_plan(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    result = pipeline.render_book_plan(
+        args.workspace,
+        profile=args.profile,
+        chapters=args.chapters,
+        variant=args.variant,
+        force=args.force,
+        fail_fast=args.fail_fast,
+        on_progress=_book_progress_handler(args),
+    )
+    variant = getattr(result, "variant", None) or args.variant
+    _emit_book_result(args, "render-plan", result, workspace=args.workspace, variant=variant)
+    return 0
+
+
+def _cmd_audiobook_synth(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    result = pipeline.synthesize_book(
+        args.workspace,
+        variant=args.variant,
+        chapters=args.chapters,
+        force=args.force,
+        fail_fast=args.fail_fast,
+        emphasis_policy=args.emphasis_policy,
+        on_progress=_book_progress_handler(args),
+    )
+    _emit_book_result(args, "synth", result, workspace=args.workspace, variant=args.variant)
+    return 0
+
+
+def _cmd_audiobook_compose(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    result = pipeline.compose_book(
+        args.workspace,
+        variant=args.variant,
+        chapters=args.chapters,
+        force=args.force,
+        fail_fast=args.fail_fast,
+        on_progress=_book_progress_handler(args),
+    )
+    _emit_book_result(args, "compose", result, workspace=args.workspace, variant=args.variant)
     return 0
 
 
 def _cmd_audiobook_export(args: argparse.Namespace) -> int:
-    result = _api_for(args).audiobooks.export(
-        args.project or Path.cwd(),
-        public_api.AudiobookExportOptions(
-            format=getattr(args, "format", None),
+    pipeline = _book_pipeline_module()
+    metadata = {
+        key: value
+        for key, value in (("title", args.title), ("author", args.author))
+        if value is not None
+    }
+    result = pipeline.export_book(
+        args.workspace,
+        variant=args.variant,
+        chapters=args.chapters,
+        force=args.force,
+        output=args.output,
+        profile=args.profile,
+        metadata=metadata or None,
+        cover=args.cover,
+        bitrate=args.bitrate,
+        on_progress=_book_progress_handler(args),
+    )
+    _emit_book_result(args, "export", result, workspace=args.workspace, variant=args.variant)
+    return 0
+
+
+def _cmd_audiobook_build(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    result = pipeline.build_book(
+        pipeline.BookBuildRequest(
+            workspace=args.workspace,
+            profile=args.profile,
+            chapters=args.chapters,
+            force=args.force,
+            fail_fast=args.fail_fast,
+            variant=args.variant,
+            stop_after=args.stop_after,
+            compile=not args.no_compile,
+            project_renderplans=not args.no_render_plan,
+            synthesize=not args.no_synth,
+            compose=not args.no_compose,
+            export=not args.no_export,
+            export_profile=args.export_profile,
             output=args.output,
-            title=args.title,
-            author=args.author,
+            metadata={
+                key: value
+                for key, value in (("title", args.title), ("author", args.author))
+                if value is not None
+            },
             cover=args.cover,
             bitrate=args.bitrate,
-            force=args.force,
-            profile=(
-                args.profile.expanduser().resolve()
-                if getattr(args, "profile", None) is not None
-                else None
-            ),
-            format_explicit=getattr(args, "format", None) is not None,
         ),
+        on_progress=_book_progress_handler(args),
     )
+    _emit_book_result(args, "build", result, workspace=result.workspace, variant=result.variant)
+    return 0
+
+
+def _cmd_audiobook_profile_create(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    path = pipeline.create_render_profile(
+        args.path,
+        engine=args.engine,
+        target_id=args.target_id,
+        language=args.language,
+        role=args.role,
+        voice=args.voice,
+        speaker=args.speaker,
+        options=_parse_profile_options(args.option),
+        offline=args.offline,
+        refresh=args.refresh,
+    )
+    result = {"path": path.as_posix(), "engine": args.engine, "target_id": args.target_id}
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, **result.to_dict()}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
     else:
-        print(result.output_path)
+        print(path)
+    return 0
+
+
+def _parse_profile_options(values: Sequence[str]) -> dict[str, object]:
+    options: dict[str, object] = {}
+    for value in values:
+        key, separator, raw = value.partition("=")
+        if not separator or not key:
+            raise ValueError("profile options must use KEY=JSON_VALUE")
+        try:
+            options[key] = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"profile option {key!r} must contain a JSON value") from error
+    return options
+
+
+def _cmd_audiobook_status(args: argparse.Namespace) -> int:
+    pipeline = _book_pipeline_module()
+    status = pipeline.inspect_book_status(args.workspace, variant=args.variant)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, **status}, ensure_ascii=False))
+        return 0
+    print(f"Book workspace: {status['workspace']}")
+    source = status["source"]
+    print(f"Source manifest: {'present' if source['manifest_present'] else 'missing'}")
+    print(f"Chapters: {status['chapter_count']}")
+    print(f"Source dirty: {str(status['dirty']).lower()}")
+    stages = status["stages"]
+    compile_status = stages["compile"]
+    print(
+        f"Compile: {'present' if compile_status['present'] else 'missing'} "
+        f"({compile_status['plan_count']} plans)"
+    )
+    variants = stages["variants"]
+    if not variants:
+        print("Variants: none")
+    for variant, details in variants.items():
+        print(f"Variant: {variant}")
+        for stage in ("render_plan", "synth", "compose", "export"):
+            item = details[stage]
+            if stage == "export":
+                present = item["present"]
+                count = len(item["artifacts"])
+            else:
+                present = item["present"]
+                count = item.get("plan_count", item.get("audio_count", 0))
+            print(f"  {stage}: {'present' if present else 'missing'} ({count} artifacts)")
+    if status["legacy_readio_state_detected"]:
+        print("Warning: legacy .readio/ state is ignored and unchanged")
     return 0
 
 
@@ -2251,6 +2479,27 @@ def _cmd_doctor(args: argparse.Namespace | None) -> int:
     return 0
 
 
+def _add_audiobook_workspace_args(
+    parser: argparse.ArgumentParser,
+    *,
+    variant: bool = False,
+    variant_required: bool = False,
+    profile: bool = False,
+) -> None:
+    parser.add_argument("workspace", type=Path)
+    parser.add_argument("--chapters", default="all")
+    if variant:
+        parser.add_argument("--variant", required=variant_required)
+    if profile:
+        parser.add_argument(
+            "--profile", type=Path, required=True, help="VoiceRender .renderprofile.toml"
+        )
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--fail-fast", action="store_true")
+    _add_progress_option(parser)
+    parser.add_argument("--json", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = ReadioArgumentParser(
         prog="readio",
@@ -2467,44 +2716,131 @@ def build_parser() -> argparse.ArgumentParser:
     settings_clear.add_argument("--json", action="store_true")
     settings_clear.set_defaults(func=_cmd_project_settings, settings_action="clear")
     audiobook_cmd = sub.add_parser(
-        "audiobook", help="Inspect book sources and create/export audiobook projects."
+        "audiobook", help="Inspect, convert, build, and resume native .ssmdbook audiobooks."
     )
     audiobook_cmd.set_defaults(func=show_help, _help_parser=audiobook_cmd)
     audiobook_sub = audiobook_cmd.add_subparsers(
         dest="audiobook_command", required=False, title="Commands", metavar="COMMAND"
     )
-    audiobook_chapters = audiobook_sub.add_parser("chapters", help="list selectable book chapters")
+    audiobook_chapters = audiobook_sub.add_parser(
+        "chapters", help="list selectable source chapters"
+    )
     audiobook_chapters.add_argument("source", type=Path)
     audiobook_chapters.add_argument("--json", action="store_true")
     audiobook_chapters.set_defaults(func=_cmd_audiobook_chapters)
-    audiobook_init = audiobook_sub.add_parser(
-        "init", help="attach a book workspace or create an editable .ssmdbook workspace"
-    )
-    audiobook_init.add_argument("source", type=Path)
-    audiobook_init.add_argument("--chapters", default="all")
-    audiobook_init.add_argument("--language", help="semantic language override for EPUB conversion")
-    audiobook_init.add_argument("-o", "--output", type=Path)
-    audiobook_init.add_argument("--json", action="store_true")
-    audiobook_init.set_defaults(func=_cmd_audiobook_init)
 
-    audiobook_export = audiobook_sub.add_parser(
-        "export", help="export an audiobook project master as M4B"
+    audiobook_convert = audiobook_sub.add_parser(
+        "convert", aliases=["init"], help="convert a source or open an existing .ssmdbook workspace"
     )
-    audiobook_export.add_argument("project", nargs="?", type=Path)
-    audiobook_export.add_argument(
-        "--format",
-        choices=public_api.SUPPORTED_AUDIOBOOK_FORMATS,
-        default=None,
+    audiobook_convert.add_argument("source", type=Path)
+    audiobook_convert.add_argument("--chapters", default="all")
+    audiobook_convert.add_argument(
+        "--language", help="semantic language override for EPUB conversion"
     )
-    audiobook_export.add_argument("--profile", type=Path, help="AudioExport TOML profile")
+    audiobook_convert.add_argument("-o", "--output", type=Path)
+    _add_progress_option(audiobook_convert)
+    audiobook_convert.add_argument("--json", action="store_true")
+    audiobook_convert.set_defaults(func=_cmd_audiobook_init)
+
+    audiobook_compile = audiobook_sub.add_parser(
+        "compile", help="compile canonical chapter FlowPlans"
+    )
+    _add_audiobook_workspace_args(audiobook_compile)
+    audiobook_compile.set_defaults(func=_cmd_audiobook_compile)
+
+    audiobook_render_plan = audiobook_sub.add_parser(
+        "render-plan", help="project a VoiceRender profile into a visible variant"
+    )
+    _add_audiobook_workspace_args(audiobook_render_plan, variant=True, profile=True)
+    audiobook_render_plan.set_defaults(func=_cmd_audiobook_render_plan)
+
+    audiobook_synth = audiobook_sub.add_parser(
+        "synth", help="synthesize selected chapters in a variant"
+    )
+    _add_audiobook_workspace_args(audiobook_synth, variant=True, variant_required=True)
+    audiobook_synth.add_argument(
+        "--emphasis-policy",
+        choices=("reject", "defer-to-compose"),
+        default="defer-to-compose",
+    )
+    audiobook_synth.set_defaults(func=_cmd_audiobook_synth)
+
+    audiobook_compose = audiobook_sub.add_parser(
+        "compose", help="compose selected variant chapters"
+    )
+    _add_audiobook_workspace_args(audiobook_compose, variant=True, variant_required=True)
+    audiobook_compose.set_defaults(func=_cmd_audiobook_compose)
+
+    audiobook_export = audiobook_sub.add_parser("export", help="export a composed variant as M4B")
+    audiobook_export.add_argument("workspace", type=Path)
+    audiobook_export.add_argument("--chapters", default="all")
+    audiobook_export.add_argument("--variant", required=True)
+    audiobook_export.add_argument("--profile", type=Path, help="AudioExport profile")
     audiobook_export.add_argument("--title")
     audiobook_export.add_argument("--author")
-    audiobook_export.add_argument("--cover", type=Path, help="cover image (.jpg or .png)")
-    audiobook_export.add_argument("--bitrate", help="AAC target bitrate, default: 192k")
-    audiobook_export.add_argument("-o", "--output", type=Path, help="M4B output path")
-    audiobook_export.add_argument("--force", action="store_true", help="replace an existing output")
+    audiobook_export.add_argument("--cover", type=Path)
+    audiobook_export.add_argument("--bitrate")
+    audiobook_export.add_argument("-o", "--output", type=Path)
+    audiobook_export.add_argument("--force", action="store_true")
+    _add_progress_option(audiobook_export)
     audiobook_export.add_argument("--json", action="store_true")
     audiobook_export.set_defaults(func=_cmd_audiobook_export)
+
+    audiobook_build = audiobook_sub.add_parser(
+        "build", help="run selected native stages and optionally stop"
+    )
+    audiobook_build.add_argument("workspace", type=Path)
+    audiobook_build.add_argument(
+        "--profile", type=Path, required=True, help="VoiceRender .renderprofile.toml"
+    )
+    audiobook_build.add_argument("--chapters", default="all")
+    audiobook_build.add_argument("--variant", help="reuse an exact existing RenderPlan variant")
+    audiobook_build.add_argument(
+        "--stop-after", choices=("render-plan", "synth", "compose", "export")
+    )
+    audiobook_build.add_argument("--force", action="store_true")
+    audiobook_build.add_argument("--fail-fast", action="store_true")
+    audiobook_build.add_argument("--no-compile", action="store_true")
+    audiobook_build.add_argument("--no-render-plan", action="store_true")
+    audiobook_build.add_argument("--no-synth", action="store_true")
+    audiobook_build.add_argument("--no-compose", action="store_true")
+    audiobook_build.add_argument("--no-export", action="store_true")
+    audiobook_build.add_argument("--export-profile", type=Path, help="AudioExport profile")
+    audiobook_build.add_argument("--output", type=Path, help="M4B output path")
+    audiobook_build.add_argument("--title")
+    audiobook_build.add_argument("--author")
+    audiobook_build.add_argument("--cover", type=Path)
+    audiobook_build.add_argument("--bitrate")
+    _add_progress_option(audiobook_build)
+    audiobook_build.add_argument("--json", action="store_true")
+    audiobook_build.set_defaults(func=_cmd_audiobook_build)
+
+    audiobook_status = audiobook_sub.add_parser(
+        "status", help="inspect package-owned artifacts in a native book workspace"
+    )
+    audiobook_status.add_argument("workspace", type=Path)
+    audiobook_status.add_argument("--variant")
+    audiobook_status.add_argument("--json", action="store_true")
+    audiobook_status.set_defaults(func=_cmd_audiobook_status)
+
+    audiobook_profile = audiobook_sub.add_parser("profile", help="manage VoiceRender profiles")
+    profile_sub = audiobook_profile.add_subparsers(
+        dest="profile_command", required=False, title="Commands", metavar="COMMAND"
+    )
+    audiobook_profile.set_defaults(func=show_help, _help_parser=audiobook_profile)
+    profile_create = profile_sub.add_parser("create", help="create a native VoiceRender profile")
+    profile_create.add_argument("path", type=Path)
+    profile_create.add_argument("--engine", required=True)
+    profile_create.add_argument("--target-id", required=True)
+    profile_create.add_argument("--language", required=True)
+    profile_create.add_argument("--role", default="narrator")
+    profile_create.add_argument("--voice")
+    profile_create.add_argument("--speaker")
+    profile_create.add_argument("--option", action="append", default=[], metavar="KEY=JSON_VALUE")
+    profile_create.add_argument("--offline", action="store_true")
+    profile_create.add_argument("--refresh", action="store_true")
+    profile_create.add_argument("--json", action="store_true")
+    profile_create.set_defaults(func=_cmd_audiobook_profile_create)
 
     status_cmd = sub.add_parser(
         "status", help="Show project pipeline state and recommended next actions."
@@ -2860,6 +3196,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _error_code(exc: Exception) -> str:
+    native_code = getattr(exc, "code", None)
+    if isinstance(native_code, str) and native_code:
+        return native_code
     if isinstance(exc, public_api.ReadioError):
         return exc.code
     if isinstance(exc, (ValueError, KeyError)):
@@ -2875,6 +3214,12 @@ def _error_payload(exc: Exception) -> dict[str, object]:
         "code": _error_code(exc),
         "error": str(exc),
     }
+    native_to_dict = getattr(exc, "to_dict", None)
+    if callable(native_to_dict) and hasattr(exc, "package"):
+        native_payload = native_to_dict()
+        if isinstance(native_payload, Mapping):
+            payload.update(native_payload)
+        payload["error"] = getattr(exc, "message", str(exc))
     if isinstance(exc, public_api.ReadioError):
         payload.update(exc.details)
         if exc.source_path is not None:
@@ -3041,6 +3386,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             print(json.dumps(_error_payload(exc), ensure_ascii=False))
             raise SystemExit(2)
         parser.exit(2, f"readio: {exc}\n")
+    except Exception as exc:
+        if not callable(getattr(exc, "to_dict", None)) or not hasattr(exc, "package"):
+            raise
+        _log_command_error(args, exc)
+        if getattr(args, "json", False):
+            print(json.dumps(_error_payload(exc), ensure_ascii=False))
+            raise SystemExit(2)
+        context = []
+        for key in ("chapter_id", "source_number", "variant"):
+            value = getattr(exc, key, None)
+            if value is not None:
+                context.append(f"{key}={value}")
+        suffix = f" ({', '.join(context)})" if context else ""
+        parser.exit(
+            2,
+            f"readio: {getattr(exc, 'package', 'package')} {getattr(exc, 'code', 'error')} "
+            f"[{getattr(exc, 'stage', 'unknown')}]: {exc}{suffix}\n",
+        )
     else:
         logger.info(
             "command.finish command=%s elapsed_ms=%.3f code=%s",

@@ -209,6 +209,8 @@ def _install_voicerender_fakes(monkeypatch):
     ):
         del cache_dir
         plan = FlowPlan.load(source_plan)
+        voice_profile = getattr(profile, "profile", profile)
+        selections = getattr(profile, "selections", {})
         role_identities = {
             role: {
                 "engine": binding.engine,
@@ -217,7 +219,7 @@ def _install_voicerender_fakes(monkeypatch):
                 "speaker": binding.speaker,
                 "options": dict(binding.options),
             }
-            for role, binding in profile.roles.items()
+            for role, binding in voice_profile.roles.items()
         }
         profile_payload = json.dumps(role_identities, sort_keys=True, separators=(",", ":"))
         profile_hash = "sha256:" + hashlib.sha256(profile_payload.encode()).hexdigest()
@@ -231,7 +233,7 @@ def _install_voicerender_fakes(monkeypatch):
             segment = plan.flow[flow_index].segments[segment_index]
             voice = segment.directives.voice
             role = getattr(voice, "reference", None) or "narrator"
-            binding = profile.roles[role]
+            binding = selections.get(role, voice_profile.roles[role])
             route_payload = json.dumps(
                 {
                     "engine": binding.engine,
@@ -251,11 +253,21 @@ def _install_voicerender_fakes(monkeypatch):
             status = "reused" if reused else "rendered"
             reused_count += int(reused)
             rendered_count += int(not reused)
-            rendered_routes.append((role, binding.engine, binding.target_id, binding.voice, segment.text, status))
+            rendered_routes.append(
+                (role, binding.engine, binding.target_id, binding.voice, segment.text, status)
+            )
             if on_event is not None:
-                on_event(RenderEvent(RenderEventKind.SEGMENT_STARTED, plan_id=plan.plan_id, locator=locator))
-                event_kind = RenderEventKind.SEGMENT_REUSED if reused else RenderEventKind.SEGMENT_RENDERED
-                on_event(RenderEvent(event_kind, plan_id=plan.plan_id, locator=locator, status=status))
+                on_event(
+                    RenderEvent(
+                        RenderEventKind.SEGMENT_STARTED, plan_id=plan.plan_id, locator=locator
+                    )
+                )
+                event_kind = (
+                    RenderEventKind.SEGMENT_REUSED if reused else RenderEventKind.SEGMENT_RENDERED
+                )
+                on_event(
+                    RenderEvent(event_kind, plan_id=plan.plan_id, locator=locator, status=status)
+                )
             semantic_hash = hashlib.sha256(segment.text.encode()).hexdigest()
             audio_relative = f"segments/{locator.replace('.', '-')}.wav"
             audio_path = output_dir / audio_relative
@@ -283,12 +295,12 @@ def _install_voicerender_fakes(monkeypatch):
                 }
             )
         manifest = {
-            "manifest_id": "sha256:" + hashlib.sha256(
-                (profile_hash + "|" + "|".join(locators)).encode()
-            ).hexdigest(),
+            "manifest_id": "sha256:"
+            + hashlib.sha256((profile_hash + "|" + "|".join(locators)).encode()).hexdigest(),
             "source": {
                 "plan_id": plan.plan_id,
-                "plan_file_sha256": "sha256:" + hashlib.sha256(source_plan.read_bytes()).hexdigest(),
+                "plan_file_sha256": "sha256:"
+                + hashlib.sha256(source_plan.read_bytes()).hexdigest(),
             },
             "profile": {"effective_profile_sha256": profile_hash},
             "segments": entries,
@@ -472,7 +484,6 @@ def test_mixed_engine_project_routes_and_reuses_route_local_cache(tmp_path, monk
         ("host", "reused"),
     ]
     assert _synthesis_status(project)["state"] == "current"
-
 
 
 def _multilingual_config(adapter: _MultilingualTargetAdapter) -> ReadioConfig:

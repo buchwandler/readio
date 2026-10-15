@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 from types import SimpleNamespace
 
-from project_support import Adapter, request
-from utterplan import ProsodyDirective, ResolvedPause
+from utterplan import FlowUnit, PauseIntent, ProsodyDirective
+from voicerender.engines.registry import _ADAPTERS
+from voicerender_support import FixtureAdapter
 
 from readio.config import ReaderSettings, ReadioConfig
 from readio.document import document_from_text
-from readio.engines.registry import _registry
 from readio.planning.compiler import compile_semantic_plan
+from readio.planning.flow import iter_flow_segments
 from readio.planning.policy import PlanningPolicy
 from readio.project import init_project, read_json
 from readio.stages.composition import compose_project, seconds_to_frames
@@ -18,28 +19,42 @@ from readio.stages.speech_identity import segment_speech_hash, segment_speech_pa
 from readio.stages.synthesis import synthesize_project
 
 
+def _replace_flow_segment(plan, locator, replacement):
+    flows = []
+    for flow_index, flow in enumerate(plan.flow):
+        segments = tuple(
+            replacement if f"f{flow_index:06d}.s{segment_index:03d}" == locator else segment
+            for segment_index, segment in enumerate(flow.segments)
+        )
+        flows.append(FlowUnit(segments=segments))
+    return replace(plan, flow=tuple(flows), plan_id="")
+
+
 def test_canonical_speech_identity_excludes_composition_directives() -> None:
     plan = compile_semantic_plan(
         document_from_text("Alpha."),
         planning=PlanningPolicy.from_semantic_config(ReadioConfig()),
     ).plan
-    segment = plan.segments[0]
+    segment_ref = next(iter_flow_segments(plan))
     directives = replace(
-        segment.directives,
+        segment_ref.segment.directives,
         prosody=ProsodyDirective(rate="slow", pitch="high", volume="loud"),
     )
-    changed = replace(
-        segment,
-        pause_after=ResolvedPause(seconds=2.0, events=("pause",)),
+    changed_segment = replace(
+        segment_ref.segment,
+        pause_after=PauseIntent("timed", "2s"),
         directives=directives,
     )
+    changed_plan = _replace_flow_segment(plan, segment_ref.id, changed_segment)
+    changed_ref = next(iter_flow_segments(changed_plan))
     profile = {"engine": "fake", "voice": "test"}
 
-    assert segment_speech_hash(plan, segment, profile) == segment_speech_hash(
-        plan, changed, profile
+    assert segment_speech_hash(plan, segment_ref, profile) == segment_speech_hash(
+        changed_plan, changed_ref, profile
     )
-    assert "pause_after" not in segment_speech_payload(plan, changed, profile)
-    assert "prosody" not in segment_speech_payload(plan, changed, profile)["synthesis_directives"]
+    payload = segment_speech_payload(changed_plan, changed_ref, profile)
+    assert "pause_after" not in payload
+    assert "prosody" not in payload["synthesis_directives"]
 
 
 def _identity_fixture(*, morph="Number=Sing", tag="NNP", phonemes="ˈæl.fə"):
@@ -125,14 +140,14 @@ def test_speech_identity_includes_speed_voice_level_and_target_revision_but_not_
 
 
 def test_composition_uses_segment_layout_without_opening_tts(tmp_path, monkeypatch) -> None:
-    adapter = Adapter()
-    monkeypatch.setitem(_registry._adapters, "fake", adapter)
-    cfg = ReadioConfig(reader=ReaderSettings(engine="fake", voice="fake-voice"))
+    adapter = FixtureAdapter()
+    monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
+    cfg = ReadioConfig(reader=ReaderSettings(engine=adapter.id, voice="fixture-voice", spacy="off"))
     source = tmp_path / "book.txt"
     source.write_text("Alpha.\n\nBeta.", encoding="utf-8")
     project = init_project(source, tmp_path / "book.readio")
     plan_project(project, cfg)
-    synthesize_project(project, cfg, request=request(project))
+    synthesize_project(project, cfg)
     project.paths["synthesis_trace"].unlink()
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
@@ -141,7 +156,7 @@ def test_composition_uses_segment_layout_without_opening_tts(tmp_path, monkeypat
 
     compose_project(project)
     timeline = read_json(project.paths["composition_timeline"])
-    silences = [item for item in timeline["layout"] if item["kind"] == "silence"]
+    silences = [item for item in timeline["items"] if "silence" in item["id"]]
 
-    assert silences[0]["frames"] == seconds_to_frames(1.0, 24000)
-    assert [item["kind"] for item in timeline["layout"]] == ["speech", "silence", "speech"]
+    assert silences[0]["end_sample"] - silences[0]["start_sample"] == seconds_to_frames(1.0, 24000)
+    assert len(timeline["items"]) == 3

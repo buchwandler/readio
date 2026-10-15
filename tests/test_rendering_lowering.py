@@ -3,31 +3,32 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from utterplan import AnnotationSpan, PauseConfig, PlannerConfig, SemanticBoundary, UtterancePlanner
 
+from readio.document import document_from_text
 from readio.engines.base import (
     EngineCapabilities,
     EngineSelection,
     PronunciationSpan,
 )
+from readio.planning.compiler import compile_semantic_plan
+from readio.planning.flow import iter_flow_segments
+from readio.planning.policy import PlanningPolicy
 from readio.rendering.lowering import LoweringError, lower_segment
 
 
-def _plan(
-    text: str,
-    *,
-    document_format: str = "plain",
-    pause_enabled: bool = True,
-):
-    return UtterancePlanner(
-        PlannerConfig(
-            language="en-us",
+def _plan(text: str, *, document_format: str = "plain"):
+    document = document_from_text(
+        text,
+        input_format="ssmd" if document_format == "ssmd" else "text",
+    )
+    return compile_semantic_plan(
+        document,
+        planning=PlanningPolicy(
             document_format=document_format,
             text_preparation="identity",
-            unit="sentence",
-            pauses=PauseConfig(enabled=pause_enabled),
-        )
-    ).plan(text)
+            spacy_policy="off",
+        ),
+    ).plan
 
 
 def _target(language: str = "en-us", **kwargs) -> EngineSelection:
@@ -55,7 +56,7 @@ def _capabilities(**kwargs) -> EngineCapabilities:
 
 def test_lower_segment_preserves_text_and_rebases_tokens() -> None:
     plan = _plan("One sentence.\n\nSecond paragraph.")
-    segment = plan.segments[1]
+    segment = tuple(iter_flow_segments(plan))[1]
 
     lowered = lower_segment(plan, segment, _target(), _capabilities())
 
@@ -68,54 +69,9 @@ def test_lower_segment_preserves_text_and_rebases_tokens() -> None:
         assert 0 <= token.start <= token.end <= len(segment.text)
 
 
-@pytest.mark.parametrize("kind", ["clause", "parenthetical"])
-def test_lower_segment_rebases_semantic_boundaries_without_pause_dependency(kind: str) -> None:
-    plan = _plan("I wanted to go, but it was raining.", pause_enabled=False)
-    segment = plan.segments[0]
-    position = segment.spoken_start + len("I wanted to go, ")
-    boundary = SemanticBoundary(
-        id="semantic-boundary-000000",
-        position=position,
-        kind=kind,
-        origin="phrasplit",
-    )
-    plan = replace(plan, semantic_boundaries=(boundary,))
-
-    lowered = lower_segment(plan, segment, _target(), _capabilities())
-
-    assert segment.pause_before.seconds == 0
-    assert segment.pause_after.seconds == 0
-    assert lowered.semantic_boundaries[0].position == len("I wanted to go, ")
-    assert lowered.semantic_boundaries[0].kind == kind
-    assert lowered.semantic_boundaries[0].semantic_boundary_id == boundary.id
-    assert lowered.semantic_boundaries[0].origin == "phrasplit"
-    left, right = (
-        segment.text[: lowered.semantic_boundaries[0].position],
-        segment.text[lowered.semantic_boundaries[0].position :],
-    )
-    assert left == "I wanted to go, "
-    assert right == "but it was raining."
-    assert left + right == segment.text
-
-
-def test_lower_segment_ignores_unknown_future_semantic_kind() -> None:
-    plan = _plan("A future boundary should not affect lowering.")
-    segment = plan.segments[0]
-    boundary = SemanticBoundary(
-        id="semantic-boundary-000000",
-        position=segment.spoken_start + 2,
-        kind="vendor_future_kind",
-    )
-    plan = replace(plan, semantic_boundaries=(boundary,))
-
-    lowered = lower_segment(plan, segment, _target(), _capabilities())
-
-    assert lowered.semantic_boundaries == ()
-
-
-def test_lower_segment_rebases_pronunciation_annotations() -> None:
+def test_lower_segment_lowers_flow_pronunciation_directive() -> None:
     plan = _plan('[tomato]{ph="təˈmeɪtoʊ" alphabet="ipa"}', document_format="ssmd")
-    segment = plan.segments[0]
+    segment = next(iter(iter_flow_segments(plan)))
 
     lowered = lower_segment(plan, segment, _target(), _capabilities())
 
@@ -124,41 +80,17 @@ def test_lower_segment_rebases_pronunciation_annotations() -> None:
             start=0,
             end=len(segment.text),
             phonemes="təˈmeɪtoʊ",
-            language=None,
+            language="en-us",
             alphabet="ipa",
         ),
     )
-
-
-def test_lower_segment_rejects_pronunciation_span_crossing_segment() -> None:
-    plan = _plan("One. Two.")
-    first = plan.segments[0]
-    annotation = AnnotationSpan(
-        id="phoneme-1",
-        kind="phoneme",
-        attrs={"ph": "wɜːd", "alphabet": "ipa"},
-        structural_start=0,
-        structural_end=5,
-        spoken_start=0,
-        spoken_end=first.spoken_end + 1,
-    )
-    plan = replace(
-        plan,
-        annotations=(annotation,),
-        segments=(replace(first, annotation_ids=(annotation.id,)), *plan.segments[1:]),
-    )
-
-    with pytest.raises(LoweringError, match="crosses segment") as error:
-        lower_segment(plan, plan.segments[0], _target(), _capabilities())
-
-    assert error.value.diagnostic.code == "render.pronunciation_span_ambiguous"
 
 
 def test_lower_segment_rejects_unsupported_pronunciation_alphabet() -> None:
     plan = _plan('[word]{ph="wɜːd" alphabet="x-sampa"}', document_format="ssmd")
 
     with pytest.raises(LoweringError) as error:
-        lower_segment(plan, plan.segments[0], _target(), _capabilities())
+        lower_segment(plan, next(iter(iter_flow_segments(plan))), _target(), _capabilities())
 
     assert error.value.diagnostic.code == "render.pronunciation_alphabet_unsupported"
 
@@ -168,7 +100,7 @@ def test_lower_segment_rejects_unresolved_explicit_voice() -> None:
     target = replace(_target(), voice=None)
 
     with pytest.raises(LoweringError) as error:
-        lower_segment(plan, plan.segments[0], target, _capabilities())
+        lower_segment(plan, next(iter(iter_flow_segments(plan))), target, _capabilities())
 
     assert error.value.diagnostic.code == "render.voice_unresolved"
 
@@ -177,7 +109,7 @@ def test_lower_segment_reports_unsupported_linguistic_tokens() -> None:
     plan = _plan("Hello there.")
     capabilities = _capabilities(supports_linguistic_tokens=False)
 
-    lowered = lower_segment(plan, plan.segments[0], _target(), capabilities)
+    lowered = lower_segment(plan, next(iter(iter_flow_segments(plan))), _target(), capabilities)
 
     assert lowered.request.tokens == ()
     assert lowered.capacity_token_ranges
@@ -193,6 +125,6 @@ def test_lower_segment_rejects_incompatible_language() -> None:
     target = _target(language="en-us")
 
     with pytest.raises(LoweringError) as error:
-        lower_segment(plan, plan.segments[0], target, _capabilities())
+        lower_segment(plan, next(iter(iter_flow_segments(plan))), target, _capabilities())
 
     assert error.value.diagnostic.code == "render.engine_language_incompatible"

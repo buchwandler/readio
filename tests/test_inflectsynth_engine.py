@@ -769,12 +769,15 @@ def test_inflect_project_identity_reuses_and_invalidates_acoustic_controls(
     )
     first = synthesize_project(project, config, request=request)
     assert first["rendered"] >= 1
-    route_identity = next(iter(first["profile"].payload["canonical"]["routes"].values()))
-    assert route_identity["engine"] == "inflect"
-    assert route_identity["voice_ref"] == "inflect:nano-v2/default"
-    assert route_identity["source_revision"] == "revision-1"
-    assert route_identity["engine_identity"]["runtime_revision"] == "fake-runtime"
-    assert route_identity["capacity_policy_revision"] == "capacity-1"
+    manifest_ref = first["manifests"][0]
+    assert len(manifest_ref["effective_profile_sha256"]) == 64
+    assert first["profile"].payload["canonical"]["profiles"] == [
+        manifest_ref["effective_profile_sha256"]
+    ]
+    first_config = NativeVoice.instance.synthesis_calls[-1][2]
+    assert first_config.speed == 1.0
+    assert first_config.variation == 0.3
+    assert first_config.seed == 7
 
     call_count = len(NativeVoice.instance.synthesis_calls)
     reused = synthesize_project(project, config, request=request)

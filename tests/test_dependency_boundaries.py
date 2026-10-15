@@ -13,6 +13,8 @@ DOMAIN_MODULES = frozenset(
         "ttsready",
         "onnxvoice",
         "audiocompose",
+        "audioexport",
+        "voicerender",
         "pykokoro",
         "pipersynth",
         "pocketsynth",
@@ -27,26 +29,37 @@ DOMAIN_MODULES = frozenset(
 # consolidated, and review any new contact before changing the baseline.
 BASELINE_IMPORTERS = {
     "audiocompose": {
+        "readio/book_pipeline.py",
+        "readio/reader.py",
         "readio/stages/composition.py",
     },
+    "audioexport": {"readio/book_pipeline.py"},
+    "inflectsynth": {"readio/engines/inflectsynth.py"},
     "kittensynth": {"readio/engines/kittensynth.py"},
+    "moondream": {"readio/integrations/moondream.py"},
     "pipersynth": {"readio/engines/pipersynth.py"},
     "pocketsynth": {"readio/engines/pocketsynth.py"},
-    "supertonicsynth": {"readio/engines/supertonicsynth.py"},
-    "inflectsynth": {"readio/engines/inflectsynth.py"},
     "pykokoro": {"readio/engines/pykokoro.py"},
-    "ssmd": {
-        "readio/ssmd.py",
+    "ssmd": {"readio/ssmd.py"},
+    "ssmdconvert": {
+        "readio/book_pipeline.py",
+        "readio/integrations/ssmdconvert.py",
     },
-    "ssmdconvert": {"readio/integrations/ssmdconvert.py"},
-    "moondream": {"readio/integrations/moondream.py"},
+    "supertonicsynth": {"readio/engines/supertonicsynth.py"},
     "utterplan": {
+        "readio/book_pipeline.py",
+        "readio/integrations/voicerender.py",
         "readio/planning/compiler.py",
         "readio/planning/policy.py",
         "readio/planning/semantic.py",
         "readio/rendering/lowering.py",
         "readio/stages/planning.py",
-        "readio/stages/synthesis.py",
+    },
+    "voicerender": {
+        "readio/book_pipeline.py",
+        "readio/doctor.py",
+        "readio/integrations/voicerender.py",
+        "readio/reader.py",
     },
 }
 
@@ -112,10 +125,10 @@ def test_contact_surface_metrics_match_source_inventory() -> None:
     }
     print(f"Readio external domain import baseline: {metrics}")
     assert metrics == {
-        "domain_packages": 11,
-        "importing_files": 16,
-        "package_file_contacts": 16,
-        "imported_names": 87,
+        "domain_packages": 13,
+        "importing_files": 19,
+        "package_file_contacts": 25,
+        "imported_names": 135,
     }
 
 

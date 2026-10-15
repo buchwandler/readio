@@ -298,7 +298,6 @@ class SpeechService:
                 code="speech.live_resolution_failed",
             ) from error
 
-
     def _render_live_resolved(
         self,
         lines: Iterable[str],

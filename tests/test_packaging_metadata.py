@@ -22,19 +22,22 @@ def _project_optional_dependencies() -> dict[str, list[str]]:
 
 def test_dependency_windows_match_supported_runtime_contract() -> None:
     dependencies = _project_dependencies()
+    optional = _project_optional_dependencies()
 
     assert "ssmd>=0.9.3,<0.10" in dependencies
-    assert "ssmdconvert>=0.1.3,<0.2" in dependencies
-    assert "markdown-it-py>=3.0,<5.0" not in dependencies
-    assert "mdit-py-plugins>=0.4,<1.0" not in dependencies
-    assert _project_optional_dependencies()["documents"] == ["ssmdconvert[pdf,docx]>=0.1.3,<0.2"]
+    assert "ssmdconvert>=0.2.0,<0.3" in dependencies
+    assert "utterplan>=0.6.3,<0.7" in dependencies
+    assert "voicerender>=0.1.1,<0.2" in dependencies
+    assert "audiocompose>=0.2.2,<0.3" in dependencies
+    assert "audioexport>=0.1.1,<0.2" in dependencies
+    assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.0,<0.3"]
     assert not any(
         item.split("[", 1)[0].split(">", 1)[0].lower()
         in {"epub2text", "ebooklib", "pypdf", "python-docx"}
         for item in dependencies
     )
-    assert "utterplan>=0.4.0,<0.5" in dependencies
-    assert "audiocompose>=0.2.0,<0.3" in dependencies
+    assert "markdown-it-py>=3.0,<5.0" not in dependencies
+    assert "mdit-py-plugins>=0.4,<1.0" not in dependencies
     assert "ssmd>=0.8.7,<0.9" not in dependencies
     assert "utterplan>=0.2.0,<0.3" not in dependencies
     assert "audiocompose>=0.1.1,<0.2" not in dependencies
@@ -53,11 +56,14 @@ def test_ci_and_wheel_smoke_target_released_engine_artifacts() -> None:
         "  semantic-stack-minimum:", maxsplit=1
     )[1]
     assert '"ssmd==0.9.3"' in minimum_job
-    assert '"ssmdconvert[pdf,docx]==0.1.3"' in minimum_job
-    assert '"utterplan[spacy]==0.4.0"' in minimum_job
+    assert '"ssmdconvert[pdf,docx]==0.2.0"' in minimum_job
+    assert '"utterplan[spacy]==0.6.3"' in minimum_job
+    assert '"voicerender==0.1.1"' in minimum_job
+    assert '"audiocompose==0.2.2"' in minimum_job
+    assert '"audioexport==0.1.1"' in minimum_job
     assert "tests/test_plan_renderability.py" in minimum_job
     assert 'READIO_TEST_UTTERPLAN_MINIMUM: "1"' in minimum_job
-    assert "tests/test_utterplan_v4_semantics.py" in minimum_job
+    assert "tests/test_book_pipeline.py" in minimum_job
     assert "tests/test_supertonicsynth_engine.py" in workflow
     assert all(
         engine not in tests_job
@@ -124,10 +130,12 @@ def test_base_ci_and_wheel_smoke_cover_dependency_ownership() -> None:
 
 OWNED_DEPENDENCIES = {
     "numpy>=1.23",
-    "utterplan>=0.4.0,<0.5",
-    "audiocompose>=0.2.0,<0.3",
+    "utterplan>=0.6.3,<0.7",
+    "voicerender>=0.1.1,<0.2",
+    "audiocompose>=0.2.2,<0.3",
+    "audioexport>=0.1.1,<0.2",
     "ssmd>=0.9.3,<0.10",
-    "ssmdconvert>=0.1.3,<0.2",
+    "ssmdconvert>=0.2.0,<0.3",
     "platformdirs>=4.0",
     "soundfile>=0.12",
     "sounddevice>=0.4.6,<1.0",
@@ -150,11 +158,13 @@ def test_current_docs_have_no_stale_integration_references() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     projects = (ROOT / "docs/projects.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs/architecture.md").read_text(encoding="utf-8")
-    assert "UtterPlan >=0.4.0,<0.5" in readme
+    assert "UtterPlan >=0.6.3,<0.7" in readme
+    assert "AudioExport >=0.1.1,<0.2" in readme
     assert '"schema_version": 4' in readme
     assert '"path": "plan/document.utterplan.toml"' in readme
-    assert "canonical `.utterplan.toml`" in projects
-    assert "UtterPlan 0.4 schema v4" in architecture
+    assert "writes no Readio `project.json` or `.readio/` state" in readme
+    assert "specialist packages own the artifacts" in projects
+    assert "schema v4" not in architecture
 
 
 def test_engine_runtime_dependency_floors_are_declared() -> None:
@@ -162,26 +172,27 @@ def test_engine_runtime_dependency_floors_are_declared() -> None:
     optional = _project_optional_dependencies()
 
     assert not any("onnxvoice" in item for item in dependencies)
-    assert optional["kokoro"] == ["pykokoro>=0.10.2,<0.11"]
-    assert "pykokoro>=0.10.2,<0.11" in optional["all"]
-    assert not any("pykokoro[playback]" in item for item in optional["all"])
-    assert optional["piper"] == ["pipersynth>=0.2.1,<0.3"]
-    assert optional["pocket"] == ["pocketsynth[cpu]>=0.2.5,<0.3"]
-    assert optional["spacy"] == ["utterplan[spacy]>=0.4.0,<0.5"]
-    assert "pipersynth>=0.2.1,<0.3" in optional["all"]
-    assert "pocketsynth[cpu]>=0.2.5,<0.3" in optional["all"]
-    assert optional["kitten"] == ["kittensynth[cpu]>=0.1.1,<0.2"]
-    assert optional["supertonic"] == ["supertonicsynth[cpu]>=0.1.2,<0.2"]
-    assert optional["inflect"] == ["inflectsynth[cpu]>=0.1.1,<0.2"]
-    assert "supertonicsynth[cpu]>=0.1.2,<0.2" in optional["all"]
-    assert "inflectsynth[cpu]>=0.1.1,<0.2" in optional["all"]
-    assert "kittensynth[cpu]>=0.1.1,<0.2" in optional["all"]
-    assert "utterplan[spacy]>=0.4.0,<0.5" in optional["all"]
+    assert optional["kokoro"] == ["voicerender[kokoro]>=0.1.1,<0.2"]
+    assert optional["piper"] == ["voicerender[piper]>=0.1.1,<0.2"]
+    assert optional["pocket"] == ["voicerender[pocket]>=0.1.1,<0.2"]
+    assert optional["kitten"] == ["voicerender[kitten]>=0.1.1,<0.2"]
+    assert optional["supertonic"] == ["voicerender[supertonic]>=0.1.1,<0.2"]
+    assert optional["inflect"] == ["voicerender[inflect]>=0.1.1,<0.2"]
+    assert optional["spacy"] == ["utterplan[spacy]>=0.6.3,<0.7"]
+    assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.0,<0.3"]
+    assert "voicerender[kokoro]>=0.1.1,<0.2" in optional["all"]
+    assert "voicerender[piper]>=0.1.1,<0.2" in optional["all"]
+    assert "voicerender[pocket]>=0.1.1,<0.2" in optional["all"]
+    assert "voicerender[kitten]>=0.1.1,<0.2" in optional["all"]
+    assert "voicerender[supertonic]>=0.1.1,<0.2" in optional["all"]
+    assert "voicerender[inflect]>=0.1.1,<0.2" in optional["all"]
+    assert "utterplan[spacy]>=0.6.3,<0.7" in optional["all"]
     assert all(
         dependency != "utterplan[spacy]>=0.1.4,<0.2"
         for group in optional.values()
         for dependency in group
     )
+    assert "audioexport" not in optional
 
 
 def test_verification_extras_keep_moondream_optional_and_versioned() -> None:

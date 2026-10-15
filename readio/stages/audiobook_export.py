@@ -1,4 +1,4 @@
-"""Preparation and identity for audiobook-specific M4B exports."""
+"""Legacy attached-project export adapter; native .ssmdbook books bypass this module."""
 
 from __future__ import annotations
 

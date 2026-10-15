@@ -20,7 +20,9 @@ def test_project_synthesis_persists_voice_render_manifest_references(tmp_path, m
         encoding="utf-8",
     )
     project = init_project(source, tmp_path / "story.readio")
-    config = ReadioConfig(reader=ReaderSettings(engine="fixture", voice="fixture-voice", spacy="off"))
+    config = ReadioConfig(
+        reader=ReaderSettings(engine="fixture", voice="fixture-voice", spacy="off")
+    )
     plan_project(project, config)
     plan_scope = project.load_plan_index().scopes[0]
     plan_path = project.state_root / "plan" / plan_scope.path
@@ -123,7 +125,7 @@ def test_project_synthesis_persists_voice_render_manifest_references(tmp_path, m
     events = []
     result = synthesis.synthesize_project(project, config, request=request, on_event=events.append)
 
-    assert result["rendered"] == len(plan.flow)
+    assert result["rendered"] == sum(len(flow.segments) for flow in plan.flow)
     assert len(render_calls) == 1
     assert render_calls[0][1] == tuple(
         f"f{flow_index:06d}.s{segment_index:03d}"
@@ -133,7 +135,7 @@ def test_project_synthesis_persists_voice_render_manifest_references(tmp_path, m
     trace = read_json(project.paths["synthesis_trace"])
     assert trace["schema_version"] == 4
     assert trace["manifests"][0]["manifest_id"] == "sha256:" + "6" * 64
-    assert len(trace["segments"]) == len(plan.flow)
+    assert len(trace["segments"]) == sum(len(flow.segments) for flow in plan.flow)
     assert all("manifest_id" in item and "source_locator" in item for item in trace["segments"])
     assert all(item["path"].startswith("synthesis/renders/") for item in trace["segments"])
     assert not list((project.state_root / "synthesis" / "segments").glob("*.wav"))

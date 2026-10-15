@@ -92,7 +92,8 @@ def test_semantic_policy_changes_identity():
     second = resolve_semantic_planning(
         ReadioConfig(reader=ReaderSettings(unit="paragraph")), document
     )
-    assert first.compiled.plan_id != second.compiled.plan_id
+    assert first.compiled.plan_id == second.compiled.plan_id
+    assert first.compiled.planning_config != second.compiled.planning_config
 
 
 def test_project_ssmd_plan_preserves_semantics_and_conversion_metadata(tmp_path):
@@ -278,7 +279,7 @@ def test_project_planning_plans_all_document_scopes_and_tracks_input_hashes(tmp_
     assert [item.id for item in initial] == ["chapter-0002", "chapter-0003"]
     assert all(item.document_sha256 for item in initial)
     assert all(item.plan_id for item in initial)
-    assert all(load_scope_plan(project, item).schema_version == 5 for item in initial)
+    assert all(load_scope_plan(project, item).schema_version == 7 for item in initial)
 
     project.path("document/chapters/chapter-0003.md").write_text(
         "# Chapter Three\n\nUpdated text.", encoding="utf-8"
@@ -410,7 +411,9 @@ def test_invalid_v5_plan_status_recommends_rebuild(tmp_path):
     plan_project(project, config)
     scope = project.load_plan_index().scopes[0]
     artifact_path = project.state_root / "plan" / scope.path
-    artifact_path.write_text('format = "utterplan"\nschema_version = 5\nflow = [\n', encoding="utf-8")
+    artifact_path.write_text(
+        'format = "utterplan"\nschema_version = 5\nflow = [\n', encoding="utf-8"
+    )
     index = json.loads(project.paths["plan_index"].read_text(encoding="utf-8"))
     index["scopes"][0]["sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     project.paths["plan_index"].write_text(json.dumps(index), encoding="utf-8")
@@ -421,6 +424,7 @@ def test_invalid_v5_plan_status_recommends_rebuild(tmp_path):
     assert plan_status.reason == "plan.artifact.invalid"
     assert plan_status.details["action"] == "readio plan build ."
     assert status.next_actions[0].command == "readio plan build ."
+
 
 def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
     import hashlib
@@ -446,7 +450,7 @@ def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
     assert row["reason"] == "plan.artifact.legacy_format"
     assert row["stored_format"] == "json"
     assert row["required_format"] == "toml"
-    assert row["required_schema"] == 5
+    assert row["required_schema"] == 7
     assert row["action"] == "run readio plan"
     assert Readio(config).projects.status(project.root).next_actions[0].command == (
         "readio plan build ."
@@ -459,6 +463,6 @@ def test_legacy_json_plan_is_stale_then_replanned_to_toml(tmp_path) -> None:
     assert scope.path == "document.utterplan.toml"
     assert artifact_path.is_file()
     assert hashlib.sha256(artifact_path.read_bytes()).hexdigest() == scope.sha256
-    assert load_scope_plan(project, scope).schema_version == 5
+    assert load_scope_plan(project, scope).schema_version == 7
     assert legacy_path.read_bytes() == legacy_bytes
     assert semantic_status(project)[-1]["state"] == "current"

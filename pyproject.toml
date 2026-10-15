@@ -11,11 +11,12 @@ requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = [
   "numpy>=1.23",
-  "utterplan>=0.5.0,<0.6",
-  "voicerender>=0.1.0,<0.2",
-  "audiocompose[voicerender]>=0.2.0,<0.3",
+  "utterplan>=0.6.3,<0.7",
+  "voicerender>=0.1.1,<0.2",
+  "audiocompose>=0.2.2,<0.3",
+  "audioexport>=0.1.1,<0.2",
   "ssmd>=0.9.3,<0.10",
-  "ssmdconvert>=0.1.3,<0.2",
+  "ssmdconvert>=0.2.0,<0.3",
   "platformdirs>=4.0",
   "soundfile>=0.12",
   "sounddevice>=0.4.6,<1.0",
@@ -25,29 +26,28 @@ dependencies = [
   "rich-argparse>=1.7,<2",
 ]
 [project.optional-dependencies]
-kokoro = ["voicerender[kokoro]>=0.1.0,<0.2"]
-piper = ["voicerender[piper]>=0.1.0,<0.2"]
-pocket = ["voicerender[pocket]>=0.1.0,<0.2"]
-kitten = ["voicerender[kitten]>=0.1.0,<0.2"]
-supertonic = ["voicerender[supertonic]>=0.1.0,<0.2"]
-inflect = ["voicerender[inflect]>=0.1.0,<0.2"]
-spacy = ["utterplan[spacy]>=0.5.0,<0.6"]
-documents = ["ssmdconvert[pdf,docx]>=0.1.3,<0.2"]
+kokoro = ["voicerender[kokoro]>=0.1.1,<0.2"]
+piper = ["voicerender[piper]>=0.1.1,<0.2"]
+pocket = ["voicerender[pocket]>=0.1.1,<0.2"]
+kitten = ["voicerender[kitten]>=0.1.1,<0.2"]
+supertonic = ["voicerender[supertonic]>=0.1.1,<0.2"]
+inflect = ["voicerender[inflect]>=0.1.1,<0.2"]
+spacy = ["utterplan[spacy]>=0.6.3,<0.7"]
+documents = ["ssmdconvert[pdf,docx]>=0.2.0,<0.3"]
 verification = ["moondream>=2.4,<3"]
 benchmark = ["moondream>=2.4,<3"]
 all = [
-  "voicerender[kokoro]>=0.1.0,<0.2",
-  "voicerender[piper]>=0.1.0,<0.2",
-  "voicerender[pocket]>=0.1.0,<0.2",
-  "voicerender[kitten]>=0.1.0,<0.2",
-  "voicerender[supertonic]>=0.1.0,<0.2",
-  "voicerender[inflect]>=0.1.0,<0.2",
-  "utterplan[spacy]>=0.5.0,<0.6",
+  "voicerender[kokoro]>=0.1.1,<0.2",
+  "voicerender[piper]>=0.1.1,<0.2",
+  "voicerender[pocket]>=0.1.1,<0.2",
+  "voicerender[kitten]>=0.1.1,<0.2",
+  "voicerender[supertonic]>=0.1.1,<0.2",
+  "voicerender[inflect]>=0.1.1,<0.2",
+  "utterplan[spacy]>=0.6.3,<0.7",
 ]
 cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu>=1.17"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
-audioexport = ["audioexport>=0.1.1,<0.2"]
 
 [project.scripts]
 readio = "readio.cli:main"

@@ -18,6 +18,11 @@ from ssmdconvert import (
     BookChapter as SSMDConvertBookChapter,
 )
 from ssmdconvert import (
+    BookConversionOptions,
+    DocumentConversionOptions,
+    SSMDConvertError,
+)
+from ssmdconvert import (
     BookError as SSMDConvertBookError,
 )
 from ssmdconvert import (
@@ -36,9 +41,6 @@ from ssmdconvert import (
     SourceInfo as SSMDConvertSourceInfo,
 )
 from ssmdconvert import (
-    SSMDConvertError,
-)
-from ssmdconvert import (
     UnsupportedBookSourceError as SSMDConvertUnsupportedBookSourceError,
 )
 from ssmdconvert import (
@@ -46,13 +48,13 @@ from ssmdconvert import (
 )
 from ssmdconvert import __version__ as ssmdconvert_version
 from ssmdconvert import (
-    convert as ssmdconvert_convert,
-)
-from ssmdconvert import (
     convert_book as ssmdconvert_convert_book,
 )
 from ssmdconvert import (
     convert_content as ssmdconvert_convert_content,
+)
+from ssmdconvert import (
+    convert_document as ssmdconvert_convert,
 )
 from ssmdconvert import (
     inspect_book as ssmdconvert_inspect_book,
@@ -334,8 +336,7 @@ def convert_document_content(
             content,
             input_format=input_format,
             source_name=source_name,
-            title=title,
-            language=language,
+            options=DocumentConversionOptions(title=title, language=language),
         )
     except SSMDConvertUnsupportedInputError as error:
         raise InputError(
@@ -425,7 +426,11 @@ def convert_book_source(
             code="input.book_format_unsupported",
         )
     try:
-        book = ssmdconvert_convert_book(path, chapters=chapters, language=language)
+        conversion = ssmdconvert_convert_book(
+            path,
+            options=BookConversionOptions(chapters=chapters or "all", language=language),
+        )
+        book = conversion.book
     except (SSMDConvertError, OSError, UnicodeError, ValueError) as error:
         raise _book_input_error(error, path) from error
     return _canonical_book(book)

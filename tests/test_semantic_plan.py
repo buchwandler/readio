@@ -131,8 +131,9 @@ class TestSemanticPlanIdentityAcousticInvariant:
         assert kwargs["input_format"] == "plain"
         assert kwargs["config"].renderability_mode == "repair"
         assert kwargs["on_progress"] is None
-        assert result.plan.schema_version == 5
+        assert result.plan.schema_version == 7
         assert result.plan_id == result.plan.plan_id
+
     def test_document_planning_defaults_to_spokenform(self) -> None:
         assert PlanningPolicy().to_planner_config().text_preparation == "spokenform"
 

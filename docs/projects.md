@@ -1,6 +1,6 @@
 # Readio projects
 
-A Readio project is a persistent audio build graph recognized by `project.json`. Standalone document projects keep their state at the project root (conventionally `*.readio`). An attached audiobook's public project root is the canonical `.ssmdbook` workspace, while its project manifest and all disposable Readio state live in `.ssmdbook/.readio/`.
+This page covers Readio's persistent generic document-project workflow, where `project.json` stores Readio-owned plans, synthesis state, composition, and output provenance. Native audiobooks use SSMDConvert `.ssmdbook` workspaces and specialist-owned artifacts instead; they are not Readio projects, have no Readio `project.json`, and never create `.readio/`.
 
 ```bash
 readio project init episode.ssmd -o episode.readio
@@ -44,66 +44,62 @@ readio project settings show . --json
 readio project settings set . --engine piper --voice en_US-amy-medium \
   --mastering spoken-word --target-lufs -18 \
   --export-format mp3 --export-output output/episode.mp3
-readio project settings set . --audiobook-output output/book.m4b \
-  --audiobook-title "My audiobook" --audiobook-bitrate 96k
 readio project settings clear . --section export
 ```
 
-Settings are stored in the Readio project manifest: at the root for standalone schema-v3 projects and under `.readio/project.json` for attached schema-v4 audiobooks. Updates are atomic, retain `settings.ssmd` and unknown namespaces, and never rewrite the canonical `.ssmdbook/manifest.json`. The CLI exposes named fields only. Relative output and asset paths are interpreted relative to the public project root. `force` and `refresh` are invocation-only and are never saved.
+Generic project settings are stored in the Readio project manifest at the root of standalone projects. Updates are atomic and retain `settings.ssmd` and unknown namespaces. Older attached-book project records may still exist for compatibility, but native `.ssmdbook` workflows do not create, attach, or consume them. Relative output and asset paths are interpreted from the generic project root; `force` and `refresh` are invocation-only.
 
 The Python API provides immutable `ProjectSettings`, `ProjectSynthesisSettings`, and `ProjectSettingsPatch`. `app.projects.configure(project, settings)` replaces the supported settings sections; `update_settings(project, patch)` changes only sections present in the patch. In a patch, `UNSET` leaves a section unchanged, `None` clears it, and a concrete value replaces it. `settings(project)` returns detached values.
 
-Persisted synthesis choices are resolved before global and engine defaults. Explicit run requests override saved choices without changing the manifest. Requestless `synthesize`, `compose`, generic `export`, and incremental `build` use saved settings. Composition-only changes stale composition and output; generic or audiobook export-only changes stale only output. Synthesis caches and previous outputs are retained for reuse.
+Persisted synthesis choices are resolved before global and engine defaults. Explicit run requests override saved choices without changing the manifest. Requestless `synthesize`, `compose`, generic `export`, and incremental `build` use saved settings. Composition-only changes stale composition and output; export-only changes stale only output. Synthesis caches and previous outputs are retained for reuse.
 
-For audiobook projects, `app.audiobooks.export(project)` uses saved M4B path, metadata, cover, and bitrate defaults. `app.audiobooks.build(project)` plans, synthesizes, composes, then exports M4B using the saved settings. `create_project(..., settings=...)` can persist those choices during project creation. `readio status` reports when a prior M4B no longer matches the desired audiobook settings.
+Native audiobook requests do not use `ProjectSettings` or `ProjectRef`. Select the VoiceRender and AudioExport profiles when invoking `readio audiobook build` or the relevant individual stage; profile IDs and stage outputs remain owned by specialist packages.
 
 ### AudioExport profile exports
 
-Install the optional dependency with `pip install 'readio[audioexport]'` to opt into profile-based file exports. Generic profiles are selected with `--profile`; audiobook profiles must resolve to one M4B output. `readio export --all --out-dir DIR` writes every selected profile output under the chosen directory. If a profile has one output, Readio can select it without an explicit format; for multi-output profiles, provide `--format` or use `--all`.
+AudioExport is installed as a core dependency. Profiles are selected per operation: generic file exports use `--profile`, while native audiobook export uses `readio audiobook export WORKSPACE --variant ID --profile AUDIOEXPORT_PROFILE`. Generic multi-output profiles can be used with `readio export --all --out-dir DIR`.
 
 ```bash
 readio export . --profile export.toml --format mp3
 readio export . --profile export.toml --all --out-dir output/
-readio audiobook export . --profile audiobook.toml
+readio audiobook export novel.ssmdbook --variant NARRATION_VARIANT \
+  --profile audiobook.toml -o novel.m4b
 readio project settings set . --export-profile export.toml
-readio project settings set . --audiobook-profile audiobook.toml
 ```
 
-Saved profile paths are relative to the project root. Direct command/API options take precedence for that invocation without rewriting settings. `readio status` compares the effective profile identity and resolved output path; changing profile metadata or encoder settings stales only the export, and `build` re-exports without planning, synthesis, or composition. Readio keeps its export index and overwrite checks authoritative; AudioExport manifests are additional evidence. Clearing a saved profile does not delete the generated file or sidecar. No-profile exports retain the legacy path, and `readio speak` remains on its streaming sink. M4B output continues to validate Readio's composition and uses its verified timeline; a conflicting profile timeline is rejected.
+Generic saved profile paths are relative to the project root. Direct command/API options take precedence for that invocation without rewriting settings. `readio status` compares generic-project profile identity and output path; profile changes stale only the relevant output. Native audiobook stage profiles and outputs are owned by AudioExport and the other specialist packages, not the Readio project status graph. `readio speak` remains on its streaming sink.
 Use `readio render --file episode.ssmd --dry-run --json` for one-shot execution planning. `readio plan` is reserved for persistent project build and role management.
 
-## Book-source audiobook projects
+## Native `.ssmdbook` audiobook workspaces
 
-Create a chapter-scoped project from an EPUB or ssmdconvert `.ssmdbook` directory/ZIP bundle. EPUB and ZIP sources are materialized as an editable `.ssmdbook` directory; an existing directory is attached in place. Then use the ordinary Readio stages from the book workspace:
+An audiobook workspace is the editable SSMDConvert `.ssmdbook` directory. Readio provides orchestration and presentation; the specialist packages own the artifacts and currentness rules. No Readio `project.json` or `.readio/` state is created. Existing `.readio/` content is ignored with a warning and left unchanged.
+
+Convert a source or reopen an existing workspace, then build by chapter selector:
 
 ```bash
 readio audiobook chapters novel.epub
-readio audiobook init novel.epub --chapters 2-20
-readio audiobook chapters novel.ssmdbook
-readio audiobook init novel.ssmdbook.zip --chapters 3-4,7
-cd novel.ssmdbook
-readio plan
-readio synth --voice en-ko-01
-readio compose
-readio export --format m4a
-readio audiobook export . --format m4b --cover cover.jpg
-# Or run the complete incremental pipeline:
-readio render novel.ssmdbook --format m4a
+readio audiobook convert novel.epub --chapters 5-17 -o novel.ssmdbook
+readio audiobook profile create narration.renderprofile.toml \
+  --engine piper --target-id en_US-amy-medium --language en-US
+readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
+  --chapters 5-17 --stop-after render-plan --json
+readio audiobook status novel.ssmdbook --json
 ```
 
-Chapter selectors address available 1-based source chapter numbers, including non-contiguous numbers in bundles. Selection and chapter metadata are persisted in Readio state under `.readio/document/index.json`; the canonical book manifest and chapter list remain complete and unfiltered.
+A build result exposes the exact profile-fingerprinted variant. Resume it with the same `--variant` for `synth`, `compose`, and `export`; specialist CLIs can use that exact name too. A `.ssmdbook` created manually or by Readio uses the same artifact paths, so stages can continue in either direction without initialization or migration.
 
-ssmdconvert owns the editable chapter files under `chapters/` within the canonical `.ssmdbook` workspace (or the paths listed in its manifest). Readio reads those canonical bytes directly and never copies chapters into `.readio/`. Plans, indexes, synthesis caches, composition parts, the master, and outputs are disposable Readio state under `.readio/`. `readio plan` builds one plan per selected scope; synthesis and composition operate across selected scopes in book order and preserve chapter boundaries in `.readio/composition/timeline.json`.
+```bash
+# Specialist commands equivalent to the Readio stages
+ssmdconvert book convert novel.epub -o novel.ssmdbook --chapters 5-17
+utterplan compile-book novel.ssmdbook --chapters 5-17
+utterplan render-book novel.ssmdbook --profile narration.renderprofile.toml --chapters 5-17
+# Set VARIANT to the exact returned RenderPlan directory name.
+voicerender render-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
+audiocompose compose-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
+audioexport export-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17 -o novel.m4b
+```
 
-Manual chapter edits are immediately visible to planning and invalidate only affected chapter plans and speech. A manifest/chapter digest mismatch is reported as dirty workspace provenance, but Readio continues using current bytes and never rewrites canonical metadata. Run `ssmdconvert book refresh novel.ssmdbook` after editing to update manifest hashes and restore workspace cleanliness. The `.ssmdbook` remains usable by ssmdconvert and other tools without Readio. Deleting `.readio/` removes only local indexes, plans, caches, composition, and output; rerun `readio audiobook init novel.ssmdbook` to recreate derived state. Generic EPUB input is still converted as one combined document.
-
-Audiobook projects support an audiobook-specific M4B export with embedded chapter metadata: `readio audiobook export PROJECT --format m4b`. Title and author default from book metadata; callers may override them. M4B uses AAC with a Readio default of 192k. Cover art is optional and explicit-only (`--cover image.jpg` or PNG); automatic source cover extraction is not part of the current ssmdconvert integration, so provide a JPEG/PNG explicitly. The selected cover is hashed into export identity.
-
-M4B is deliberately excluded from generic `readio export`. Generic exports include FLAC and Opus; `.ogg` remains Ogg/Vorbis, while `.opus` is distinct. Changing the master, chapter timeline/title, resolved book metadata, cover, or bitrate invalidates only the M4B output, not planning or synthesis. Untracked or user-modified destination files require `--force`; unchanged Readio-owned outputs can be reused or replaced atomically.
-
-For an attached schema-v4 audiobook, the canonical `.ssmdbook/manifest.json` and chapter files remain editable source. All Readio indexes, Utterplan artifacts, synthesis cache/trace, AudioCompose files, master, and generated outputs live under `.ssmdbook/.readio/`. Portable `.ssmdbook.zip` archives exclude this disposable state; deleting it does not delete or rewrite the book.
-Readio-owned manifest and audio writes use temporary siblings followed by atomic replace; Readio does not update the canonical ssmdbook manifest.
-Mutating project stages use a project lock; `status` is read-only.
+`readio audiobook status` reports stage-owned artifacts and workspace dirtiness without refreshing, converting, or compiling. Edit canonical chapter files in the workspace; use `ssmdconvert book refresh WORKSPACE` explicitly when you want to refresh manifest hashes. The native audiobook workflow never changes generic document-project settings, status, or `readio speak`.
 
 ## Identity boundaries
 
@@ -155,7 +151,7 @@ Next:
 
 In schema-3 projects, `project.json` records original source metadata and `document/index.json` lists editable semantic scopes as SSMD (`input_format: ssmd`). Their canonical content is persisted under `document/*.ssmd.md`; planning, role discovery, and status use these files rather than reopening the original source. Editing semantic SSMD invalidates the affected plan. Changed source provenance is reported but does not silently reconvert persisted semantics. v0.3 schema-2 projects must be upgraded explicitly with `readio project migrate PROJECT`.
 
-Attached audiobook schema-v4 projects keep the public project root at the `.ssmdbook` workspace and store Readio's `project.json`, selection/index, plans, caches, composition, and outputs in `.readio/`. `DocumentScope.path` points to canonical workspace chapter files; Readio refreshes only its local index from current bytes. A dirty workspace is diagnostic, not a reason to copy, restore, or rewrite chapters. Readio's own operations remain usable until the user explicitly refreshes hashes with ssmdconvert.
+Native `.ssmdbook` workspaces are not Readio generic projects and are not discovered by `readio status`; use `readio audiobook status WORKSPACE [--variant ID]` to inspect owner artifacts. The workflow ignores existing `.readio/` data without modifying it and leaves refresh decisions to `ssmdconvert book refresh`.
 
 ## Synthesis observability
 

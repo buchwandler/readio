@@ -18,6 +18,7 @@ from .engines.registry import get_engine
 from .errors import RenderError
 from .plan import ReadioPlanV2
 from .planning.compiler import CompiledSemanticPlan, FlowPlan
+from .planning.flow import document_semantics, iter_flow_segments
 from .stages.composition import (
     CompositionOutcome,
     compose_layout,
@@ -123,7 +124,7 @@ def iter_synthesized_segments(
     markers_by_segment = _markers_by_segment(resolved.semantic.plan)
     sessions: dict[str, Any] = {}
     with ExitStack() as stack:
-        for segment in resolved.semantic.plan.segments:
+        for segment in tuple(iter_flow_segments(resolved.semantic.plan)):
             voice_directive = segment.directives.voice
             reference = getattr(voice_directive, "reference", None)
             target = role_targets.get(reference, default_target) if reference else default_target
@@ -181,7 +182,7 @@ def iter_synthesized_segments(
                     },
                 },
                 "voice_identity": f"{selection.target_id}:{selection.voice or ''}",
-                "prosody_transitions": resolved.semantic.plan.document_metadata.get(
+                "prosody_transitions": document_semantics(resolved.semantic.plan).get(
                     "prosody_transitions"
                 ),
                 "engine_metadata": dict(rendered.metadata),
@@ -233,7 +234,7 @@ def execute_render_v2(
     if audio.size == 0:
         raise RenderError("render produced no audio")
 
-    total_units = len(resolved.semantic.plan.segments)
+    total_units = len(tuple(iter_flow_segments(resolved.semantic.plan)))
     if on_progress is not None:
         on_progress(RenderProgress(0, total_units, 0, outcome.sample_rate))
     sink.write(audio, outcome.sample_rate)
@@ -273,7 +274,7 @@ def execute_playback_v2(
 
     if resolved.semantic is None:
         raise RenderError("cannot execute v2 plan without a semantic artifact")
-    total_units = len(resolved.semantic.plan.segments)
+    total_units = len(tuple(iter_flow_segments(resolved.semantic.plan)))
     sample_rate = plan.composition.sample_rate or 0
     layout_builder: LayoutBuilder | None = None
     sample_count = 0

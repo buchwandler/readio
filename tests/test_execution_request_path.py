@@ -191,7 +191,8 @@ def test_playback_composes_and_releases_each_mixed_rate_segment_before_next_synt
     )
     resolved = resolve_execution_v2(config, request)
     assert resolved.semantic is not None
-    assert len(resolved.semantic.plan.segments) >= 2
+    segment_count = sum(len(flow.segments) for flow in resolved.semantic.plan.flow)
+    assert segment_count >= 2
 
     class OrderedSink(_Sink):
         def write(self, audio, sample_rate):
@@ -212,13 +213,13 @@ def test_playback_composes_and_releases_each_mixed_rate_segment_before_next_synt
         "release",
     ]
     assert [sample_rate for _audio, sample_rate in sink.writes] == [16000] * len(sink.writes)
-    assert len(sink.writes) == len(resolved.semantic.plan.segments)
-    assert len(capacity_contexts) == len(resolved.semantic.plan.segments)
+    assert len(sink.writes) == segment_count
+    assert len(capacity_contexts) == segment_count
     assert all(context.planned_semantics for context in capacity_contexts)
     assert result.summary.sample_rate == 16000
     assert result.summary.sample_count == sum(len(audio) for audio, _rate in sink.writes)
     assert [item.completed_units for item in progress] == list(range(len(sink.writes) + 1))
-    assert progress[0] == RenderProgress(0, len(resolved.semantic.plan.segments), 0, 16000)
+    assert progress[0] == RenderProgress(0, segment_count, 0, 16000)
     assert progress[-1].sample_count == result.summary.sample_count
     assert not hasattr(result, "composition")
 
@@ -249,11 +250,14 @@ def test_live_path_uses_voice_render_public_session_and_reuses_it(monkeypatch) -
     from voicerender_support import FixtureAdapter
 
     from readio.reader import render_live
+
     adapter = FixtureAdapter()
     monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Readio engine registry used")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Readio engine registry used")
+        ),
     )
     sink = _Sink()
     summary = render_live(
@@ -270,7 +274,6 @@ def test_live_path_uses_voice_render_public_session_and_reuses_it(monkeypatch) -
     ]
     assert [request.id for request in adapter.requests] == ["live-1", "live-2"]
     assert len(sink.writes) == 2
-
 
 
 def test_live_speed_uses_audiocompose_tempo_operation(monkeypatch) -> None:
@@ -304,7 +307,6 @@ def test_live_speed_uses_audiocompose_tempo_operation(monkeypatch) -> None:
     assert isinstance(jobs[0].items[0].source, AudioBufferSource)
 
 
-
 def test_plain_render_text_uses_voice_render_session(monkeypatch) -> None:
     from voicerender.engines.registry import _ADAPTERS
     from voicerender_support import FixtureAdapter
@@ -315,7 +317,9 @@ def test_plain_render_text_uses_voice_render_session(monkeypatch) -> None:
     monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Readio engine registry used")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Readio engine registry used")
+        ),
     )
     sink = _Sink()
     summary = render_text(
@@ -326,7 +330,6 @@ def test_plain_render_text_uses_voice_render_session(monkeypatch) -> None:
 
     assert summary.sample_count == 2400
     assert [request.text for request in adapter.requests] == ["Plain interactive text."]
-
 
 
 def test_live_voice_render_errors_are_chained_as_readio_render_errors(monkeypatch) -> None:
@@ -354,8 +357,9 @@ def test_live_voice_render_errors_are_chained_as_readio_render_errors(monkeypatc
     assert isinstance(caught.value.__cause__, EngineSynthesisError)
 
 
-
-def test_public_speech_live_path_uses_voice_render_without_readio_engine_registry(monkeypatch) -> None:
+def test_public_speech_live_path_uses_voice_render_without_readio_engine_registry(
+    monkeypatch,
+) -> None:
     from voicerender.engines.registry import _ADAPTERS
     from voicerender_support import FixtureAdapter
 
@@ -366,7 +370,9 @@ def test_public_speech_live_path_uses_voice_render_without_readio_engine_registr
     monkeypatch.setitem(_ADAPTERS, adapter.id, adapter)
     monkeypatch.setattr(
         "readio.engines.registry.get_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Readio engine registry used")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Readio engine registry used")
+        ),
     )
     app = Readio(
         ReadioConfig(reader=ReaderSettings(engine=adapter.id, voice="fixture-voice"), roles={})

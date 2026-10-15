@@ -75,23 +75,28 @@ def test_project_persists_exact_atomic_manifest_and_reuses_cached_segment(
     trace = read_json(project.paths["synthesis_trace"])
     scope = project.load_plan_index().scopes[0]
     plan = load_scope_plan(project, scope)
-    segments = {str(segment.id): segment for segment in plan.segments}
+    from readio.planning.flow import iter_flow_segments
+
+    segments = {ref.id: ref.segment for ref in iter_flow_segments(plan)}
     rows = trace["segments"]
-    sidecars = [read_json(project.root / row["sidecar_path"]) for row in rows]
+    render_manifest = read_json(project.state_root / trace["manifests"][0]["path"])
+    manifest_entries = {entry["source"]["locator"]: entry for entry in render_manifest["segments"]}
 
     assert first["rendered"] == len(rows)
-    assert all(sidecar["schema_version"] == 3 for sidecar in sidecars)
-    assert all(sidecar["lowering_sha256"] for sidecar in sidecars)
-    assert all(sidecar["lowering"]["schema"] == "readio.atomic-lowering.v2" for sidecar in sidecars)
-    for row, sidecar in zip(rows, sidecars, strict=True):
-        manifest = sidecar["lowering"]
-        requests = manifest["requests"]
-        expected_text = segments[row["segment_id"]].text
+    for row in rows:
+        entry = manifest_entries[row["source_locator"]]
+        atomic = entry["readio_atomic"]
+        requests = atomic["requests"]
+        expected_text = segments[row["source_locator"]].text
+        assert atomic["schema"] == "readio.atomic-lowering.v2"
         assert "".join(child["text"] for child in requests) == expected_text
         assert all(child["request"]["text"] == child["text"] for child in requests)
         assert all(child["measure"]["source"] == "test.project_capacity" for child in requests)
 
-    assert any(len(sidecar["lowering"]["requests"]) > 1 for sidecar in sidecars) is split
+    assert (
+        any(len(entry["readio_atomic"]["requests"]) > 1 for entry in manifest_entries.values())
+        is split
+    )
     rendered_count = len(adapter.requests)
     open_count = adapter.open_calls
 
@@ -102,14 +107,13 @@ def test_project_persists_exact_atomic_manifest_and_reuses_cached_segment(
     assert len(adapter.requests) == rendered_count
     assert adapter.open_calls == open_count
 
-    sidecar_path = project.root / rows[0]["sidecar_path"]
-    invalid_sidecar = read_json(sidecar_path)
-    invalid_sidecar["schema_version"] = 2
-    sidecar_path.write_text(json.dumps(invalid_sidecar), encoding="utf-8")
+    cache_key = rows[0]["acoustic_cache_key"].removeprefix("sha256:")
+    cache_metadata = project.state_root / "synthesis" / "cache" / f"{cache_key}.json"
+    cache_metadata.unlink()
     calls_before_repair = len(adapter.requests)
 
     repaired = synthesize_project(project, config, request=request(project))
 
     assert repaired["rendered"] >= 1
     assert len(adapter.requests) > calls_before_repair
-    assert read_json(sidecar_path)["schema_version"] == 3
+    assert cache_metadata.is_file()
