@@ -41,7 +41,7 @@ class SoundDevicePlayback:
             return self
         stream: Any = None
         try:
-            import sounddevice as sd
+            import sounddevice as sd  # type: ignore[import-untyped]
 
             stream = sd.OutputStream(
                 samplerate=sample_rate,
@@ -134,4 +134,17 @@ class SoundDevicePlayback:
             raise PlaybackError(f"sounddevice playback failed: {self._error}") from self._error
 
 
-__all__ = ["PlaybackError", "SoundDevicePlayback"]
+def play_audio(audio: Any, sample_rate: int) -> None:
+    """Play a mono or multichannel audio array through the default device."""
+    array = np.asarray(audio, dtype=np.float32)
+    channels = 1 if array.ndim == 1 else int(array.shape[1])
+    playback = SoundDevicePlayback()
+    try:
+        playback.start(sample_rate, channels)
+        playback.submit(array)
+        playback.drain()
+    finally:
+        playback.close()
+
+
+__all__ = ["PlaybackError", "SoundDevicePlayback", "play_audio"]

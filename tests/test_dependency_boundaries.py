@@ -1,153 +1,66 @@
 from __future__ import annotations
 
 import ast
-from collections import defaultdict
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DOMAIN_MODULES = frozenset(
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOTS = frozenset(
     {
-        "utterplan",
-        "ssmd",
-        "ssmdconvert",
-        "ttsready",
-        "onnxvoice",
-        "audiocompose",
-        "audioexport",
-        "voicerender",
         "pykokoro",
         "pipersynth",
         "pocketsynth",
         "kittensynth",
         "supertonicsynth",
         "inflectsynth",
-        "moondream",
+        "soprosynth",
+        "qwen3synth",
+        "onnxvoice",
+        "voicefolio",
     }
 )
-
-# Initial inventory from the source tree. Tighten this map as each integration is
-# consolidated, and review any new contact before changing the baseline.
-BASELINE_IMPORTERS = {
-    "audiocompose": {
-        "readio/book_pipeline.py",
-        "readio/reader.py",
-        "readio/stages/composition.py",
-    },
-    "audioexport": {"readio/book_pipeline.py"},
-    "inflectsynth": {"readio/engines/inflectsynth.py"},
-    "kittensynth": {"readio/engines/kittensynth.py"},
-    "moondream": {"readio/integrations/moondream.py"},
-    "pipersynth": {"readio/engines/pipersynth.py"},
-    "pocketsynth": {"readio/engines/pocketsynth.py"},
-    "pykokoro": {"readio/engines/pykokoro.py"},
-    "ssmd": {"readio/ssmd.py"},
-    "ssmdconvert": {
-        "readio/book_pipeline.py",
-        "readio/integrations/ssmdconvert.py",
-    },
-    "supertonicsynth": {"readio/engines/supertonicsynth.py"},
-    "utterplan": {
-        "readio/book_pipeline.py",
-        "readio/integrations/voicerender.py",
-        "readio/planning/compiler.py",
-        "readio/planning/policy.py",
-        "readio/planning/semantic.py",
-        "readio/rendering/lowering.py",
-        "readio/stages/planning.py",
-    },
-    "voicerender": {
-        "readio/book_pipeline.py",
-        "readio/doctor.py",
-        "readio/integrations/voicerender.py",
-        "readio/reader.py",
-    },
-}
-
-API_IMPORT_BASELINE = {}
+PRIVATE_IMPORT_PREFIXES = (
+    "voicerender.engines",
+    "audiocompose.integrations",
+    "audioexport.fftools",
+    "utterplan.renderplan_",
+)
+LEGACY_IDENTIFIERS = (
+    '".readio"',
+    '"project.json"',
+    '"readio.plan.v2"',
+    '"readio.render-manifest"',
+    '"v03_to_v04"',
+)
 
 
-def _collect_domain_imports() -> tuple[dict[str, set[str]], dict[str, int]]:
-    importers: dict[str, set[str]] = defaultdict(set)
-    imported_names: dict[str, int] = defaultdict(int)
-    for path in (REPO_ROOT / "readio").rglob("*.py"):
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative_path)
+def _runtime_imports() -> set[str]:
+    imports: set[str] = set()
+    for path in (ROOT / "readio").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                imports = [(alias.name.split(".", 1)[0], 1) for alias in node.names]
+                imports.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                imports = [(node.module.split(".", 1)[0], len(node.names))]
-            else:
-                continue
-            for module, name_count in imports:
-                if module in DOMAIN_MODULES:
-                    importers[module].add(relative_path)
-                    imported_names[module] += name_count
-    return dict(importers), dict(imported_names)
+                imports.add(node.module)
+    return imports
 
 
-def _api_importers(importers: dict[str, set[str]]) -> dict[str, set[str]]:
-    return {
-        module: {path for path in paths if path.startswith("readio/api/")}
-        for module, paths in importers.items()
-        if any(path.startswith("readio/api/") for path in paths)
+def test_runtime_does_not_import_backend_implementations() -> None:
+    roots = {module.split(".", 1)[0] for module in _runtime_imports()}
+    assert not roots & BACKEND_ROOTS
+
+
+def test_runtime_imports_only_specialist_package_roots() -> None:
+    private_imports = {
+        module
+        for module in _runtime_imports()
+        if any(module.startswith(prefix) for prefix in PRIVATE_IMPORT_PREFIXES)
     }
+    assert not private_imports
 
 
-def test_domain_importers_match_current_baseline() -> None:
-    importers, _ = _collect_domain_imports()
-    assert importers == BASELINE_IMPORTERS, (
-        "External domain import surface changed. Review the new contact and update "
-        "the baseline only as part of an approved boundary change. "
-        f"Expected {BASELINE_IMPORTERS!r}, found {importers!r}."
-    )
-
-
-def test_public_api_domain_imports_match_current_baseline() -> None:
-    importers, _ = _collect_domain_imports()
-    assert _api_importers(importers) == API_IMPORT_BASELINE
-
-
-def test_private_pocketsynth_modules_are_not_imported() -> None:
-    for path in (REPO_ROOT / "readio").rglob("*.py"):
+def test_runtime_contains_no_legacy_persistence_identifiers() -> None:
+    for path in (ROOT / "readio").rglob("*.py"):
         source = path.read_text(encoding="utf-8")
-        assert "pocketsynth._onnxvoice" not in source, path.relative_to(REPO_ROOT)
-
-
-def test_contact_surface_metrics_match_source_inventory() -> None:
-    importers, imported_names = _collect_domain_imports()
-    importing_files = set().union(*importers.values())
-    metrics = {
-        "domain_packages": len(importers),
-        "importing_files": len(importing_files),
-        "package_file_contacts": sum(len(paths) for paths in importers.values()),
-        "imported_names": sum(imported_names.values()),
-    }
-    print(f"Readio external domain import baseline: {metrics}")
-    assert metrics == {
-        "domain_packages": 13,
-        "importing_files": 19,
-        "package_file_contacts": 25,
-        "imported_names": 135,
-    }
-
-
-def test_inflectsynth_public_package_root_is_contacted_only_by_its_adapter() -> None:
-    importers, _ = _collect_domain_imports()
-    assert importers["inflectsynth"] == {"readio/engines/inflectsynth.py"}
-
-    adapter = (REPO_ROOT / "readio/engines/inflectsynth.py").read_text(encoding="utf-8")
-    tree = ast.parse(adapter)
-    imported_roots = {
-        alias.name.split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    imported_roots.update(
-        node.module.split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module
-    )
-    assert "inflectsynth" in imported_roots
-    assert not imported_roots.intersection({"onnxvoice", "inflectg2p"})
+        for identifier in LEGACY_IDENTIFIERS:
+            assert identifier not in source, f"{path.relative_to(ROOT)} contains {identifier}"

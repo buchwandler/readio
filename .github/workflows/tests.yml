@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   tests:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
@@ -15,11 +18,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - name: Install PortAudio (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -29,338 +28,90 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Verify dependency resolution
         run: python -m pip check
-      - name: Dependency firewall and packaging metadata
-        run: >-
-          python -m pytest -q
-          tests/test_dependency_boundaries.py
-          tests/test_packaging_metadata.py
-          tests/test_audioio.py
-      - name: Public API import smoke without synthesis engines
-        run: python -c "import readio, readio.api, readio.plan, readio.project"
-      - name: Install optional engines used by integration tests
-        run: python -m pip install ".[kokoro,kitten,cpu]"
-      - name: Verify full test environment dependency resolution
-        run: python -m pip check
-      - name: Run test suite
+      - name: Run tests
         run: python -m pytest -q
-
-  engine-probe-python314:
-    name: Engine API probes without optional engines (Ubuntu, Python 3.14)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-          cache: pip
-      - name: Install Readio and test tools without optional synthesis engines
+      - name: Static checks
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-      - name: Verify dependency resolution and absent optional engines
-        run: |
-          python -m pip check
-          python -c "import importlib.util; assert all(importlib.util.find_spec(name) is None for name in ('pykokoro', 'pipersynth', 'pocketsynth', 'kittensynth', 'supertonicsynth', 'inflectsynth'))"
-      - name: Test engine API probes without model downloads
-        run: >-
-          python -m pytest -q
-          tests/test_engine_api_probe.py
-          tests/test_engine_registry.py
-          tests/test_plan_no_tts_load.py
+          ruff check .
+          mypy readio
+          python -m compileall -q readio
 
   semantic-stack-minimum:
-    name: Native .ssmdbook API minimum releases
+    name: Minimum specialist releases (Ubuntu, Python 3.10)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PortAudio
-        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           cache: pip
-      - name: Install minimum released converter/compiler and project
+      - name: Install minimum released specialist stack
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "ssmd==0.9.3" "ssmdconvert[pdf,docx]==0.2.0" "utterplan[spacy]==0.6.3" "voicerender==0.1.1" "audiocompose==0.2.2" "audioexport==0.1.1"
-          python -m pip install -e ".[dev,documents]"
+          python -m pip install \
+            "ssmdconvert[pdf,docx]==0.2.0" \
+            "utterplan[spacy]==0.6.3" \
+            "voicerender==0.2.0" \
+            "audiocompose==0.3.0" \
+            "audioexport==0.1.2"
+          python -m pip install -e ".[dev,documents,spacy]"
       - name: Verify dependency resolution
         run: python -m pip check
-      - name: Test public conversion boundary at minimum release
-        env:
-          READIO_TEST_SSMD_MINIMUM: "1"
-          READIO_TEST_SSMD_CONVERT_MINIMUM: "1"
-          READIO_TEST_UTTERPLAN_MINIMUM: "1"
+      - name: Test specialist integration boundaries
         run: >-
           python -m pytest -q
-          tests/test_ssmdconvert_api_contract.py
-          tests/test_document_conversion.py
+          tests/test_book.py
+          tests/test_speech.py
+          tests/test_doctor_v05.py
           tests/test_packaging_metadata.py
-          tests/test_book_pipeline.py
-          tests/test_audiobook_native_cli_api.py
-          tests/test_audiobook_cli.py
-          tests/test_plan_renderability.py
-          tests/test_plan_attempt_inspection.py
-          tests/test_plan_cli.py
-  engine-compatibility:
-    name: ${{ matrix.engine }} ${{ matrix.channel }} API (Ubuntu, Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - engine: kokoro
-            channel: minimum
-            package: pykokoro
-            specifier: "==0.10.2"
-            python-version: "3.10"
-          - engine: kokoro
-            channel: current
-            package: pykokoro
-            specifier: ">=0.10.2,<0.11"
-            python-version: "3.13"
-          - engine: piper
-            channel: minimum
-            package: pipersynth
-            specifier: "==0.2.1"
-            python-version: "3.10"
-          - engine: piper
-            channel: current
-            package: pipersynth
-            specifier: ">=0.2.1,<0.3"
-            python-version: "3.13"
-          - engine: pocket
-            channel: minimum
-            package: "pocketsynth[cpu]"
-            specifier: "==0.2.5"
-            python-version: "3.10"
-          - engine: pocket
-            channel: current
-            package: "pocketsynth[cpu]"
-            specifier: ">=0.2.5,<0.3"
-            python-version: "3.13"
-          - engine: supertonic
-            channel: minimum
-            package: "supertonicsynth[cpu]"
-            specifier: "==0.1.2"
-            python-version: "3.10"
-          - engine: supertonic
-            channel: current
-            package: "supertonicsynth[cpu]"
-            specifier: ">=0.1.2,<0.2"
-            python-version: "3.13"
-          - engine: kitten
-            channel: minimum
-            package: "kittensynth[cpu]"
-            specifier: "==0.1.1"
-            python-version: "3.10"
-          - engine: kitten
-            channel: current
-            package: "kittensynth[cpu]"
-            specifier: ">=0.1.1,<0.2"
-            python-version: "3.13"
-          - engine: inflect
-            channel: minimum
-            package: "inflectsynth[cpu]"
-            specifier: "==0.1.1"
-            python-version: "3.10"
-          - engine: inflect
-            channel: current
-            package: "inflectsynth[cpu]"
-            specifier: ">=0.1.1,<0.2"
-            python-version: "3.13"
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install PortAudio
-        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install project and test tools
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-      - name: Install selected engine package
-        env:
-          ENGINE_PACKAGE: ${{ matrix.package }}
-          ENGINE_SPECIFIER: ${{ matrix.specifier }}
-        run: python -m pip install "${ENGINE_PACKAGE}${ENGINE_SPECIFIER}"
-      - name: Verify dependency resolution
-        run: python -m pip check
-      - name: Run released-package API contract without model downloads
-        env:
-          READIO_TEST_ENGINE: ${{ matrix.engine }}
-        run: python -m pytest -q tests/test_released_engine_apis.py
-
-  released-engine-api:
-    name: Released engine API integration (Ubuntu, Python 3.13)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install PortAudio
-        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-      - name: Install project and test tools
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-      - name: Install exact released engine packages
-        run: |
-          python -m pip install \
-            "pykokoro==0.10.2" \
-            "pipersynth==0.2.1" \
-            "pocketsynth[cpu]==0.2.5" \
-            "supertonicsynth[cpu]==0.1.2" \
-            "kittensynth[cpu]==0.1.1" \
-            "inflectsynth[cpu]==0.1.1"
-      - name: Verify dependency resolution
-        run: python -m pip check
-      - name: Run released-package API contracts without model downloads
-        run: python -m pytest -q tests/test_released_engine_apis.py tests/test_supertonicsynth_engine.py
-
-  quality:
-    name: Static quality checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-      - name: Install development tools
-        run: python -m pip install -e ".[dev]"
-      - name: Ruff lint
-        run: ruff check .
-      - name: Ruff format check
-        run: ruff format --check .
-      - name: Public API type-check
-        run: mypy --follow-imports=silent --strict tests/typecheck/public_api_consumer.py
-      - name: Compile sources
-        run: python -m compileall -q readio
 
   package:
-    name: Package and installed-wheel smoke
+    name: Wheel contents and dependency-light import smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PortAudio
-        run: sudo apt-get update && sudo apt-get install --yes portaudio19-dev
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
-      - name: Install build tools
-        run: python -m pip install --upgrade build twine
-      - name: Build artifacts
-        run: python -m build
-      - name: Validate artifact metadata
-        run: python -m twine check dist/*
-      - name: Installed-wheel smoke (base)
+      - name: Install build tools and build artifacts
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Inspect wheel contents and smoke test clean installation
         shell: bash
         run: |
-          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-base"
-          "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/python" -m pip install dist/*.whl
-          "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/python" -m pip check
+          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke"
+          WHEEL="$(ls "${PWD}"/dist/*.whl | head -n 1)"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip install "${WHEEL}"
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
-          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/python" - <<'PY'
-          import importlib.metadata
-          import importlib.resources
+          WHEEL="${WHEEL}" "${RUNNER_TEMP}/readio-wheel-smoke/bin/python" - <<'PY'
+          import importlib.util
+          import os
+          import zipfile
           from pathlib import Path
 
           import readio
-          import ssmdconvert
-          from readio.api import document_from_file
+          import readio.api
 
-          distribution_version = importlib.metadata.version("readio")
-          assert readio.__version__ == distribution_version
-          assert importlib.metadata.version("ssmdconvert")
-          assert importlib.resources.files("readio").joinpath("py.typed").is_file()
-          assert importlib.resources.files("readio.resources.templates").joinpath(
-              "podcast.ssmd"
-          ).is_file()
-
-          root = Path.cwd()
-          html = root / "sample.html"
-          html.write_text("<html><body><p>HTML wheel smoke</p></body></html>", encoding="utf-8")
-          text = root / "sample.txt"
-          text.write_text("Plain-text wheel smoke.", encoding="utf-8")
-          markdown = root / "sample.md"
-          markdown.write_text("# Markdown wheel smoke\n", encoding="utf-8")
-          ssmd = root / "sample.ssmd"
-          ssmd.write_text("SSMD wheel smoke.\n", encoding="utf-8")
-          for source in (html, text, markdown, ssmd):
-              document = document_from_file(source)
-              assert document.format == "ssmd"
+          wheel = Path(os.environ["WHEEL"])
+          with zipfile.ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+          forbidden = (
+              "readio/engines/",
+              "readio/rendering/",
+              "readio/stages/",
+              "readio/planning/",
+              "readio/migrations/",
+              "readio/project.py",
+              "readio/verification/",
+          )
+          assert not any(any(name.startswith(prefix) for prefix in forbidden) for name in names)
+          assert importlib.util.find_spec("readio.book")
+          assert importlib.util.find_spec("readio.speech")
+          for backend in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth", "supertonicsynth", "inflectsynth", "voicefolio"):
+              assert importlib.util.find_spec(backend) is None
           PY
-          "${RUNNER_TEMP}/readio-wheel-smoke-base/bin/readio" --version
-      - name: Installed-wheel smoke (documents extra)
-        shell: bash
-        run: |
-          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-documents"
-          WHEEL="$(ls "${PWD}"/dist/*.whl | head -n 1)"
-          "${RUNNER_TEMP}/readio-wheel-smoke-documents/bin/python" -m pip install \
-            "readio[documents] @ file://${WHEEL}"
-          "${RUNNER_TEMP}/readio-wheel-smoke-documents/bin/python" -m pip check
-          cd "${RUNNER_TEMP}"
-          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke-documents/bin/python" - <<'PY'
-          from pathlib import Path
-
-          from document_support import write_test_docx, write_test_pdf
-          from readio.api import document_from_file
-
-          root = Path.cwd()
-          pdf = root / "sample.pdf"
-          write_test_pdf(pdf, "PDF wheel smoke")
-          docx = root / "sample.docx"
-          write_test_docx(docx)
-          for source in (pdf, docx):
-              document = document_from_file(source)
-              assert document.format == "ssmd"
-          PY
-      - name: Installed-wheel smoke (verification extra)
-        shell: bash
-        run: |
-          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-verification"
-          WHEEL="$(ls "${PWD}"/dist/*.whl | head -n 1)"
-          "${RUNNER_TEMP}/readio-wheel-smoke-verification/bin/python" -m pip install \
-            "readio[verification] @ file://${WHEEL}"
-          "${RUNNER_TEMP}/readio-wheel-smoke-verification/bin/python" -m pip check
-          cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/readio-wheel-smoke-verification/bin/python" - <<'PY'
-          import importlib.metadata
-          import sys
-          from readio.api import Readio
-
-          assert importlib.metadata.version("moondream")
-          app = Readio()
-          service = app.verification
-          assert service is app.verification
-          assert "readio.integrations.moondream" not in sys.modules
-          PY
-      - name: Installed-wheel smoke (engines)
-        shell: bash
-        run: |
-          python -m venv "${RUNNER_TEMP}/readio-wheel-smoke-engines"
-          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip install \
-            "pytest>=8" \
-            "pykokoro==0.10.2" \
-            "pipersynth==0.2.1" \
-            "pocketsynth[cpu]==0.2.5" \
-            "supertonicsynth[cpu]==0.1.2" \
-            "inflectsynth[cpu]==0.1.1" \
-            "kittensynth[cpu]==0.1.1"
-          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip install dist/*.whl
-          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pip check
-          PYTHONPATH="${GITHUB_WORKSPACE}/tests" "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/python" -m pytest -q \
-            "${GITHUB_WORKSPACE}/tests/test_released_engine_apis.py"
-          "${RUNNER_TEMP}/readio-wheel-smoke-engines/bin/readio" --version
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/readio" --help
+          "${RUNNER_TEMP}/readio-wheel-smoke/bin/readio" doctor --json

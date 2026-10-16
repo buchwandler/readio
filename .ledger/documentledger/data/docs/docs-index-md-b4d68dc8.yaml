@@ -1,13 +1,12 @@
 schema: documentledger.doc_record.v4
 doc_path: docs/index.md
 linked_sources:
-  - readio/audio.py
+  - readio/api/__init__.py
+  - readio/book.py
   - readio/cli.py
-  - readio/config.py
-  - readio/document.py
-  - readio/reader.py
-  - readio/spotify.py
-  - readio/wave.py
+  - readio/doctor.py
+  - readio/speech.py
+  - tests/test_dependency_boundaries.py
 sections:
   - section_id: md:section:docs/index.md::readio-documentation
     doc_path: docs/index.md
@@ -16,28 +15,16 @@ sections:
     heading_slug: readio-documentation
     line_span:
       - 1
-      - 4
-    section_hash: 0c937168f2a8008584c7a301769074acd0a5130cee6a1a312aa5bdd07fb5dc68
+      - 13
+    section_hash: 71f840a7e684577bba5385a71b36ede959d5e6d5bac11e552914ed0fe06e8e7f
     summary: Readio documentation
     text: "# Readio documentation
 
 
-      Readio is a terminal text-to-speech tool. It reads plain text or SSMD, resolves
-      neutral synthesis requests through registered engines, composes audio timelines
-      with AudioCompose, and publishes completed audio through `save-to-spotify`."
-    links: []
-  - section_id: md:section:docs/index.md::documentation-map
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Documentation map
-    heading_slug: documentation-map
-    line_span:
-      - 5
-      - 21
-    section_hash: 0377987389542525ab3490a753dbd2cba4cb71c034769de7d8e4b2668ed695cf
-    summary: Documentation map
-    text: "## Documentation map
+      Readio is a thin convenience layer over specialist speech and audiobook packages.
+      For package-specific controls, use the owning specialist CLI directly. Readio's
+      main addition is orchestration across the `.ssmdbook` stages and a direct literal-text
+      speech command.
 
 
       ```{toctree}
@@ -47,44 +34,56 @@ sections:
 
       architecture
 
+      cli
+
       api
 
       changelog
 
-      cli
+      ```"
+    links:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This overview describes the current public API surface.
+        tracked_hashes:
+          body_hash: 74365fc8b6946a6240bcc07137691db6976707e1b15af66dc69e96a656402f6b
+  - section_id: md:section:docs/index.md::specialist-workflow
+    doc_path: docs/index.md
+    heading_path:
+      - Readio documentation
+      - Specialist workflow
+    heading_slug: specialist-workflow
+    line_span:
+      - 14
+      - 23
+    section_hash: 9d626e8544f93e288d7eeb1478acffa4dc77e41942d9aee63817dd11a86361da
+    summary: Specialist workflow
+    text: "## Specialist workflow
 
-      incremental-rendering
 
-      projects
+      The manual workflow makes package ownership explicit:
+
+
+      ```text
+
+      SSMDConvert → UtterPlan → VoiceRender → AudioCompose → AudioExport
 
       ```
 
 
-      - [Project README](https://github.com/buchwandler/readio/blob/main/README.md),
-      quick-start commands and feature overview.
-
-      - [Agent Skill](https://github.com/buchwandler/readio/blob/main/skill/readio/SKILL.md),
-      instructions for using Readio from an agent workflow."
-    links: []
-  - section_id: md:section:docs/index.md::native-audiobook-workspaces
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Native audiobook workspaces
-    heading_slug: native-audiobook-workspaces
-    line_span:
-      - 22
-      - 25
-    section_hash: 8e4095af2820bbe1ae65bf2c3d4829b181c6b8b977fc65ee60c3c9e29123f17b
-    summary: Native audiobook workspaces
-    text: "## Native audiobook workspaces
-
-
-      Chapter-aware audiobooks use SSMDConvert `.ssmdbook` directories directly; Readio
-      adds no `project.json` or `.readio/` state. Start with the [audiobook CLI workflow](cli.md),
-      see the [Python API](api.md), and review [project boundaries](projects.md). Generic
-      document projects and `readio speak` remain separate."
-    links: []
+      Start with the [architecture guide](architecture.md) and use the owning tool's
+      documentation for detailed package options. Readio provides the [CLI shorthand](cli.md)
+      and a small [Python facade](api.md)."
+    links:
+      - source_id: py:function:readio/book.py::build_book
+        source_path: readio/book.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section introduces the specialist workflow and Readio orchestration.
+        tracked_hashes:
+          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
   - section_id: md:section:docs/index.md::installation
     doc_path: docs/index.md
     heading_path:
@@ -92,1439 +91,120 @@ sections:
       - Installation
     heading_slug: installation
     line_span:
-      - 26
-      - 43
-    section_hash: 7212846190cf9f8e4729e26f50fbed5830668786d415fca977e5952a566c4d0b
+      - 24
+      - 29
+    section_hash: eaedff759cbf5b75b3f9a169c1ae325eea5460b8abfcaee40f01c739d5b01546
     summary: Installation
     text: '## Installation
 
 
-      Readio requires Python 3.10 or newer.
+      Readio requires Python 3.10 or newer. Install Readio with `python -m pip install
+      readio`, then install a synthesis backend through VoiceRender, for example `python
+      -m pip install "voicerender[kokoro]"`. Readio does not provide engine extras or
+      pin backend implementations.
 
 
-      ```bash
-
-      python -m pip install "readio[kokoro,cpu]"
-
-      ```
-
-
-      Use the GPU extra when a GPU-enabled ONNX Runtime is available:
-
-
-      ```bash
-
-      python -m pip install "readio[kokoro,gpu]"
-
-      ```
-
-
-      Install Piper, Pocket, Supertonic, Kitten, or Inflect with `readio[piper,cpu]`,
-      `readio[pocket]`, `readio[supertonic]`, `readio[kitten]`, or `readio[inflect]`.
-      The `readio[all,cpu]` extra installs all engine packages for a CPU environment.
-
-
-      Engine packages may download model, voice, or bundle assets on first use. Spotify
-      publishing additionally requires the separately installed and authenticated `save-to-spotify`
-      executable.'
+      Optional Readio extras only pass through specialist functionality: `readio[spacy]`
+      enables UtterPlan''s spaCy support, and `readio[documents]` enables SSMDConvert''s
+      PDF and DOCX support.'
     links: []
-  - section_id: md:section:docs/index.md::quick-start
+  - section_id: md:section:docs/index.md::readio-commands
     doc_path: docs/index.md
     heading_path:
       - Readio documentation
-      - Quick start
-    heading_slug: quick-start
+      - Readio commands
+    heading_slug: readio-commands
     line_span:
-      - 44
-      - 75
-    section_hash: 06858c83a41630343c0a70a0bb17c739a2f03b4f5ad142e32fae6ca9c5b3c5de
-    summary: Quick start
-    text: '## Quick start
-
-
-      Read literal text, a file, or standard input:
+      - 30
+      - 40
+    section_hash: 7149da8968b21f3d18d9bc531be661cbcec2151e7ebb77dff228482ca3e1d22a
+    summary: Readio commands
+    text: '## Readio commands
 
 
       ```bash
 
-      readio speak "Hello from the terminal."
+      readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 
-      readio speak --file notes.md
+      readio audiobook convert novel.epub --output novel.ssmdbook
 
-      printf ''%s\n'' "Read this text." | readio speak
-
-      ```
-
-
-      `speak` incrementally queues segments through Readio-owned `sounddevice` playback;
-      it does not wait for the entire document or apply whole-program mastering. File
-      rendering retains full-document mastering. The two execution paths share segment
-      synthesis and composition semantics.
-
-
-      Render an audio file instead of playing audio:
-
-
-      ```bash
-
-      readio render --file notes.md -o notes.wav
-
-      readio render --file notes.md -o notes.mp3
-
-      readio render --file notes.md --format m4a
-
-      readio render --file notes.md --format ogg
-
-      ```
-
-
-      Render also supports PCM16 FLAC and Opus; `.ogg` is Ogg/Vorbis and `.opus` is
-      separate:
-
-
-      ```bash
-
-      readio render --file notes.md -o notes.flac
-
-      readio render --file notes.md -o notes.opus
-
-      ```
-
-
-      WAV is the default. An output suffix selects the encoder, while `--format` selects
-      the automatic output suffix or can be combined with a matching explicit suffix.
-      Extensionless output is normalized to the selected format. M4A and Opus require
-      an `ffmpeg` executable on `PATH`; WAV/FLAC use PCM16, while MP3 and Ogg/Vorbis
-      require matching SoundFile/libsndfile codec support.
-
-
-      With no explicit output path, Readio writes a uniquely named file below the configured
-      output directory. Existing files are not overwritten unless `--force` is supplied
-      for an explicit path.'
-    links: []
-  - section_id: md:section:docs/index.md::persistent-project-exports
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Persistent project exports
-    heading_slug: persistent-project-exports
-    line_span:
-      - 76
-      - 99
-    section_hash: d1daf8ff9a5a314afa02d773ceb6c25dea2072f87091972eb8e578350d1f1076
-    summary: Persistent project exports
-    text: "## Persistent project exports
-
-
-      Generic project export supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus. `.ogg`
-      stays Vorbis; `.opus` is a separate format. Readio defaults M4A to 192k and Opus
-      to 96k; those are Readio defaults and do not assert TTSForge parity.
-
-
-      ```bash
-
-      readio export novel.readio --format flac
-
-      readio export novel.readio --format opus --bitrate 96k
-
-      readio audiobook export novel.ssmdbook --variant NARRATION_VARIANT --cover cover.jpg
-
-      ```
-
-
-      M4B is an audiobook-only format handled by `readio audiobook export WORKSPACE
-      --variant ID`. AudioExport consumes the composed variant and writes a chaptered
-      M4B to its package-owned output path; pass title, author, cover, bitrate, or an
-      AudioExport profile as needed. Generic project exports remain in the Readio project
-      workflow.
-
-
-      Markdown is a first-class input format. Files ending in `.md`, `.markdown`, `.mdown`,
-      or `.mkd` are parsed before synthesis; `.ssmd.md` is detected as SSMD before its
-      `.md` suffix. Use `--input-format markdown` for Markdown from stdin or literal
-      text:
-
-
-      ```bash
-
-      readio speak --file README.md
-
-      readio render --file docs/design.md
-
-      cat README.md | readio speak --input-format markdown
-
-      ```
-
-
-      Headings, lists, links, images, code blocks, block quotes, tables, task lists,
-      HTML text, and front matter become speech-friendly text. Markdown styling does
-      not create SSMD prosody. Use `.ssmd` or `.ssmd.md` for explicit voices, rate,
-      volume, pitch, breaks, or markers; use `--input-format text` to force literal
-      reading of a Markdown-looking file.
-
-
-      The public `InputDocument.provenance` field exposes `DocumentProvenance` for auto-converted
-      sources: original format, media type, source name, converter/version, and converter
-      metadata. This information is retained on normal document instances without adding
-      private converter imports or changing explicit text, Markdown, or SSMD input."
-    links: []
-  - section_id: md:section:docs/index.md::input-and-rendering
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Input and rendering
-    heading_slug: input-and-rendering
-    line_span:
-      - 100
-      - 178
-    section_hash: b8762b249a1fca5ef59dd60e4be30248197a5fd7da1c8a53cc5b52de5937f012
-    summary: Input and rendering
-    text: '## Input and rendering
-
-
-      The `speak`, `render`, and `spotify` commands accept the same input forms:
-
-
-      - Positional text, joined with spaces; exactly one existing regular file token
-      is loaded as a file.
-
-      - `--file PATH` for the unambiguous scripting form and UTF-8 text, Markdown, or
-      SSMD.
-
-      - Standard input when no positional text or file is provided.
-
-      - `--live` for incremental standard-input playback or rendering. Blank lines close
-      live paragraphs.
-
-
-      A missing path-like positional token is an error rather than literal speech. Use
-      `--input-format text` when an existing filename must be spoken literally; explicit
-      Markdown and SSMD formats still support positional file detection.
-
-
-      For non-live input, `--select` can be `all`, `last-paragraph`, or `paragraph:N`.
-      The default synthesis unit is controlled by `reader.unit` and can be overridden
-      with `--unit sentence` or `--unit paragraph`.
-
-
-      Synthesis options are available on all three commands:
-
-
-      ````text
-
-      --voice VOICE             engine voice ID
-
-      --voice-file PATH         PocketSynth reference WAV
-
-      --voice-prompt REF        PocketSynth managed reference prompt
-
-      --engine ENGINE           kokoro, piper, pocket, supertonic, kitten, or inflect
-
-      --model TARGET            model or engine-specific target ID
-
-      --precision int8|fp32     PocketSynth bundle precision
-
-      --temperature FLOAT       PocketSynth generation temperature
-
-      --lsd-steps INT           PocketSynth latent diffusion steps
-
-      --max-frames INT          PocketSynth maximum generated frames
-
-      --frames-after-eos INT    PocketSynth frames after end of sequence
-
-      --lang LANGUAGE           language code, such as en-us
-
-      --lexicon NAME            named lexicon when supported by the engine
-
-      --no-lexicons             disable engine lexicons when supported
-
-      --auto-lexicons            use automatic engine lexicons when supported
-
-      --g2p-fallback MODE       none, espeak, or goruut where supported
-
-      --lexicon-data-policy     auto or installed-only where supported
-
-      --language-detection      off or auto where supported
-
-      --detect-language LANG    repeatable pronunciation-routing hint
-
-      --speed NUMBER            speech speed multiplier
-
-      --voice-level MODE       off or calibrated voice-level handling
-
-      --spacy MODE              linguistic analysis policy
-
-      --short-sentence MODE     off, wrap, phrase, or randomized-phrase (default: phrase)
-
-      --pause-mode MODE         auto, tts, or manual
-
-      --unit UNIT               sentence or paragraph
-
-
-      Readio''s short-sentence default is `phrase`; Readio resolves the policy before
-      engine adapters translate it to engine-native settings.
-
-      Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2,
-      AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3.
-      Generic project semantic plans use the current UtterPlan package API. Native `.ssmdbook`
-      workflows delegate to package-root book APIs and keep artifacts in the specialist-owned
-      workspace; they use the specialist packages'' workspace contracts instead of a
-      Readio-specific book schema. The `readio.plan.v2` response remains JSON. Engine
-      packages include PyKokoro >=0.10.2,<0.11, PiperSynth >=0.2.1,<0.3, PocketSynth
-      >=0.2.5,<0.3, SupertonicSynth >=0.1.2,<0.2, KittenSynth >=0.1.1,<0.2, and InflectSynth
-      >=0.1.1,<0.2; each owns its runtime dependencies and Readio does not require OnnxVoice.
-      Canonical engine IDs are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`,
-      and `inflect`; package names such as `inflectsynth` are input aliases. Install
-      engines with the matching optional extra; `readio doctor` checks public request
-      APIs without downloading models.
-
-
-
-      InflectSynth uses public metadata discovery for current targets including `nano-v2`
-      and `micro-v2`, each with the fixed `default` voice. It is English-only; unsupported
-      languages and explicit speaker selection, reference voices, pronunciation overrides,
-      or native word timings are rejected. Readio owns request boundaries and capacity
-      policy; InflectSynth owns G2P and model/runtime internals, while ONNXVoice remains
-      a transitive dependency rather than a Readio import. InflectSynth 0.1.1''s public
-      capacity contract does not report a trustworthy maximum, so Readio treats capacity
-      as unknown and does not guess a token limit. Shared speed and voice-level calibration
-      are available in the CLI; API clients can also pass variation and seed through
-      `SynthesisRequest.engine_options`.
-
-
-      Readio''s built-in `pause_mode` is `auto`; an explicit `[reader] pause_mode` setting
-      or `--pause-mode tts|manual|auto` override takes precedence.
-
-
-      Speed is an engine synthesis multiplier, not a composition tempo. Kokoro receives
-      the value directly, PiperSynth uses its reciprocal as `length_scale`, PocketSynth
-      rejects explicit values other than `1.0`, and Supertonic and InflectSynth forward
-      the multiplier to their native APIs.
-
-
-      Readio, not the engine adapter, owns text-capacity fitting and exact-text subdivision.
-      Adapters synthesize one strict request at a time and do not call native splitters.
-      Readio preserves legal linguistic and pronunciation boundaries and fails when
-      an oversized request has no legal split. InflectSynth 0.1.1 does not advertise
-      a known maximum, so Readio does not apply a guessed token limit.
-
-
-      ```bash
-
-      readio models list --language de --offline
-
-      readio models show de-thorsten --offline
-
-      readio voices list --model de-thorsten --json
-
-      readio models list --preference huggingface --json
-
-      readio models show de-thorsten --preference github --json
-
-      readio defaults set de --model de-thorsten --lexicon crane --offline
-
-      readio defaults show de-at --json
-
-      readio render --lang de --file notes.md
-
-      readio lexicons list --lang de --offline --json
-
-      readio lexicons show crane --lang de --offline --json
-
-      readio voices list --engine supertonic --lang en-us
-
-
-      readio voices list --engine inflect --lang en-us
-
-      readio voices show inflect:nano-v2/default
-
-      readio render --engine inflect --model nano-v2 --voice default --lang en-us "Hello
-      from Inflect."
-
-
-      readio voices prompts --engine pocket --dataset alba
-
-      ````
-
-
-      The `--voice`, `--voice-file`, and `--voice-prompt` selectors are mutually exclusive.
-      Managed prompts are Pocket-only and apply to the default synthesis voice, not
-      per-role bindings.
-
-
-      `models`, `voices`, and `lexicons` enumerate targets from the unified engine registry.
-      They are metadata-only and do not load model weights or instantiate ONNX runtimes.
-      `readio voices prompts` separately lists Pocket managed-prompt metadata without
-      opening a model or fetching prompt audio. Offline mode uses cached catalogs; refresh
-      updates catalog metadata only.
-
-      `--model-source` applies only to engines that advertise distribution-source selection.
-      Voice rosters are target-scoped where the engine exposes them, and lexicons are
-      listed only for engines that support lexicon discovery. SSMD preflight validates
-      role targets against the selected engine catalog.
-
-      Readio uses `readio.engines` as its sole engine registry. The registered engines
-      are `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`; aliases
-      such as `inflectsynth` are normalized before target resolution. Lexicon operations
-      reject engines that do not advertise lexicon support.'
-    links: []
-  - section_id: md:section:docs/index.md::synthesis-planning
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Synthesis planning
-    heading_slug: synthesis-planning
-    line_span:
-      - 179
-      - 202
-    section_hash: f4b22a021fac606ca00cf6956c7bbf35ec36199b15e6ccb6cd2dd1b2bfdfa22e
-    summary: Synthesis planning
-    text: "## Synthesis planning
-
-
-      Non-live rendering is plan-first: `readio render` resolves one `readio.plan.v2`
-      execution plan and then executes exactly that plan. Use `readio render --dry-run`
-      to display the one-shot plan without loading TTS:
-
-
-      ```bash
-
-      readio render --file notes.md --lang de --format mp3 --dry-run --json
-
-      readio render --file notes.md --dry-run
-
-      ```
-
-
-      Keep the layers separate:
-
-
-      - **Discovery** (`readio models`, `readio voices`, `readio lexicons`) enumerates
-      what engines registered in `readio.engines` provide.
-
-      - **Defaults** (`readio defaults`) persist validated per-language preferences.
-
-      - **Planning** (`readio render --dry-run`) resolves one concrete request, including
-      engine, target, source, quality, voice, lexicons, SSMD role bindings, output format/backend/path,
-      and provenance. Generated output paths are allocated once by the plan and reused
-      by the render.
-
-      - **Project planning** (`readio plan`) builds engine-free semantic Utterplan artifacts
-      and manages project-local SSMD roles. It does not resolve one-shot engine, model,
-      or output choices.
-
-      - **Render result** executes the plan; a plan that fails validation (for example
-      `model_language_incompatible`, `model_runtime_unavailable`, `ssmd_unresolved_voice`,
-      `encoder_unavailable`) is printed with its diagnostics and no TTS model is loaded.
-
-
-      Plans preserve engine-neutral render targets, request options, SSMD role bindings,
-      and pronunciation-routing hints. Lexicon behavior is supplied only by engines
-      that advertise lexicon support; unsupported explicit pronunciation semantics produce
-      diagnostics before runtime startup.
-
-
-      Planning policy stores UtterPlan linguistic options separately from engine render
-      controls. Readio compiles one semantic plan, lowers its segments to requests,
-      then delegates acoustic synthesis to the selected engine without passing the UtterPlan
-      object to adapters.
-
-      UtterPlan receives `synthesis.spacy` and `synthesis.short_sentence` as typed linguistic
-      policy. Readio records those settings in the semantic plan; an engine adapter
-      maps them only when the selected published engine API supports them.
-
-
-      One-shot planning is deterministic: `--resolve-voices` is rejected by `render
-      --dry-run`; use `--voice-bind ROLE=REF` for an invocation or `readio plan bind
-      ROLE REF` for a project setting."
-    links: []
-  - section_id: md:section:docs/index.md::durable-render-manifests
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Durable render manifests
-    heading_slug: durable-render-manifests
-    line_span:
-      - 203
-      - 215
-    section_hash: 37478e58ac2ca7a3198b2b7be0b26277edb99dd301393f274e84287d5dedcf12
-    summary: Durable render manifests
-    text: "## Durable render manifests
-
-
-      Use `--manifest` when a bounded render produces an artifact that needs durable,
-      machine-readable evidence:
-
-
-      ```bash
-
-      readio render --file notes.md --format mp3 --dry-run --json
-
-      readio render --file notes.md --format mp3 --manifest
-
-      ```
-
-
-      The successful render writes `<audio>.readio.json` beside the audio. Its `readio.render-manifest.v2`
-      payload embeds the exact executed `readio.plan.v2`, a canonical plan digest, the
-      final encoded-file hash and byte count, `RenderSummary` audio facts, document
-      metadata, and assembled marker offsets. Planning describes intended execution;
-      the manifest describes the completed artifact.
-
-
-      The option is explicit and applies only to bounded `render`. It is rejected with
-      `--live` and does not create manifests for `speak`, `plan`, dry runs, or publishing.
-      Human output remains the audio path. JSON output remains one object and adds `manifest`
-      with the sidecar path, or `null` without the option."
-    links: []
-  - section_id: md:section:docs/index.md::render-progress
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Render progress
-    heading_slug: render-progress
-    line_span:
-      - 216
-      - 226
-    section_hash: fea59c3b5423c6e6239bf32e720b989c629e96fab3cc76ef0d88f36b23ee5761
-    summary: Render progress
-    text: "## Render progress
-
-
-      `render` uses a dependency-free progress reporter on stderr. In default `auto`
-      mode it is enabled only for an interactive stderr; `--progress` forces it and
-      `--no-progress` disables it. `--json` keeps stdout to exactly one result object,
-      disables automatic progress, and still permits explicit stderr progress:
-
-
-      ```bash
-
-      readio render --file notes.md -o notes.mp3 --progress
-
-      readio render --file notes.md -o notes.mp3 --json --progress
-
-      ```
-
-
-      Bounded renders show phases, completed/total units, percentage, elapsed time,
-      approximate ETA, generated audio duration, and finalization. Live rendering shows
-      elapsed time, cumulative units, and audio duration but no invented percentage
-      or ETA."
-    links: []
-  - section_id: md:section:docs/index.md::verbose-diagnostics
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Verbose diagnostics
-    heading_slug: verbose-diagnostics
-    line_span:
-      - 227
-      - 238
-    section_hash: 62fd0654366f0d45aeaa3be847df9e5bb5bbf80d6c8d158cb700ffa6ff1577c7
-    summary: Verbose diagnostics
-    text: '## Verbose diagnostics
-
-
-      Use `-v` for timestamped INFO lifecycle records and `-vv` for DEBUG details from
-      Readio and the selected engine:
-
-
-      ```bash
-
-      readio -v speak "Hello"
-
-      readio -vv render episode.ssmd -o episode.mp3
-
-      ```
-
-
-      The option is global and may appear before or after a command. Logs are written
-      only to stderr. Human results and JSON remain on stdout, so `readio -v doctor
-      --json` still emits valid JSON. `--progress` and `--no-progress` remain independent;
-      verbose mode makes progress line-oriented on a TTY. At `-vv`, engine API checks
-      emit one compact structured event and include captured probe tracebacks at DEBUG;
-      ordinary doctor output never includes stack traces. Review paths, model names,
-      and voice identifiers before sharing diagnostics. Complete document text, raw
-      audio, Spotify credentials, and authorization responses are not logged.
-
-      Playback-only options are `--queue-size` and `--device`. Audio rendering is streamed
-      to an atomic output file through a bounded audio path rather than accumulated
-      as one in-memory waveform.'
-    links: []
-  - section_id: md:section:docs/index.md::configuration
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Configuration
-    heading_slug: configuration
-    line_span:
-      - 239
-      - 260
-    section_hash: 1b00470d101af3b55c70e6c38c855420d799bc676eaedbd4903c1d62e07c48f0
-    summary: Configuration
-    text: "## Configuration
-
-
-      Initialize and inspect the user-owned configuration:
-
-
-      ```bash
-
-      readio config init
-
-      readio config path
-
-      readio config show
-
-      readio config validate
-
-      readio config set reader.pause_mode auto
-
-      ```
-
-
-      `READIO_CONFIG` overrides the default configuration file path. Configuration is
-      TOML schema 3; Readio does not silently load v0.3 provider-specific voice tables.
-      Migrate existing files explicitly with `readio config migrate`; conflicts stop
-      for review, and the source is backed up. Legacy authoring keys (`paths.templates`,
-      `paths.ingest`, and `[ssmd]` validation/roundtrip options) warn, are ignored,
-      and are omitted from new writes; Readio leaves existing authoring files and directories
-      untouched.
-
-      The main sections are:
-
-
-      - `[reader]`: ordinary voice, language, speed, pause, unit, playback queue/device,
-      and linguistic planning settings.
-
-      - `[paths]`: runtime audio output directory.
-
-      - `[roles.<role>]`: engine-qualified role targets (`engine`, `voice`, and optional
-      `target_id`).
-
-      - `[languages.<locale>]`: validated model, source, quality, voice, ordered lexicons,
-      and language policies.
-
-
-      Use `readio roles bind` to persist a global target, for example `readio roles
-      bind analyst kokoro:v1.0/am_michael`. For a v0.3 project manifest, run `readio
-      project migrate PROJECT` before opening the project; project migration also keeps
-      a backup and rejects conflicting role bindings rather than guessing."
-    links: []
-  - section_id: md:section:docs/index.md::create-ssmd-with-ssmdstudio
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Create SSMD with SSMDStudio
-    heading_slug: create-ssmd-with-ssmdstudio
-    line_span:
-      - 261
-      - 289
-    section_hash: 98f72b7a0d76e8102d74f62630da558e3e9720303088947414020b67b58ba723
-    summary: Create SSMD with SSMDStudio
-    text: '## Create SSMD with SSMDStudio
-
-
-      Readio consumes portable `.ssmd` and `.ssmd.md` files; SSMDStudio owns creation,
-      starter templates, LLM prompts, portable binding materialization, and structural/roundtrip
-      lint. SSMDStudio 0.1.1 is the verified authoring handoff. Install its authoring
-      tools separately. If bundled starters are not in the user library, restore them
-      intentionally with `ssmdstudio template reset --all`:
-
-
-      ```bash
-
-      python -m pip install "ssmdstudio[authoring]==0.1.1"
-
-      ssmdstudio template list
-
-      ssmdstudio template use podcast --output episode.ssmd.md
-
-      ssmdstudio draft new --output draft.ssmd.md --template podcast
-
-      ssmdstudio ssmd lint episode.ssmd.md --roundtrip --json
-
-      ```
-
-
-      Use `ssmdstudio ssmd bind FILE --provider PROVIDER --voice-bind ROLE=VOICE --output
-      OUTPUT` to write explicit portable bindings. Then let Readio check local consumer
-      compatibility and render readiness:
-
-
-      ```bash
-
-      readio ssmd check episode.bound.ssmd.md --json
-
-      readio render --file episode.bound.ssmd.md --dry-run --json
-
-      ```
-
-
-      | Former Readio command                             | SSMDStudio 0.1.1 replacement
-      / boundary                                                          |
-
-      | ------------------------------------------------- | ------------------------------------------------------------------------------------------------
-      |
-
-      | `readio template list/show/add/remove/reset`      | Corresponding `ssmdstudio
-      template` command                                                      |
-
-      | `readio template validate --all`                  | `ssmdstudio template validate
-      --all --roundtrip`                                                 |
-
-      | `readio template use NAME --name FILE`            | `ssmdstudio template use
-      NAME --output FILE`                                                     |
-
-      | `readio ingest new --name FILE [--template NAME]` | `ssmdstudio draft new --output
-      FILE [--template NAME]`                                           |
-
-      | `readio ingest path/list`                         | No managed ingest directory;
-      use filesystem paths. Existing data is untouched.                   |
-
-      | `readio ssmd bind ...`                            | `ssmdstudio ssmd bind ...`;
-      this writes the source but does not verify local voice availability. |
-
-      | `readio ssmd check FILE --roundtrip`              | `ssmdstudio ssmd lint FILE
-      --roundtrip`; Readio check remains consumer-only.                     |'
-    links: []
-  - section_id: md:section:docs/index.md::ssmd-consumer-checks
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - SSMD consumer checks
-    heading_slug: ssmd-consumer-checks
-    line_span:
-      - 290
-      - 302
-    section_hash: fe3f662cfe554700a6daeaac70cfd19ec5f132b1ee5f05e6e0515192c739f3b6
-    summary: SSMD consumer checks
-    text: "## SSMD consumer checks
-
-
-      Files ending in `.ssmd` or `.ssmd.md` are parsed as SSMD. Readio always performs
-      consumer preflight during planning; `readio ssmd check` is an explicit no-audio
-      check of rendering compatibility and voice bindings:
-
-
-      ```bash
-
-      readio ssmd check episode.ssmd
-
-      readio ssmd check episode.ssmd --json
-
-      ```
-
-
-      Structural and roundtrip authoring lint belongs to SSMDStudio (`ssmdstudio ssmd
-      lint FILE --roundtrip`). Document-local SSMD `voice_bindings` remain authoritative
-      in their external namespace. Readio resolves missing references against explicit
-      invocation bindings, engine-qualified project and global roles, and the selected
-      engine's configured voice. A document containing the same role in multiple namespaces
-      is ambiguous and fails before model inference.
-
-
-      Plain text remains the default for one-voice narration. Use SSMD when the document
-      needs multiple speakers, logical roles, marks, or chapters."
-    links: []
-  - section_id: md:section:docs/index.md::spotify-publishing
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Spotify publishing
-    heading_slug: spotify-publishing
-    line_span:
-      - 303
-      - 320
-    section_hash: b486f0d0c0cd04186657a458023748fc515ae4b0c9156be763f9796e6936b2d9
-    summary: Spotify publishing
-    text: '## Spotify publishing
-
-
-      Publishing is explicit:
-
-
-      ```bash
-
-      readio spotify publish --file episode.ssmd --title "Weekly Review" --format mp3
-      --wait
-
-      readio spotify upload recording.m4a --title "Lecture 3" --show-id spotify:show:abc
-      --wait 2m
-
-      readio spotify shows --json
-
-      readio spotify status spotify:episode:abc --wait
-
-      readio spotify doctor --json
-
-      ```
-
-
-      `spotify publish` renders source and delegates the completed media to `save-to-spotify`;
-      `spotify upload` accepts existing caller-owned WAV, MP3, M4A, or OGG without rendering
-      or deleting it. Without `--output`, publish''s generated media is temporary and
-      cleaned up; explicit output is retained. `--timeline FILE` passes through a caller-owned
-      JSON object, while `--chapters-from-markers` generates Readio chapters; they are
-      mutually exclusive and both wait for READY before setting the timeline.
-
-
-      Use `--json` for machine-readable output. Global `--json` is accepted before or
-      after the command. `--wait` optionally takes a duration and `--wait-timeout` is
-      deprecated; `--api-timeout` is separate from readiness waiting.
-
-
-      Readio does not read Spotify credential files or perform authentication. It delegates
-      external writes and account setup to `save-to-spotify`.'
-    links: []
-  - section_id: md:section:docs/index.md::diagnostics-and-development
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Diagnostics and development
-    heading_slug: diagnostics-and-development
-    line_span:
-      - 321
-      - 342
-    section_hash: ae0bdd81301e49480538b625270a398b33e2baf92413aa90c7eb8254aebc60d3
-    summary: Diagnostics and development
-    text: "## Diagnostics and development
-
-
-      Run the offline environment check with:
-
-
-      ```bash
+      readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml
 
       readio doctor
 
       ```
 
 
-      The local doctor is human-readable by default and supports `readio doctor --json`.
-      It reports configuration, Readio's runtime output directory, dependencies, format
-      availability, and the upstream executable/version probe without authentication
-      or token access. Use `readio spotify doctor` for the explicit external integration
-      check.
-
-      Use `readio doctor --json` to inspect each engine's structured API status (`adapter_unavailable`,
-      `package_missing`, `api_incompatible`, `api_version_incompatible`, `api_probe_failed`,
-      or `ready`), imported module version/path, missing public names, and captured
-      error details. A transitive or lazy-import failure is reported separately from
-      a genuinely missing symbol. Probing does not download models or run inference,
-      and Readio does not fall back to a legacy pipeline when the published API is incompatible.
-
-
-      Run the test suite and lint checks from a development checkout:
-
-
-      ```bash
-
-      pytest
-
-      ruff check .
-
-      ```
-
-
-      The main CLI entry point is `readio/cli.py`. Generic project SSMD role discovery
-      and binding settings live in `readio/project_roles.py` and `readio/project_settings.py`;
-      project synthesis orchestration is in `readio/stages/synthesis.py`. Input normalization
-      is in `readio/document.py`, configuration in `readio/config.py`, audio sinks in
-      `readio/audio.py` and `readio/wave.py`, and external Spotify integration in `readio/spotify.py`.
-
-
-      Native audiobook API orchestration lives in `readio/api/audiobooks.py` and `readio/book_pipeline.py`;
-      `readio/integrations/ssmdconvert.py` adapts SSMDConvert's public workspace API.
-      Specialist packages own the workspace artifacts. The separate `readio/reader.py`
-      path handles one-shot and live speech, not audiobook projects."
+      `speak` accepts literal text and plays VoiceRender''s returned audio through the
+      current device. Audiobook conversion and build delegate to the specialist public
+      APIs. The specialist packages own all persistent workspace artifacts and stage
+      decisions.'
     links:
-      - source_id: py:class:readio/audio.py::AudioSink
-        source_path: readio/audio.py
+      - source_id: py:function:readio/book.py::build_book
+        source_path: readio/book.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
+        reason: This section introduces audiobook orchestration.
         tracked_hashes:
-          body_hash: 10a06c6595f350baa66d8a4684b3a43613c70355309e4342a14571e4bdf6d0dd
-      - source_id: py:class:readio/audio.py::PlaybackSink
-        source_path: readio/audio.py
+          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
+      - source_id: py:function:readio/book.py::convert_book
+        source_path: readio/book.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
+        reason: This section introduces EPUB conversion to a specialist workspace.
         tracked_hashes:
-          body_hash: c50607d5bd804355b6c8a316a9c7ccf20277e89033d0939fc572c8fe13e333b9
-      - source_id: py:class:readio/audio.py::RenderSummary
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 057b34cb23590cdc7d7ce0621a74ca2b605e0b30d9e26b16bb1c326a0b3af710
-      - source_id: py:file:readio/audio.py
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 0f0f74d82a512b5c334e9624ff8c5b8afd34c88edc580e6e42685e97e6312eb1
-      - source_id: py:method:readio/audio.py::AudioSink.close
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: ff4554bb952f980d8c402c25f50b77224981c29a0d974311ea4e657504bb3c36
-      - source_id: py:method:readio/audio.py::AudioSink.write
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: ff4554bb952f980d8c402c25f50b77224981c29a0d974311ea4e657504bb3c36
-      - source_id: py:method:readio/audio.py::PlaybackSink.__enter__
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 6a68aee6f7ab1ee550cd0313a4445fc0789479dfc91ef51f64fa79554e46702d
-      - source_id: py:method:readio/audio.py::PlaybackSink.__exit__
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 43fa33c21c9c9c256fe5c351d7d99b5243ceef437bafd5877b9bcf22b301be9c
-      - source_id: py:method:readio/audio.py::PlaybackSink.__init__
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 267fdc0b7a84ca0bfcbeffeacc3627aa40ba6dceb210599e6d329e2d24e83c20
-      - source_id: py:method:readio/audio.py::PlaybackSink.close
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 6bd57a3a017061dc76e8b42391f97fd616b3cd59d8783911ca99a1076044c018
-      - source_id: py:method:readio/audio.py::PlaybackSink.finish
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: ffead96549067d85f33f65aabc83b6e1b43c5413894c7e11ba3b5d5073549ece
-      - source_id: py:method:readio/audio.py::PlaybackSink.write
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: af6721b0bc7fcfbdfee8f428bf3a2a03c83b289e1b8cbcd7f9d3b11f290a607e
-      - source_id: py:module:readio/audio.py
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        tracked_hashes:
-          body_hash: 28e1c10ac1ecafa009e13635299def7490421bfb33b82ae2e644ab6f73af152e
-      - source_id: py:file:readio/cli.py
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: ae6bd37ad1834af1e721286a82cb3663853f5a8a720f9c50c5ea42fddcda3ca3
-      - source_id: py:function:readio/cli.py::_add_input_options
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 595058541b972670e4ecce7c292b45946a68891596bd1f192aebfbb7e36f8f5d
-      - source_id: py:function:readio/cli.py::_add_runtime_options
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 58b36abe15e42cab457bc7ba249972b238a9e58d3e7a1ee8dce1f978be08f1b3
-      - source_id: py:function:readio/cli.py::_add_synthesis_options
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 0a0f9f7e646fb7dbc44ceb7994a850b8fb9d999a4c544dc56e394283420a6abe
-      - source_id: py:function:readio/cli.py::_cmd_config
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: d2404e26f96a501aeee29050f81cfd7f5ab2f648a373f2b56513de72448ed002
-      - source_id: py:function:readio/cli.py::_cmd_doctor
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 95aee68812f18a2bc3d4368212d600370281e9fd8d6b87cc85b7de11f6f773a7
-      - source_id: py:function:readio/cli.py::_cmd_render
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 52e37108fab032bbd41bfd12963d4bbbb68cafbbe81b28f76b14d4b7c1a0f0dc
-      - source_id: py:function:readio/cli.py::_cmd_speak
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: c4b837bc656e926e85d401f093b2de62da91fd3b794e6ea1d61fe539ccc034a0
-      - source_id: py:function:readio/cli.py::_cmd_ssmd
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 7d2244b3b6f69830bc27662945bec3239ad4b467f02c03b4d5be563a9811ab93
-      - source_id: py:function:readio/cli.py::_error_payload
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 6d40de612aff3e3a3862cea32500b030e35ef9f0a59a36e8e3162576fb800dc4
-      - source_id: py:function:readio/cli.py::_read_input
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: b443f080b85f04520b302a86c9ee3a86eeba16ae1f751ea2b2b7a135fe08ee6f
-      - source_id: py:function:readio/cli.py::_resolved_config
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 64df325b3e2012dec18b6ee19be8e2b29e2b2f86de05f2f41ea8d6ab8eaaf6e9
-      - source_id: py:function:readio/cli.py::_validate_live
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        tracked_hashes:
-          body_hash: 5cdd8762310207eb8d2d73d8eedc98f2ce9cd44a8b584d4854134431009f1718
+          body_hash: d98549d12e0a11a1bf0fd2164a2c73627b382512d54c49d10cea628946e3240d
       - source_id: py:function:readio/cli.py::build_parser
         source_path: readio/cli.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
+        reason: This section lists the retained Readio CLI commands.
         tracked_hashes:
-          body_hash: 001992df1488d7bbd87ec78679289b3aab027ef1038b60048bdd01f1e907ee24
-      - source_id: py:function:readio/cli.py::main
-        source_path: readio/cli.py
+          body_hash: 3fde8ac503c0d8f97f6fc8925605d030c7fc784e025da1c066d9d43b7ea672a1
+      - source_id: py:function:readio/doctor.py::doctor_report
+        source_path: readio/doctor.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
+        reason: This section introduces dependency diagnostics.
         tracked_hashes:
-          body_hash: a771a7dde6e7454b139897c83e29fd5b4de29955d36c25967c731bd2579b9134
-      - source_id: py:module:readio/cli.py
-        source_path: readio/cli.py
+          body_hash: 6a1210db5d4b1e49d4cdfac38021756880fa8b6fb98a08bb7ba47ebe6994d209
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
+        reason: This section introduces literal-text speech.
         tracked_hashes:
-          body_hash: d5b038d4270c19a2d7ecc4b729d2fbc8c63c8e9ca59300c2722dab0a66453c74
-      - source_id: py:class:readio/config.py::PathSettings
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 685e90e8fc748e49139a2c0665be06133b45e293ba56bec17b77693882a62ab9
-      - source_id: py:class:readio/config.py::ReaderSettings
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: c33e9c7340b1dc7512950cbd616913081207a5021d7385426b959ad734ca9766
-      - source_id: py:class:readio/config.py::ReadioConfig
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 3edbeb5ee9222dec17a6901873eb24e48b36ed0df6eeed53648787528ab7c339
-      - source_id: py:class:readio/config.py::SSMDSettings
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: f8e211bd496e62be79e8542ba1d0a7cebbf2a6143ae07b375ae14ce00a91b69c
-      - source_id: py:file:readio/config.py
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 72823c84f066c0b083a0a571e04ace097e8cde57ecb57aee00a35ee0bea6f038
-      - source_id: py:function:readio/config.py::_coerce_reader_value
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 142736891ef870dc637543867bb124b5c85267718591487d24dfeefb228779ab
-      - source_id: py:function:readio/config.py::_coerce_ssmd_value
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 781c9390e6d6539f18af8bf93344313ece673b150c7b78ea584ad06a998f210b
-      - source_id: py:function:readio/config.py::_config_from_data
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 2138f7757fae00eff1a62e162710ed9110277b3405809141e521a14ec56e3ea3
-      - source_id: py:function:readio/config.py::_path_value
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 72517079476ce190688f3f4c7dd8643440aa14c89f686cf09fc83b848d04fbaa
-      - source_id: py:function:readio/config.py::_reader_from
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 0ef74a5125dacbafa7401efff4999b9e30e9ee06fc93abcdd77123eaab1855a2
-      - source_id: py:function:readio/config.py::_set_nested
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: aa7432e2547988ab91c30ddf394ca25882b15cfd88ce2d07131ed384dce3953f
-      - source_id: py:function:readio/config.py::config_path
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 86b2d947ed85a4ea1bbadf720d7b20a2e14a6a36a653f90611030d29e151308e
-      - source_id: py:function:readio/config.py::default_config
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 1791cdc8fec0727c349a11d49efe14229483098866d4b2e8aa4c20c66d851389
-      - source_id: py:function:readio/config.py::dumps_config
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: c58682a81f4cd2c8471bc0d16fb76d144d0398bea90598da0ca60b28ccf47efc
-      - source_id: py:function:readio/config.py::load_config
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: b67a5627f6914e5df3b46cf12937c254d2f748f4f7c4da0f6db60acee0073207
-      - source_id: py:function:readio/config.py::save_config
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 7fd9b8ff4ee3e1b9f21c473acf5536380fe2efd7ed5f588f36fa15f4e9f1ddc8
-      - source_id: py:function:readio/config.py::set_config_value
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 14d8144e8f96c9f61724ffff6d09297f5e5b3fb74b63ab92f22112e9f9aa88ac
-      - source_id: py:function:readio/config.py::validate_config
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: fb3178ece690c8635e9b659dab9bf319aa7b465f062ee706f6d075ae6503a573
-      - source_id: py:function:readio/config.py::with_overrides
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 1c74badbc60a8560cdf135fc61836af2a7aaae9370ac788d69902b33df50593f
-      - source_id: py:method:readio/config.py::ReadioConfig.__eq__
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 36cffe1eb85dd89dff72aac8875b0f10512b40520f258981e9d01b2dae1ce0a4
-      - source_id: py:module:readio/config.py
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        tracked_hashes:
-          body_hash: 1232e94a99bc5d0297d42f7a43d2555aee85bc981d40d63c95e9494143fc08f4
-      - source_id: py:class:readio/document.py::InputDocument
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        tracked_hashes:
-          body_hash: 7b3f35c49ddd0aff3af89df5d998d4cd961e9e13bc784eaf54bac313d99dc5c7
-      - source_id: py:file:readio/document.py
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        tracked_hashes:
-          body_hash: 11f36df4e1f18de753263a2eac44c23b45eb511b91ef496481daad0cb4880799
-      - source_id: py:function:readio/document.py::document_from_file
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        tracked_hashes:
-          body_hash: 3df714436a68078b6173ff679c76cdb15b5fbce912c335412578fe5fd142c9ba
-      - source_id: py:function:readio/document.py::document_from_stdin
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        tracked_hashes:
-          body_hash: eafef44bc05a9f5c36a3a25a46b318c2b234fbc110d44cf0bf115368ed75ae88
-      - source_id: py:function:readio/document.py::document_from_text
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        tracked_hashes:
-          body_hash: 5a21d39e9a81b8a50b10b356a914e2239b7519bb2e62b36e553fa06ea7afbc5f
-      - source_id: py:module:readio/document.py
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        tracked_hashes:
-          body_hash: 669beda22efe19ec8dd3fa0b3266af8e8391efe652840cd9a55a7dad2514b164
-      - source_id: py:file:readio/reader.py
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        tracked_hashes:
-          body_hash: b76bdac4fb4188f0bc3f0a5b6146b964a51505a89fad9e9c222f0294ff134dde
-      - source_id: py:function:readio/reader.py::render_live
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        tracked_hashes:
-          body_hash: a7338e7ca9bb7edf48b37c7c7ab76a67fd70862ffae5db2d843dade525ababc2
-      - source_id: py:function:readio/reader.py::render_text
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        tracked_hashes:
-          body_hash: d6d75f303140a1fd1f9ddfff1e6cec5432701977baf0974847d2b4ea44d6b44c
-      - source_id: py:function:readio/reader.py::speak_live
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        tracked_hashes:
-          body_hash: fb18cf97f2d42ea445871b936812f1816daddcc8cd36f913bc67208a3edb6842
-      - source_id: py:function:readio/reader.py::speak_text
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        tracked_hashes:
-          body_hash: bfa8d10625d82f4b3f592a750d450b68b4b7c84e3c80d23ec3763c475d01d56f
-      - source_id: py:module:readio/reader.py
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        tracked_hashes:
-          body_hash: 7a08dd0a13f0e4a8b855dd354e286d6106860079347d64bb7034b786b5c7cea7
-      - source_id: py:class:readio/spotify.py::SpotifyError
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-      - source_id: py:class:readio/spotify.py::SpotifyReadinessResult
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: f9bcf8407bab4fd0a9ecffcd2bd41f190426932d50d350983120ee1182b776de
-      - source_id: py:class:readio/spotify.py::SpotifyUploadResult
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 739e157b103559e794dfd7b526af639973bd8bfb7f93bfd89cac5e860c4d53d0
-      - source_id: py:file:readio/spotify.py
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 55280684ce9d3883b0055d6d7558af93995ec95b56b9e7293a8c7b4fa15e4023
-      - source_id: py:function:readio/spotify.py::_executable
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 24605288ae60cab861cf139283bdeb564384cb761fc4854abd6399209ccccc17
-      - source_id: py:function:readio/spotify.py::_run_json
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 4d2184870032dafab915fea32ae215df571b772782f3ab9fb02519639d356c1a
-      - source_id: py:function:readio/spotify.py::build_timeline
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: b11a59eb4aa3166026190c31abaee107d1e1247751c54e350ca5418427b3daf5
-      - source_id: py:function:readio/spotify.py::set_timeline
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 2270f9edcd44183689b17a8c8cd42b7fca307140ff40a9101d34a7442c5441a2
-      - source_id: py:function:readio/spotify.py::upload_episode
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 35444db6a63310eb5517a7641e7a473f5b58d2de45b9add07efeaab97a23bc31
-      - source_id: py:function:readio/spotify.py::wait_for_episode
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: 2e12d179dc20a5a7089878bd568124371bca6e3881eec95f868d6cdf56a3b1cd
-      - source_id: py:module:readio/spotify.py
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        tracked_hashes:
-          body_hash: f27251c72c7e3ff7e81515483417c8af99d4dc043acc9514d7ecedadc86d78c2
-      - source_id: py:class:readio/wave.py::WaveSink
-        source_path: readio/wave.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/wave.py`.
-        tracked_hashes:
-          body_hash: 2f91b2ec1b5d5ccd2f602e1fadb9c4bc1bdbeed4d96336c175cc40eaf0af5421
-      - source_id: py:file:readio/wave.py
-        source_path: readio/wave.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/wave.py`.
-        tracked_hashes:
-          body_hash: d9f1540156a7f08c2dd8ffbb95db3ed0f94848297dc32e08d607abfa51acd9d7
-      - source_id: py:function:readio/wave.py::atomic_wav_path
-        source_path: readio/wave.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/wave.py`.
-        tracked_hashes:
-          body_hash: 6eaaaf70e05edc223ef16b938cebae7b599f34b48a9256c3f39868fc077059a0
-      - source_id: py:method:readio/wave.py::WaveSink.__init__
-        source_path: readio/wave.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/wave.py`.
-        tracked_hashes:
-          body_hash: 657d33bb30baa331936748d87bc9f5e7ebfbbbd6243c83566f4eb8889a9c6249
-      - source_id: py:module:readio/wave.py
-        source_path: readio/wave.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/wave.py`.
-        tracked_hashes:
-          body_hash: 716f916d42c872c300a9bf5e1f34f5cd133b2fbad576cec76e0f9659c1b1ddfe
-  - section_id: md:section:docs/index.md::ssmd-voice-resolution
+          body_hash: 314c0261364434f4f48437a352b0600c4a03f7eb5ee41c566b6294ae3b3c9bf8
+  - section_id: md:section:docs/index.md::no-legacy-migration
     doc_path: docs/index.md
     heading_path:
       - Readio documentation
-      - SSMD voice resolution
-    heading_slug: ssmd-voice-resolution
+      - No legacy migration
+    heading_slug: no-legacy-migration
     line_span:
-      - 343
-      - 362
-    section_hash: 71cab42bd2c32bfc75ad69bc6cd1d1f7274d295e6c5825eed6e107bb1bce75f5
-    summary: SSMD voice resolution
-    text:
-      "## SSMD voice resolution\n\nSSMD document bindings use `voice_bindings.PROVIDER.ROLE:\
-      \ CONCRETE_VOICE_ID` and remain authoritative. Inspect configured voices and persisted\
-      \ role mappings with:\n\n````bash\nreadio voices list --lang de --json\nreadio\
-      \ voices list --engine kitten --json\nreadio voices show kokoro:v1.0/af_heart\
-      \ --json\nreadio roles list --engine kokoro\n\nFor a selected model, inspect concrete\
-      \ voices with `readio voices list --model MODEL --lang LANG --json`. References\
-      \ use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`,\
-      \ `pocket:english_2026-04/alba`, or `inflect:nano-v2/default`; numbered voice\
-      \ selectors are removed. `--engine`, `--model`, `--lang`, and `--gender` filter\
-      \ catalog metadata. Native voice IDs need enough discovery context to resolve\
-      \ uniquely; prefer a semantic reference when the target must be explicit. Document\
-      \ bindings take precedence over invocation bindings, which take precedence over\
-      \ configured portable roles.\nUse `readio roles bind ROLE REF` for an explicit\
-      \ persistent mapping. Native voice IDs can be used when their engine and target\
-      \ resolve uniquely. For automation, pass missing logical roles only for one invocation:\n\
-      \n```bash\nreadio render --file episode.ssmd \\\n  --voice-bind moderator=kokoro:v1.0/af_sarah\
-      \ \\\n  --voice-bind architect=kokoro:v1.0/am_michael\n````\n\n`--resolve-voices`\
-      \ is an explicit interactive convenience. It prompts once per unique missing role\
-      \ only on a usable TTY and never persists choices. JSON and non-TTY execution\
-      \ never prompts. For portable source binding materialization, use `ssmdstudio\
-      \ ssmd bind FILE --provider PROVIDER --voice-bind ROLE=REF --output OUTPUT`; Readio\
-      \ does not write SSMD source."
-    links: []
-last_fresh_scan_version: 13
-last_fresh_hash: 01665bb497953b81166a512f6df842c68a9e1de8380e82485c16eb45c492ca24
+      - 41
+      - 43
+    section_hash: 963b3c0864a15efef9576227bff4485b5590222557c62d948538b59f614817de
+    summary: No legacy migration
+    text: "## No legacy migration
+
+
+      Version 0.5.0 removes Readio-owned generic projects, `.readio` state, `project.json`,
+      and the old plan, render-manifest, and pipeline APIs. There is no migration command
+      or compatibility layer. Readio does not read or attach that state. Convert source
+      material to an SSMDConvert-owned `.ssmdbook` workspace, or continue using the
+      specialist tools directly."
+    links:
+      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
+        source_path: tests/test_dependency_boundaries.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the explicit no-migration policy enforced by tests.
+        tracked_hashes:
+          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
+last_fresh_scan_version: 16
+last_fresh_hash: 34ea9a76ce3cd704fe8ae146366c3ba2cb9a7f7dff4ff0eea964da77d8e68a88
 notes:
-  Reviewed audiobook orchestration and one-shot speech paths against current
-  source; strict Sphinx build and documentation regression test passed after scan
-  13.
-coverage_resolution: null
-version: 51
+  Rewrote overview and specialist workflow after scan 16, reviewed current CLI
+  and Python APIs, and passed the strict Sphinx build.
+version: 180

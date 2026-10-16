@@ -1,269 +1,165 @@
 schema: documentledger.scan.v5
-version: 14
+version: 16
 source_index_file: source-index.json
-source_index_hash: 8ac4d76830d28ee4fbd093984f8ca42d6f85d087c7e5c916c254555441388c1c
-source_file_count: 243
-source_unit_count: 3510
-doc_file_count: 8
+source_index_hash: 2ad9a10b6ddbf747084e9a8d4bef95cf50ba57b414ed69df683550491e8ca09f
+source_file_count: 17
+source_unit_count: 110
+doc_file_count: 6
 source_hashes:
   readio/__init__.py: 96898c79c09a9c65e282f0ec1e8bc771ba13f517a0106d04c318e27aaf705025
-  readio/__main__.py: 6d8b7d7846a845059d7a3107143f11131f63c5511d669b44085b15ec5e3d2279
-  readio/api/__init__.py: 25bc4d88be2f37d9569ce617d279f56c4312903c3e9987d8317ad0dfdc33ee26
-  readio/api/app.py: d245c424c7d20f621194f56826abd356e70963c9132581da8a29014e9d269817
-  readio/api/audiobooks.py: e1f2aa9061fcff7ed5dca7d1803d1deae52035e4e9e8e2b3ff450ee484481aba
-  readio/api/catalog.py: b32543c7d536a9999f4f67a6f08771754a352155da8f4a1c95d2e7ba64d9ab5b
-  readio/api/configuration.py: cf3e65ae79571453e5b5182f6927ab2efc6641c47f8655c855891e74f402b6aa
-  readio/api/diagnostics.py: 986c472937eb7c7f3bc0e5885c70e808e799dddc5f230c9eba2cfed1d89001fa
-  readio/api/errors.py: 35f931a64204db3d751cb0d4f8530116dd8b94bb14fc18ec9a1c631e3b2a4dba
-  readio/api/events.py: 03a360a54271b1f1432b3870e83afcdcaf622b3acd88eaa70589eca4a362c3c0
-  readio/api/extensions.py: 2b106dc0adfd58818b4d26ef3c8335793049f0252e5e414ab45c5e63eb57d3c8
-  readio/api/integrations/__init__.py: e29f2b8b322137e0acdb79b92ff32396bd27708db6d08ea8c98b55c1c8b60007
-  readio/api/integrations/spotify.py: b5a6a38ac316480129952a11465985b940238273e37840a543747e183e9884ff
-  readio/api/projects.py: 678ae45201020dac178cf5f8d77cf8fc3a12344b9a650f10ac1b804474e5ba2b
-  readio/api/roles.py: cfef963e76f41a84a43e5f4fd3655d5d003edb962ab5e9d080ed62fd07e9772c
-  readio/api/speech.py: 2c1c3637213efa9d7fbce13e49f2f856af094fd6c1b11a3b7348450bf2dad70f
-  readio/api/ssmd.py: d144ff94c52ce438a9963286a2100e51721bf0fa7dc6ac5431cbe5a55adbe643
-  readio/api/types.py: f3d705dc6cfc408307931ca57b6addbf124d926c11fbf04d31f8949cc914f7fb
-  readio/api/verification.py: 102c95aff4fc01aecbfa1decae98338706865856f979ff722c97fa6ef524dd0f
-  readio/audio.py: 0f0f74d82a512b5c334e9624ff8c5b8afd34c88edc580e6e42685e97e6312eb1
-  readio/audiobook.py: d723a7fa18268d0d6fbd8fcbfbe032499aebede948638f5f1a58146f29fd1428
-  readio/audioio.py: 04fca3299e76292d67af8bb6e6e179e4d64dd65c69bb2767cd2b3e7889fde75f
-  readio/book_pipeline.py: 3572fdffe6c18783a00d6176f7f71eb6e702670b2573d6b6f1099334387d0263
-  readio/catalog_metadata.py: 26648cec600e4c244e3e38dfd06ba8d4191e2bdbc92c9379bc10ff33d8a5b59b
-  readio/chapter_selection.py: 112ecd260251b96a743d9c2e31fe45ecf331962f91c504bfffaa9db10fc93b62
-  readio/cli.py: ae6bd37ad1834af1e721286a82cb3663853f5a8a720f9c50c5ea42fddcda3ca3
-  readio/cli_adapter.py: 0e55d735003c18e2b4c00e9cef5d935a063616c58b0fff4cfbd04f0dbf65e0b2
-  readio/cli_help.py: b6c46402ced9d597a63ca6c8564154d037d836749735687249f12c8807107261
-  readio/cli_present.py: 663f6b97713c1dd3eb895cb2faf6a47daba1f37967fafdbc800cdc693670d479
-  readio/config.py: 72823c84f066c0b083a0a571e04ace097e8cde57ecb57aee00a35ee0bea6f038
-  readio/doctor.py: 91d5698a09aa4a426e7b64bb57d9bb3364aa938770c99297cdd36aaad00088e9
-  readio/document.py: 11f36df4e1f18de753263a2eac44c23b45eb511b91ef496481daad0cb4880799
-  readio/engines/__init__.py: 0de0c5c4ddd24b42407af93a7cbfe1d5cb75f20503b81697308f0aeaaba092d2
-  readio/engines/api_probe.py: 281b46af8fb63d6b3344eda8874aed8c79735134a5d0d512e259955ab07ec5f7
-  readio/engines/base.py: 97992cf335a686948d9870462012d30e6257faf47404dd25317316ad4360d174
-  readio/engines/catalog.py: d6f1e9d52c8de1864035970e6e7b6fe6a0ba93bbe8fa0e28f120cda1e2d8157d
-  readio/engines/discovery.py: 5518559ff6ad0666996b29e0db6f12f4c6cc4f0c0f555982558a87e4b60e6a35
-  readio/engines/inflectsynth.py: 6109b4648f7e2379621ebc5e2de4a05a73e0998a808881c3469768056e80bc98
-  readio/engines/kittensynth.py: fbada44998b68be28fe3deaa0da0465f57b178da3b71c8b1f224ec5b67f2752d
-  readio/engines/pipersynth.py: 6941d412e66c9d017f507d28698952601769dc2de3bd92b95fe90fae17e1f680
-  readio/engines/pocketsynth.py: ab5f5d295b90aab2fb4e25894563b887b640d4e556ae6d382a5c80b7232c20fa
-  readio/engines/pykokoro.py: 43566b0c0558c51f6a2329b833cf39ad4aec36885e2bad7de710e6fb3b8ab44d
-  readio/engines/registry.py: 3b9c4d91721aa8a130937b4c3c753b0dd761a5115b1df68dcdead85c799fd5b5
-  readio/engines/selection.py: 169860580cae3654375ce2453061f67b7358eaac338ff0fb9d623637629489c6
-  readio/engines/supertonicsynth.py: ea5590be1cd4e387523f482bb4b1b7de71356c12b8d2f9e722b6aa566b56c4e1
-  readio/errors.py: a0475d9ccecf2dcebe34afa0c9e432918d2e1f4a838a5711c54e562cf637659c
-  readio/execution.py: d212c0a3c0a864bec5ecce8e03b34b293e29ff83643efb0fdf7df9b901cbdf84
-  readio/formats.py: 9c732ca304e75aab958f8c97a56f440fb0db788910eee50bb4d267afecc59393
-  readio/integrations/__init__.py: 29f7e6be3c2604acd4b7a0c0e4c7b2e156ba5ce4d546215dd078c845bd0a26f7
-  readio/integrations/audioexport.py: 65f5770adf0d0a1aa1c9a77a7052921a5e764dd82bb574d0273b92fc4d30e173
-  readio/integrations/moondream.py: 9a9a4f0e88407c00e43f66e675e7061fc0ed2f0a6eac6e1c8cfeafac064397e5
-  readio/integrations/ssmdconvert.py: a7f0bc5c23f2e998f5dd0cf069c50fcc9286f40cecaeb45e9e28deeeebfeea60
-  readio/integrations/voicerender.py: 353c65c3fbf2faccb5075a9f1a46116c5ea7d4e86e03b7b2a3a24d16465152d6
-  readio/jsonutil.py: 32c19ade09c8f7041b4d129f25bc04b49ad3c34c90d2c17c3639a324cefd474f
-  readio/lexicons.py: fac39691c1a888b0b2b8fb703f8b1e6b72d857b37ed3a3977ae6b56b3290aaaa
-  readio/logging_config.py: 52b453edc9785338c8b304134b71b908ed5cb4f7206068b085d454996b04813f
-  readio/manifest.py: aa6e414d5a97760df4e3d00e83e5bcb10a23b9d35056396c49cca46f09c58f99
-  readio/migrations/__init__.py: 1929a979c400f53ded3a5de6ede482a16fdd3c593295fdc3ed915b4d396301ad
-  readio/migrations/v03_to_v04.py: f116187786d73f4d1f71e93229533c7df2926243590095f116098bdb5a0a779d
-  readio/models.py: b52e31c8ef21bcf1f2fb4db9b90825c8e87075128a2d6d8592675eed0093e0c0
-  readio/paths.py: 14c6baf4f6a5c806aee568693fe7eee5f44bdffec164bd06122e783b71914d35
-  readio/plan.py: a6d5fbe63ebfea874933d5dc777e8f14d69ab266c644fdb8d96bbfcd70384748
-  readio/planning/__init__.py: 361d6708bcc7282a9bceef7686cf425e9b6e7b278c3d927ba6ce3013787cb9a2
-  readio/planning/compiler.py: 086af42a95cfeced2a540784e21bc28859de1fd341ed897ec700bef083610a42
-  readio/planning/flow.py: aaaf8573f16903504591da8e82c58b1615b99326d7c8abb5c570f8cefe0d8633
-  readio/planning/policy.py: b682dfb06d388906b80f10589a7ff108e4c7d2e31ca9ef8f8af3f24882873068
-  readio/planning/semantic.py: d53dda0cd1be506a2b182fdd30eacba2b813b1ba464d134f03a8b72f8287f178
-  readio/playback.py: 13b883aa05387def6191f1f935e24e6fcd473d22759287aab5f4457b2d6b7b20
-  readio/progress.py: c961b42b5bfdef045eaa6633f96b1e8afd5707f77801a27434a90d15cfa253e4
-  readio/project.py: 58b9da822057cbfaad31ac09ded0f829d3d8920f73f93ed365dcdb6f7c9891f7
-  readio/project_model.py: b09b9845c411cbc98c3c11d57add7978d37acbd16bc76bbd34c0ac36c1898e95
-  readio/project_roles.py: 5197136540e19f1016028839c48e49a4c26011e2094bb84c03e652ba0e8470ee
-  readio/project_settings.py: 698873cd75ebbc922dd72e4ef0b9d4bd90f7932c1ef6d3f1651c6bd905ae7372
-  readio/reader.py: b76bdac4fb4188f0bc3f0a5b6146b964a51505a89fad9e9c222f0294ff134dde
-  readio/rendering/__init__.py: 0f8f7457bd3c41820ec2e2f842c87f592eb390daafce69afc0cc8bcda6a9fefb
-  readio/rendering/capacity.py: 7b5d4f0d1f53bcf719f7c726d82e0af82138b0ae2a4b18c61109b95d47cd86ab
-  readio/rendering/lowering.py: ee532c0add8cfde8b1fc15140111e745a4207f4cae575a661ff20a2f14f444fe
-  readio/resources/__init__.py: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-  readio/role_targets.py: 3a7ae2ec1c6a9d2a6a8b7dfb8099e273b9a97b6a0e115cadeeb85bfcb982b3cb
-  readio/selection.py: c3bc5a617d91a6bc77d02088f8bd0cb359dbd6ad550762540807b601199d2680
-  readio/spotify.py: 55280684ce9d3883b0055d6d7558af93995ec95b56b9e7293a8c7b4fa15e4023
-  readio/spotify_cli.py: ce190904d505feb517a86ba96f707023f6397c104b56caa553ec259be44469fc
-  readio/ssmd.py: 1e11d6799df9b6a6f237acf1b76e6bdab5139e1e9236b49c2d83d99396af2559
-  readio/stages/__init__.py: 27c75de0f2b17711bc78fb14f1c90274dc51972db0ad53da5666c8c5ac38f490
-  readio/stages/audiobook_export.py: 3d8e7d081caf88d76db0985b2022c1d2ca9936a207c8e1b06e1b8d31dbb83039
-  readio/stages/composition.py: 3a8f707750da5dad2b57b27123b15709393abdfa50c0c20d3e84cadc7e1696de
-  readio/stages/export.py: b430004d769a8096215a59d9ca8193fc84ced14b67bacd214978851d07788715
-  readio/stages/pipeline.py: 597258cbd23e25d62d3ba886d2d9cd036dda6c0bb7e4239b9f6351c5150d7d65
-  readio/stages/planning.py: a586f59a7399fb03642755a983fa2d173e590968d09e1a17251f77e6c2e10eeb
-  readio/stages/speech_identity.py: c9c05a7e79a1b68bda2c86800386fec7a05453d314569e6626c299a058c5bd41
-  readio/stages/synthesis.py: d3bd41ed5c9f1c97161b063c42f21575c2dde34610624988ac0a52037538f6c6
-  readio/synthesis.py: 902891b25309424036bb952e2ed7500dff38f730ac6f7213b57a32ed415e6e0f
-  readio/text.py: f5c8a9936b9f49c123a00940ec361ce42ccbdd1b204604e73d74f8d907e5e46e
-  readio/verification/__init__.py: ac979ae15b64092df340bca1d9d5ff7f6b0c7b817d7bca1e84caf370d9bd95de
-  readio/verification/alignment.py: 53c5cf7fbae86820e8d1c7ed7c09ec9860f6b6a400da1d00518854d63f81d47c
-  readio/verification/cases.py: 73df4d6f893dd0fdd2cff5800f21b5df168ba12866452b7fbaed558a3ca6e09f
-  readio/verification/text.py: fc95c78b377dc769c2852cac2a4055f2e859f1a8a448c29e34bb0dbbeb73dece
-  readio/verification/timestamps.py: bf9bd01dd632cf9552ac7d62d066004af3009dc6f5778297a1bb23711eeaf02e
-  readio/verification/types.py: e3cf47ead153248f81980fa0a038fcd8b3e9b72f715e724eaec0da8307a74710
-  readio/verification/voice_matrix.py: e19c22476e57f157dedfd70d2ef3d935b423171bfe6c522d681058885ebfeb06
-  readio/voice_refs.py: 90b6478d0ca83e15468963f6478ba723e1478a3636b5f1267e0a051265005fd2
-  readio/voices.py: f56b0d3b4a9f94dbb332d36b6c77dba36b440f470482a537fc6708c2954bf579
-  readio/wave.py: d9f1540156a7f08c2dd8ffbb95db3ed0f94848297dc32e08d607abfa51acd9d7
-  tests/audiobook_support.py: 53b025fdd5a4881300ccf8c6a3497e816c5f3585609be9cd1f28841e6a58de96
-  tests/document_support.py: 1e12c2ccec717c88f8a7d4c6ccbf0cbf4027f72ff7a29994fcf003d2c8551910
-  tests/e2e/test_redux_e2e.py: 0ec5a4eb4c2aeac5bc700e1d647f3ae216b918d40d7fad0aa57ba657ed39d31e
-  tests/multiscope_support.py: bab38851f592a960489c70445d34e47a297582bbf677c6459f49fc708ed41bc1
-  tests/project_support.py: ed4f5ca3a3f133fc7c7e914755bfee2edcf911fa5522f5362f157a7d9d1958b4
-  tests/test_attached_workspace_index.py: 8c5e794f29d3587b0a42199b498ea84c0b2dc870f9c1adde29b32d6ea5e0a412
-  tests/test_audio.py: 8d4a604f696b6de87faa7b0f73d8202a631f27553eb8e1bdfad24cdac355b476
-  tests/test_audio_formats.py: 8b86e55acc389708efe1df916eaa8ff5e9655918180bc3a4e41c46c2693503e7
-  tests/test_audiobook_cli.py: dcb6b9ce4ea47c04a0bd2ef69475b673c65ee731755d9f9590184b8904de8b7f
-  tests/test_audiobook_export.py: 506d34516ed2ebd27d64b8da14f3019f4ea32831cd9448b15a46f2c21da0122a
-  tests/test_audiobook_export_api.py: bcb87115b80200deb52d7fe6a64db5a1eca7866fba48c2771820bd67185b6dec
-  tests/test_audiobook_interop.py: ca93a07f6dd0d2598fa6f5340e3b026a82b9f246215e0f8c0d563fb5a85cf32e
-  tests/test_audiobook_native_cli_api.py: f29b2be1e6eb289135e35f9e94ce16885ba9f19df2a7f17514d208301d15c548
-  tests/test_audiobook_pipeline.py: 15b7f884f102019571ae42dab0b969704cfef350bb81b77f53deeb68d9d9f29a
-  tests/test_audiobook_project.py: 781db17d05c6a93e7fa89531d50cbf05800b394a532c34b5652c0ed42cd90195
-  tests/test_audiobook_status.py: 3d1a5c4cc01e9a6d47a8556119dcde279bb16d28c9ccc243980ccfc893612cc7
-  tests/test_audioexport_integration_surface.py: bd46ade14098662219d5fda6ba69b3feaa7e36d1d08e794ed4ca21ee81fd926b
-  tests/test_audioio.py: f80de8213a7137fe8a4bd6e30cc66141b9d533e1f92497576607c6167f1cd62d
-  tests/test_backend_config.py: f35ae878ed28412ddd6f89488ae0fc14d2c5c264a5d09272f2d7a9da897de128
-  tests/test_book_bundle_cli.py: dd8520a2122fb9155117a0f4b3c50865f9b9c95318ee2ae971847c8f76634475
-  tests/test_book_pipeline.py: 6050d3fd861dd165fdd2386de0a87838434ace577743f8e96dd005b3b800c4ad
-  tests/test_capacity_fitting.py: 1d1dfbe4c697dea7e32f8f5b45a80f0416c0f7759ff977ae470b09a6aea30c88
-  tests/test_catalog_metadata.py: 40208ab26efbe47a1f5a741292afbec9228a56f005098acb7eb7115c650e4578
-  tests/test_chapter_selection.py: 958db0fd9d34d0150fa00ebf39000dc73ca62f6146c5b2ea7f73df5cee39b752
-  tests/test_chapters.py: 10f7299c111dd89a631cb8f20c4684c79f11578c0e89779cfa257504452bc2d5
-  tests/test_cli.py: 70af8b82401221f9da52b459d6aa9b5b2ad29230e9f5f1f7364a752f3df88ed9
-  tests/test_cli_adapter.py: 05556b90c7cc7cf06fca985fbaf4a6e5c158689ae529f72620c55f33662bc86d
-  tests/test_cli_help.py: e09d650a9daa1a86b657a45ebbf7cb0173a254887f61da1d079e9d5132fbc52a
-  tests/test_cli_public_api_boundary.py: 73521d78dec955a306cf4dca8f9a878d364f9df252366ead2803edb69b1b2679
-  tests/test_composition_ssmd09_prosody.py: c1f6ce01cdefbebb6d3c06b7aedb05b548d55542b273da7c745dae35e5a19e04
-  tests/test_config.py: a242f669da1b978556a86f765fb6dd5016f293b092843299612a98d0a5342197
-  tests/test_defaults_cli.py: 7400fbf0f36d1b645aaca10db91afc3578907e4a95d79461c4be6c1656f6c989
-  tests/test_dependency_boundaries.py: 102c3be0744f52282c6d63cbba19f218e283bc4a1bfdbce47c6478cdd4a63c3a
-  tests/test_direct_utterplan_preparation.py: f9566275d53fdac59b87960a753c6ad4a27fab3808cd2a95153ecfb9db89206d
-  tests/test_doctor.py: 6b48bf137bd964c692a3e0c24d5c9cf7081d767a075f034c69487adcac55ff41
-  tests/test_document.py: 6d6296fc7a8558a336a5e7ee7f5560d4988e65f8993d8a9514477d9841b8094c
-  tests/test_document_conversion.py: aaccfb223209b3056bcf9ab4cd63221a5ffd7807234223095fe0736b7b4bfb8e
-  tests/test_engine_adapters_requests.py: 2ee2fc1442740703df1a8a56aa0e34111afa189d86f12d6fe9b242aba6a8cf42
-  tests/test_engine_api_probe.py: 894a3e907eb4e5917890d58b5662f4bf6aea383fe435f6fd1ff45d7aa18d7f69
-  tests/test_engine_contract.py: dc63aee4e1d423c4493a9ace3ab6399e78dcd3f702073a80e78480fbfa8aaf0d
-  tests/test_engine_execution.py: 0677f0557c91b38f24ae8b0a94a0f7687cc589437bcf10694bb36571e0a5583a
-  tests/test_engine_registry.py: 9ceac543922bbca5e55e730da261a999aefb0a175a996d97b5ec67f138a92be9
-  tests/test_engine_spine.py: a01555904894fca238c534a962fc31356729cbcde7f18fe74110412883df808b
-  tests/test_examples.py: d00ecb7869b459733639d1223b5c5e897cd1b46e47d50a3771eb33668ddd1909
-  tests/test_execution_request_path.py: b9acaf636f8e03899950ab2f5cdaff51fedaf6dffa28bdcc266bae09c71e4e1e
-  tests/test_ffmpeg_sink.py: d85a21e19a550a91ff5dc1bddff5efef4085787d04a648398eca6fdff323d12d
-  tests/test_incremental_project_render.py: 33c14f42abe006cc3cd24de503fbc9c03f9af8a1de60cd31e2eda49c3dcc40bc
-  tests/test_inflectsynth_engine.py: f5c6627fd896045ba18c70b98a7fa8f436a8971c9656c363df989bac08ce5813
-  tests/test_kittensynth_engine.py: 6d8fcb585dbcfa087ba188f59b4a9231f71b8c930a7e97d0f009bf58bbb9eb97
-  tests/test_language_defaults_config.py: 4a917fa8089f688c6b9d49436ecee71ede6cd7b221e9d34625ee2e4aec31d233
-  tests/test_lexicon_catalog.py: f061df83e0a0af622c4b0f01659d81a8596bb831462c0cc139de94e32d92686f
-  tests/test_lexicons_cli.py: 382077fdf7d344fabe7edf09fec50eb52c13261ca218561c8b04058282bd934a
-  tests/test_logging_cli.py: d530c203edc5c0fdd173a1aaf88595cbc1e30aba3c2e7788c65a22d0471abeb9
-  tests/test_manifest.py: 9e32e98bcc7db2b72c43bd916d9bc6bbdfbe3d10d08088d0849ba23639323b54
-  tests/test_mastering_profiles.py: 857809e43922e9007c528045a932cc6ed492e62f1e90a23b767e8a404a7baaf7
-  tests/test_migrations.py: ed384c152ff6e986f1b77c97aa8dc4e54cf0f84e34092ac077fcf51cb6f600ef
-  tests/test_model_source_preference.py: 1a001bdbd91a6048a4d1c758d7b6e77fb8e73c5d2644cc7c1ec413a2442a41a4
-  tests/test_models_cli.py: 1b48ecf6508198c581317a5cb3833f6f309f0f1cc378a5c6792e52c6c6719c57
-  tests/test_package_resources.py: 144a770cce7d46a232504936dc2b3879d288a472ccc171805016fa5986a4c05d
-  tests/test_packaging_metadata.py: b94c10e3e4df89b5ebe46b3a352d647e3d3ccc847ed677ebb911b6bcada892ec
-  tests/test_paths.py: 1820ed65f94f19906070e6ff8c75c472938a98dddc614432081fbef5c2cb0b1b
-  tests/test_piper_engine.py: 76243d77596f06b8f7356bff3bb560bac6285203d7b792ab42167623d874e265
-  tests/test_plan.py: 9cb8862f818afc1c5fb35f2f354ebfee8d643dd1abbfcab821c7fa41be6e1f35
-  tests/test_plan_attempt_inspection.py: 49dc775274708ab45af800dfa2c70c4add3f1e5e42495f425b78e360c6f76210
-  tests/test_plan_cli.py: 21c651fcaa0d89626af39e67f379c29d5a199d487500a8814dc7c56d50699125
-  tests/test_plan_no_tts_load.py: 375f6b758e681d8d81ce1793f9eb594aa341c65c709717d51a8dc9ff0e317e5a
-  tests/test_plan_renderability.py: 8c7507b094984ab065f40be5c86eaed8e386a0b6929ddc0579f135cb01ce3545
-  tests/test_plan_v2.py: de25e470e7f074726d3a1d424953bd2315ffdcd9d8f150e2513c183e98a7eb55
-  tests/test_plan_validation.py: 491cf7349cf4ace2008150e93121f8d0856f7df32f8b7a9a782d0bb545631722
-  tests/test_playback.py: b80351941047edee79ef108e12d4182017aa520e5b7cddf105e839a32c3fa20f
-  tests/test_pocketsynth_engine.py: 1275cd23a2be583aebae4bbee1e0d3d16f4a6945391a35448c06852ad00c092c
-  tests/test_profile_batch_export.py: 0e09c24b429b5aeb4b60081f07b77bea80a82619b0a79ca33887bb4cba4764c5
-  tests/test_profile_export_stage.py: c25a2fc5d6953c723b6b2cc3a759d3b0d0ddd4d2b489fee5fc0ab8ba1515deb9
-  tests/test_profile_saved_settings.py: 661d72060bf5209de8ab03c0dd47f2d8794f38a29293d69598c30ce8400d7adb
-  tests/test_progress.py: 1ba482d0e8d9cee39b6faf368024fb57e15d1dab3a8e071c0ae59a6da7fe7105
-  tests/test_project_atomic_manifest.py: 42c138ea7541a01e6a384973cbbdb02a6ed7a661dc6d98b12a25436ca89d0ddc
-  tests/test_project_composition.py: 883c4dce1d000611f87a56879fa04230eeb73eb8127fa8e0a9b6f2017462f1b8
-  tests/test_project_export.py: 796bc7763241e2d5d8e102f7628767bc0ca50035e9c586c9f45eb447c32e2b3e
-  tests/test_project_layout.py: 106e73d877d39ef3659ad39708895736897047034934932f9f7995feda49a1f5
-  tests/test_project_model.py: 72605e8bfac0a763f4d0e634cefdba1dbf242179177cefb300d971f696ed519b
-  tests/test_project_planning.py: a396ea1b0b60d0bfcce560db4808b72dc459b07b4ae49277231f0029d911b878
-  tests/test_project_roles.py: fdc71cffef97f9336ef18abb1b2af0bec71abaef1a83f2381c98ade0abab3ff1
-  tests/test_project_target_routing.py: c5780d3aa56c6a3a6965c588b6ef0246d351c202a39c9ae1068df41a9395d697
-  tests/test_public_api_catalog_listings.py: 4c2475e8a8e5903d770eca07cc7c3f17bbe49f4a0724c4386d6e4d4ff58538ef
-  tests/test_public_api_catalog_roles_ssmd_extensions.py: 3ede0d53b618e3073a740eae9e8481e881ef5367b8e66c8ac2d7c2b2f6d2ff3b
-  tests/test_public_api_configuration_templates_ingest_diagnostics.py: 5bfda601b257269a10dbc3e23953ded25ec4ef79b2cd5ee788ff909d94d99534
-  tests/test_public_api_errors.py: 431a3fb3d44df764f8476def591ce0db9eefda4476566aec374eaaae7c3e2997
-  tests/test_public_api_events.py: d00ed2a886752a1185cb6663808d44d303b0821d651091b50ee31674412c46d4
-  tests/test_public_api_examples.py: c14314243a908b02427489620fd0b37f8e3bcb3ac24e86ee5b61d38e76dc6af1
-  tests/test_public_api_imports.py: 63fd1f880e3789a6efbd33d6907748005e1fb502e0c8e89cdab955aea473b9a8
-  tests/test_public_api_projects.py: c817d002366563b1710a38bc138fade5787e0807c26a669565631cdbdc3573d3
-  tests/test_public_api_speech.py: fd4672242031d884626e956b8746408004ed26507e36b52fb2a3d1e38277a0ca
-  tests/test_public_api_spotify.py: 4b41dbf52325aa18a16ba9d667c51d9974cb635466ea4b5a32bbd46912f6dc4f
-  tests/test_public_api_types.py: e7e231c0dc6e70c70c55e83b9cb1f73345d9965afb7e8a7a09bc079f41b738d2
-  tests/test_pykokoro_10_contract.py: d43af7101ef146e27e6ab2351724c55c2a00f818ffc548ff099577236f4f5a14
-  tests/test_pykokoro_10_regressions.py: 419e8d7342eb88289e910d6c6058036a0f4af6fa3095d6c6812d17b547216dec
-  tests/test_pykokoro_10_support.py: 095b370c9ce6650cf2f4b82879d57d7e1273db5a1693c07a1bf16b9402e6b269
-  tests/test_reader_markdown.py: 0cfee1c0c546b0ec0b1115359395b850e3000c8ddf90559e641db33ff365e58b
-  tests/test_reader_selection.py: 12c6b99d0440654e3accc78ac479b439b36cc296f52675f560afbff15740e980
-  tests/test_redux_benchmark.py: ad0ab4edbd88ac128ff09bd0619d3d01a4d50cae0bb56a6e053ee9216d346282
-  tests/test_released_engine_apis.py: 296d49cb42e9cd7640eb1c641de5d0281524f4f2c40374df267d3f3db4620b7b
-  tests/test_render_from_plan.py: ae5c3554da7ccdd7e09ecaa1c1bb822a8cde610b3c610b8a7ec72d0dc69d3a35
-  tests/test_render_manifest_cli.py: 10a94b492d94ff1e1134a5db6e8829e832fb46c8c20f21ef558164f004b08423
-  tests/test_rendering_lowering.py: 857705cf063ef6ed00a60ac7a79c0bdd9c83d728c54b77e41e26749946e38462
-  tests/test_role_targets.py: 167b024ce8aaabcc42da1d00422ca8930b97ec746444aedaae1f2600702d4f3a
-  tests/test_segment_architecture.py: 6b8b7a1254f12e711ac3172ce14fa8082b1f7913e99866176cc4020da7947f82
-  tests/test_selection.py: ee03a7c4a6f6172c88a653a49eaf855b59ab502196deff79fc2a491b9d3f16ff
-  tests/test_semantic_plan.py: e5832f812869a80056024e4759e79909c783a05722a3e07d6f09e68fb13ee9dc
-  tests/test_skill_integrity.py: ba1f9aecb2d50e8c6daf21c0c1d0c89f9a31ca1b7012ae212e5d5f17dc7ac0dc
-  tests/test_spotify.py: ba81c0fef39a4f8fc1927aa3dea343b32c9ade17617ee7daa68c955671bd7437
-  tests/test_spotify_cli.py: 6553a29001afdc7383d3cb824889429c1cd5299b93d914037694c3520234602f
-  tests/test_spotify_lifecycle.py: 28650ffacac7664b04042bf2c8f37133461b6e6185f51c8f7cb2232f2dcc09a2
-  tests/test_ssmd_cli.py: efbc914c7edff7dd8e7de799af8276057d910a40c8adfbda1130cd398866b8bd
-  tests/test_ssmd_model_roster.py: 4745bad3879938bf4fb7a8751bb62605db0acab18a6bad5e2023fd811989ef85
-  tests/test_ssmd_preflight.py: dd5ffca640682022e4fee860f5345ca1dbe3e3318e7c32cd1abcb1dc92a94fe2
-  tests/test_ssmd_single_source.py: 084f755d186e8f82c76a37b19dcf1e7395b78ae5d151ca0c5629220168127d41
-  tests/test_ssmdconvert_api_contract.py: b0fe55c84a2c0391b47c589dabfb7f44edf73e99a52d0f6f4411542aaec999a9
-  tests/test_ssmdconvert_integration.py: c0861585591912e5d3538ba461e98cae681b15ad8e5ac0029cec59b047b36e92
-  tests/test_supertonicsynth_engine.py: 0a6d3c8fb7e582dc4f7b976c1bc504954ac84692f8b8b0d2eb3bca53e1bc6fa2
-  tests/test_synthesis.py: a3d54b4f4f4b38329b613c865f66473687afe0cec5a8c5514b434000e6f0441c
-  tests/test_synthesis_preflight.py: 09069df5a367400ea2596503dd4d35341ab48a11610d384403717162c8269c50
-  tests/test_target_metadata_contract.py: 512f6fdbe5a0b75683c01047dee39e0128e71b7febea58ae7fa52a215a66910f
-  tests/test_text.py: 235bec9daae04aa625d2fb91835adfb9ea9c0386485a7801e95baf22c38720f4
-  tests/test_utterplan_v4_semantics.py: 9d9961d645682d789340b83045dc7408f9c515dbca79ff82f1f62f1491882004
-  tests/test_verification_e2e.py: 5c9debade6f64568c3bad66896e23cd478ca47232c1a4d4a58cce19f79e27cc9
-  tests/test_verification_integration.py: fa621ad6e27140071b0205ab3ee618bd6f06bd5d9e1ac2c091c5b87c74c7fb7e
-  tests/test_verification_text.py: 8e1238952dc682f5883f5ab02831e7b58120aa87a63216dcc612655597469066
-  tests/test_verification_timestamps.py: 3335241d5cf20d808ec0f9ad92e415042f2bf75c378e83f5c69728a637458026
-  tests/test_voice_api.py: 21dc4fc977ba7e05527d11de7ac89d10fe13d6d259cd07dd96ab412eb356c4b6
-  tests/test_voice_catalog.py: cf0b1c38bbee94e2d88a90c990555c074496d25eb834d328b322f581e3c0bd8b
-  tests/test_voice_matrix.py: d9a76b966f6ead9997d28a337815333dbf94009cd83257a24c1ddad872e726fd
-  tests/test_voice_refs.py: 8251b71f8b7ecd8caf9ca0f06fcc77c5969e70f6f94c6ef98cf31cb1ac7c7bb9
-  tests/test_voice_resolution.py: 828f8ea37e8d0ec1b1aab08b27bc6935533449e3d8258d468f4d3d713ad815be
-  tests/test_voice_resolution_workflow.py: 376901def413aec7dd95a513ca383c1350dfe7e0e9a4dbb60965a245af73a0bd
-  tests/test_voicerender_integration.py: b8662aa53878662569f1f6f8bb73724c929c47a38c3d9ae52b3dc161408d5dcd
-  tests/test_voicerender_project_synthesis.py: 10cbd771a7feee6ee3d7131fdafa584cb0bea39040eb00a4c8b96c3b8cc70bd8
-  tests/test_voices_cli.py: a0b6b63036c1602ddf8fce6a03bd2bfed430d600049e7f8bbdcab75a681231ae
-  tests/test_wave.py: a0e9db50dcabf8056dc4c968b10ff42904456a7d60b198d4e38efbacf3347b9f
-  tests/typecheck/public_api_consumer.py: 48afab2ef42eee115665a8ac2068d05ac3a8e56f9ceb7f4a2afb7b7bf7c4ca6a
-  tests/voicerender_support.py: 9d7aedb1069f8d22a5ab13761b31afa791049e8407ed0c7a3b4466b83d385b3a
+  readio/__main__.py: 935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d
+  readio/api/__init__.py: 74365fc8b6946a6240bcc07137691db6976707e1b15af66dc69e96a656402f6b
+  readio/api/book.py: ec4b58e4bb3e4b104a5b0bdaf83f38e019610278a46654c669690cd76cd0f8f4
+  readio/api/speech.py: 7547ee4b781b7342ddf8ae3c667ac03f9f1f92d79e9cbb653df6cc7857422c77
+  readio/book.py: 0dff1f745e2c06050fc4a2f9ecba003e36ffa9b60d8bdecaadfa4066f1188902
+  readio/cli.py: bf0ede841a0e7b2f78f3c4628893b6539428f08a43423e8bc6576ef46d898266
+  readio/doctor.py: 5786ce7e9876564820d84cae75bff7754fd9f0a5bf259d9bd1158cbaa57e3b0d
+  readio/playback.py: 674a4031d8a98bdba59cf1e88e9b1c8566b8228d19c9912fcc29ef02d8862ad4
+  readio/speech.py: fcc40f0e963ba8409af5535e63aa519acf3a446e6d3175ac798b0c6f949375e9
+  tests/test_book.py: e719e16786536e903047e7121f7b91ab352064ce2e1eb5e841e1f3c6d375706f
+  tests/test_cli_v05.py: c0d3569c65f5053f151f4fafedd4d7dce7a018485fa20eb50621ed5283ebfb3b
+  tests/test_dependency_boundaries.py: cb57207d9d700ab7e01e5c889148b12c5cf2b5925fe4b634fbb279cc69bd5b02
+  tests/test_doctor_v05.py: 7eac51dc7af1d8275a48593292e56f1c2260910981a551ef83f36ab59e86c6f3
+  tests/test_packaging_metadata.py: 0d8e863775b50d49dcbe77a33e4b637e3051a692926a621bdfd11a239ff5338f
+  tests/test_playback.py: efdda96c5228d3377a055b60029bc95344801c88c8b955af04cd70df5b0515b7
+  tests/test_speech.py: d316ce950df33b7f36cc7e971d9b9cf03bf242c249e113f421f919ee4ef1e620
 doc_hashes:
-  README.md: 4afe137a60d9ab93bb8b76629900ea8149f4940e8a46a7df31876db3154ad231
-  docs/api.md: d7c13d7ddf869f1c4ca40a204619d733a1749c8b4b65b5c1f51852e441812b28
-  docs/architecture.md: 6e02466f3fb8ea7771f01575c277065eb0098f73f42b63c5160a97625336eadc
-  docs/changelog.md: 69f94dffc0da8dd9c8c6fd92c0954c6ab03b80a6ad38ed7119b6894b339dd592
-  docs/cli.md: e3f088ef85db809d86cc6b29e6639ab645885635f9b8cabcbd1058cbddd3db53
-  docs/incremental-rendering.md: b481f3606fb10d6e00d39cd4c3abff7d8f65c433b5e94f9bf4d4d4bb8b2c1846
-  docs/index.md: 8a7f485fcf669c2cb9541a82c487978d4101c0b153fc8c55dc2e42a7bf16e840
-  docs/projects.md: 1aff4d852086f394108724b6e0330abe0f46350c0ef1831b9904b9e595f62bbd
+  README.md: e6cf9ef2edd1529073b696671f51cd97a8fc34ec3ec7e83e66a7ba5c0821d1a8
+  docs/api.md: 8f3c07f2c38836ca2e63f8487a9bf0c64116f50a2980a989bce2bd2bd8a7c400
+  docs/architecture.md: 7fd909f3798e7bb00ee4d2cef7d5b51074ac08b2a893f7c54d5d88387a2d300a
+  docs/changelog.md: 20e6bb8577da2a605548c0a485e63c6f2da851ed87121fd29964cc89b76fefa7
+  docs/cli.md: 8c7d37b0ff40fcbd520932a6806a1af18b669c17f2c79bb709bc54cfa2973d5e
+  docs/index.md: 34ea9a76ce3cd704fe8ae146366c3ba2cb9a7f7dff4ff0eea964da77d8e68a88
 changed_sources: []
 deleted_sources: []
 changed_units: []
 added_units: []
 deleted_units: []
-affected_sections: []
-stale_docs: []
+affected_sections:
+  - doc_path: docs/index.md
+    section_id: md:section:docs/index.md::diagnostics-and-development
+    heading_path:
+      - Readio documentation
+      - Diagnostics and development
+    heading_slug: diagnostics-and-development
+    line_span:
+      - 320
+      - 341
+    section_hash: ae0bdd81301e49480538b625270a398b33e2baf92413aa90c7eb8254aebc60d3
+    summary: Diagnostics and development
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/audio.py
+        source_path: readio/audio.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/audio.py`.
+        change_type: deleted
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 0
+          - 0
+      - source_id: py:file:readio/cli.py
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 179
+      - source_id: py:function:readio/cli.py::build_parser
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 17
+          - 68
+      - source_id: py:function:readio/cli.py::main
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 160
+          - 176
+      - source_id: py:module:readio/cli.py
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/cli.py`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 179
+      - source_id: py:file:readio/config.py
+        source_path: readio/config.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/config.py`.
+        change_type: deleted
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 0
+          - 0
+      - source_id: py:file:readio/document.py
+        source_path: readio/document.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/document.py`.
+        change_type: deleted
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 0
+          - 0
+      - source_id: py:file:readio/reader.py
+        source_path: readio/reader.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/reader.py`.
+        change_type: deleted
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 0
+          - 0
+      - source_id: py:file:readio/spotify.py
+        source_path: readio/spotify.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/spotify.py`.
+        change_type: deleted
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 0
+          - 0
+      - source_id: py:file:readio/wave.py
+        source_path: readio/wave.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact source path `readio/wave.py`.
+        change_type: deleted
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 0
+          - 0
+stale_docs:
+  - docs/index.md
 unlinked_changed_sources: []
 unmapped_changed_units: []

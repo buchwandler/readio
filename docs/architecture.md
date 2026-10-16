@@ -1,215 +1,68 @@
 # Readio architecture
 
-Readio has two separate project boundaries. Generic document projects persist Readio-owned stages and caches; native audiobook workspaces are owned by SSMDConvert and the specialist stage packages. The audiobook workflow does not attach a Readio project manifest or stage store to `.ssmdbook`.
+Readio coordinates a small set of specialist packages. The specialist that owns a stage also owns its validation, artifacts, reports, reuse rules, and detailed errors. Readio does not create a parallel project manifest or stage state.
 
-## Generic document-project pipeline
+## Manual specialist workflow
 
-Persistent document projects retain Readio's plan, synthesis, composition, and export graph:
-
-```text
-source/document
-      |
-      | semantic policy and linguistic enrichment
-      v
-UtterPlan semantic plan
-      |\
-      | \\
-      |  +--> resolved pauses, segment order, presentation directives
-      |                 |
-      |                 v
-      |          Readio composition
-      |
-      +--> canonical speech identity
-                    |
-                    v
-       Readio request lowering
-                    |
-                    v
-       engine session pool
-                    |
-                    v
-       content-addressed speech cache
-                    |
-                    v
-      canonical speech WAV + sidecar
-                    |
-                    +--> composition timeline and master WAV
-                                      |
-                                      v
-                              codec-specific export
-```
-
-This graph applies to Readio's generic `*.readio` document projects and one-shot speech. It is not the audiobook execution path.
-
-## Native audiobook workspace and stage ownership
-
-A valid `.ssmdbook` is the audiobook project. SSMDConvert owns conversion, the editable manifest, and canonical chapter files. Readio's in-memory `book_pipeline` forwards operations to package-root public APIs; it does not call specialist CLIs, persist a second schema, or duplicate stage implementations.
+The canonical book workflow is:
 
 ```text
-EPUB / existing .ssmdbook
-          |
-          v
-SSMDConvert conversion and editable workspace
-BOOK.ssmdbook/
-  manifest.json
-  chapters/*.ssmd.md
-  utterplan/                 # UtterPlan compile-book artifacts/reports
-  renderplan/<variant>/      # UtterPlan profile projection
-  voicerender/<variant>/     # VoiceRender speech and reports
-  audiocompose/<variant>/    # AudioCompose chapter compositions
-  audioexport/<variant>/     # AudioExport outputs and sidecars
+EPUB
+  │
+  ▼
+SSMDConvert
+  │  converts the source and owns the .ssmdbook workspace
+  ▼
+UtterPlan
+  │  compiles semantic plans and projects a RenderPlan variant
+  ▼
+VoiceRender
+  │  resolves the profile and synthesizes the selected chapters
+  ▼
+AudioCompose
+  │  composes chapter audio and applies composition policy
+  ▼
+AudioExport
+     encodes the composed book, including M4B assembly
 ```
 
-Readio delegates conversion and workspace loading to SSMDConvert, semantic compilation and profile projection to UtterPlan, profile creation and synthesis to VoiceRender, chapter composition to AudioCompose, and M4B export to AudioExport. Chapter selectors and the exact returned variant ID flow through later stages. The packages' artifacts are the resume boundary: users can continue with a specialist CLI after Readio, or open manually produced artifacts in Readio, without initialization or migration.
-For native composition, Readio calls only `audiocompose.compose_book(...)` at the package root. AudioCompose owns pause-policy resolution, chapter materialization, WAV outputs, reuse, and `compose-report.toml`; Readio exposes only a shallow report summary and does not create a native `.readio` pause-policy file or duplicate AudioCompose result models.
+| Concern                                           | Owner                    | Readio's role                                                        |
+| ------------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
+| Source conversion and `.ssmdbook` layout          | SSMDConvert              | Call public conversion and workspace APIs                            |
+| Semantic compilation and chapter selection        | UtterPlan                | Forward the selector and compile options                             |
+| RenderPlan and variant projection                 | UtterPlan and RenderPlan | Pass the returned variant unchanged to later stages                  |
+| Voice and backend resolution, capacity, synthesis | VoiceRender              | Call public resolve, session, and book-render APIs                   |
+| Composition, pause policy, emphasis, and loudness | AudioCompose             | Forward book composition options                                     |
+| Encoding, metadata, cover art, and M4B output     | AudioExport              | Forward export options and output path                               |
+| Cross-stage convenience                           | Readio                   | Coordinate calls, expose progress, and return the specialist results |
 
-`readio audiobook convert` (also `init`) materializes EPUB input as an editable `.ssmdbook`; opening an existing workspace is read-only. `readio audiobook status` derives status from the package-owned artifacts. A dirty manifest/chapter state is reported without automatic refresh or recompilation; use `ssmdconvert book refresh WORKSPACE` explicitly when the canonical manifest should be refreshed. Existing `.readio/` files inside a book workspace are legacy user data: native audiobook commands warn, ignore them, and leave them unchanged. Fresh book workflows never create `.readio/` or a Readio `project.json`.
+A user can stop after any specialist stage and continue with its owning CLI. Readio does not mirror specialist result models or parse their reports to decide whether a stage is current.
 
-## Generic project state is separate
+## Readio orchestration
 
-Only generic Readio document projects use Readio-owned persistent state and locking. Standalone `*.readio` projects remain self-contained. Older attached-book state, where present, is not read or migrated by the native audiobook pipeline. Keep generic document persistence and streaming `readio speak` independent from the package-owned book stages.
-
-## Semantic plan and speech cache
-
-UtterPlan remains the owner of semantic identity. Its unit hashes may include
-resolved pauses and directives because those facts describe the semantic plan.
-Readio does not use a unit hash as its acoustic cache atom. Unit selectors are
-expanded to ordered, unique `PlanSegment` IDs before synthesis.
-
-Planning is transactional across scopes. Each build writes a durable attempt under `plan/attempts/`; completed candidates and renderability diagnostics remain inspectable even when another scope blocks the build. Only a fully renderable attempt atomically replaces the active plan index and canonical artifacts. Synthesis reads only that active index, never an attempt candidate. Repair retries compile current project documents, may reuse fingerprint-matching renderable scopes, and never rewrite source files. Safe repair is the default; strict mode remains available for auditing.
-
-Each canonical artifact is identified by `readio.canonical-speech.v1` segment
-input facts and a `readio.synthesis-segment.v2` key. The speech fingerprint
-includes segment text and language, synthesis directives, pronunciation data,
-linguistic token facts, the resolved voice/model, G2P and generation settings,
-cleanup policy, and calibration identity. It excludes plan IDs, unit grouping,
-pauses, prosody, emphasis, fades, final loudness, and codec settings.
-
-The cache is authoritative through its content-addressed WAV and sidecar:
+`readio audiobook convert` uses SSMDConvert to convert an EPUB and write a specialist-owned workspace. `readio audiobook build` runs the selected stages in order:
 
 ```text
-synthesis/
-  profile.json
-  cache/
-    <synthesis-key>.wav
-    <synthesis-key>.json
-  segments/
-    seg-000000.wav       # optional active segment view
-  trace.json             # provenance and progress only
+SSMDConvert workspace
+  → UtterPlan compile_book
+  → UtterPlan render_book
+  → VoiceRender render_book
+  → AudioCompose compose_book
+  → AudioExport export_book
 ```
 
-A sidecar records the speech hash, synthesis key, profile ID, audio digest,
-sample rate, channel count, and frame count. A plan re-run can therefore reuse
-speech artifacts even when its plan ID or trace changes. Missing or corrupt
-sidecars cause only the affected segment to render again.
+The variant returned by `utterplan.render_book` is passed unchanged to VoiceRender, AudioCompose, and AudioExport. Readio's in-memory `BookBuildResult` holds those original stage result objects; it is not a new stage manifest. `force`, `fail_fast`, chapter selection, profile, output, and stop-after options are forwarded where the specialist APIs support them.
 
-## UtterPlan persistence and semantic capacity
+`readio speak` is a separate convenience path for literal text. It parses an optional neutral `engine:target/voice` selector, calls VoiceRender's public resolve/session/synthesis APIs, then passes the returned samples and sample rate to Readio's generic audio-device playback helper. It does not use UtterPlan, book composition, or AudioExport.
 
-`Readio's generic document-project path uses the UtterPlan package API declared in `pyproject.toml`and persists canonical`.utterplan.toml`plans. Native book workspaces keep package-owned`utterplan/\*.utterplan.toml`artifacts and use UtterPlan's book APIs directly; Readio does not serialize or migrate those plans itself. Legacy`.utterplan.json` files in generic projects remain stale and actionable rather than silently migrated.
+`readio doctor` reports installed specialist package versions and engine availability through VoiceRender's public engine-list and engine-status functions. Readio does not inspect private specialist modules or load backend implementations for the report.
 
-During lowering, Readio rebases the public clause and parenthetical semantic boundaries once into request-local hints and retains linguistic token ranges independently of engine token support. These hints stay in `CapacityContext`; `SpeechRequest` and engine APIs remain UtterPlan-neutral.
+## Persistent state and compatibility
 
-For planned content, capacity fitting prefers clause boundaries, then parenthetical boundaries, newlines, conservative clause punctuation, linguistic-token edges, and whitespace. It does not rediscover sentence boundaries from periods or split arbitrary codepoints. Live/raw text keeps a distinct unplanned compatibility policy. Engine-reported measurements remain authoritative (including PocketSynth's model-token limit); Readio preserves exact text, never packs adjacent semantic sentences, and rebases child word timings to the original request. Atomic-lowering and capacity-fitting v2 manifests record split reason and boundary provenance.
+The `.ssmdbook` workspace and all stage artifacts are specialist-owned. Readio writes no project manifest, cache, stage status, plan, render manifest, or compatibility metadata.
 
-## Engine boundary
+Version 0.5.0 is a clean break. Readio no longer supports its former generic `*.readio` projects, `project.json`, old plan/render-manifest formats, project migrations, or old project pipeline APIs. There is no migration command. Existing legacy files are not imported into `.ssmdbook` workspaces. Convert the original source with SSMDConvert or use the specialist packages directly.
 
-Readio lowers each UtterPlan segment to a Readio-owned `SpeechRequest`; adapters receive requests and return `RenderedSpeech`. They do not receive UtterPlan documents or construct AudioCompose jobs. The engine runtime may perform engine-specific tokenization and acoustic inference, but semantic role binding, pause layout, markers, timing rebasing, timeline operations, and output remain Readio responsibilities.
+## Dependency boundary
 
-A native adapter makes one strict synthesis call for a Readio-shaped request and never invokes the engine's convenience splitter. Readio owns capacity fitting: it measures when supported, handles typed too-long responses, and recursively subdivides exact text at legal sentence, clause, token, or word boundaries. Protected linguistic and pronunciation ranges are not cut. Child audio is merged and child-local timings are rebased to the original request.
-
-Kokoro, Pocket, and Supertonic support request-scoped voice selection. Piper binds roles to voice-bundle targets. For target-bound execution, Readio validates every distinct target before opening sessions and reuses one session per target. Unsupported pronunciation overrides or other explicit semantics are rejected before runtime startup.
-
-Engine adapters own canonical synthesis-profile identity. The common `speed` option is a synthesis control included in speech identity and forwarded only to the engine. Kokoro receives it directly; PiperSynth maps it to `length_scale = 1 / speed`; PocketSynth supports only `1.0`. Supertonic uses the validated model base language and forwards the speed multiplier to its atomic synthesis API. Composition rate remains separate, so synthesis speed is never applied twice.
-
-### InflectSynth ownership and capabilities
-
-| Engine    | G2P and synthesis owner                         | Runtime layer                                | Readio-owned boundary                                                                                       |
-| --------- | ----------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `inflect` | InflectSynth, including G2P and model internals | ONNXVoice, transitively through InflectSynth | Request boundaries, selection, capacity policy, session lifecycle, audio validation, and synthesis identity |
-
-InflectSynth's public catalog currently discovers `nano-v2` and `micro-v2`, each with the fixed `default` voice. The adapter supports English only; speed, variation, seed, and calibrated voice-level handling are supported controls. Variation and seed are API engine options. Speaker selection, reference voices, pronunciation overrides, and native word timings are unsupported.
-
-The InflectSynth 0.1.1 public capacity contract reports `supports_known_maximum: false`. Readio therefore treats request capacity as unknown rather than inventing a token limit; it still translates typed native oversize errors and owns any legal-boundary lowering. InflectSynth owns G2P, model, and runtime details. ONNXVoice remains a transitive dependency: Readio does not import or manage it, InflectG2P, or the Inflect bundle catalog.
-
-## Managed and catalog voice sources
-
-Supertonic discovery uses the engine's public model metadata API, while synthesis uses one atomic native request for each Readio request. Readio resolves locale tags to supported base languages and retains its ownership of text splitting and composition.
-
-Pocket voices have three distinct sources: a predefined bundle voice, a local reference WAV identified by its content hash, or a managed prompt identified by its canonical reference, catalog SHA-256, source revision, and available provenance. `readio voices prompts` queries only PocketSynth's public prompt metadata API; it neither opens a Pocket model nor downloads prompt audio. The render plan carries the managed source as typed metadata rather than a semantic Readio voice reference. At synthesis time, Readio verifies the prepared voice provenance and records PocketSynth's normalized-audio fingerprint separately from the source hash. Managed prompts apply to the default synthesis voice and are not role bindings.
-
-## Composition and status dependencies
-
-Composition reads current segment keys and sidecars directly, without opening a
-TTS engine. It orders each segment as:
-
-```text
-resolved pause_before -> canonical speech -> resolved pause_after
-```
-
-Pause durations are converted to frames once with `round(seconds * sample_rate)`.
-The same frame value is used in the composition identity and the generated
-silence source. Composition resolves semantic prosody to numeric AudioCompose
-operations: `Tempo`, `PitchShift`, `Gain`, `FadeIn`, and `FadeOut`. It keeps
-semantic labels out of AudioCompose. Final LUFS and true-peak policy are also
-composition concerns.
-
-The v2 composition identity includes ordered speech and silence layout, speech
-hashes, audio digests, operation payloads, timing frames, and output policy.
-Consequently:
-
-- pause or prosody edits rebuild composition but do not rerun speech synthesis;
-- text, pronunciation, token, voice, speed, voice-level, G2P, model, target revision, or
-  calibration changes rerender only affected canonical segments;
-- loudness changes rebuild composition only;
-- codec changes rebuild export only;
-- trace plan IDs and trace hashes are provenance, not cache validity checks.
-
-Status derives synthesis currentness from current plan segment keys and valid
-sidecars. Composition currentness is derived from the current layout and policy.
-`compose` and preview can use the cache without a current-plan trace and do not
-load a TTS engine.
-
-## Streaming playback
-
-`speak` and live playback use a persistent stateful `LayoutBuilder` and a Readio-owned bounded `sounddevice` queue. Each rendered segment is lowered and composed at the playback output rate, submitted before later segments are synthesized, then released promptly. Playback keeps pause, prosody, marker, and resampling state across chunks and disables whole-program mastering; file rendering remains the full-document mastered path.
-
-## Input conversion and provenance
-
-Source conversion has one boundary: the public `ssmdconvert` API. Auto filesystem documents are converted with SSMDConvert unless the file is already canonical SSMD. Explicit or in-memory Markdown is converted through SSMDConvert `convert_content` to canonical SSMD. Explicit literal text remains text and explicit SSMD remains SSMD. Converted `InputDocument` values retain `DocumentProvenance` (source format, media type, source name, converter/version, and metadata). PDF and DOCX ingestion requires the `readio[documents]` extra.
-
-## Project role targets and resolution
-
-New configuration and project records use schema 3. Global roles and project roles store the same structured `VoiceTarget`: canonical engine, voice ID, and optional target ID. Readio does not keep provider-specific runtime role rosters or project-wide provider selectors; SSMD's own `voice_bindings` namespace remains part of the external document format.
-
-v0.3 config and project files require explicit `readio config migrate` or `readio project migrate PROJECT`; normal runtime code rejects obsolete structures instead of applying scattered fallbacks. Migration preserves a backup and fails on conflicting role targets. Document-level SSMD `voice_bindings` stays provider-namespaced as defined by SSMD; when one role appears in several namespaces, Readio reports ambiguity.
-
-`readio plan roles` discovers references directly from editable SSMD scopes and reports per-scope locations and effective targets without requiring a generated plan index. The `--engine` inspection filter selects which effective targets to display; it does not override role resolution. Bindings are carried in the synthesis request and are never written into UtterPlan or SSMD source.
-
-Binding precedence is `document > invocation CLI > project > global configured role > direct concrete voice`. A document binding remains authoritative per scope. Project role changes affect synthesis only, so they do not alter semantic `plan_id` or invalidate plan artifacts.
-
-## Mixed-engine synthesis routing
-
-For each selected segment, Readio resolves the symbolic role in that document scope to a `VoiceTarget`, then resolves the target engine adapter and engine selection. Unbound segments use the normal project synthesis selection. A project can therefore route one role through Kokoro and another through Piper, Pocket, or Kitten without selecting one project-wide provider or engine.
-
-Every distinct engine-target route is validated before synthesis sessions open. Readio groups routed segments, opens one reusable session per target, and writes ordinary canonical speech artifacts consumed by composition. The semantic plan retains symbolic role references and remains independent of casting. Changing role bindings leaves the plan current and makes only synthesis and downstream stages stale; cached audio is retained.
-
-Mixed-engine synthesis profiles use a deterministic, sorted set of route identities, per-scope role targets, and role-binding provenance. Speech cache identity includes the selected route, so changing a guest target does not invalidate unchanged host audio on another engine-target route. Status compares current role-target provenance with the active synthesis profile and reports `synthesis.stale.project_voice_bindings_changed` when bindings differ.
-
-## End-to-end acceptance scenario
-
-For a multi-sentence document, normal sentence topology produces one reusable
-speech artifact per semantic segment. If only a sentence pause changes from
-180 ms to 250 ms:
-
-```text
-SOURCE       current
-DOCUMENT     current
-PLAN         current
-SYNTHESIS    current       # same segment speech hashes and sidecars
-COMPOSITION  stale         # silence frame layout changed
-OUTPUT       stale         # blocked by composition
-```
-
-Running `readio compose` rebuilds the timeline and master audio. No TTS model is
-loaded. The synthesis trace may retain the previous plan ID as audit history,
-while the cache remains reusable by current segment key and sidecar.
+Readio directly depends on the specialist package roots it calls, plus NumPy for audio arrays and sounddevice for local playback. Engine extras are installed through VoiceRender, for example `voicerender[kokoro]`. Readio does not pin backend packages or depend directly on Voicefolio. Its optional `spacy` and `documents` extras only pass through UtterPlan and SSMDConvert extras.

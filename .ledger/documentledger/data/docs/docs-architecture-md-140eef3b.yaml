@@ -1,0 +1,206 @@
+schema: documentledger.doc_record.v4
+doc_path: docs/architecture.md
+linked_sources:
+  - readio/api/__init__.py
+  - readio/book.py
+  - readio/doctor.py
+  - readio/speech.py
+  - tests/test_dependency_boundaries.py
+sections:
+  - section_id: md:section:docs/architecture.md::readio-architecture
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+    heading_slug: readio-architecture
+    line_span:
+      - 1
+      - 4
+    section_hash: 231e21e8ef2239c545bba57ee8c373f5487c72647fe027335599223f36491e2c
+    summary: Readio architecture
+    text: "# Readio architecture
+
+
+      Readio coordinates a small set of specialist packages. The specialist that owns
+      a stage also owns its validation, artifacts, reports, reuse rules, and detailed
+      errors. Readio does not create a parallel project manifest or stage state."
+    links:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the compact public facade.
+        tracked_hashes:
+          body_hash: 74365fc8b6946a6240bcc07137691db6976707e1b15af66dc69e96a656402f6b
+  - section_id: md:section:docs/architecture.md::manual-specialist-workflow
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Manual specialist workflow
+    heading_slug: manual-specialist-workflow
+    line_span:
+      - 5
+      - 40
+    section_hash: 9056e8ab12126c6e9b25718107474c8cbaaf3b71f74c1bd2bbd6e8c682aebb7d
+    summary: Manual specialist workflow
+    text:
+      "## Manual specialist workflow\n\nThe canonical book workflow is:\n\n```text\n\
+      EPUB\n  │\n  ▼\nSSMDConvert\n  │  converts the source and owns the .ssmdbook workspace\n\
+      \  ▼\nUtterPlan\n  │  compiles semantic plans and projects a RenderPlan variant\n\
+      \  ▼\nVoiceRender\n  │  resolves the profile and synthesizes the selected chapters\n\
+      \  ▼\nAudioCompose\n  │  composes chapter audio and applies composition policy\n\
+      \  ▼\nAudioExport\n     encodes the composed book, including M4B assembly\n```\n\
+      \n| Concern | Owner | Readio's role |\n| --- | --- | --- |\n| Source conversion\
+      \ and `.ssmdbook` layout | SSMDConvert | Call public conversion and workspace\
+      \ APIs |\n| Semantic compilation and chapter selection | UtterPlan | Forward the\
+      \ selector and compile options |\n| RenderPlan and variant projection | UtterPlan\
+      \ and RenderPlan | Pass the returned variant unchanged to later stages |\n| Voice\
+      \ and backend resolution, capacity, synthesis | VoiceRender | Call public resolve,\
+      \ session, and book-render APIs |\n| Composition, pause policy, emphasis, and\
+      \ loudness | AudioCompose | Forward book composition options |\n| Encoding, metadata,\
+      \ cover art, and M4B output | AudioExport | Forward export options and output\
+      \ path |\n| Cross-stage convenience | Readio | Coordinate calls, expose progress,\
+      \ and return the specialist results |\n\nA user can stop after any specialist\
+      \ stage and continue with its owning CLI. Readio does not mirror specialist result\
+      \ models or parse their reports to decide whether a stage is current."
+    links:
+      - source_id: py:function:readio/book.py::build_book
+        source_path: readio/book.py
+        coverage: implementation-note
+        impact: unknown
+        reason:
+          This section explains the specialist ownership model and orchestration
+          boundary.
+        tracked_hashes:
+          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
+  - section_id: md:section:docs/architecture.md::readio-orchestration
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Readio orchestration
+    heading_slug: readio-orchestration
+    line_span:
+      - 41
+      - 59
+    section_hash: 5ba295b411e9c06773f769f4cfeba8ffa096527797d4b31029b1dcd322ad00f0
+    summary: Readio orchestration
+    text:
+      "## Readio orchestration\n\n`readio audiobook convert` uses SSMDConvert to\
+      \ convert an EPUB and write a specialist-owned workspace. `readio audiobook build`\
+      \ runs the selected stages in order:\n\n```text\nSSMDConvert workspace\n  → UtterPlan\
+      \ compile_book\n  → UtterPlan render_book\n  → VoiceRender render_book\n  → AudioCompose\
+      \ compose_book\n  → AudioExport export_book\n```\n\nThe variant returned by `utterplan.render_book`\
+      \ is passed unchanged to VoiceRender, AudioCompose, and AudioExport. Readio's\
+      \ in-memory `BookBuildResult` holds those original stage result objects; it is\
+      \ not a new stage manifest. `force`, `fail_fast`, chapter selection, profile,\
+      \ output, and stop-after options are forwarded where the specialist APIs support\
+      \ them.\n\n`readio speak` is a separate convenience path for literal text. It\
+      \ parses an optional neutral `engine:target/voice` selector, calls VoiceRender's\
+      \ public resolve/session/synthesis APIs, then passes the returned samples and\
+      \ sample rate to Readio's generic audio-device playback helper. It does not use\
+      \ UtterPlan, book composition, or AudioExport.\n\n`readio doctor` reports installed\
+      \ specialist package versions and engine availability through VoiceRender's public\
+      \ engine-list and engine-status functions. Readio does not inspect private specialist\
+      \ modules or load backend implementations for the report."
+    links:
+      - source_id: py:class:readio/book.py::BookBuildResult
+        source_path: readio/book.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `BookBuildResult`.
+        tracked_hashes:
+          body_hash: 9f5551acb9abde84036475e48a14c01e8516f7fe741b68ea8b76719ef7a92982
+      - source_id: py:function:readio/book.py::build_book
+        source_path: readio/book.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the delegated book-stage orchestration.
+        tracked_hashes:
+          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
+      - source_id: py:function:readio/book.py::convert_book
+        source_path: readio/book.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes SSMDConvert-backed book conversion.
+        tracked_hashes:
+          body_hash: d98549d12e0a11a1bf0fd2164a2c73627b382512d54c49d10cea628946e3240d
+      - source_id: py:function:readio/doctor.py::doctor_report
+        source_path: readio/doctor.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the public package and engine diagnostics.
+        tracked_hashes:
+          body_hash: 6a1210db5d4b1e49d4cdfac38021756880fa8b6fb98a08bb7ba47ebe6994d209
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the separate VoiceRender speech path.
+        tracked_hashes:
+          body_hash: 314c0261364434f4f48437a352b0600c4a03f7eb5ee41c566b6294ae3b3c9bf8
+  - section_id: md:section:docs/architecture.md::persistent-state-and-compatibility
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Persistent state and compatibility
+    heading_slug: persistent-state-and-compatibility
+    line_span:
+      - 60
+      - 65
+    section_hash: 7f45b058f6cc97d589242acf6560ed01276c2e1c3930cebada7e8e85e9041aab
+    summary: Persistent state and compatibility
+    text: "## Persistent state and compatibility
+
+
+      The `.ssmdbook` workspace and all stage artifacts are specialist-owned. Readio
+      writes no project manifest, cache, stage status, plan, render manifest, or compatibility
+      metadata.
+
+
+      Version 0.5.0 is a clean break. Readio no longer supports its former generic `*.readio`
+      projects, `project.json`, old plan/render-manifest formats, project migrations,
+      or old project pipeline APIs. There is no migration command. Existing legacy files
+      are not imported into `.ssmdbook` workspaces. Convert the original source with
+      SSMDConvert or use the specialist packages directly."
+    links:
+      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
+        source_path: tests/test_dependency_boundaries.py
+        coverage: implementation-note
+        impact: unknown
+        reason:
+          This section documents the absence of legacy project state and migration
+          behavior.
+        tracked_hashes:
+          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
+  - section_id: md:section:docs/architecture.md::dependency-boundary
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Dependency boundary
+    heading_slug: dependency-boundary
+    line_span:
+      - 66
+      - 68
+    section_hash: 2db998de382705ea22f308f9a1c05e280888fe9dfeba6547fed685cb53843784
+    summary: Dependency boundary
+    text: "## Dependency boundary
+
+
+      Readio directly depends on the specialist package roots it calls, plus NumPy for
+      audio arrays and sounddevice for local playback. Engine extras are installed through
+      VoiceRender, for example `voicerender[kokoro]`. Readio does not pin backend packages
+      or depend directly on Voicefolio. Its optional `spacy` and `documents` extras
+      only pass through UtterPlan and SSMDConvert extras."
+    links:
+      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_imports_only_specialist_package_roots
+        source_path: tests/test_dependency_boundaries.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the enforced specialist import boundary.
+        tracked_hashes:
+          body_hash: 5170689e082186bff0c1e80ab8cfa8d20273e0a2f777fca524e2fa1145155746
+last_fresh_scan_version: 16
+last_fresh_hash: 7fd909f3798e7bb00ee4d2cef7d5b51074ac08b2a893f7c54d5d88387a2d300a
+notes:
+  Rewrote ownership boundaries against current package-root calls; strict Sphinx
+  build passed.
+version: 175

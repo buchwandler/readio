@@ -3,21 +3,21 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 2
+  revision: 3
 entry_id: entry-0004
 release_version: v0.5.0
 kind: changed
-summary: Changed profile mode to leave legacy exports and speak streaming unchanged
+summary: Raised specialist API floors and removed backend-specific Readio extras
 status: accepted
 audience: null
 scopes: []
-source_refs: []
+source_refs:
+  - tl:task-0003
 paths:
-  - readio/stages/export.py
-  - readio/wave.py
-  - readio/cli.py
+  - pyproject.toml
+  - .github/workflows/tests.yml
   - README.md
-  - docs/cli.md
+  - docs/architecture.md
 issues: []
 prs: []
 sources:
@@ -28,4 +28,4 @@ internal: false
 order: 4
 ---
 
-AudioExport remains an opt-in file-export backend. Existing profile-free project exports retain the legacy implementation, and speak continues to stream PCM through Readio's existing sink.
+Readio now requires VoiceRender >=0.2.0,<0.3, AudioCompose >=0.3.0,<0.4, and AudioExport >=0.1.2,<0.2. Engine-specific runtime dependencies are installed through VoiceRender extras such as voicerender[kokoro]. Readio retains only dependencies required by its orchestration, direct speech arrays, and local playback.

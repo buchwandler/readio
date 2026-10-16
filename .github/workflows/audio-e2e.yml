@@ -7,41 +7,37 @@ permissions:
   contents: read
 
 jobs:
-  redux-e2e:
-    name: Readio Redux E2E (Ubuntu, Python 3.13)
+  voicerender-speech:
+    name: Real VoiceRender speech smoke (Ubuntu, Python 3.13)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install PortAudio
-        run: sudo apt-get update && sudo apt-get install --yes libportaudio2 portaudio19-dev
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
-
-      - name: Install Kokoro and verification dependencies
+      - name: Install Readio and Kokoro through VoiceRender
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[kokoro,verification]"
+          python -m pip install -e ".[spacy]" "voicerender[kokoro]>=0.2.0,<0.3"
           python -m pip check
+      - name: Resolve and synthesize real speech
+        run: |
+          python - <<'PY'
+          import numpy as np
 
-      - name: Run the fixed single-voice verification self-test
-        run: >-
-          readio selftest e2e
-          --engine kokoro
-          --model v1.0
-          --voice kokoro:v1.0/af_sarah
-          --lang en-us
-          --output benchmark-output/audio-e2e
-          --json
-      - name: Upload benchmark artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: readio-redux-e2e
-          path: benchmark-output/audio-e2e/**
-          if-no-files-found: warn
-          retention-days: 7
+          import readio.speech
+
+          playback_calls = []
+          readio.speech.play_audio = lambda audio, sample_rate: playback_calls.append(
+              (audio, sample_rate)
+          )
+          rendered = readio.speech.speak(
+              "A short Readio speech synthesis smoke test.",
+              voice="kokoro:v1.0/af_sarah",
+              language="en-US",
+          )
+          assert rendered.audio.size > 0
+          assert np.isfinite(rendered.audio).all()
+          assert playback_calls and playback_calls[0][1] == rendered.sample_rate
+          PY

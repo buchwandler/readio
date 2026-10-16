@@ -1,272 +1,95 @@
-# CLI reference: project pipeline
+# CLI reference
 
-## Getting help
+Readio exposes four operations: `speak`, `audiobook convert`, `audiobook build`, and `doctor`.
 
 ```bash
-readio
 readio --help
-readio render --help
+readio speak --help
 readio audiobook --help
+readio audiobook convert --help
+readio audiobook build --help
+readio doctor --help
 ```
 
-Running `readio` without arguments prints the root command overview. Use `-h` or `--help` on the root command and on individual commands.
+## Manual specialist workflow
 
-Command groups show their child-command help when invoked without a child. `readio plan` is the intentional exception: it builds a plan for the current project.
-
-Use `readio engines` to list known synthesis engines and `readio formats` to list generic audio and audiobook output formats. Both commands support `--json`.
-
-## Project lifecycle
-
-```text
-readio project init SOURCE -o PROJECT
-readio project migrate PROJECT        # explicitly upgrade a v0.3 project
-readio plan                         # build current project
-readio plan build [PROJECT]
-readio plan roles [PROJECT]
-readio plan bind ROLE VOICE [PROJECT] [--engine ENGINE] [--project PROJECT]
-readio plan unbind ROLE [--project PROJECT]
-readio synth PROJECT [--engine ENGINE] [--voice VOICE] [--select SELECTOR]
-readio preview PROJECT --select SELECTOR [--voice VOICE] [-o PREVIEW.wav]
-readio compose PROJECT [--target-lufs FLOAT] [--progress | --no-progress] [--json]
-readio export PROJECT [--profile TOML] [--format {wav,flac,mp3,m4a,ogg,opus}] [--bitrate BITRATE] [--force] [--all --out-dir DIR]
-readio audiobook export WORKSPACE --variant EXACT_VARIANT [--profile AUDIOEXPORT_PROFILE] [--title TITLE] [--author AUTHOR] [--cover IMAGE] [--bitrate BITRATE] [--output FILE] [--force]
-readio status PROJECT [--json]
-readio render PROJECT --format FORMAT
-```
-
-`readio plan` manages persistent project semantics and roles. Running it without a subcommand builds the project in the current directory; it does not inspect one-shot text or choose an engine. Use `readio render --dry-run` for one-shot execution planning:
+For package-specific control, run the specialist CLIs directly. The `VARIANT` value must be the exact variant returned by UtterPlan and must be passed unchanged to every later stage.
 
 ```bash
-readio render --file episode.ssmd --format mp3 --dry-run --json
-```
-
-## Voice role targets and mixed-engine routing
-
-### Global role bindings
-
-Use `readio roles` for persistent user-global role targets:
-
-```bash
-readio roles bind host kokoro:v1.0/af_sarah
-readio roles bind guest en_US-amy-medium --engine piper
-readio roles list --json
-readio roles unbind guest
-```
-
-Global targets are saved under the top-level `[roles.<role>]` configuration table. Provider-specific `[voices.<provider>.roles]` values are not read by the v0.4 runtime; convert v0.3 configuration explicitly with `readio config migrate`.
-
-### Project role bindings
-
-Project bindings use the same structured target model. Bind semantic references directly; Readio retains the resolved engine, canonical voice, and target ID without selector provenance:
-
-```bash
-readio plan bind host kokoro:v1.0/af_sarah
-readio plan bind guest piper:en_US-amy-medium
-readio plan roles
-readio synth
-```
-
-New bindings are stored under `settings.ssmd.role_bindings.<role>` in `project.json`. A binding does not select a project-wide provider or engine. Role inspection reports each effective engine-qualified target. `readio plan roles --engine ENGINE` filters results; it does not override project bindings.
-
-Run these commands from the project root or a nested directory. An explicit project path can be supplied positionally or through `--project`; supplying conflicting paths is an error. For a native voice ID that does not identify its engine, pass `--engine`, for example `readio plan bind guest en_US-amy-medium --engine piper`. Use a semantic reference when a target must be explicit. Binding APIs and CLI use `--engine` directly; SSMD's document-level namespace remains part of the external source format.
-
-v0.3 manifests using provider-keyed `settings.ssmd.voice_bindings` are not read by normal runtime code. Run `readio project migrate PROJECT` to create a backed-up schema-3 manifest; conflicts fail for review. SSMD document `voice_bindings` syntax itself remains unchanged, and a role bound in multiple document namespaces is ambiguous.
-
-Resolution precedence is document binding, invocation `--voice-bind`, project role target, global configured role, then a direct semantic reference or context-resolved native voice ID. The semantic plan remains independent of casting. Project synthesis routes each bound segment through its target engine and uses the normal project synthesis selection for unbound segments, opening reusable sessions per distinct route.
-
-## Saved project pipeline settings
-
-Inspect, patch, or clear supported settings with the project command family:
-
-```text
-readio project settings [--project PROJECT] [--json]
-readio project settings show [PROJECT] [--json]
-readio project settings set [PROJECT] [--engine ENGINE] [--model MODEL] [--language LANG] [--voice VOICE] [--voice-file PATH] [--voice-prompt REF] [--speed FLOAT]
-  [--mastering PROFILE] [--target-lufs FLOAT] [--sample-rate HZ]
-  [--export-format FORMAT] [--export-output PATH] [--export-bitrate RATE] [--export-profile TOML]
-  [--audiobook-output PATH] [--audiobook-title TITLE] [--audiobook-author AUTHOR]
-  [--audiobook-cover IMAGE] [--audiobook-bitrate RATE] [--audiobook-profile TOML]
-readio project settings clear [PROJECT] --section {synthesis,composition,export,audiobook_export}
-```
-
-The `--audiobook-*` settings are retained only for compatibility with existing Readio project records. Native `.ssmdbook` workflows do not read or write them.
-
-`set` updates only sections represented by its flags and preserves other saved section fields. It exposes named supported values, not arbitrary JSON editing. Relative paths are interpreted from the project root. Invocation-only `--force` and `--refresh` flags are never persisted. Generic project export profiles may be saved with `--export-profile`; direct export options override them for that operation. AudioExport is a core dependency, not a Readio optional extra. Native audiobook export uses `readio audiobook export WORKSPACE --variant ID` with `--profile` for an AudioExport profile; it does not store a Readio project setting. `readio speak` remains on its PCM streaming sink.
-
-Synthesis, composition, and generic export defaults apply to requestless generic project APIs and builds. Explicit API or stage options override them for that invocation only. Native audiobook commands use the specialist profiles and artifacts in the `.ssmdbook` workspace; they have no Readio saved project settings.
-
-### Shared speech controls
-
-The `--speed` option and `reader.speed` configuration value are engine synthesis multipliers. Kokoro receives speed directly, PiperSynth maps it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`; unsupported explicit values fail before inference. Supertonic converts the locale to a supported base language and forwards speed as an engine synthesis multiplier; InflectSynth also supports the shared speed control. Composition rate is separate and is not also changed by `--speed`.
-
-Use `--voice-level off|calibrated` or `reader.voice_level` to select voice-level handling. The resolved voice-level mode and synthesis speed are included in speech-cache identity.
-
-PocketSynth project runs select a bundle and exactly one voice source: `--voice` for a predefined bundle voice, `--voice-file` for a local WAV, or `--voice-prompt` for a managed Kyutai prompt. Local and managed reference sources are pinned by SHA-256 in the resolved render plan; managed prompts also retain the catalog revision and available provenance. Managed prompts apply to the default synthesis voice, not per-role bindings:
-
-```bash
-readio synth PROJECT --engine pocket --model BUNDLE_ID --voice VOICE --precision int8
-readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-file reference.wav --temperature 0.6
-readio voices prompts --engine pocket --dataset alba
-readio voices prompts --engine pocket --variant casual --license cc-by-4.0
-readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-prompt kyutai-tts-voices:alba-mackenna/casual
-```
-
-## Voice catalog filters
-
-For `readio voices list`, canonical engine IDs passed as `--model` are shortcuts only when `--engine` is omitted: `kokoro`, `piper`, `pocket`, `supertonic`, `kitten`, and `inflect`. Input aliases such as `pykokoro`, `pipersynth`, `supertonicsynth`, and `inflectsynth` normalize to the canonical ID. The JSON `filters` object reports the effective engine and clears the model field for shortcuts. Concrete model IDs, voice bundles, and model targets remain model filters.
-
-Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, `pocket:english_2026-04/alba`, `supertonic:supertonic-3/F1`, or `inflect:nano-v2/default`. Voice listing filters (`--engine`, `--model`, `--lang`, and `--gender`) select descriptive metadata, not voice identity. Native IDs are accepted when discovery context resolves them uniquely; use a semantic reference when the target must be explicit.
-Pocket language filtering treats a generic bundle language as compatible with a specific query: `--lang en-us` includes a bundle advertising `en`, but excludes one explicitly advertising `en-GB`. The generic voice remains labeled `en`; Readio does not infer a regional locale.
-
-```bash
-readio voices list --model piper --lang en-us
-readio voices list --engine piper --model en_US-amy-medium
-```
-
-Managed Pocket prompts are reference assets rather than target-bound catalog voices. Inspect them with metadata-only filters; listing does not open a Pocket model or download prompt WAV files:
-
-```bash
-readio voices prompts --engine pocket --dataset alba
-readio voices prompts --engine pocket --variant casual --license cc-by-4.0 --offline
-readio synth PROJECT --engine pocket --model BUNDLE_ID --voice-prompt kyutai-tts-voices:alba-mackenna/casual
-```
-
-`--voice`, `--voice-file`, and `--voice-prompt` are mutually exclusive. Offline prompt listing needs cached catalog metadata; offline synthesis also needs the managed WAV cached.
-
-Supertonic selects catalog voices such as `F1` on model `supertonic-3`. Readio maps `en-us` to the engine language `en` and rejects unsupported base languages:
-
-```bash
-readio voices list --engine supertonic --lang en-us
-readio render --engine supertonic --model supertonic-3 --voice F1 --lang en-us "Hello"
-```
-
-InflectSynth is optional (`python -m pip install "readio[inflect]"`), English-only, and uses public metadata discovery for its current model targets such as `nano-v2` and `micro-v2`. Each target exposes the fixed `default` voice; `inflectsynth` is accepted as an alias for `inflect`.
-
-```bash
-readio voices list --engine inflect --lang en-us
-readio voices show inflect:nano-v2/default
-readio render --engine inflect --model nano-v2 --voice default --lang en-us --speed 1.1 --voice-level calibrated "Hello from Inflect."
-```
-
-The CLI exposes shared speed and voice-level calibration; variation and seed are API engine options. Speaker selection, reference voices, pronunciation overrides, and native word timings are unsupported. InflectSynth 0.1.1 does not advertise a trustworthy capacity maximum, so Readio leaves capacity unknown instead of guessing a token limit. Readio owns request boundaries and capacity policy; InflectSynth owns G2P and runtime/model internals, while ONNXVoice is a transitive dependency that Readio does not import or manage.
-
-Project initialization converts supported filesystem document inputs through ssmdconvert. Ordinary document inputs include text/Markdown, HTML, PDF, DOCX, EPUB, and SSMD. The original file is retained under `source/` as provenance; the editable semantic input is canonical SSMD under `document/document.ssmd.md`. Planning reads the persisted SSMD, not the original source. Editing it replans changed semantics. If the source snapshot changes, status reports the provenance change but does not silently reconvert; initialize a new project from the updated source to ingest it. `readio project init novel.epub` creates one combined document project. `.ssmdbook` bundles are multi-chapter audiobook inputs and are rejected by generic project initialization.
-
-## Native `.ssmdbook` audiobook workflows
-
-Audiobook commands operate directly on the SSMDConvert workspace and package-owned stage artifacts. `convert` (alias `init`) converts an EPUB to an editable `.ssmdbook`, or opens an existing `.ssmdbook` workspace. `chapters` inspects source chapter metadata and selection numbers.
-
-```text
-readio audiobook chapters SOURCE [--json]
-readio audiobook convert SOURCE [--chapters SELECTOR] [-o WORKSPACE] [--language LANG]
-readio audiobook compile WORKSPACE [--chapters SELECTOR] [--force] [--json]
-readio audiobook render-plan WORKSPACE --profile VOICE_RENDER_PROFILE [--chapters SELECTOR] [--variant LABEL]
-readio audiobook synth WORKSPACE --variant EXACT_VARIANT [--chapters SELECTOR]
-readio audiobook compose WORKSPACE --variant EXACT_VARIANT [--chapters SELECTOR]
-readio audiobook export WORKSPACE --variant EXACT_VARIANT [--profile AUDIOEXPORT_PROFILE] [--output FILE]
-readio audiobook build WORKSPACE --profile VOICE_RENDER_PROFILE [--stop-after STAGE]
-readio audiobook status WORKSPACE [--variant EXACT_VARIANT] [--json]
-readio audiobook profile create PROFILE --engine ENGINE --target-id TARGET --language LANG
-```
-
-A typical chapter-scoped build is:
-
-```bash
-readio audiobook chapters novel.epub
-readio audiobook convert novel.epub --chapters 5-17 -o novel.ssmdbook
-readio audiobook profile create narration.renderprofile.toml \
-  --engine piper --target-id en_US-amy-medium --language en-US
-readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
-  --chapters 5-17 --stop-after render-plan --json
-readio audiobook status novel.ssmdbook --json
-# Copy the exact variant from the build result or status output:
-readio audiobook synth novel.ssmdbook --variant EXACT_VARIANT --chapters 5-17
-readio audiobook compose novel.ssmdbook --variant EXACT_VARIANT --chapters 5-17
-readio audiobook export novel.ssmdbook --variant EXACT_VARIANT \
-  --cover cover.jpg --bitrate 96k -o novel.m4b
-```
-
-The returned variant ID includes the profile fingerprint. Pass that exact value to each later stage; `build --variant` resumes a known variant. `--stop-after` can stop after render-plan, synthesis, composition, or export. Use `--no-compile` or `--no-render-plan` when upstream artifacts are already present. JSON output includes the variant for scripts. `status` inspects the public artifacts under `utterplan/`, `renderplan/`, `voicerender/`, `audiocompose/`, and `audioexport/`.
-
-The compose stage is a thin call to AudioCompose's public `compose_book` API. AudioCompose writes `audiocompose/<variant>/compose-report.toml` and chapter WAVs; Readio does not parse specialist manifests, choose pause durations, create AudioJobs, or maintain a native pause-policy file. Use `audiocompose inspect` or the specialist commands below when diagnosing composition details.
-Alternatively, convert and process a fresh EPUB entirely with the specialist CLIs; the commands write the same workspace artifacts:
-
-```bash
-ssmdconvert book convert novel.epub -o novel.ssmdbook --chapters 5-17
+ssmdconvert book convert novel.epub --chapters 5-17 -o novel.ssmdbook
 utterplan compile-book novel.ssmdbook --chapters 5-17
-utterplan render-book novel.ssmdbook --profile narration.renderprofile.toml --chapters 5-17
-# Set VARIANT to the exact returned RenderPlan directory name.
-voicerender render-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
-audiocompose compose-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
-audioexport export-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17 \
-  --cover cover.jpg --bitrate 96k -o novel.m4b
+voicerender profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o narration.renderprofile.toml
+utterplan render-book novel.ssmdbook --chapters 5-17 \
+  --profile narration.renderprofile.toml
+
+VARIANT="<exact variant returned by utterplan render-book>"
+voicerender render-book novel.ssmdbook --chapters 5-17 --variant "$VARIANT" \
+  --emphasis-policy defer-to-compose
+audiocompose compose-book novel.ssmdbook --chapters 5-17 --variant "$VARIANT"
+audioexport export-book novel.ssmdbook --chapters 5-17 --variant "$VARIANT" \
+  --output novel.m4b
 ```
 
-These stages can be resumed in either direction without conversion or migration: for example, `utterplan compile-book` may precede `readio audiobook render-plan`, or a Readio-produced render plan may continue with `voicerender render-book`. The owner packages keep their identities and decide refresh/currentness. If chapter edits make the workspace dirty, Readio reports the state and does not silently refresh or recompile; run `ssmdconvert book refresh WORKSPACE` explicitly when desired.
+Consult each specialist's `--help` for its complete options and diagnostics.
 
-New audiobook workflows never create `.readio/` or a Readio `project.json`. Existing `.readio/` data inside a workspace is ignored with a warning and left unchanged. Generic `*.readio` document projects remain a separate workflow and continue to use the ordinary `project`, `plan`, `synth`, `compose`, `export`, and `status` commands. M4B is audiobook-only; generic `readio export` supports WAV, FLAC, MP3, M4A, Ogg/Vorbis, and Opus.
+## Direct speech
 
-## Persistent project status
-
-`readio status` discovers the project by walking upward from the current directory. Human output shows the project root, source format, each stage state/reason, dependency blocking, and the primary next command. Structured output preserves stable reason codes and includes `issues` plus `next_actions`.
-
-Plan artifact reasons include `plan.index.missing`, `plan.index.invalid`, `plan.artifact.missing`, `plan.artifact.hash_mismatch`, `plan.artifact.plan_id_mismatch`, and `plan.stale.document_format_mismatch`. A wrong-format legacy plan is therefore rebuilt with `readio plan` instead of being silently reused.
-
-## Synthesis progress and JSON
-
-Generic project `synth` and `preview` accept the shared `--progress` / `--no-progress` option. Interactive progress is written to stderr and includes the resolved profile, cache counts, model-loading phase, and segment IDs with complete renderer text. Native audiobook stage commands report package progress and chapter selectors through their own progress callbacks. `-v` and `-vv` select the existing INFO and DEBUG logging levels; use them for bounded stage, runtime, timing, and cache diagnostics.
-
-`readio synth --json` emits one final JSON object on stdout. It includes the project, scope, plan ID, profile identity and engine/model/voice/language, selector/count, and cache reuse/render counts. Progress and logs remain on stderr, and automatic progress is disabled for JSON unless explicitly forced.
-
-## Mastering profiles
-
-Composition, preview, and bounded `render` default to `--mastering spoken-word` (`-16 LUFS`, `-1 dBTP`). Select `spoken-word-dual-mono` (`-19/-1`), `broadcast-ebu` (`-23/-1`), `peak-safe` (no LUFS target, `-1 dBTP`), or `off` (no target or ceiling). Readio does not offer an ACX LUFS preset: ACX compliance requires separate RMS, peak, and noise-floor checks.
-
-`--target-lufs` and `--true-peak-ceiling-dbtp` are expert numeric overrides; omitted values inherit from the selected profile. Choose `peak-safe` or `off` to disable inherited processing. `--peak-policy reduce_gain` preserves transparent constant-gain behavior and reduces requested gain when needed to meet the true-peak ceiling; it is not a limiter. Use `--peak-policy error` to fail instead of reducing gain.
-
-Human output and `--json` include the selected profile, before/after integrated loudness, sample and true peaks, requested/applied gain, target status, and warnings. Progress separates assembly and loudness finalization (analysis, gain, and cached post-gain metrics) from AudioJob, WAV, timeline, hashing, and state writes. Runtime timings are diagnostic only and never enter composition identity.
-
-## Composition progress
-
-`readio compose PROJECT` shares the progress policy with synthesis, preview, render, and project rendering. Progress is enabled automatically on an interactive terminal, can be forced with `--progress`, and can be disabled with `--no-progress`. All progress is written to stderr.
-
-Composition events identify the current speech segment and operation, show completed and total segments, and show an approximate ETA only after enough segment processing has completed. The ETA covers segment processing and does not predict assembly, complete-output loudness or true-peak processing, or artifact writing. Those stages are rendered separately so all segments reaching 100 percent does not imply that the master is complete.
-
-With `--json`, stdout remains one JSON document. Explicit progress remains on stderr, and progress callbacks are runtime observations only. They do not enter composition IDs, AudioJob serialization, timelines, or composition state identities.
-
-`readio plan` is a project command family: `build` creates semantic Utterplan artifacts (safe repair by default), `inspect` reviews active plans and persisted attempts, `repair` retries an attempt without editing source, `roles` inspects SSMD roles, and `bind` / `unbind` manage project-local acoustic settings. It never selects an engine or loads TTS. Use `readio render --dry-run` to inspect the complete execution plan for one-shot input.
-
-## Planning progress
-
-`readio plan build [PROJECT]` (and bare `readio plan`) shares the existing `--progress` / `--no-progress` option. Progress is automatic on interactive terminals, disabled by default for non-TTY and JSON output, and can be forced explicitly. It is written only to stderr; `readio plan build PROJECT --json` keeps stdout as one parseable JSON document, including when used with `--progress`.
-
-Planning progress identifies the current scope and operational phases such as document parsing, local spaCy model loading, linguistic analysis passes, spoken-text preparation, segmentation, and finalization. Percentages and ETA describe completed project scopes only; Readio does not invent progress inside one opaque linguistic run. Utterplan still performs all semantic SSMD interpretation. The selected linguistic behavior is controlled by the existing `reader.spacy` policy (`auto`, an explicit local model tier, or `off`); progress adds observability without changing that policy or plan identity.
+`speak` joins positional arguments with spaces, resolves them through VoiceRender, synthesizes literal text, and plays the returned audio through the current device.
 
 ```bash
-readio plan build . --progress
-readio plan build . --no-progress
-readio plan build . --json --progress
+readio speak "Hello from Readio."
+readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
+readio speak --engine inflect --target micro-v2 --voice default --lang en "Hello."
 ```
 
-## Planning attempts, inspection, and repair
+Options:
 
-Planning writes each run to a durable per-scope attempt before activation. A blocked or interrupted attempt remains available for review, but its candidates never replace active plan artifacts and are never eligible for synthesis. Activation is transactional: only a complete, renderable attempt updates the active plan index. Safe renderability repair is the default; use `--renderability strict` when auditing the unmodified planner output.
+- `--voice SELECTOR`: neutral VoiceRender selector in `engine:target[/voice]` form, or a voice value interpreted by VoiceRender.
+- `--engine ENGINE` and `--target TARGET`: explicit engine and target. These override the corresponding fields in `--voice`.
+- `--lang LANGUAGE`: language passed to VoiceRender. Defaults to `en-US`.
+- `--speaker SPEAKER`: optional VoiceRender speaker selector.
+- `--offline`: restrict resolution to locally available assets.
+- `--refresh`: request refreshed VoiceRender metadata.
+- `--engine-option KEY=VALUE`: repeatable engine-specific option forwarded to VoiceRender.
+
+Install backend extras through VoiceRender, for example `python -m pip install "voicerender[kokoro]"`. Playback requires a working audio device.
+
+## Audiobook conversion
 
 ```bash
-# Strict audit; any unrenderable segments are persisted for inspection.
-readio plan build . --renderability strict
-
-# Inspect the latest attempt, its issues, and suggested safe repairs.
-readio plan inspect . --attempt latest --issues --repairs --json
-
-# Inspect the active plan instead of the latest attempt.
-readio plan inspect . --attempt active
-
-# Preview, then retry a blocked/incomplete attempt without editing source files.
-readio plan repair . --attempt ATTEMPT_ID --dry-run
-readio plan repair . --attempt ATTEMPT_ID
+readio audiobook convert novel.epub
+readio audiobook convert novel.epub --output novel.ssmdbook --chapters 5-17 --lang en-US
+readio audiobook convert novel.epub --json
 ```
 
-`inspect` accepts `--scope`, `--unit`, `--segment`, and `--source-context` for focused semantic and source review. `--attempt` may be `latest`, `active`, or a concrete attempt ID. `repair` defaults to the latest attempt, supports dry-run, and compiles current project documents; it does not rewrite SSMD or other source files. Matching renderable scopes may be reused across retries. A failed repair leaves the prior active plan untouched.
+The default workspace path replaces the source suffix with `.ssmdbook`. Conversion and workspace structure belong to SSMDConvert. `--chapters` and `--lang` are forwarded to its public API.
 
-Generic project planning attempts and candidates are stored under `plan/attempts/` in the Readio project root. Native audiobook planning is owned by UtterPlan and reports status from its workspace artifacts; it does not use Readio planning-attempt state. `readio status --json` reports the generic project `planning_attempt` separately from active PLAN stage state. The public project API exposes the same generic operations as `app.projects.inspect_plan(...)` and `app.projects.repair_plan(...)`.
+## Audiobook build
+
+```bash
+readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml
+readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
+  --chapters 5-17 --output novel.m4b
+readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
+  --stop-after synth --json
+```
+
+The build calls UtterPlan compile and RenderPlan projection, VoiceRender synthesis, AudioCompose composition, then AudioExport. Use the exact RenderPlan variant returned by UtterPlan when resuming with specialist tools.
+
+Options include `--chapters`, `--profile`, `--variant`, `--force`, `--fail-fast`, `--stop-after`, `--output`, `--export-profile`, `--cover`, `--bitrate`, `--json`, and `--no-progress`. `--stop-after` accepts `compile`, `render-plan`, `synth`, `compose`, or `export`. The profile is a VoiceRender RenderProfile. Use specialist profiles and CLIs for more detailed backend, composition, or export settings.
+
+JSON output contains the workspace path, returned variant, and the names of stages whose specialist result objects were returned. Readio does not interpret specialist report schemas or persist a parallel stage status.
+
+## Dependency diagnostics
+
+```bash
+readio doctor
+readio doctor --json
+```
+
+The doctor reports installed versions of SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and AudioExport. It also lists VoiceRender engines and their installation, status, version, and compatibility information. Install a missing engine through VoiceRender, for example `python -m pip install "voicerender[pocket]"`.
+
+## Removed commands
+
+Version 0.5.0 removes Readio's former generic project, planning, rendering, synthesis, composition, export, engine/catalog, configuration, verification, and Spotify commands. Their specialist-owned operations are available from the corresponding package CLIs. Readio does not provide compatibility aliases or a migration command for old project state.

@@ -1,139 +1,64 @@
-# CLI and JSON
+# CLI reference
 
-## Common commands
-
-```bash
-readio speak --file document.md
-readio render --file document.md --format mp3 --output episode.mp3
-readio render --input-format markdown
-readio ssmd check document.ssmd.md --json
-```
-
-For SSMD drafts, templates, portable bindings, and structural lint, use SSMDStudio 0.1.1 as a separate authoring tool; hand off a `.ssmd` or `.ssmd.md` file to Readio for consumer checks and rendering. Install the optional authoring tools with `python -m pip install "ssmdstudio[authoring]==0.1.1"`.
-
-Input can be literal text, a UTF-8 file, or stdin. For convenience, `speak`, `render`, and `spotify publish` treat one existing positional token as a file path, including paths with spaces when quoted. For scripts, prefer the explicit `--file PATH` form.
-
-A missing path-like positional token is rejected instead of being synthesized as literal speech. Use `--input-format text` to speak an existing filename literally; explicit `markdown` and `ssmd` formats still enable file loading. Positional input plus `--file` is always an error. `--live` consumes plain piped text incrementally and cannot be combined with Markdown/SSMD parsing, `--file`, or selection.
-
-## Machine mode
-
-Agents should use `--json`. It is accepted before or after the command, and literal text after `--` is preserved. Successful commands emit one object with `ok: true`; JSON errors emit one object containing `ok: false`, a stable `code`, and human-readable `error`. Progress is disabled automatically in JSON mode. Explicit `--progress` writes only to stderr.
-
-`render --json` reports `path`, `format`, `sample_rate`, `sample_count`, `channels`, `duration_ms`, `markers`, and always includes `manifest`. The value is `null` unless `--manifest` was requested; with the flag it contains the `readio.render-manifest.v1` schema and sidecar path. Human render output remains the final path for shell compatibility.
-
-## Verbose diagnostics
-
-Use the global repeatable flags when collecting runtime diagnostics:
+Readio 0.5 exposes `speak`, `audiobook convert`, `audiobook build`, and `doctor`:
 
 ```bash
-readio -v speak "test"
-readio -vv doctor
-readio -vv render input.ssmd -o out.wav
+readio --help
+readio speak --help
+readio audiobook --help
+readio audiobook convert --help
+readio audiobook build --help
+readio doctor --help
 ```
 
-`-v` enables timestamped INFO lifecycle records. `-vv` adds DEBUG details, including records from the `pykokoro` namespace when the installed dependency emits them. Logs go to stderr; stdout remains reserved for normal results and JSON. `--progress` is separate and remains independently controllable. Diagnostic output may include file paths and model or voice IDs, but Readio does not log complete input text, raw audio, Spotify tokens, or authorization responses. Review logs before sharing them.
+## Direct speech
 
-## Synthesis planning
-
-`readio render --dry-run` resolves the exact one-shot plan that a bounded render would execute, without loading TTS. Normal `readio render` resolves the same plan before execution:
+`speak` joins positional arguments with spaces, sends the literal text to VoiceRender, and plays the returned audio through the current device.
 
 ```bash
-readio render --file input.ssmd --format mp3 --dry-run --json
-readio render --file input.ssmd --dry-run
-readio render --file input.ssmd --format mp3
+readio speak "Hello from Readio."
+readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
+readio speak --engine inflect --target micro-v2 --voice default --lang en "Hello."
 ```
 
-`--json` emits one `readio.plan.v2` object:
+Use `--voice` for a VoiceRender selector, or supply `--engine` and `--target` explicitly. `--lang` defaults to `en-US`; `--speaker`, `--offline`, `--refresh`, and repeatable `--engine-option KEY=VALUE` are also available. Backend extras are installed through VoiceRender, for example `python -m pip install "voicerender[kokoro]"`.
 
-- `ok` and `diagnostics` show whether rendering can proceed without loading a model.
-- `input`, `planning`, and `semantic_plan` identify source interpretation and semantic planning.
-- `render` records the engine-neutral target and effective synthesis values.
-- `output` records format, encoder, proposed path, path origin, and overwrite intent.
-- `decisions` records winning sources and locators, including `ssmd.bindings.<role>` origins such as `document`, `cli`, `project`, `config.voice_role`, and `direct`.
-- `environment` reports package versions and `ffmpeg_available`.
-
-Exit code is 0 for `ok: true` and 1 for a rejected plan. One-shot planning is deterministic: `--resolve-voices` is rejected by `render --dry-run`; use `--voice-bind ROLE=REF` for an invocation or persistent project bindings for a reusable cast.
-
-## Persistent project planning
-
-`readio plan` is reserved for Readio projects. With no subcommand it builds the current project's semantic plans. Use `readio plan build [PROJECT]` outside that directory, `readio plan roles [PROJECT]` to inspect logical SSMD roles before planning, and `readio plan bind ROLE VOICE` / `readio plan unbind ROLE` to manage project-local acoustic settings. Role bindings do not modify SSMD or change Utterplan `plan_id`; they follow the precedence document, invocation, project, global configured role, then direct voice. Changing them makes synthesis stale but leaves planning current.
-
-## Durable render manifests
-
-Use `--manifest` on bounded `render` when the audio needs reusable execution evidence:
+## Audiobook conversion and build
 
 ```bash
-readio render --file input.ssmd --format mp3 --dry-run --json
-readio render --file input.ssmd --format mp3 --manifest --json
+readio audiobook convert novel.epub --output novel.ssmdbook --chapters 5-17
+readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
+  --chapters 5-17 --output novel.m4b --json
 ```
 
-The colocated sidecar is named `<audio>.readio.json` and uses `readio.render-manifest.v1`. It embeds the exact executed `readio.plan.v2`, a canonical plan SHA-256, final encoded audio SHA-256 and byte count, runtime audio facts, document metadata, and final marker offsets. The sidecar is written only after audio commit and is replaced on a successful `--force` render.
+Conversion and workspace structure belong to SSMDConvert. The build calls UtterPlan compilation and RenderPlan projection, VoiceRender synthesis, AudioCompose composition, and AudioExport. Options include `--chapters`, `--profile`, `--variant`, `--force`, `--fail-fast`, `--stop-after`, `--output`, `--export-profile`, `--cover`, and `--bitrate`. `--stop-after` accepts `compile`, `render-plan`, `synth`, `compose`, or `export`.
 
-`--manifest` is rejected with `--live` and does not apply to `speak`, `plan`, dry runs, or publishing. If sidecar writing fails, the committed audio remains and JSON errors use code `render.manifest_error` with `audio_path` and `manifest_path`.
+JSON output includes the workspace path, returned variant, and names of stages whose specialist results were returned. Readio does not interpret specialist report schemas or persist a parallel stage status.
 
-## Model discovery
+## Manual specialist workflow
 
-Use PyKokoro >=0.10.0,<0.11 metadata to inspect its model and voice catalog. PiperSynth >=0.2.0,<0.3 and PocketSynth >=0.2.0,<0.3 provide their own target catalogs. Discovery is metadata-only and does not download model weights or voices:
-
-````bash
-readio voices list --lang de --offline --json
-readio voices show kokoro:v1.0/af_heart --offline --json
-readio models show de-thorsten --offline --json
-readio models list --preference huggingface --json
-
-readio lexicons list --lang de --offline --json
-readio lexicons show crane --lang de --offline --json
-`--refresh` updates registry metadata only and cannot be combined with `--offline`. JSON includes registry provenance, cache fallback, model status, voice/default voice, qualities, G2P backend, frontend, experimental state, runtime availability, redistribution policy, and `lexicons_known`. `lexicons: null` means the capability is unknown; `lexicons: []` means the model has no named lexicons.
-Use `--preference auto|github|huggingface|upstream` for deterministic discovery views. `--model-source github|huggingface` selects a distribution only for engines that advertise that capability. Voices are model-scoped where the engine exposes a roster; SSMD checks the active target's roster.
-Voice references use `SYSTEM:TARGET[/VOICE]`, such as `kokoro:v1.0/af_heart`, `piper:en_US-amy-medium`, and `pocket:english_2026-04/alba`. `--engine`, `--model`, `--lang`, and `--gender` filter catalog metadata; they do not change reference identity. Native IDs work when discovery context resolves them uniquely. Readio does not accept numbered voice selectors.
-
-Readio supports PyKokoro, PiperSynth, and PocketSynth through a neutral strict request API. Use `--engine BACKEND` to select an installed engine; engine target catalogs and capabilities are not interchangeable. Readio owns exact-text capacity fitting and subdivision, while each adapter makes one native synthesis request per child and does not invoke a native splitter.
-
-## Language defaults
-
-`defaults` persists validated user choices independently of the runtime catalog:
+Use the specialist CLIs for package-specific controls. Keep the exact variant returned by UtterPlan unchanged:
 
 ```bash
-readio defaults set de --model de-thorsten --lexicon crane --offline --json
-readio defaults show de-at --json
-readio defaults list --json
-readio defaults reset de
-````
+ssmdconvert book convert novel.epub -o novel.ssmdbook
+utterplan compile-book novel.ssmdbook
+voicerender profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o narration.renderprofile.toml
+utterplan render-book novel.ssmdbook --profile narration.renderprofile.toml
 
-When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `--lexicon NAME` accepts named PyKokoro selectors such as `crane`; `--no-lexicons` selects no static layers, while `--auto-lexicons` restores language defaults. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
-When a model is selected, Readio fills source, default voice, and preferred quality from discovery. Exact locale profiles override base-language profiles. `speak`, `render`, and `spotify publish` share `--model`, `--model-source`, `--quality`, `--voice`, `--speed`, `--voice-level`, repeatable `--lexicon`, `--no-lexicons`, `--auto-lexicons`, `--g2p-fallback`, and `--lexicon-data-policy`; explicit options override persisted defaults.
-
-### SpaCy and short-sentence controls
-
-The shared synthesis options are available on `speak`, `render`, and `spotify publish`:
-
-```text
---spacy auto|off|sm|md|lg|trf
---short-sentence off|wrap|phrase|randomized-phrase
---pause-mode auto|tts|manual
---speed FLOAT
---voice-level off|calibrated
+VARIANT="<exact variant returned by utterplan render-book>"
+voicerender render-book novel.ssmdbook --variant "$VARIANT"
+audiocompose compose-book novel.ssmdbook --variant "$VARIANT"
+audioexport export-book novel.ssmdbook --variant "$VARIANT" --output novel.m4b
 ```
 
-Use `--spacy auto` for the largest installed compatible model with graceful fallback, `off` to disable spaCy, or an explicit tier to require that model size. `phrase` is Readio's default short-sentence strategy, resolved by Readio rather than inherited from PyKokoro. `wrap` is the lower-latency context strategy, `off` disables short-sentence handling, and `randomized-phrase` uses randomized carrier-phrase extraction. Persist these as `[reader] spacy` and `[reader] short_sentence`.
-Readio defaults `pause_mode` to `auto`, enabling PyKokoro's automatic pause analysis. Use `--pause-mode tts` to leave timing to the acoustic model or `--pause-mode manual` for explicit boundary pauses. Persist an installation-specific choice with `[reader] pause_mode` or `readio config set reader.pause_mode auto`; use an explicit CLI value when reproducibility requires it.
-
-`--speed` is a finite positive synthesis multiplier, not a composition tempo. PyKokoro receives it directly, PiperSynth converts it to `length_scale = 1 / speed`, and PocketSynth accepts only `1.0`. `--voice-level off|calibrated` selects engine voice-level handling. Both controls affect speech-cache identity.
-
-`--g2p-fallback` accepts `none`, `espeak`, or `goruut`; `--lexicon-data-policy` accepts `auto` or `installed-only`. `--language-detection auto` plus repeatable `--detect-language LANG` controls pronunciation routing. Plans preserve `lexicons: null` versus `lexicons: []`. Do not pass `de-de:crane` as the selector: it is the language-qualified Lexphon asset ID resolved downstream; `de-crane` is an acoustic model.
-
-## Audio
-
-Supported formats are WAV, MP3, M4A, and OGG. Infer the format from an output suffix where possible; explicit format and suffix must agree. M4A requires FFmpeg. Use `--force` to replace an existing output.
-
-## Diagnostics
+## Diagnostics and removed commands
 
 ```bash
 readio doctor
 readio doctor --json
-readio config init
-readio config validate
 ```
 
-The local doctor is offline/local. `readio --json doctor` is equivalent to `readio doctor --json`.
-`doctor --json` reports PyKokoro's imported module path, distribution/module versions, and public discovery symbol status. Use it to diagnose stale editable checkouts or mismatched environments before treating a registry error as a network/cache problem.
+Doctor reports the installed specialist package versions and VoiceRender engine availability. Install missing engines through VoiceRender.
+
+Version 0.5.0 removes the former generic project, planning, rendering, synthesis, composition, export, engine/catalog, configuration, verification, and Spotify commands. There are no compatibility aliases or migration commands for old project state.
