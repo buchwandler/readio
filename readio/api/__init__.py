@@ -5,13 +5,42 @@ package. Modules outside ``readio.api`` are implementation details unless a
 symbol is deliberately promoted as a public extension contract.
 """
 
-from ..book_pipeline import (
-    BookBuildRequest,
-    BookBuildResult,
-    BookPipelineError,
-    BookPipelineEvent,
-    BookWorkspace,
+from importlib import import_module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..book_pipeline import (
+        BookBuildRequest,
+        BookBuildResult,
+        BookPipelineError,
+        BookPipelineEvent,
+        BookWorkspace,
+    )
+
+_LAZY_BOOK_EXPORTS = frozenset(
+    {
+        "BookBuildRequest",
+        "BookBuildResult",
+        "BookPipelineError",
+        "BookPipelineEvent",
+        "BookWorkspace",
+    }
 )
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_BOOK_EXPORTS:
+        module = import_module("readio.book_pipeline")
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | _LAZY_BOOK_EXPORTS)
+
+
 from ..config import (
     G2P_FALLBACKS,
     LANGUAGE_DETECTION_MODES,

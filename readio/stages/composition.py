@@ -515,6 +515,54 @@ def _pause_seconds(pause: Any) -> tuple[float, tuple[str, ...]]:
     return policy.resolve(pause, voice="narrator", where="composition"), ()
 
 
+def _markers_by_segment(
+    plan: Any, scope_id: str = "document"
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    """Return plan markers grouped by their owning flow segment."""
+    segments = tuple(iter_flow_segments(plan))
+    markers: dict[str, list[dict[str, Any]]] = {str(segment.id): [] for segment in segments}
+
+    def marker_value(marker: Any, segment: Any) -> dict[str, Any]:
+        if hasattr(marker, "to_dict"):
+            value = dict(marker.to_dict())
+        elif isinstance(marker, Mapping):
+            value = dict(marker)
+        else:
+            value = {"id": str(marker), "name": str(marker)}
+        value.setdefault("id", value.get("name", "marker"))
+        value.setdefault("name", value["id"])
+        value.setdefault("spoken_position", int(getattr(segment, "spoken_start", 0)))
+        if scope_id != "document":
+            value["id"] = f"{scope_id}:{value['id']}"
+        return value
+
+    # UtterPlan flow segments carry marker IDs locally. Older plans expose
+    # document-level Marker objects instead, so retain support for both forms.
+    for segment in segments:
+        for marker in getattr(segment, "markers", ()) or ():
+            markers[str(segment.id)].append(marker_value(marker, segment))
+
+    for marker in getattr(plan, "markers", ()) or ():
+        position = getattr(marker, "spoken_position", None)
+        if isinstance(marker, Mapping):
+            position = marker.get("spoken_position")
+        if position is None:
+            continue
+        owner = next(
+            (
+                segment
+                for segment in segments
+                if getattr(segment, "spoken_start", 0)
+                <= position
+                <= getattr(segment, "spoken_end", getattr(segment, "spoken_start", 0))
+            ),
+            None,
+        )
+        if owner is not None:
+            markers[str(owner.id)].append(marker_value(marker, owner))
+    return {segment_id: tuple(values) for segment_id, values in markers.items()}
+
+
 def _marker_sample_offset(marker: Mapping[str, Any], segment: Any, entry: Mapping[str, Any]) -> int:
     segment_start = getattr(segment, "spoken_start", 0)
     position = max(0, min(len(segment.text), int(marker["spoken_position"]) - segment_start))

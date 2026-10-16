@@ -280,6 +280,97 @@ def test_native_audiobook_api_isolated_from_legacy_project_stages() -> None:
         assert not (module_parts | imported_names) & legacy_names
 
 
+def test_compose_delegates_public_arguments_and_translates_book_progress(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "book.ssmdbook"
+    root.mkdir()
+    monkeypatch.setattr(
+        pipeline, "_ssmdconvert_load_book_workspace", lambda _path: _native_workspace(root)
+    )
+    captured: dict[str, object] = {}
+    events: list[pipeline.BookPipelineEvent] = []
+    result = object()
+
+    def compose(path: Path, **kwargs: object) -> object:
+        captured["path"] = path
+        captured.update(kwargs)
+        callback = kwargs["on_progress"]
+        assert callable(callback)
+        callback(
+            SimpleNamespace(
+                kind="chapter_reused",
+                completed_chapters=1,
+                requested_chapters=2,
+                chapter_id="chapter-0005",
+                source_number=5,
+                variant="narration--exact",
+                details={"reused": 1},
+            )
+        )
+        return result
+
+    monkeypatch.setattr(pipeline, "_audiocompose_compose_book", compose)
+    returned = pipeline.compose_book(
+        root,
+        variant="narration--exact",
+        chapters="5-6",
+        force=True,
+        fail_fast=True,
+        on_progress=events.append,
+    )
+
+    assert returned is result
+    assert captured == {
+        "path": root,
+        "variant": "narration--exact",
+        "chapters": "5-6",
+        "force": True,
+        "fail_fast": True,
+        "on_progress": captured["on_progress"],
+    }
+    assert [event.kind for event in events] == [
+        "stage.started",
+        "chapter_reused",
+        "stage.completed",
+    ]
+    assert events[1].stage == "compose"
+    assert events[1].completed == 1
+    assert events[1].total == 2
+    assert events[1].chapter_id == "chapter-0005"
+    assert events[1].details == {"reused": 1}
+
+
+def test_compose_preserves_structured_specialist_error_fields(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "book.ssmdbook"
+    root.mkdir()
+    monkeypatch.setattr(
+        pipeline, "_ssmdconvert_load_book_workspace", lambda _path: _native_workspace(root)
+    )
+
+    class ComposeFailure(Exception):
+        code = "pause_policy.unresolved"
+        chapter_id = "chapter-0005"
+        source_number = 5
+        variant = "narration--exact"
+        details: ClassVar[dict[str, str]] = {"policy_id": "default"}
+
+    def fail(*_args: object, **_kwargs: object) -> object:
+        raise ComposeFailure("pause policy could not be resolved")
+
+    monkeypatch.setattr(pipeline, "_audiocompose_compose_book", fail)
+    with pytest.raises(pipeline.BookPipelineError) as caught:
+        pipeline.compose_book(root, variant="narration--exact", chapters="5")
+
+    error = caught.value
+    assert error.package == "audiocompose"
+    assert error.code == "pause_policy.unresolved"
+    assert error.chapter_id == "chapter-0005"
+    assert error.source_number == 5
+    assert error.variant == "narration--exact"
+    assert error.details == {"policy_id": "default"}
+
+
 def test_status_reports_owner_artifacts_and_preserves_legacy_state(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -312,6 +403,9 @@ def test_status_reports_owner_artifacts_and_preserves_legacy_state(
         variant_root = root / stage / "narration--exact"
         variant_root.mkdir(parents=True)
         (variant_root / report).write_text("artifact", encoding="utf-8")
+    (root / "audiocompose" / "narration--exact" / "compose-report.toml").write_text(
+        "requested = 3\nwritten = 2\nreused = 1\nfailed = 0\n", encoding="utf-8"
+    )
     (root / "audioexport" / "narration--exact" / "book.m4b").write_bytes(b"audio")
     (root / "renderplan" / "narration--exact" / "one.renderplan.toml").write_text(
         "plan", encoding="utf-8"
@@ -333,6 +427,10 @@ def test_status_reports_owner_artifacts_and_preserves_legacy_state(
     assert variant["render_plan"]["present"] is True
     assert variant["synth"]["audio_count"] == 1
     assert variant["compose"]["present"] is True
+    assert variant["compose"]["requested"] == 3
+    assert variant["compose"]["succeeded"] == 3
+    assert variant["compose"]["failed"] == 0
+    assert variant["compose"]["reused"] == 1
     assert variant["export"]["present"] is True
     assert sentinel.read_text(encoding="utf-8") == "untouched"
 

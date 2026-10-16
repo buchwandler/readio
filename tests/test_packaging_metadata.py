@@ -7,6 +7,9 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
+
+import pytest
+
 ROOT = Path(__file__).parents[1]
 
 
@@ -43,6 +46,14 @@ def test_dependency_windows_match_supported_runtime_contract() -> None:
     assert "audiocompose>=0.1.1,<0.2" not in dependencies
     assert "sounddevice>=0.4.6,<1.0" in dependencies
     assert not any(item.startswith("pykokoro") for item in dependencies)
+
+
+def test_audiocompose_public_book_api_contract_when_available() -> None:
+    import audiocompose
+
+    if not callable(getattr(audiocompose, "compose_book", None)):
+        pytest.skip("compatible AudioCompose book API release is not installed")
+    assert callable(audiocompose.compose_book)
 
 
 def test_numpy_is_a_direct_dependency() -> None:

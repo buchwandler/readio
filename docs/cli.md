@@ -188,6 +188,7 @@ readio audiobook export novel.ssmdbook --variant EXACT_VARIANT \
 
 The returned variant ID includes the profile fingerprint. Pass that exact value to each later stage; `build --variant` resumes a known variant. `--stop-after` can stop after render-plan, synthesis, composition, or export. Use `--no-compile` or `--no-render-plan` when upstream artifacts are already present. JSON output includes the variant for scripts. `status` inspects the public artifacts under `utterplan/`, `renderplan/`, `voicerender/`, `audiocompose/`, and `audioexport/`.
 
+The compose stage is a thin call to AudioCompose's public `compose_book` API. AudioCompose writes `audiocompose/<variant>/compose-report.toml` and chapter WAVs; Readio does not parse specialist manifests, choose pause durations, create AudioJobs, or maintain a native pause-policy file. Use `audiocompose inspect` or the specialist commands below when diagnosing composition details.
 Alternatively, convert and process a fresh EPUB entirely with the specialist CLIs; the commands write the same workspace artifacts:
 
 ```bash

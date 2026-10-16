@@ -14,7 +14,10 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from audiocompose import compose_book as _audiocompose_compose_book
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    import tomli as tomllib
 from audioexport import export_book as _audioexport_export_book
 from ssmdconvert import (
     Book as SSMDConvertBook,
@@ -186,6 +189,25 @@ class BookBuildResult:
     voicerender_result: object | None = None
     compose_result: object | None = None
     export_result: object | None = None
+
+
+def _audiocompose_compose_book(*args: Any, **kwargs: Any) -> Any:
+    """Resolve AudioCompose's public book API at call time."""
+    import audiocompose
+
+    operation = getattr(audiocompose, "compose_book", None)
+    if not callable(operation):
+        raise BookPipelineError(
+            package="audiocompose",
+            code="dependency.api_incompatible",
+            message=(
+                "Installed AudioCompose does not provide compose_book(); "
+                "install a Readio-compatible AudioCompose release."
+            ),
+            stage="compose",
+            details={"required_symbol": "compose_book"},
+        )
+    return operation(*args, **kwargs)
 
 
 def _error_from_exception(
@@ -361,6 +383,29 @@ def open_book_workspace(path: str | Path) -> BookWorkspace:
     return _as_workspace(native)
 
 
+def _compose_report_summary(path: Path) -> dict[str, int]:
+    """Read only the shallow counts Readio presents from AudioCompose's report."""
+    if not path.is_file() or path.is_symlink():
+        return {}
+    try:
+        with path.open("rb") as stream:
+            report = tomllib.load(stream)
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(report, Mapping):
+        return {}
+    nested = report.get("summary")
+    summary = nested if isinstance(nested, Mapping) else report
+    counts: dict[str, int] = {}
+    for name in ("requested", "written", "reused", "failed"):
+        value = summary.get(name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            counts[name] = value
+    if "written" in counts and "reused" in counts:
+        counts["succeeded"] = counts["written"] + counts["reused"]
+    return counts
+
+
 def inspect_book_status(path: str | Path, *, variant: str | None = None) -> dict[str, Any]:
     """Inspect stage-owned artifact paths without creating or mutating workspace state."""
     workspace = open_book_workspace(path)
@@ -407,6 +452,7 @@ def inspect_book_status(path: str | Path, *, variant: str | None = None) -> dict
         renderplan_set = renderplan_root / "renderplan-set.toml"
         synth_report = synth_root / "voicerender-report.toml"
         compose_report = compose_root / "compose-report.toml"
+        compose_summary = _compose_report_summary(compose_report)
         export_sidecars = sorted(export_root.glob("*.audioexport.json"))
         export_outputs = [
             {
@@ -437,6 +483,7 @@ def inspect_book_status(path: str | Path, *, variant: str | None = None) -> dict
                 "artifact": compose_report.as_posix(),
                 "present": compose_report.is_file(),
                 "audio_count": len(list(compose_root.glob("*.wav"))),
+                **compose_summary,
             },
             "export": {
                 "artifacts": [sidecar.as_posix() for sidecar in export_sidecars],

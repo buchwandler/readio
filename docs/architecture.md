@@ -61,6 +61,7 @@ BOOK.ssmdbook/
 ```
 
 Readio delegates conversion and workspace loading to SSMDConvert, semantic compilation and profile projection to UtterPlan, profile creation and synthesis to VoiceRender, chapter composition to AudioCompose, and M4B export to AudioExport. Chapter selectors and the exact returned variant ID flow through later stages. The packages' artifacts are the resume boundary: users can continue with a specialist CLI after Readio, or open manually produced artifacts in Readio, without initialization or migration.
+For native composition, Readio calls only `audiocompose.compose_book(...)` at the package root. AudioCompose owns pause-policy resolution, chapter materialization, WAV outputs, reuse, and `compose-report.toml`; Readio exposes only a shallow report summary and does not create a native `.readio` pause-policy file or duplicate AudioCompose result models.
 
 `readio audiobook convert` (also `init`) materializes EPUB input as an editable `.ssmdbook`; opening an existing workspace is read-only. `readio audiobook status` derives status from the package-owned artifacts. A dirty manifest/chapter state is reported without automatic refresh or recompilation; use `ssmdconvert book refresh WORKSPACE` explicitly when the canonical manifest should be refreshed. Existing `.readio/` files inside a book workspace are legacy user data: native audiobook commands warn, ignore them, and leave them unchanged. Fresh book workflows never create `.readio/` or a Readio `project.json`.
 

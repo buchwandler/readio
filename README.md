@@ -1,6 +1,6 @@
 # readio
 
-`readio` is a terminal text-to-speech tool. It plans speech with UtterPlan, resolves engine targets, and owns segment synthesis orchestration, AudioCompose timelines, and output. It plays local speech, renders WAV, FLAC, MP3, M4A, Ogg/Vorbis, or Opus files, exports audiobook M4B with embedded chapters, and can publish completed audio through the external `save-to-spotify` CLI.
+`readio` is a terminal text-to-speech tool. It plans speech with UtterPlan, resolves engine targets, and orchestrates specialist synthesis and output APIs. It plays local speech, renders WAV, FLAC, MP3, M4A, Ogg/Vorbis, or Opus files, exports audiobook M4B with embedded chapters, and can publish completed audio through the external `save-to-spotify` CLI.
 
 ## Install
 
@@ -403,7 +403,7 @@ M4A and Opus require an `ffmpeg` executable on `PATH`. WAV and FLAC use PCM16; M
 
 For `.ssmd` and `.ssmd.md` inputs, Readio compiles SSMD through UtterPlan, resolves document-local `voice_bindings` and missing invocation or configured roles, then lowers semantic segments to neutral engine requests. Document bindings remain authoritative, and unsupported explicit semantics fail before a synthesis session opens. Normal `speak`, `render`, and `spotify` commands do not rewrite source SSMD. Readio always performs consumer compatibility and voice checks during planning; the explicit check is a no-audio preflight:
 
-Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2, AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3. Generic document projects continue to use Readio-owned project state. Native `.ssmdbook` workflows delegate each stage to the specialist package public APIs and keep their artifacts in the workspace; they do not rely on a Readio UtterPlan schema assumption. This does not change Readio's own `readio.plan.v2` response schema.
+Readio requires SSMD >=0.9.3,<0.10, UtterPlan >=0.6.3,<0.7, VoiceRender >=0.1.1,<0.2, AudioCompose >=0.2.2,<0.3, AudioExport >=0.1.1,<0.2, and SSMDConvert >=0.2.0,<0.3. Generic document projects continue to use Readio-owned project state. Native `.ssmdbook` workflows delegate each stage to specialist package public APIs, keep artifacts in the workspace, and do not rely on a Readio UtterPlan schema assumption. AudioCompose owns native composition outputs and `compose-report.toml`; use its `inspect`/report tools or specialist CLIs to diagnose a failed stage rather than expecting a Readio-specific composition manifest. This does not change Readio's own `readio.plan.v2` response schema.
 
 ```bash
 readio ssmd check episode.ssmd
@@ -532,5 +532,7 @@ voicerender render-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
 audiocompose compose-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17
 audioexport export-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17 -o novel.m4b
 ```
+
+The native compose operation is equivalent to `audiocompose compose-book novel.ssmdbook --variant "$VARIANT" --chapters 5-17`; Readio passes the selected variant and chapter selector through without creating a Readio pause-policy file or `.readio` state. Specialist commands remain useful for inspecting or rerunning an individual stage independently.
 
 Artifacts are owned by their stage packages under `utterplan/`, `renderplan/<variant>/`, `voicerender/<variant>/`, `audiocompose/<variant>/`, and `audioexport/<variant>/`. A specialist CLI can continue Readio-produced work without conversion or migration. Chapter edits make workspace dirtiness visible; Readio does not silently refresh the manifest or recompile. Run `ssmdconvert book refresh novel.ssmdbook` explicitly when you want to update canonical hashes. Generic EPUB input through `readio project init` remains one combined document; use `readio audiobook` for per-chapter processing. See the [CLI workflow](docs/cli.md#native-ssmdbook-audiobook-workflows), [Python API](docs/api.md#projects-and-audiobooks), and [project boundary](docs/projects.md#native-ssmdbook-audiobook-workspaces).
