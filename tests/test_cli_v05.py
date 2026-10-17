@@ -15,16 +15,7 @@ def test_parser_exposes_only_the_retained_command_families() -> None:
     assert "speak" in help_text
     assert "audiobook" in help_text
     assert "doctor" in help_text
-    for removed in (
-        "render",
-        "plan",
-        "project",
-        "synth",
-        "compose",
-        "export",
-        "engines",
-        "spotify",
-    ):
+    for removed in ("plan", "project", "synth", "compose", "export", "spotify"):
         assert removed not in help_text
 
 
@@ -63,6 +54,10 @@ def test_speak_command_passes_text_and_voice_options(
         "offline": False,
         "refresh": False,
         "engine_options": {"temperature": "0.7"},
+        "profile": None,
+        "role": None,
+        "output": None,
+        "no_play": False,
     }
 
 
@@ -80,9 +75,19 @@ def test_convert_command_calls_public_api_and_prints_workspace(
         ),
     )
 
-    assert cli.main(["audiobook", "convert", str(source), "--chapters", "5-17"]) == 0
+    assert (
+        cli.main(["audiobook", "convert", str(source), "--chapters", "5-17", "--no-progress"]) == 0
+    )
     assert captured["args"] == (source, None)
-    assert captured["kwargs"] == {"chapters": "5-17", "language": None}
+    assert captured["kwargs"] == {
+        "chapters": "5-17",
+        "language": None,
+        "metadata": {},
+        "sequence_fallback_mode": None,
+        "speech_mode": None,
+        "spacy": None,
+        "on_progress": None,
+    }
     assert str(workspace) in capsys.readouterr().out
 
 
@@ -142,7 +147,7 @@ def test_doctor_json_uses_public_health_report(
 
 
 def test_invalid_engine_option_returns_cli_error(capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main(["speak", "Hello", "--engine-option", "bad-option"]) == 1
+    assert cli.main(["speak", "Hello", "--engine-option", "bad-option"]) == 2
     assert "KEY=VALUE" in capsys.readouterr().err
 
 
@@ -158,19 +163,54 @@ def test_removed_audiobook_aliases_are_unknown() -> None:
             parser.parse_args(["audiobook", command])
 
 
-def test_public_api_exports_only_book_and_speech_operations() -> None:
+def test_public_api_exports_control_plane_operations() -> None:
     from readio import api
 
     assert set(api.__all__) == {
         "BookBuildRequest",
         "BookBuildResult",
         "BookProgressEvent",
+        "CONFIG_TEMPLATE",
+        "DocumentRenderRequest",
+        "DocumentRenderResult",
+        "DocumentStopAfter",
+        "ProgressEvent",
+        "ProgressHandler",
+        "Qwen3VoiceDesignRecipe",
         "VoiceSelector",
         "build_book",
+        "clone_voice",
         "convert_book",
+        "create_profile",
+        "create_voice_source",
+        "design_voice",
+        "init_settings",
+        "inspect_engine",
+        "inspect_engine_model",
+        "inspect_voice",
+        "install_engine_model",
+        "list_engine_models",
+        "list_engine_options",
+        "list_engines",
+        "list_profile_roles",
+        "list_voices",
+        "load_profile",
+        "load_settings",
+        "merge_settings",
         "open_book",
         "parse_voice_selector",
+        "refresh_profile",
+        "remove_engine_model",
+        "remove_profile_role",
+        "render_document",
+        "set_default_profile_role",
+        "set_profile_role",
+        "show_voice_source",
         "speak",
+        "validate_profile",
+        "validate_settings",
+        "verify_engine_model",
+        "verify_voice_source",
     }
     assert not hasattr(api, "Readio")
     assert not hasattr(api, "create_project")

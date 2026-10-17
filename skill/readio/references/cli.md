@@ -1,50 +1,76 @@
 # CLI reference
 
-Readio 0.5 exposes `speak`, `audiobook convert`, `audiobook build`, and `doctor`:
-
-```bash
-readio --help
-readio speak --help
-readio audiobook --help
-readio audiobook convert --help
-readio audiobook build --help
-readio doctor --help
-```
+Use `readio --help` and each command's `--help` for installed options. Readio delegates domain behavior and persisted artifacts to SSMDConvert, UtterPlan, RenderPlan, VoiceRender, AudioCompose, and AudioExport.
 
 ## Direct speech
 
-`speak` joins positional arguments with spaces, sends the literal text to VoiceRender, and plays the returned audio through the current device.
-
 ```bash
-readio speak "Hello from Readio."
-readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
-readio speak --engine inflect --target micro-v2 --voice default --lang en "Hello."
+readio speak "Exact literal text."
+readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
+readio speak --profile narrator.renderprofile.toml --role narrator \
+  --output greeting.wav --no-play "Hello."
 ```
 
-Use `--voice` for a VoiceRender selector, or supply `--engine` and `--target` explicitly. `--lang` defaults to `en-US`; `--speaker`, `--offline`, `--refresh`, and repeatable `--engine-option KEY=VALUE` are also available. Backend extras are installed through VoiceRender, for example `python -m pip install "voicerender[kokoro]"`.
+`speak` synthesizes literal text through VoiceRender and plays by default. `--profile` may be combined with `--role` but not direct `--voice`, `--engine`, or `--target`; `--output` writes WAV and `--no-play` skips playback. Use `--json` for a machine-readable result.
 
-## Audiobook conversion and build
+## Control and settings
+
+- `engines` and `models` delegate discovery and management to VoiceRender.
+- `voices` discovers voices; `voice source`, `voice clone`, and `voice design` create or inspect specialist artifacts.
+- `profile` creates, validates, refreshes, and manages RenderProfile logical roles.
 
 ```bash
-readio audiobook convert novel.epub --output novel.ssmdbook --chapters 5-17
-readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml \
-  --chapters 5-17 --output novel.m4b --json
+readio engines list
+readio models list --engine kokoro --available
+readio voices list
+readio profile validate narrator.renderprofile.toml
+readio profile role list narrator.renderprofile.toml
+readio config init --output readio.toml
+readio config validate readio.toml
 ```
 
-Conversion and workspace structure belong to SSMDConvert. The build calls UtterPlan compilation and RenderPlan projection, VoiceRender synthesis, AudioCompose composition, and AudioExport. Options include `--chapters`, `--profile`, `--variant`, `--force`, `--fail-fast`, `--stop-after`, `--output`, `--export-profile`, `--cover`, and `--bitrate`. `--stop-after` accepts `compile`, `render-plan`, `synth`, `compose`, or `export`.
+Settings are read only when explicitly selected with `--config PATH`. Precedence is specialist defaults < settings file < CLI flags. Readio does not auto-discover `readio.toml`.
 
-JSON output includes the workspace path, returned variant, and names of stages whose specialist results were returned. Readio does not interpret specialist report schemas or persist a parallel stage status.
+## Single-document render
 
-## Manual specialist workflow
+```bash
+readio render chapter.docx --profile narrator.renderprofile.toml \
+  --output chapter.m4a --keep-artifacts
+readio render article.pdf --profile narrator.renderprofile.toml \
+  --config readio.toml --stop-after synth --json
+```
 
-Use the specialist CLIs for package-specific controls. Keep the exact variant returned by UtterPlan unchanged:
+The path delegates conversion, planning, RenderPlan projection, preflight, synthesis, composition, and export to specialist APIs. `--stop-after` accepts `convert`, `plan`, `render-plan`, `synth`, `compose`, or `export`; use `--speech SELECTOR` for a test selection. Readio forwards specialist language, conversion/planner configuration, render emphasis/stale-output controls, composition policy, export format/bitrate/metadata/cover, and FFmpeg paths.
+
+Stopping after `synth` with `defer-to-compose` warns that deferred emphasis may not be realized until composition.
+
+`--artifacts DIR` retains files in that directory; `--keep-artifacts` uses `<source-stem>.render`. Otherwise a temporary directory is removed at completion. `--clean-artifacts` is limited to the expected default directory and known artifacts; unknown entries and arbitrary custom paths are refused. Progress is written to stderr, separate from JSON stdout. Consult SSMDConvert for its supported document formats.
+
+## Audiobooks
+
+```bash
+readio audiobook convert novel.epub --output novel.ssmdbook \
+  --chapters 5-17 --lang en-US --metadata title=Novel \
+  --sequence-fallback-mode preserve --speech-mode freeze --spacy off
+
+readio audiobook build novel.ssmdbook --profile narrator.renderprofile.toml \
+  --chapters 5-17 --language en-US --diagnostics warnings \
+  --speech all --cache-dir ~/.cache/voicerender \
+  --target-lufs -18 --bitrate 192k --output novel.m4b --json
+```
+
+Conversion options are SSMDConvert-native. Build options cover UtterPlan diagnostics/language, VoiceRender selection and roots/cache/stale-output behavior, AudioCompose roots and output policy, and AudioExport profile/metadata/cover/bitrate/sample rate/channels/FFmpeg options. `--stop-after` accepts `compile`, `render-plan`, `synth`, `compose`, or `export`; `--no-*` flags skip stages. If RenderPlan projection is skipped, use the exact existing variant. UtterPlan's released API accepts native `PlannerConfig` objects but offers no public path loader, so there is no `--planner-config PATH` flag.
+
+## Specialist workflow
+
+For detailed controls, use specialist CLIs and pass UtterPlan's exact returned variant unchanged:
 
 ```bash
 ssmdconvert book convert novel.epub -o novel.ssmdbook
 utterplan compile-book novel.ssmdbook
 voicerender profile create --engine kokoro --target v1.0 --voice af_heart \
-  --language en-US -o narration.renderprofile.toml
-utterplan render-book novel.ssmdbook --profile narration.renderprofile.toml
+  --language en-US -o narrator.renderprofile.toml
+utterplan render-book novel.ssmdbook --profile narrator.renderprofile.toml
 
 VARIANT="<exact variant returned by utterplan render-book>"
 voicerender render-book novel.ssmdbook --variant "$VARIANT"
@@ -52,13 +78,4 @@ audiocompose compose-book novel.ssmdbook --variant "$VARIANT"
 audioexport export-book novel.ssmdbook --variant "$VARIANT" --output novel.m4b
 ```
 
-## Diagnostics and removed commands
-
-```bash
-readio doctor
-readio doctor --json
-```
-
-Doctor reports the installed specialist package versions and VoiceRender engine availability. Install missing engines through VoiceRender.
-
-Version 0.5.0 removes the former generic project, planning, rendering, synthesis, composition, export, engine/catalog, configuration, verification, and Spotify commands. There are no compatibility aliases or migration commands for old project state.
+`readio doctor --json` reports specialist versions and VoiceRender engine availability. Install backend extras through VoiceRender.

@@ -205,11 +205,20 @@ def test_convert_book_delegates_conversion_and_workspace_writing(
     destination = tmp_path / "converted.ssmdbook"
     source.write_bytes(b"epub")
     converted_book = object()
-    native = SimpleNamespace(path=destination)
+    native_workspace = SimpleNamespace(path=destination)
+    native_progress = SimpleNamespace(current=2, total=5, message="converting")
+    progress_events: list[book.BookProgressEvent] = []
     calls: list[tuple[str, object]] = []
 
     def convert(path: Path, *, options: object, on_progress: object) -> object:
-        calls.extend((("convert", path), ("options", options), ("progress", on_progress)))
+        calls.extend(
+            (
+                ("convert", path),
+                ("options", options),
+                ("progress", on_progress),
+            )
+        )
+        on_progress(native_progress)  # type: ignore[operator]
         return SimpleNamespace(book=converted_book)
 
     def write(book_value: object, output: Path, *, format: str) -> Path:
@@ -220,19 +229,183 @@ def test_convert_book_delegates_conversion_and_workspace_writing(
 
     monkeypatch.setattr(book.ssmdconvert, "convert_book", convert)
     monkeypatch.setattr(book.ssmdconvert, "write_book_bundle", write)
-    monkeypatch.setattr(book.ssmdconvert, "load_book_workspace", lambda path: native)
-    progress = lambda _event: None
+    monkeypatch.setattr(book.ssmdconvert, "load_book_workspace", lambda path: native_workspace)
 
     result = book.convert_book(
-        source, destination, chapters="5-17", language="en-US", on_progress=progress
+        source,
+        destination,
+        chapters="5-17",
+        language="en-US",
+        metadata={"title": "A title"},
+        sequence_fallback_mode="preserve",
+        speech_mode="preserve",
+        spacy="auto",
+        on_progress=progress_events.append,
     )
 
-    assert result is native
+    assert result is native_workspace
     assert calls[0] == ("convert", source)
     options = calls[1][1]
     assert options.chapters == "5-17"
     assert options.language == "en-US"
-    assert calls[2] == ("progress", progress)
+    assert options.metadata_overrides == {"title": "A title"}
+    assert options.sequence_fallback_mode == "preserve"
+    assert options.speech.mode == "preserve"
+    assert options.speech.spacy == "auto"
+    assert calls[2][0] == "progress"
+    assert progress_events[0].stage == "convert"
+    assert progress_events[0].native is native_progress
+    assert progress_events[0].current == 2
     assert calls[3] == ("write", destination)
     assert calls[4] == ("format", "directory")
     assert list(destination.iterdir()) == []
+
+
+def test_build_forwards_native_requests_and_all_stage_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _workspace(tmp_path, monkeypatch)
+    calls: list[tuple[str, dict[str, object]]] = []
+    _mock_stages(monkeypatch, calls)
+    profile = tmp_path / "narration.renderprofile.toml"
+    planner = book.utterplan.PlannerConfig(language="it-IT")
+    compile_request = book.utterplan.BookCompileRequest(
+        book=root,
+        chapters="compile-selection",
+        output_dir=tmp_path / "compiled",
+        report=tmp_path / "compile-report.toml",
+        language="it-IT",
+        force=True,
+        fail_fast=True,
+        diagnostics="all",
+        planner_config=planner,
+    )
+    render_request = book.utterplan.BookRenderRequest(
+        book=root,
+        profile=profile,
+        chapters="render-selection",
+        variant="requested-variant",
+        utterplan_dir=tmp_path / "plans",
+        output_root=tmp_path / "projected",
+        report=tmp_path / "render-report.toml",
+        force=True,
+        fail_fast=True,
+    )
+    compose_options = book.audiocompose.BookComposeOptions(
+        sample_rate=22050,
+        channels=1,
+        target_lufs=-18.0,
+    )
+    output_policy = book.audiocompose.OutputPolicy(sample_rate=24000, channels=1)
+    paths = {
+        "renderplan_root": tmp_path / "renderplans",
+        "voicerender_output_root": tmp_path / "voice-output",
+        "cache_dir": tmp_path / "cache",
+        "compose_renderplan_root": tmp_path / "compose-renderplans",
+        "compose_voicerender_root": tmp_path / "compose-voice",
+        "compose_output_root": tmp_path / "compose-output",
+        "media_root": tmp_path / "media",
+        "save_audiojobs": tmp_path / "audiojobs",
+        "output": tmp_path / "book.m4b",
+        "export_profile": tmp_path / "export-profile.toml",
+        "cover": tmp_path / "cover.jpg",
+        "ffmpeg": tmp_path / "ffmpeg",
+        "ffprobe": tmp_path / "ffprobe",
+    }
+
+    result = book.build_book(
+        book.BookBuildRequest(
+            workspace=root,
+            profile=profile,
+            chapters="downstream-selection",
+            compile_request=compile_request,
+            render_request=render_request,
+            speech="2-4",
+            reset_stale_output=True,
+            render_emphasis_policy="reject",
+            compose_options=compose_options,
+            compose_output_policy=output_policy,
+            compose_emphasis_policy="strict",
+            bitrate="96k",
+            export_metadata={"title": "Book"},
+            export_sample_rate=44100,
+            export_channels=1,
+            force=True,
+            fail_fast=True,
+            **paths,
+        )
+    )
+
+    compile_kwargs = next(kwargs for name, kwargs in calls if name == "compile")
+    assert compile_kwargs["chapters"] == "compile-selection"
+    assert compile_kwargs["output_dir"] == compile_request.output_dir
+    assert compile_kwargs["report"] == compile_request.report
+    assert compile_kwargs["language"] == "it-IT"
+    assert compile_kwargs["planner_config"] is planner
+    assert compile_kwargs["diagnostics"] == "all"
+    render_kwargs = next(kwargs for name, kwargs in calls if name == "render-plan")
+    assert render_kwargs["chapters"] == "render-selection"
+    assert render_kwargs["profile"] == profile
+    assert render_kwargs["variant"] == "requested-variant"
+    assert render_kwargs["utterplan_dir"] == render_request.utterplan_dir
+    assert render_kwargs["output_root"] == render_request.output_root
+    synth_kwargs = next(kwargs for name, kwargs in calls if name == "synth")
+    assert synth_kwargs["variant"] == VARIANT
+    assert synth_kwargs["chapters"] == "downstream-selection"
+    assert synth_kwargs["speech"] == "2-4"
+    assert synth_kwargs["renderplan_root"] == paths["renderplan_root"]
+    assert synth_kwargs["output_root"] == paths["voicerender_output_root"]
+    assert synth_kwargs["cache_dir"] == paths["cache_dir"]
+    assert synth_kwargs["reset_stale_output"] is True
+    assert synth_kwargs["emphasis_policy"] == "reject"
+    compose_kwargs = next(kwargs for name, kwargs in calls if name == "compose")
+    assert compose_kwargs["variant"] == VARIANT
+    assert compose_kwargs["options"] is compose_options
+    assert compose_kwargs["output_policy"] is output_policy
+    assert compose_kwargs["renderplan_root"] == paths["compose_renderplan_root"]
+    assert compose_kwargs["voicerender_root"] == paths["compose_voicerender_root"]
+    assert compose_kwargs["output_root"] == paths["compose_output_root"]
+    assert compose_kwargs["media_root"] == paths["media_root"]
+    assert compose_kwargs["save_audiojobs"] == paths["save_audiojobs"]
+    assert compose_kwargs["emphasis_policy"] == "strict"
+    export_kwargs = next(kwargs for name, kwargs in calls if name == "export")
+    assert export_kwargs["variant"] == VARIANT
+    assert export_kwargs["output"] == paths["output"]
+    assert export_kwargs["profile"] == paths["export_profile"]
+    assert export_kwargs["metadata"] == {"title": "Book"}
+    assert export_kwargs["cover"] == paths["cover"]
+    assert export_kwargs["bitrate"] == "96k"
+    assert export_kwargs["sample_rate"] == 44100
+    assert export_kwargs["channels"] == 1
+    assert export_kwargs["ffmpeg"] == paths["ffmpeg"]
+    assert export_kwargs["ffprobe"] == paths["ffprobe"]
+    assert result.variant == VARIANT
+
+
+def test_existing_variant_in_native_render_request_is_used_when_projection_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _workspace(tmp_path, monkeypatch)
+    calls: list[tuple[str, dict[str, object]]] = []
+    _mock_stages(monkeypatch, calls)
+    render_request = book.utterplan.BookRenderRequest(
+        book=root,
+        profile=tmp_path / "profile.toml",
+        variant="native-variant",
+    )
+
+    result = book.build_book(
+        _request(
+            root,
+            compile=False,
+            render_plan=False,
+            render_request=render_request,
+            synthesize=True,
+            compose=False,
+            export=False,
+        )
+    )
+
+    synth_kwargs = next(kwargs for name, kwargs in calls if name == "synth")
+    assert synth_kwargs["variant"] == "native-variant"
+    assert result.variant == "native-variant"

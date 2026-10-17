@@ -13,10 +13,12 @@ EXPECTED_DEPENDENCIES = {
     "numpy>=1.23",
     "utterplan>=0.6.3,<0.7",
     "voicerender>=0.2.0,<0.3",
+    "renderplan>=0.1.2,<0.2",
     "audiocompose>=0.3.0,<0.4",
     "audioexport>=0.1.2,<0.2",
     "ssmdconvert>=0.2.0,<0.3",
     "sounddevice>=0.4.6,<1.0",
+    "tomli>=2.0; python_version < '3.11'",
 }
 FORBIDDEN_DISTRIBUTIONS = {
     "pykokoro",

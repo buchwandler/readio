@@ -1,79 +1,64 @@
 # Python API
 
-The supported facade is `readio.api`. It contains a small set of orchestration and direct-speech operations. Specialist APIs and result objects remain authoritative.
+The supported facade is `readio.api`. Readio functions orchestrate specialist public APIs and return their native objects; it does not mirror specialist schemas or translate specialist exceptions.
 
 ```python
 from readio.api import (
     BookBuildRequest,
-    BookBuildResult,
-    BookProgressEvent,
-    VoiceSelector,
+    DocumentRenderRequest,
     build_book,
     convert_book,
-    open_book,
-    parse_voice_selector,
+    render_document,
     speak,
 )
 ```
 
-## Book operations
+## Engine, voice, and profile controls
 
-`convert_book(source, output=None, *, chapters="all", language=None, on_progress=None)` converts an EPUB through SSMDConvert and writes an SSMDConvert-owned `.ssmdbook` workspace. It returns the specialist `BookWorkspace` object.
+`readio.api` exposes VoiceRender-delegating operations for engine and model discovery/management (`list_engines`, `inspect_engine`, `list_engine_options`, `list_engine_models`, `inspect_engine_model`, `install_engine_model`, `remove_engine_model`, `verify_engine_model`); voice discovery and reusable voice artifacts (`list_voices`, `inspect_voice`, `create_voice_source`, `show_voice_source`, `verify_voice_source`, `clone_voice`, `design_voice`); and RenderProfile operations (`create_profile`, `load_profile`, `validate_profile`, `refresh_profile`, `list_profile_roles`, `set_profile_role`, `remove_profile_role`, `set_default_profile_role`). These functions forward supported specialist arguments and preserve specialist validation and result objects.
 
-`open_book(workspace)` opens a workspace through SSMDConvert without initializing Readio state. It returns the specialist workspace object.
+`parse_voice_selector` delegates selector interpretation to VoiceRender. `speak(text, ...)` resolves and synthesizes literal text through VoiceRender, then plays it locally. It accepts direct VoiceRender selection or a saved `profile` and logical `role`, and supports optional WAV output and `no_play`; it does not use UtterPlan, AudioCompose, or AudioExport.
 
-A full build uses the small Readio request type and passes each stage through the owning package's public API:
+## Explicit settings
+
+`CONFIG_TEMPLATE`, `init_settings(path, force=False)`, `load_settings(path)`, `validate_settings(mapping)`, and `merge_settings(settings, overrides)` expose Readio's small TOML settings bridge. The CLI reads settings only when a command explicitly selects `--config PATH`. Merge precedence is specialist defaults < selected settings < CLI flags. Settings never replace a saved RenderProfile's engine or voice identity.
+
+## Single-document rendering
+
+`DocumentRenderRequest` contains the source and RenderProfile paths, output and artifact controls, a stop stage, and native specialist option objects. Common specialist fields include `conversion_options` (`ssmdconvert.DocumentConversionOptions`), `planner_config` (`utterplan.PlannerConfig`), `compose_output_policy` (`audiocompose.OutputPolicy`), and AudioExport format/metadata/cover/FFmpeg options. `render_document(request, on_progress=None)` executes:
+
+```text
+SSMDConvert → UtterPlan compile → RenderPlan projection
+            → VoiceRender preflight/synthesis
+            → AudioCompose → AudioExport
+```
+
+`stop_after` accepts `convert`, `plan`, `render-plan`, `synth`, `compose`, or `export`. `DocumentRenderResult` returns artifact paths and the original conversion, compile, RenderPlan, preflight, VoiceRender, AudioCompose, and AudioExport results for stages that ran. `ProgressEvent` has `stage`, `kind`, optional progress/message fields, and the original specialist event as `native`. Specialist exceptions propagate unchanged.
+
+The convenience CLI's temporary/retained artifact policy is described in the [CLI reference](cli.md). Readio does not define a second RenderPlan, preflight, audio-job, or export format.
+
+## Audiobook operations
+
+`convert_book(source, output=None, *, chapters="all", language=None, metadata=None, sequence_fallback_mode=None, speech_mode=None, spacy=None, on_progress=None)` constructs SSMDConvert's `BookConversionOptions`/`SpeechOptions`, writes the specialist-owned bundle, and returns its `BookWorkspace`.
+
+`BookBuildRequest` holds the workspace and stage selection, plus specialist-native `utterplan.BookCompileRequest` and `utterplan.BookRenderRequest` values when callers need non-default planning options. It forwards VoiceRender selectors/roots/cache and stale-output controls, AudioCompose `BookComposeOptions`/`OutputPolicy` and roots, and AudioExport profile, metadata, cover, bitrate, sample rate, channels, and FFmpeg paths. No specialist option schema is copied into Readio.
 
 ```python
-from pathlib import Path
-
-from readio.api import BookBuildRequest, build_book, convert_book
-
 workspace = convert_book("novel.epub", "novel.ssmdbook", chapters="5-17")
 result = build_book(
     BookBuildRequest(
         workspace=workspace.path,
-        profile=Path("narration.renderprofile.toml"),
+        profile="narration.renderprofile.toml",
         chapters="5-17",
-        output=Path("novel.m4b"),
+        output="novel.m4b",
+        export_metadata={"title": "Novel"},
     )
 )
-print(result.variant)
+print(result.variant)  # exact specialist variant
 ```
 
-`BookBuildRequest` accepts:
+`build_book` returns a `BookBuildResult` containing the exact variant and original results for stages that ran. `BookProgressEvent` adapts stage and specialist progress while retaining the native event. Variants and specialist errors are not rewritten.
 
-- `workspace`: an existing specialist-produced `.ssmdbook` workspace.
-- `profile`: a VoiceRender RenderProfile path when RenderPlan projection is enabled.
-- `chapters`, `force`, and `fail_fast`: forwarded to stage APIs where supported.
-- `compile`, `render_plan`, `synthesize`, `compose`, and `export`: select build stages.
-- `variant`: an existing specialist variant when projection is skipped.
-- `stop_after`: stop after `compile`, `render-plan`, `synth`, `compose`, or `export`.
-- `output`, `export_profile`, `metadata`, `cover`, and `bitrate`: forwarded to AudioExport.
+## Stable exports
 
-`build_book` returns a `BookBuildResult` containing the workspace path, exact variant, and the actual specialist result objects for any executed stages. It does not copy specialist result models or persist Readio stage state. `on_progress` receives small Readio `BookProgressEvent(stage, kind)` values for stage start and completion. Specialist exceptions propagate unchanged.
-
-## Direct speech
-
-`speak(text, *, voice=None, engine=None, target=None, language="en-US", speaker=None, offline=False, refresh=False, engine_options=None)` resolves and synthesizes through VoiceRender, then plays the returned audio through the current device.
-
-```python
-from readio.api import parse_voice_selector, speak
-
-selector = parse_voice_selector("kokoro:v1.0/af_heart")
-assert selector.engine == "kokoro"
-assert selector.target_id == "v1.0"
-assert selector.voice == "af_heart"
-
-rendered = speak(
-    "A short sentence.",
-    voice="kokoro:v1.0/af_heart",
-    language="en-US",
-)
-```
-
-The selector syntax is neutral. Readio does not maintain an engine registry or backend alias table. VoiceRender owns engine selection, session lifecycle, capacity handling, and synthesis. The returned value is the specialist rendered-speech object.
-
-## Compatibility policy
-
-The former Readio project, plan, engine, synthesis, composition, export, catalog, verification, and integration API types have been removed. There are no compatibility aliases, `.readio` project migrations, or adapters for old result models. Use an SSMDConvert `.ssmdbook` workspace and call the specialist package responsible for each stage.
+The complete public surface is listed by `readio.api.__all__`. The top-level `readio` package intentionally remains small; use `readio.api` for orchestration and management operations.

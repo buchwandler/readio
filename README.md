@@ -1,6 +1,6 @@
 # Readio
 
-Readio 0.5.0 is a small speech and audiobook convenience layer over specialist packages. SSMDConvert owns `.ssmdbook` workspaces, UtterPlan owns semantic compilation and RenderPlan projection, VoiceRender owns voice resolution and synthesis, AudioCompose owns composition, and AudioExport owns encoded exports. Readio keeps a direct speech command and orchestration across those APIs.
+Readio 0.5.0 is a small speech and audiobook convenience layer over specialist packages, with a staged single-document renderer and delegated engine, model, voice, profile, and settings controls. SSMDConvert owns `.ssmdbook` workspaces, UtterPlan owns semantic compilation and RenderPlan projection, VoiceRender owns voice resolution and synthesis, AudioCompose owns composition, and AudioExport owns encoded exports. Readio coordinates those public APIs.
 
 ## Manual specialist workflow
 
@@ -11,6 +11,7 @@ python -m pip install \
   "ssmdconvert>=0.2.0,<0.3" \
   "utterplan>=0.6.3,<0.7" \
   "voicerender>=0.2.0,<0.3" \
+  "renderplan>=0.1.2,<0.2" \
   "audiocompose>=0.3.0,<0.4" \
   "audioexport>=0.1.2,<0.2"
 python -m pip install "voicerender[kokoro]>=0.2.0,<0.3"
@@ -54,6 +55,19 @@ python -m pip install readio "voicerender[kokoro]>=0.2.0,<0.3"
 readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 ```
 
+Readio also renders one source document through the specialist pipeline and exposes delegated engine/profile controls:
+
+```bash
+readio render article.pdf --profile narration.renderprofile.toml \
+  --output article.m4a --keep-artifacts
+readio engines list
+readio voices list
+readio profile role list narration.renderprofile.toml
+readio config init --output readio.toml
+```
+
+Settings are read only when explicitly selected with `--config PATH`; CLI flags override values from that file.
+
 Readio can also run the book stages as one operation:
 
 ```bash
@@ -75,7 +89,15 @@ The `readio[spacy]` extra passes through UtterPlan's optional spaCy support. The
 ## Python API
 
 ```python
-from readio.api import BookBuildRequest, build_book, convert_book, open_book, speak
+from readio.api import (
+    BookBuildRequest,
+    DocumentRenderRequest,
+    build_book,
+    convert_book,
+    open_book,
+    render_document,
+    speak,
+)
 
 workspace = convert_book("novel.epub", "novel.ssmdbook", chapters="5-17")
 book = open_book(workspace.path)
@@ -88,6 +110,16 @@ result = build_book(
     )
 )
 print(result.variant)
+
+document = render_document(
+    DocumentRenderRequest(
+        source="chapter.docx",
+        profile="narration.renderprofile.toml",
+        stop_after="render-plan",
+        keep_artifacts=True,
+    )
+)
+print(document.renderplan_path)
 
 speak("A short sentence.", voice="kokoro:v1.0/af_heart", language="en-US")
 ```

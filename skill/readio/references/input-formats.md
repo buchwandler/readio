@@ -1,15 +1,16 @@
 # Input formats
 
-Readio 0.5 has two input paths:
+Readio has three source paths:
 
-- `readio speak` accepts literal text as positional arguments. It does not read a file or interpret Markdown/SSMD structure. Use `readio.api.speak(text)` when text is already available as a Python string.
-- `readio audiobook convert SOURCE` delegates document conversion and workspace creation to SSMDConvert. EPUB is the documented audiobook path. Consult SSMDConvert for its complete supported source formats.
-- `readio audiobook build WORKSPACE` consumes an SSMDConvert-owned `.ssmdbook` workspace. The VoiceRender RenderProfile and each specialist stage's inputs remain package-owned.
+- `readio speak` accepts literal text as positional arguments. It does not read files or interpret Markdown/SSMD structure. Use `readio.api.speak(text)` when text is already available in Python.
+- `readio render SOURCE --profile PROFILE` sends one supported document to SSMDConvert, then plans, synthesizes, composes, and optionally exports it. SSMDConvert owns supported formats and optional parser dependencies; consult its documentation for the installed formats.
+- `readio audiobook convert SOURCE` converts an EPUB into an SSMDConvert-owned `.ssmdbook` workspace. `readio audiobook build WORKSPACE` consumes that workspace and a VoiceRender RenderProfile.
 
-Do not pass a Markdown or SSMD file to `speak` expecting the removed Readio reader pipeline to parse it. For role-based, multi-speaker book content, use the specialist workflow described in [SSMD and specialist ownership](ssmd.md).
+Do not pass Markdown or SSMD to `speak` expecting a reader pipeline. For multi-role or chapter-based book content, use SSMDConvert conversion and the audiobook/specialist workflow.
 
 ```bash
 readio speak "A short literal sentence."
+readio render chapter.docx --profile narrator.renderprofile.toml --output chapter.m4a
 readio audiobook convert novel.epub --output novel.ssmdbook
-readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml --output novel.m4b
+readio audiobook build novel.ssmdbook --profile narrator.renderprofile.toml --output novel.m4b
 ```

@@ -13,15 +13,17 @@ dependencies = [
   "numpy>=1.23",
   "utterplan>=0.6.3,<0.7",
   "voicerender>=0.2.0,<0.3",
+  "renderplan>=0.1.2,<0.2",
   "audiocompose>=0.3.0,<0.4",
   "audioexport>=0.1.2,<0.2",
   "ssmdconvert>=0.2.0,<0.3",
   "sounddevice>=0.4.6,<1.0",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 [project.optional-dependencies]
 spacy = ["utterplan[spacy]>=0.6.3,<0.7"]
 documents = ["ssmdconvert[pdf,docx]>=0.2.0,<0.3"]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "tomli>=2.0; python_version < '3.11'"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 readio = "readio.cli:main"

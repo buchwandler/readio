@@ -1,68 +1,64 @@
 # Readio architecture
 
-Readio coordinates a small set of specialist packages. The specialist that owns a stage also owns its validation, artifacts, reports, reuse rules, and detailed errors. Readio does not create a parallel project manifest or stage state.
+Readio is a user-facing orchestrator over specialist packages. The package that owns a stage also owns its schema, validation, persisted artifacts, reports, reuse rules, and detailed errors. Readio forwards requests and returns specialist result objects; it does not build a parallel project model.
 
-## Manual specialist workflow
+## Ownership and workflows
 
-The canonical book workflow is:
+### One document
+
+```text
+source document
+  → SSMDConvert document conversion
+  → UtterPlan semantic compilation
+  → UtterPlan projection to RenderPlan
+  → VoiceRender preflight and synthesis
+  → AudioCompose WAV composition
+  → AudioExport encoding
+```
+
+`readio render` runs these stages in order and can stop after `convert`, `plan`, `render-plan`, `synth`, `compose`, or `export`. The RenderPlan, preflight report, render files, composition job, and encoded export use the public specialist APIs and codecs. The in-memory `DocumentRenderResult` retains the original specialist results.
+
+### Audiobooks
 
 ```text
 EPUB
-  │
-  ▼
-SSMDConvert
-  │  converts the source and owns the .ssmdbook workspace
-  ▼
-UtterPlan
-  │  compiles semantic plans and projects a RenderPlan variant
-  ▼
-VoiceRender
-  │  resolves the profile and synthesizes the selected chapters
-  ▼
-AudioCompose
-  │  composes chapter audio and applies composition policy
-  ▼
-AudioExport
-     encodes the composed book, including M4B assembly
+  → SSMDConvert conversion and .ssmdbook workspace
+  → UtterPlan book compilation and RenderPlan projection
+  → VoiceRender book synthesis
+  → AudioCompose book composition
+  → AudioExport book encoding
 ```
 
-| Concern                                           | Owner                    | Readio's role                                                        |
-| ------------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
-| Source conversion and `.ssmdbook` layout          | SSMDConvert              | Call public conversion and workspace APIs                            |
-| Semantic compilation and chapter selection        | UtterPlan                | Forward the selector and compile options                             |
-| RenderPlan and variant projection                 | UtterPlan and RenderPlan | Pass the returned variant unchanged to later stages                  |
-| Voice and backend resolution, capacity, synthesis | VoiceRender              | Call public resolve, session, and book-render APIs                   |
-| Composition, pause policy, emphasis, and loudness | AudioCompose             | Forward book composition options                                     |
-| Encoding, metadata, cover art, and M4B output     | AudioExport              | Forward export options and output path                               |
-| Cross-stage convenience                           | Readio                   | Coordinate calls, expose progress, and return the specialist results |
+The exact variant returned by UtterPlan is passed unchanged to VoiceRender, AudioCompose, and AudioExport. `readio audiobook build` exposes the supported public options of each stage and preserves their result objects.
 
-A user can stop after any specialist stage and continue with its owning CLI. Readio does not mirror specialist result models or parse their reports to decide whether a stage is current.
+### Direct speech and management
 
-## Readio orchestration
+`readio speak` is a separate literal-text path through VoiceRender and local playback; it does not invoke planning, composition, or export. Engine/model, voice/source, and RenderProfile operations are thin calls to VoiceRender's public management APIs. Readio owns no backend implementation or model registry.
 
-`readio audiobook convert` uses SSMDConvert to convert an EPUB and write a specialist-owned workspace. `readio audiobook build` runs the selected stages in order:
+| Concern                                   | Owner                    | Readio's role                                                         |
+| ----------------------------------------- | ------------------------ | --------------------------------------------------------------------- |
+| Document and book conversion              | SSMDConvert              | Forward native options and use its workspace writer                   |
+| Planning and RenderPlan projection        | UtterPlan                | Forward native planning requests and preserve the returned variant    |
+| RenderPlan, profile, and preflight codecs | RenderPlan / VoiceRender | Use public package codecs and validation APIs                         |
+| Voice, engine, model, and synthesis       | VoiceRender              | Delegate discovery, lifecycle, role/profile operations, and rendering |
+| Composition and audio-job artifacts       | AudioCompose             | Forward compose options and return the native result                  |
+| Encoding and export artifacts             | AudioExport              | Forward supported output options                                      |
+| Convenience, CLI, and stage selection     | Readio                   | Coordinate public calls and adapt progress to a small event type      |
 
-```text
-SSMDConvert workspace
-  → UtterPlan compile_book
-  → UtterPlan render_book
-  → VoiceRender render_book
-  → AudioCompose compose_book
-  → AudioExport export_book
-```
+## Settings and artifact lifecycle
 
-The variant returned by `utterplan.render_book` is passed unchanged to VoiceRender, AudioCompose, and AudioExport. Readio's in-memory `BookBuildResult` holds those original stage result objects; it is not a new stage manifest. `force`, `fail_fast`, chapter selection, profile, output, and stop-after options are forwarded where the specialist APIs support them.
+User settings are read only when a command explicitly receives `--config PATH`; Readio does not discover or create settings implicitly. Defaults supplied by specialist constructors are overridden by the selected settings file, then by CLI flags. Profile engine and voice identity remains authoritative.
 
-`readio speak` is a separate convenience path for literal text. It parses an optional neutral `engine:target/voice` selector, calls VoiceRender's public resolve/session/synthesis APIs, then passes the returned samples and sample rate to Readio's generic audio-device playback helper. It does not use UtterPlan, book composition, or AudioExport.
+For `readio render`, an explicit `--artifacts DIR` is retained. `--keep-artifacts` retains outputs in `<source-stem>.render`; without either option, a temporary directory is removed when the call ends. `--clean-artifacts` is restricted to the expected default directory and recognized stage artifacts. Readio never recursively deletes an arbitrary path supplied by the caller. Failures leave completed artifacts in retained directories.
 
-`readio doctor` reports installed specialist package versions and engine availability through VoiceRender's public engine-list and engine-status functions. Readio does not inspect private specialist modules or load backend implementations for the report.
+Progress callbacks preserve the original event as `native`; JSON results are written to stdout while progress is written to stderr. Specialist exceptions and stable specialist error codes are not translated.
 
 ## Persistent state and compatibility
 
-The `.ssmdbook` workspace and all stage artifacts are specialist-owned. Readio writes no project manifest, cache, stage status, plan, render manifest, or compatibility metadata.
+`.ssmdbook` workspaces and all stage artifacts remain specialist-owned. Readio writes no `.readio` project state, stage manifest, competing RenderPlan, or render manifest. Its result types are in-memory orchestration summaries only.
 
-Version 0.5.0 is a clean break. Readio no longer supports its former generic `*.readio` projects, `project.json`, old plan/render-manifest formats, project migrations, or old project pipeline APIs. There is no migration command. Existing legacy files are not imported into `.ssmdbook` workspaces. Convert the original source with SSMDConvert or use the specialist packages directly.
+Version 0.5 is a clean break from Readio's former generic project, plan, and render-manifest formats. There are no compatibility aliases or migration commands. Start from source material with SSMDConvert or use the specialist packages directly.
 
 ## Dependency boundary
 
-Readio directly depends on the specialist package roots it calls, plus NumPy for audio arrays and sounddevice for local playback. Engine extras are installed through VoiceRender, for example `voicerender[kokoro]`. Readio does not pin backend packages or depend directly on Voicefolio. Its optional `spacy` and `documents` extras only pass through UtterPlan and SSMDConvert extras.
+Readio uses public APIs from SSMDConvert, UtterPlan, RenderPlan, VoiceRender, AudioCompose, and AudioExport (including UtterPlan's TOML codec and VoiceRender's voice-design API), plus its normal support dependencies and NumPy/sounddevice for local playback. Backend engines are installed through VoiceRender extras. Readio does not import backend SDKs or specialist private implementation modules.

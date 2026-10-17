@@ -1,10 +1,12 @@
 # SSMD and specialist ownership
 
-Readio 0.5 does not provide a general SSMD reader, SSMD preflight command, voice catalog, or role-binding system. Do not use the removed `readio ssmd`, `readio voices`, `readio roles`, or `readio render` commands.
+Readio does not provide the former general-purpose Readio Markdown/SSMD pipeline or a standalone SSMD preflight command. `readio render SOURCE --profile PROFILE` is a convenience orchestration path for a supported source document; SSMDConvert owns source support and conversion, and UtterPlan owns planning.
 
-For audiobook workflows, SSMDConvert owns `.ssmdbook` workspace creation and conversion. UtterPlan compiles semantic content and projects the RenderPlan. VoiceRender resolves voices and synthesizes audio from its RenderProfile. AudioCompose and AudioExport own their respective later stages.
+For audiobook workflows, SSMDConvert owns `.ssmdbook` workspace creation and conversion. UtterPlan compiles semantic content and projects the RenderPlan. VoiceRender owns RenderProfiles, logical role bindings, voice resolution, and synthesis. AudioCompose and AudioExport own their respective later stages. Readio exposes thin delegated `voices` and `profile role` commands; it does not own voice catalogs or role-binding schemas.
 
 ```bash
+readio render chapter.docx --profile narration.renderprofile.toml --stop-after render-plan
+
 ssmdconvert book convert novel.epub -o novel.ssmdbook
 utterplan compile-book novel.ssmdbook
 voicerender profile create --engine kokoro --target v1.0 --voice af_heart \
@@ -21,4 +23,4 @@ audiocompose compose-book novel.ssmdbook --variant "$VARIANT"
 audioexport export-book novel.ssmdbook --variant "$VARIANT" --output novel.m4b
 ```
 
-Use `readio audiobook build` for convenience orchestration, or consult each specialist CLI for its complete options. See [the Python API guide](../../../docs/api.md) for the supported facade.
+Use `readio audiobook build` for convenience orchestration, or consult each specialist CLI for complete options. See the [CLI reference](cli.md) and [Python API guide](../../../docs/api.md).
