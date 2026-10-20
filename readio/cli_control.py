@@ -8,7 +8,7 @@ import json
 from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class CLIUsageError(ValueError):
@@ -106,25 +106,6 @@ def add_control_commands(commands: Any) -> None:
     clone.add_argument("-o", "--output", type=Path, required=True)
     clone.add_argument("--force", action="store_true")
     clone.add_argument("--json", action="store_true")
-
-    design = voice_commands.add_parser("design", help="Run VoiceRender's Qwen VoiceDesign workflow")
-    design.add_argument("--prompt", required=True)
-    design.add_argument("--reference-text", required=True)
-    design.add_argument("--language", default="en")
-    design.add_argument("--target", default="voice-design-1.7b")
-    design.add_argument("--quality", default="int4")
-    design.add_argument("--provider", default="cpu")
-    design.add_argument("--seed", type=int)
-    design.add_argument("--temperature", type=float, default=0.9)
-    design.add_argument("--top-k", type=int, default=50)
-    design.add_argument("--repetition-penalty", type=float, default=1.05)
-    design.add_argument("--max-new-tokens", type=int, default=128)
-    design.add_argument("--cache-dir", type=Path)
-    design.add_argument("--catalog", type=Path)
-    design.add_argument("--source-output", type=Path)
-    design.add_argument("-o", "--output", type=Path, required=True)
-    design.add_argument("--force", action="store_true")
-    design.add_argument("--json", action="store_true")
 
     profile = commands.add_parser("profile", help="Create, inspect, and manage RenderProfiles")
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
@@ -261,8 +242,8 @@ def _human_summary(value: Any) -> str:
             lines = [
                 f"Profile ID: {getattr(value, 'profile_id', None) or 'not assigned'}",
                 f"Default role: {value.default_role}",
-                f"Planning policy: {value.planning}",
-                f"Pause policy: {value.pauses}",
+                f"Planning policy: {cast(Any, value).planning}",
+                f"Pause policy: {cast(Any, value).pauses}",
             ]
             for role, binding in value.roles.items():
                 details = getattr(binding, "binding", binding)
@@ -385,25 +366,6 @@ def run_control_command(args: argparse.Namespace, api: Any) -> int:
                 options=_assignments(args.option),
                 offline=args.offline,
                 refresh=args.refresh,
-                output=args.output,
-                force=args.force,
-            )
-        else:
-            result = api.design_voice(
-                prompt=args.prompt,
-                reference_text=args.reference_text,
-                language=args.language,
-                target=args.target,
-                quality=args.quality,
-                provider=args.provider,
-                seed=args.seed,
-                temperature=args.temperature,
-                top_k=args.top_k,
-                repetition_penalty=args.repetition_penalty,
-                max_new_tokens=args.max_new_tokens,
-                cache_dir=args.cache_dir,
-                catalog=args.catalog,
-                source_output=args.source_output,
                 output=args.output,
                 force=args.force,
             )

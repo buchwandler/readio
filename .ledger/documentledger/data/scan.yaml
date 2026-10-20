@@ -1,165 +1,91 @@
 schema: documentledger.scan.v5
-version: 16
+version: 19
 source_index_file: source-index.json
-source_index_hash: 2ad9a10b6ddbf747084e9a8d4bef95cf50ba57b414ed69df683550491e8ca09f
-source_file_count: 17
-source_unit_count: 110
+source_index_hash: cdb234d2b23820c8ed100d605c3e8e3a664c29efb05fb535d3c2fdc9f1e76198
+source_file_count: 39
+source_unit_count: 289
 doc_file_count: 6
 source_hashes:
   readio/__init__.py: 96898c79c09a9c65e282f0ec1e8bc771ba13f517a0106d04c318e27aaf705025
   readio/__main__.py: 935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d
-  readio/api/__init__.py: 74365fc8b6946a6240bcc07137691db6976707e1b15af66dc69e96a656402f6b
-  readio/api/book.py: ec4b58e4bb3e4b104a5b0bdaf83f38e019610278a46654c669690cd76cd0f8f4
-  readio/api/speech.py: 7547ee4b781b7342ddf8ae3c667ac03f9f1f92d79e9cbb653df6cc7857422c77
-  readio/book.py: 0dff1f745e2c06050fc4a2f9ecba003e36ffa9b60d8bdecaadfa4066f1188902
-  readio/cli.py: bf0ede841a0e7b2f78f3c4628893b6539428f08a43423e8bc6576ef46d898266
-  readio/doctor.py: 5786ce7e9876564820d84cae75bff7754fd9f0a5bf259d9bd1158cbaa57e3b0d
+  readio/_outputs.py: 8257ad06b8e27815408f8c940b97e0f3f4f9b87bdc7ac56c3bcd2d5023e9e1c7
+  readio/api/__init__.py: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
+  readio/api/service.py: f71106e5769f1c64b4198e290e41b2e2899f701f7424a0655644890e7a9f269d
+  readio/api/types.py: 4218d9f3036a31535082163ecf224b19f161a07a38931c37a78cabdcf9faf609
+  readio/cli.py: 16af13d7ca50739f6e383a3159bffd951191bd12b72731aac1489ae929f443c7
+  readio/cli_control.py: 78541099b0a1da9d8e6392b619b6a8354662f51a4114ebbd23a521a24c0bcf47
+  readio/doctor.py: f283a4dfd2cb0c3e78682fcae76b21ecad9e88169c32e874808228ec2bb74424
+  readio/engines.py: fe8d32b6d4f76b23d4c182903d70efd7cb0189ba97084e215d6f867b72920cc1
+  readio/errors.py: a3b42cae82a6b2df0a6873ef01f515b55e2e6c16d7ba891b2742f56de699220a
+  readio/integrations/__init__.py: ffeb45ce105bd77bb272817f72c6c5e3bd2b7aadcc8432f876009b181ea133e5
+  readio/integrations/audiocompose.py: 4de8293f8cffa398092d22af67a242b36eea3876651f0fb0f1c32e56e5555014
+  readio/integrations/audioexport.py: e5cc5119173c7f482e548039408c279abcecaec81fe1a0bdcd06e653a5b75594
+  readio/integrations/utterplan.py: 821e66ccce674cf11d9cf29233fd8cda94c2c7da7853c6bbfd3a6385239f6575
+  readio/integrations/voicerender.py: a1397d8f900ced0df6f9b969531d24fc2a800a0c7b63651f666eeb9505efbcad
+  readio/pipeline.py: cddabfce7bc153f15dccec8805fa3f3e8efb3957db68f04c7b69da79a81e3ade
   readio/playback.py: 674a4031d8a98bdba59cf1e88e9b1c8566b8228d19c9912fcc29ef02d8862ad4
-  readio/speech.py: fcc40f0e963ba8409af5535e63aa519acf3a446e6d3175ac798b0c6f949375e9
-  tests/test_book.py: e719e16786536e903047e7121f7b91ab352064ce2e1eb5e841e1f3c6d375706f
-  tests/test_cli_v05.py: c0d3569c65f5053f151f4fafedd4d7dce7a018485fa20eb50621ed5283ebfb3b
-  tests/test_dependency_boundaries.py: cb57207d9d700ab7e01e5c889148b12c5cf2b5925fe4b634fbb279cc69bd5b02
-  tests/test_doctor_v05.py: 7eac51dc7af1d8275a48593292e56f1c2260910981a551ef83f36ab59e86c6f3
-  tests/test_packaging_metadata.py: 0d8e863775b50d49dcbe77a33e4b637e3051a692926a621bdfd11a239ff5338f
+  readio/profiles.py: 9388acadaac9a06c6a91888b60229b1b8deb97f877621cbe73ce2e8e3eb8d39e
+  readio/progress.py: c3e6107356ac1da6e6d97243f949f6e7d2ff9511ce5c74223f0a24acd2fc47a5
+  readio/speech.py: c47b031b290b1b0bd19866fa19b64cd34426f23ec4f570099c81b8fd92b47293
+  readio/voices.py: a2d8f4f057af82c20b77623162884508e08eff9ffcded736c5c8628b6f20f923
+  readio/workspace.py: 5723b60714d2a36851c05f31a5ff747bc2ba60459e42c55051cd03c7da63bd00
+  tests/test_cli_control.py: d88476a66d3619c2bbf091c0239026798c7cb27dc29a973c8d09f62e43e5ae44
+  tests/test_control_api.py: 742ce7520e487d6172cb277eabe2b92371fa57cde0fe783caf66d6ce098728af
+  tests/test_dependency_boundaries.py: 033bb29fd71edec404f6f2c659d5ab2528e6929bd5f6f919b70cd7dbd60b06d4
+  tests/test_doctor_v05.py: a7a9a8e92bd3252d82a4604f2f9314fa529432206797c9dc56083fe10375bf23
+  tests/test_documentation_contract.py: 68e646068284368bc335f183bad87b438c8c616af85ad5e1d372be589a677969
+  tests/test_native_cli.py: b62d11b811ce7e6cdcf20a3f05c5d49fbb3e3086c7aa20f07b1374b2337c43fd
+  tests/test_native_media_dispatch.py: ca5b6573ab3855f841e33187fe197700b5aa0fcdc29f4880ebac06498c1372d5
+  tests/test_native_service.py: 1843803170a5d64e097fc23e7fb5c6d7f50aa7144aa9bfac45331b8bd7a66be1
+  tests/test_native_utterplan_dispatch.py: 29899ecc20792009b9c1a1e44700bf0dc9e7bb4626501404d6306d971fcaf0b3
+  tests/test_native_voicerender_dispatch.py: 73b80fbdbb52399854a9a8859695498031e22efe24822d16adb31b0dc1b1f106
+  tests/test_native_workspace.py: 724b474dd8347de979452bccac190964c194258311507232694107facb80dea4
+  tests/test_native_workspace_e2e.py: 37bb75e09768d79e556922ad85ebfaae3d45dec5419a59f3e0bc49bfe728d887
+  tests/test_packaging_metadata.py: 71cecff3a1d79e77dcafebcd18d171ac1f05c25f582eb4cd3f7f9b5ce0613041
   tests/test_playback.py: efdda96c5228d3377a055b60029bc95344801c88c8b955af04cd70df5b0515b7
-  tests/test_speech.py: d316ce950df33b7f36cc7e971d9b9cf03bf242c249e113f421f919ee4ef1e620
+  tests/test_public_package_api_contract.py: f62dfed2de8a1edda232ed4c002cf4025eeb91c953343ec758375efb9104bc0b
+  tests/test_speech.py: 46ef012d6c6c8f000cf5a89891cb6ef7ab9a1e5df2550ce54e612a17325a28e4
 doc_hashes:
-  README.md: e6cf9ef2edd1529073b696671f51cd97a8fc34ec3ec7e83e66a7ba5c0821d1a8
-  docs/api.md: 8f3c07f2c38836ca2e63f8487a9bf0c64116f50a2980a989bce2bd2bd8a7c400
-  docs/architecture.md: 7fd909f3798e7bb00ee4d2cef7d5b51074ac08b2a893f7c54d5d88387a2d300a
-  docs/changelog.md: 20e6bb8577da2a605548c0a485e63c6f2da851ed87121fd29964cc89b76fefa7
-  docs/cli.md: 8c7d37b0ff40fcbd520932a6806a1af18b669c17f2c79bb709bc54cfa2973d5e
-  docs/index.md: 34ea9a76ce3cd704fe8ae146366c3ba2cb9a7f7dff4ff0eea964da77d8e68a88
-changed_sources: []
+  README.md: e9e6752df80ad6c1cc32c060f35ee1b59afc40956d981c2d8bd74918266b8300
+  docs/api.md: ed11081c32fb2d5877b843378af331714cac69cb24008cbf46779e82d8a27ce8
+  docs/architecture.md: b1b6d75f4cc233da2954a396fe46c18a691f5923e19e16eb47023043563ba448
+  docs/changelog.md: 7054228967800f4ec575e12a7a781313051233adb9e23173847b2116a8b81301
+  docs/cli.md: a319cc70d89916a7a251ecaeb3793f31bc15bc1e6012f90dc1dc2691e0454de1
+  docs/index.md: 4fac904b61ab7f66374a8fb0520c0cf48c447b7e48a821a6f54ebbc3fdb5c8eb
+changed_sources:
+  - tests/test_documentation_contract.py
 deleted_sources: []
-changed_units: []
+changed_units:
+  - source_id: py:module:tests/test_documentation_contract.py
+    path: tests/test_documentation_contract.py
+    kind: module
+    qualname: tests/test_documentation_contract.py
+    change_type: modified
+    changed_hashes:
+      - content_hash
+    old_line_span:
+      - 1
+      - 53
+    new_line_span:
+      - 1
+      - 52
 added_units: []
 deleted_units: []
-affected_sections:
-  - doc_path: docs/index.md
-    section_id: md:section:docs/index.md::diagnostics-and-development
-    heading_path:
-      - Readio documentation
-      - Diagnostics and development
-    heading_slug: diagnostics-and-development
-    line_span:
-      - 320
-      - 341
-    section_hash: ae0bdd81301e49480538b625270a398b33e2baf92413aa90c7eb8254aebc60d3
-    summary: Diagnostics and development
-    action: rewrite-section
-    changed_units:
-      - source_id: py:file:readio/audio.py
-        source_path: readio/audio.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/audio.py`.
-        change_type: deleted
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 0
-          - 0
-      - source_id: py:file:readio/cli.py
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        change_type: modified
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 1
-          - 179
-      - source_id: py:function:readio/cli.py::build_parser
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        change_type: modified
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 17
-          - 68
-      - source_id: py:function:readio/cli.py::main
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        change_type: modified
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 160
-          - 176
-      - source_id: py:module:readio/cli.py
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/cli.py`.
-        change_type: modified
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 1
-          - 179
-      - source_id: py:file:readio/config.py
-        source_path: readio/config.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/config.py`.
-        change_type: deleted
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 0
-          - 0
-      - source_id: py:file:readio/document.py
-        source_path: readio/document.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/document.py`.
-        change_type: deleted
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 0
-          - 0
-      - source_id: py:file:readio/reader.py
-        source_path: readio/reader.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/reader.py`.
-        change_type: deleted
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 0
-          - 0
-      - source_id: py:file:readio/spotify.py
-        source_path: readio/spotify.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/spotify.py`.
-        change_type: deleted
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 0
-          - 0
-      - source_id: py:file:readio/wave.py
-        source_path: readio/wave.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact source path `readio/wave.py`.
-        change_type: deleted
-        changed_hashes:
-          - body_hash
-        line_span:
-          - 0
-          - 0
-stale_docs:
-  - docs/index.md
-unlinked_changed_sources: []
-unmapped_changed_units: []
+affected_sections: []
+stale_docs: []
+unlinked_changed_sources:
+  - tests/test_documentation_contract.py
+unmapped_changed_units:
+  - source_id: py:module:tests/test_documentation_contract.py
+    path: tests/test_documentation_contract.py
+    kind: module
+    qualname: tests/test_documentation_contract.py
+    change_type: modified
+    changed_hashes:
+      - content_hash
+    old_line_span:
+      - 1
+      - 53
+    new_line_span:
+      - 1
+      - 52

@@ -3,11 +3,11 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 3
+  revision: 4
 entry_id: entry-0002
 release_version: v0.5.0
 kind: removed
-summary: Removed Readio-owned projects, legacy persistence, and mirrored runtime APIs
+summary: Removed legacy Readio project formats without a migration path
 status: accepted
 audience: null
 scopes: []

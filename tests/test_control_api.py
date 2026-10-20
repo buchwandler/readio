@@ -203,3 +203,30 @@ def test_voice_list_filters_kind_without_rewriting_specialist_result(
     cloned = SimpleNamespace(kind="VoiceKind.CLONED", selector="e:t/c")
     monkeypatch.setattr(voices.voicerender, "list_voices", lambda **kwargs: (built, cloned))
     assert voices.list_voices(engine="e", target="t", kind="cloned") == (cloned,)
+
+
+def test_engine_target_discovery_forwards_voice_render_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    targets = (object(),)
+
+    def discover(engine: str, **kwargs: object) -> tuple[object, ...]:
+        captured.update(engine=engine, **kwargs)
+        return targets
+
+    monkeypatch.setattr(engines.voicerender, "discover_targets", discover)
+
+    assert (
+        engines.discover_engine_targets(
+            "kokoro", language="en-US", offline=True, refresh=True, preference="offline"
+        )
+        is targets
+    )
+    assert captured == {
+        "engine": "kokoro",
+        "language": "en-US",
+        "offline": True,
+        "refresh": True,
+        "preference": "offline",
+    }

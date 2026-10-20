@@ -22,7 +22,8 @@ class VoiceSelector:
 
 
 def parse_voice_selector(selector: str | None) -> VoiceSelector:
-    """Parse ``engine:target/voice`` into neutral VoiceRender request fields."""
+    """Parse a Readio shorthand or delegate a full selector to VoiceRender."""
+
     if selector is None:
         return VoiceSelector()
     value = selector.strip()
@@ -31,15 +32,12 @@ def parse_voice_selector(selector: str | None) -> VoiceSelector:
     if ":" not in value:
         return VoiceSelector(voice=value)
 
-    engine, selection = value.split(":", 1)
-    if not engine or not selection:
-        raise ValueError("voice selector must use engine:target[/voice]")
-    if "/" in selection:
-        target_id, voice = selection.split("/", 1)
-        if not target_id or not voice:
-            raise ValueError("voice selector must use engine:target/voice")
-        return VoiceSelector(engine=engine, target_id=target_id, voice=voice)
-    return VoiceSelector(engine=engine, target_id=selection)
+    parsed = voicerender.parse_voice_selector(value)
+    return VoiceSelector(
+        engine=parsed.engine,
+        target_id=parsed.target_id,
+        voice=parsed.voice,
+    )
 
 
 def _profile_request(
@@ -51,7 +49,7 @@ def _profile_request(
     offline: bool,
     refresh: bool,
     engine_options: Mapping[str, Any] | None,
-) -> tuple[object, str]:
+) -> tuple[Any, str]:
     profile = voicerender.load_render_profile(profile_path)
     role_name = role or profile.default_role
     try:
@@ -86,7 +84,7 @@ def _profile_request(
     return selection, role_name
 
 
-def _write_speech_wav(rendered: object, output: str | Path) -> Path:
+def _write_speech_wav(rendered: Any, output: str | Path) -> Path:
     path = Path(output).expanduser()
     if path.exists() or path.is_symlink():
         raise FileExistsError(f"output already exists: {path}")
@@ -133,7 +131,7 @@ def speak(
     role: str | None = None,
     output: str | Path | None = None,
     no_play: bool = False,
-) -> object:
+) -> Any:
     """Resolve and synthesize literal text through VoiceRender, optionally playing or saving WAV."""
     if profile is not None and any(value is not None for value in (voice, engine, target)):
         raise ValueError("--profile is mutually exclusive with --voice, --engine, and --target")

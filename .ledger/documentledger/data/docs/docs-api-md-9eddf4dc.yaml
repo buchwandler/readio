@@ -1,8 +1,10 @@
 schema: documentledger.doc_record.v4
 doc_path: docs/api.md
 linked_sources:
-  - readio/book.py
+  - readio/api/service.py
+  - readio/api/types.py
   - readio/speech.py
+  - readio/workspace.py
   - tests/test_dependency_boundaries.py
 sections:
   - section_id: md:section:docs/api.md::python-api
@@ -13,37 +15,66 @@ sections:
     line_span:
       - 1
       - 18
-    section_hash: a3a1b2c66ef8ddfcd8a6d26f53f9b13602f91f9e6e103f983ba2a4cfede5e615
+    section_hash: 250a44cfed774191e75e7f815541a85b53cc447345fe1a1eb8bfdbad877e03c1
     summary: Python API
     text:
-      "# Python API\n\nThe supported facade is `readio.api`. It contains a small\
-      \ set of orchestration and direct-speech operations. Specialist APIs and result\
-      \ objects remain authoritative.\n\n```python\nfrom readio.api import (\n    BookBuildRequest,\n\
-      \    BookBuildResult,\n    BookProgressEvent,\n    VoiceSelector,\n    build_book,\n\
-      \    convert_book,\n    open_book,\n    parse_voice_selector,\n    speak,\n)\n\
-      ```"
+      "# Python API\n\n`readio.api` exposes a small orchestration service and management\
+      \ functions that delegate to specialist package-root APIs. Specialist results\
+      \ are returned unchanged; Readio does not mirror their option schemas or translate\
+      \ their exceptions.\n\n```python\nfrom pathlib import Path\nfrom readio.api import\
+      \ (\n    BookExportRequest,\n    CreateWorkspaceRequest,\n    ComposeRequest,\n\
+      \    PlanRequest,\n    Readio,\n    RenderPlanRequest,\n    RunRequest,\n    VoiceRenderRequest,\n\
+      )\n```"
     links:
-      - source_id: py:class:readio/book.py::BookBuildRequest
-        source_path: readio/book.py
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `BookBuildRequest`.
+        reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: 3ae71c203571a1c4d541b3ff550de24c5182b904896443f60d2e1e1b51deacc1
-      - source_id: py:class:readio/book.py::BookBuildResult
-        source_path: readio/book.py
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:class:readio/api/types.py::BookExportRequest
+        source_path: readio/api/types.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `BookBuildResult`.
+        reason: Code contains public class `BookExportRequest`.
         tracked_hashes:
-          body_hash: 9f5551acb9abde84036475e48a14c01e8516f7fe741b68ea8b76719ef7a92982
-      - source_id: py:class:readio/book.py::BookProgressEvent
-        source_path: readio/book.py
+          body_hash: a3da6b8855a4e3d9b54707d072ad17cbfc6f9e084c099e9b857e001605a0a3ee
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `BookProgressEvent`.
+        reason: Code contains public class `ComposeRequest`.
         tracked_hashes:
-          body_hash: 080b5a0f8caf1e4e0beb7a62520a2126992fd1634b1c3e65050c90506c96f653
+          body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
+      - source_id: py:class:readio/api/types.py::PlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PlanRequest`.
+        tracked_hashes:
+          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+      - source_id: py:class:readio/api/types.py::RenderPlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanRequest`.
+        tracked_hashes:
+          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        tracked_hashes:
+          body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
+      - source_id: py:class:readio/api/types.py::VoiceRenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceRenderRequest`.
+        tracked_hashes:
+          body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
       - source_id: py:class:readio/speech.py::VoiceSelector
         source_path: readio/speech.py
         coverage: implementation-note
@@ -51,6 +82,219 @@ sections:
         reason: Code contains public class `VoiceSelector`.
         tracked_hashes:
           body_hash: 1b769fafdabd2a52cf57a9011cb012067e69e806a0d56972bc0d05b713365983
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        tracked_hashes:
+          body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
+  - section_id: md:section:docs/api.md::workspace-lifecycle
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Workspace lifecycle
+    heading_slug: workspace-lifecycle
+    line_span:
+      - 19
+      - 30
+    section_hash: d107c303338646d5e2f5ac2a3d632318d6f7b5a02919f66752e42d52208d9147
+    summary: Workspace lifecycle
+    text: '## Workspace lifecycle
+
+
+      `Readio.create_workspace(source, request=None)` converts source material through
+      SSMDConvert and returns an immutable `WorkspaceRef`. EPUB input defaults to a
+      `.ssmdbook`; other supported input defaults to `.ssmdoc`. `Readio.resolve_workspace(path)`
+      validates and loads an existing native workspace. No Readio project registry or
+      migration is involved.
+
+
+      ```python
+
+      service = Readio()
+
+      workspace = service.create_workspace("article.txt")
+
+      assert workspace.root.suffix == ".ssmdoc"
+
+      ```
+
+
+      Use `CreateWorkspaceRequest` to select kind, output path, language, chapter range,
+      or force behavior. Its source must match the `source` argument.'
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:method:readio/api/service.py::Readio.create_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.create_workspace`.
+        tracked_hashes:
+          body_hash: 54174e54fd4155a9ee6bf96bb92bc86c1c53293dc398e4034dcb46767586f4e4
+      - source_id: py:method:readio/api/service.py::Readio.resolve_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.resolve_workspace`.
+        tracked_hashes:
+          body_hash: 792a8b22178dcd53ff571615374ba52d699c8c12ba6cd191b75910ecbad1ff88
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        tracked_hashes:
+          body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
+      - source_id: py:class:readio/workspace.py::WorkspaceRef
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkspaceRef`.
+        tracked_hashes:
+          body_hash: f58ec8d3488a2ef4ad41eb3a88a619507640ba066806ca059d4facacf7b89702
+  - section_id: md:section:docs/api.md::planning-and-pipeline-sequencing
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Planning and pipeline sequencing
+    heading_slug: planning-and-pipeline-sequencing
+    line_span:
+      - 31
+      - 54
+    section_hash: 72afa6cfd9f1256b785e21b7baa3a5d3b5552e403eeed61967799b44a7a04539
+    summary: Planning and pipeline sequencing
+    text:
+      "## Planning and pipeline sequencing\n\n`Readio.plan(workspace, PlanRequest(...))`\
+      \ delegates semantic compilation to UtterPlan. `Readio.render_plan(workspace,\
+      \ RenderPlanRequest(profile=...))` returns `RenderPlanResult(native, variant)`.\
+      \ The `variant` is the exact value returned by UtterPlan.\n\n`Readio.render`,\
+      \ `Readio.compose`, and `Readio.export` dispatch by workspace kind to VoiceRender,\
+      \ AudioCompose, and AudioExport. Requests contain Readio routing fields and specialist-native\
+      \ option values; artifacts and reports remain package-owned.\n\n`Readio.run(source_or_workspace,\
+      \ RunRequest(...))` performs workspace creation/resolution, planning, projection,\
+      \ rendering, composition, and optional export. It replaces downstream request\
+      \ variants with the exact projected variant before dispatch:\n\n```python\nprofile\
+      \ = Path(\"narrator.renderprofile.toml\")\nresult = service.run(\n    workspace.root,\n\
+      \    RunRequest(\n        plan=PlanRequest(language=\"en-US\"),\n        render_plan=RenderPlanRequest(profile=profile),\n\
+      \        render=VoiceRenderRequest(variant=\"pending\"),\n        compose=ComposeRequest(variant=\"\
+      pending\"),\n    ),\n)\nprint(result.variant)  # exact UtterPlan variant\n```\n\
+      \n`PipelineResult` retains the workspace, specialist results, projected variant,\
+      \ and optional export result. `PipelineEvent` adapts stage progress and retains\
+      \ the original event as `source`. Specialist exceptions propagate through a small\
+      \ stage-context wrapper."
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:method:readio/api/service.py::Readio.compose
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.compose`.
+        tracked_hashes:
+          body_hash: 0538d8a47a409f26f44136c9bff13c39fedf8047498847e8f42b0b2452b0066f
+      - source_id: py:method:readio/api/service.py::Readio.export
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.export`.
+        tracked_hashes:
+          body_hash: 10f8e02b97ae83183d318d1400d164da92b3f0cd58c479c3a886575b3b29dfee
+      - source_id: py:method:readio/api/service.py::Readio.plan
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.plan`.
+        tracked_hashes:
+          body_hash: 4d318ce361344d58779f6c37c4539649102108ec57313070bc1505e223f01ece
+      - source_id: py:method:readio/api/service.py::Readio.render
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render`.
+        tracked_hashes:
+          body_hash: 2972a46614d2939773351821973d07d8cc77c763e283cdeb23f6c17b50a8ba0f
+      - source_id: py:method:readio/api/service.py::Readio.render_plan
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render_plan`.
+        tracked_hashes:
+          body_hash: d256a6c3a36c90c8114cadd63930000b746cbe8ee89e1705ac0a304da50b2028
+      - source_id: py:method:readio/api/service.py::Readio.run
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.run`.
+        tracked_hashes:
+          body_hash: 8035aa2d1fc0dea75724fda2b0ea47c274679565008e83d08e19deb5248e68cd
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        tracked_hashes:
+          body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
+      - source_id: py:class:readio/api/types.py::PipelineEvent
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PipelineEvent`.
+        tracked_hashes:
+          body_hash: 3a4575ef796107ae4f44c06db7dce945a48806898e7873417ebb8423fd15b2d7
+      - source_id: py:class:readio/api/types.py::PipelineResult
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PipelineResult`.
+        tracked_hashes:
+          body_hash: eb3835e8a9053f3a1b6d1e54a1b83e91049dc85a27c67a44613ca3d2f4de5a32
+      - source_id: py:class:readio/api/types.py::PlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PlanRequest`.
+        tracked_hashes:
+          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+      - source_id: py:class:readio/api/types.py::RenderPlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanRequest`.
+        tracked_hashes:
+          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+      - source_id: py:class:readio/api/types.py::RenderPlanResult
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanResult`.
+        tracked_hashes:
+          body_hash: 6655a05cbc8f16e5924187201b0e0d22a714ae13af60b21611ca05feb5d8760f
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        tracked_hashes:
+          body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
+      - source_id: py:class:readio/api/types.py::VoiceRenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceRenderRequest`.
+        tracked_hashes:
+          body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
   - section_id: md:section:docs/api.md::book-operations
     doc_path: docs/api.md
     heading_path:
@@ -58,81 +302,79 @@ sections:
       - Book operations
     heading_slug: book-operations
     line_span:
-      - 19
       - 55
-    section_hash: 936d235645228ccedbbd54a4a382dac3103a52062cfccf0f3ffb5dbc6fc4f89d
+      - 60
+    section_hash: a8fc99bfea7708d65bc632f72fff9c349d121d7efde199aa377092eb7f02acb7
     summary: Book operations
-    text:
-      "## Book operations\n\n`convert_book(source, output=None, *, chapters=\"all\"\
-      , language=None, on_progress=None)` converts an EPUB through SSMDConvert and writes\
-      \ an SSMDConvert-owned `.ssmdbook` workspace. It returns the specialist `BookWorkspace`\
-      \ object.\n\n`open_book(workspace)` opens a workspace through SSMDConvert without\
-      \ initializing Readio state. It returns the specialist workspace object.\n\nA\
-      \ full build uses the small Readio request type and passes each stage through\
-      \ the owning package's public API:\n\n```python\nfrom pathlib import Path\n\n\
-      from readio.api import BookBuildRequest, build_book, convert_book\n\nworkspace\
-      \ = convert_book(\"novel.epub\", \"novel.ssmdbook\", chapters=\"5-17\")\nresult\
-      \ = build_book(\n    BookBuildRequest(\n        workspace=workspace.path,\n  \
-      \      profile=Path(\"narration.renderprofile.toml\"),\n        chapters=\"5-17\"\
-      ,\n        output=Path(\"novel.m4b\"),\n    )\n)\nprint(result.variant)\n```\n\
-      \n`BookBuildRequest` accepts:\n\n- `workspace`: an existing specialist-produced\
-      \ `.ssmdbook` workspace.\n- `profile`: a VoiceRender RenderProfile path when RenderPlan\
-      \ projection is enabled.\n- `chapters`, `force`, and `fail_fast`: forwarded to\
-      \ stage APIs where supported.\n- `compile`, `render_plan`, `synthesize`, `compose`,\
-      \ and `export`: select build stages.\n- `variant`: an existing specialist variant\
-      \ when projection is skipped.\n- `stop_after`: stop after `compile`, `render-plan`,\
-      \ `synth`, `compose`, or `export`.\n- `output`, `export_profile`, `metadata`,\
-      \ `cover`, and `bitrate`: forwarded to AudioExport.\n\n`build_book` returns a\
-      \ `BookBuildResult` containing the workspace path, exact variant, and the actual\
-      \ specialist result objects for any executed stages. It does not copy specialist\
-      \ result models or persist Readio stage state. `on_progress` receives small Readio\
-      \ `BookProgressEvent(stage, kind)` values for stage start and completion. Specialist\
-      \ exceptions propagate unchanged."
+    text: "## Book operations
+
+
+      `Readio.create_workspace()` converts EPUB input into a native `.ssmdbook`; `CreateWorkspaceRequest`
+      can select chapters and conversion language. `PlanRequest`, `RenderPlanRequest`,
+      `VoiceRenderRequest`, and `ComposeRequest` carry book chapter selectors to the
+      corresponding specialists. Use `BookExportRequest` when requesting book export
+      through the Python service.
+
+
+      Store a book's RenderProfile inside its workspace so UtterPlan can record a workspace-relative
+      provenance reference during projection."
     links:
-      - source_id: py:class:readio/book.py::BookBuildRequest
-        source_path: readio/book.py
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `BookBuildRequest`.
+        reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: 3ae71c203571a1c4d541b3ff550de24c5182b904896443f60d2e1e1b51deacc1
-      - source_id: py:class:readio/book.py::BookBuildResult
-        source_path: readio/book.py
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:method:readio/api/service.py::Readio.create_workspace
+        source_path: readio/api/service.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `BookBuildResult`.
+        reason: Code contains exact qualified symbol `Readio.create_workspace`.
         tracked_hashes:
-          body_hash: 9f5551acb9abde84036475e48a14c01e8516f7fe741b68ea8b76719ef7a92982
-      - source_id: py:class:readio/book.py::BookProgressEvent
-        source_path: readio/book.py
+          body_hash: 54174e54fd4155a9ee6bf96bb92bc86c1c53293dc398e4034dcb46767586f4e4
+      - source_id: py:class:readio/api/types.py::BookExportRequest
+        source_path: readio/api/types.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `BookProgressEvent`.
+        reason: Code contains public class `BookExportRequest`.
         tracked_hashes:
-          body_hash: 080b5a0f8caf1e4e0beb7a62520a2126992fd1634b1c3e65050c90506c96f653
-      - source_id: py:function:readio/book.py::build_book
-        source_path: readio/book.py
+          body_hash: a3da6b8855a4e3d9b54707d072ad17cbfc6f9e084c099e9b857e001605a0a3ee
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
         coverage: implementation-note
         impact: unknown
-        reason:
-          Code contains public operation build_book; this section documents its
-          stage orchestration and result behavior.
+        reason: Code contains public class `ComposeRequest`.
         tracked_hashes:
-          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
-      - source_id: py:function:readio/book.py::convert_book
-        source_path: readio/book.py
+          body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
+      - source_id: py:class:readio/api/types.py::PlanRequest
+        source_path: readio/api/types.py
         coverage: implementation-note
         impact: unknown
-        reason: This section documents the convert_book workspace conversion operation.
+        reason: Code contains public class `PlanRequest`.
         tracked_hashes:
-          body_hash: d98549d12e0a11a1bf0fd2164a2c73627b382512d54c49d10cea628946e3240d
-      - source_id: py:function:readio/book.py::open_book
-        source_path: readio/book.py
+          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+      - source_id: py:class:readio/api/types.py::RenderPlanRequest
+        source_path: readio/api/types.py
         coverage: implementation-note
         impact: unknown
-        reason: This section documents read-only workspace opening through open_book.
+        reason: Code contains public class `RenderPlanRequest`.
         tracked_hashes:
-          body_hash: 88ad5a2dc88b746c773bdb882ce0cac009e4a52f6d272a98a8760598a6754cad
+          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+      - source_id: py:class:readio/api/types.py::VoiceRenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceRenderRequest`.
+        tracked_hashes:
+          body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        tracked_hashes:
+          body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
   - section_id: md:section:docs/api.md::direct-speech
     doc_path: docs/api.md
     heading_path:
@@ -140,22 +382,17 @@ sections:
       - Direct speech
     heading_slug: direct-speech
     line_span:
-      - 56
-      - 76
-    section_hash: 4061499943c28967190b046f4be1c1b5f9478b364d37970c7d44ae34e2f15b54
+      - 61
+      - 64
+    section_hash: 2b646941889f28c58b9ec5f8650beb7356599ac9c76ef0234c5649796152f9b4
     summary: Direct speech
-    text:
-      "## Direct speech\n\n`speak(text, *, voice=None, engine=None, target=None,\
-      \ language=\"en-US\", speaker=None, offline=False, refresh=False, engine_options=None)`\
-      \ resolves and synthesizes through VoiceRender, then plays the returned audio\
-      \ through the current device.\n\n```python\nfrom readio.api import parse_voice_selector,\
-      \ speak\n\nselector = parse_voice_selector(\"kokoro:v1.0/af_heart\")\nassert selector.engine\
-      \ == \"kokoro\"\nassert selector.target_id == \"v1.0\"\nassert selector.voice\
-      \ == \"af_heart\"\n\nrendered = speak(\n    \"A short sentence.\",\n    voice=\"\
-      kokoro:v1.0/af_heart\",\n    language=\"en-US\",\n)\n```\n\nThe selector syntax\
-      \ is neutral. Readio does not maintain an engine registry or backend alias table.\
-      \ VoiceRender owns engine selection, session lifecycle, capacity handling, and\
-      \ synthesis. The returned value is the specialist rendered-speech object."
+    text: "## Direct speech
+
+
+      `readio.api.speak(text, ...)` synthesizes literal text through VoiceRender and
+      plays it locally unless `no_play=True`. It accepts a voice selector or a saved
+      RenderProfile and role, and can save WAV output. It does not create a workspace
+      or invoke UtterPlan, AudioCompose, or AudioExport."
     links:
       - source_id: py:function:readio/speech.py::parse_voice_selector
         source_path: readio/speech.py
@@ -163,14 +400,34 @@ sections:
         impact: unknown
         reason: This section documents neutral selector parsing.
         tracked_hashes:
-          body_hash: c0b4c40acf65b5374a345bd313cc56ee32f85db6eeebd8571a8ed5da9abe4442
+          body_hash: e20e02563ad58428d8b5d5541d653d7b4a22436f9c15454ce3846ae8182fc24e
       - source_id: py:function:readio/speech.py::speak
         source_path: readio/speech.py
         coverage: implementation-note
         impact: unknown
         reason: This section documents the VoiceRender-backed speak operation.
         tracked_hashes:
-          body_hash: 314c0261364434f4f48437a352b0600c4a03f7eb5ee41c566b6294ae3b3c9bf8
+          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
+  - section_id: md:section:docs/api.md::voicerender-management
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - VoiceRender management
+    heading_slug: voicerender-management
+    line_span:
+      - 65
+      - 68
+    section_hash: c39a7d60620b20d97ccde88b124e9c846a660b73ebe4fb3bdde4c2d9009f9c84
+    summary: VoiceRender management
+    text: "## VoiceRender management
+
+
+      `readio.api` provides thin delegates for engine/model discovery and management,
+      voice discovery and source/clone operations, selector parsing, and RenderProfile
+      creation, validation, refresh, and role management. Calls use VoiceRender's public
+      package-root API and preserve its result objects and validation behavior. Readio
+      does not provide voice design or an engine implementation."
+    links: []
   - section_id: md:section:docs/api.md::compatibility-policy
     doc_path: docs/api.md
     heading_path:
@@ -178,18 +435,17 @@ sections:
       - Compatibility policy
     heading_slug: compatibility-policy
     line_span:
-      - 77
-      - 79
-    section_hash: b7124ef5e564a3b5da569f251c64c87603c429550a6affae49328526160aa29b
+      - 69
+      - 71
+    section_hash: be9275d27c390520b07e5e12ff3c7ec960f2b42b94fb34bd50a21e39cf85f6f9
     summary: Compatibility policy
     text: "## Compatibility policy
 
 
-      The former Readio project, plan, engine, synthesis, composition, export, catalog,
-      verification, and integration API types have been removed. There are no compatibility
-      aliases, `.readio` project migrations, or adapters for old result models. Use
-      an SSMDConvert `.ssmdbook` workspace and call the specialist package responsible
-      for each stage."
+      Version 0.5 is a clean break. Readio-owned project directories, settings, plans,
+      manifests, and old stage APIs are unsupported. There is no migration, compatibility
+      alias, or hidden state attachment. Use SSMDConvert to create native `.ssmdoc`/`.ssmdbook`
+      workspaces from source material, or use the specialist packages directly."
     links:
       - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
         source_path: tests/test_dependency_boundaries.py
@@ -200,9 +456,10 @@ sections:
           test.
         tracked_hashes:
           body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-last_fresh_scan_version: 16
-last_fresh_hash: 8f3c07f2c38836ca2e63f8487a9bf0c64116f50a2980a989bce2bd2bd8a7c400
+last_fresh_scan_version: 18
+last_fresh_hash: ed11081c32fb2d5877b843378af331714cac69cb24008cbf46779e82d8a27ce8
 notes:
-  Rewrote the public API guide against readio.api and current specialist delegation;
-  strict Sphinx build passed.
-version: 171
+  Reviewed affected sections against current Readio public APIs and CLI; strict
+  Sphinx build and focused documentation/workspace tests passed.
+coverage_resolution: null
+version: 214

@@ -19,9 +19,8 @@ BACKEND_ROOTS = frozenset(
     }
 )
 SPECIALIST_ROOTS = frozenset(
-    {"ssmdconvert", "utterplan", "renderplan", "voicerender", "audiocompose", "audioexport"}
+    {"ssmdconvert", "utterplan", "voicerender", "audiocompose", "audioexport"}
 )
-PUBLIC_SPECIALIST_SUBMODULES = frozenset({"utterplan.toml_codec", "voicerender.voice_design"})
 PRIVATE_IMPORT_PREFIXES = (
     "voicerender.engines",
     "audiocompose.integrations",
@@ -63,12 +62,11 @@ def test_runtime_imports_only_specialist_package_roots() -> None:
     assert not private_imports
 
 
-def test_specialist_imports_use_only_public_roots_and_explicit_public_modules() -> None:
+def test_specialist_imports_use_only_public_roots() -> None:
     specialist_imports = {
         module for module in _runtime_imports() if module.split(".", 1)[0] in SPECIALIST_ROOTS
     }
-    allowed = SPECIALIST_ROOTS | PUBLIC_SPECIALIST_SUBMODULES
-    assert specialist_imports <= allowed
+    assert specialist_imports <= SPECIALIST_ROOTS
 
 
 def test_runtime_contains_no_legacy_persistence_identifiers() -> None:
@@ -76,3 +74,18 @@ def test_runtime_contains_no_legacy_persistence_identifiers() -> None:
         source = path.read_text(encoding="utf-8")
         for identifier in LEGACY_IDENTIFIERS:
             assert identifier not in source, f"{path.relative_to(ROOT)} contains {identifier}"
+
+
+def test_legacy_project_modules_are_absent() -> None:
+    removed_modules = (
+        "readio/book.py",
+        "readio/document.py",
+        "readio/cli_document.py",
+        "readio/config.py",
+        "readio/cli_config.py",
+        "readio/api/book.py",
+        "readio/api/document.py",
+        "readio/api/configuration.py",
+    )
+    for module in removed_modules:
+        assert not (ROOT / module).exists(), f"legacy module was restored: {module}"

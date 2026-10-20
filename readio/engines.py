@@ -15,6 +15,23 @@ def inspect_engine(engine: str) -> dict[str, object]:
     return voicerender.engine_status(engine)
 
 
+def discover_engine_targets(
+    engine: str,
+    *,
+    language: str | None = None,
+    offline: bool = False,
+    refresh: bool = False,
+    preference: str = "auto",
+) -> tuple[object, ...]:
+    return voicerender.discover_targets(
+        engine,
+        language=language,
+        offline=offline,
+        refresh=refresh,
+        preference=preference,
+    )
+
+
 def list_engine_models(
     engine: str,
     *,
@@ -103,6 +120,7 @@ def list_engine_options(engine: str, *, target: str | None = None) -> tuple[obje
 
 
 __all__ = [
+    "discover_engine_targets",
     "inspect_engine",
     "inspect_engine_model",
     "install_engine_model",

@@ -3,11 +3,11 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 3
+  revision: 4
 entry_id: entry-0004
 release_version: v0.5.0
 kind: changed
-summary: Raised specialist API floors and removed backend-specific Readio extras
+summary: Changed specialist API floors and removed backend-specific Readio extras
 status: accepted
 audience: null
 scopes: []

@@ -19,7 +19,12 @@ SPECIALIST_PACKAGES = (
 
 
 def doctor_report() -> dict[str, Any]:
-    packages = {name: metadata.version(name) for name in SPECIALIST_PACKAGES}
+    packages: dict[str, str] = {}
+    for name in SPECIALIST_PACKAGES:
+        try:
+            packages[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            packages[name] = "not installed"
     engines = []
     for engine in voicerender.list_engines():
         engine_id = str(engine["id"])

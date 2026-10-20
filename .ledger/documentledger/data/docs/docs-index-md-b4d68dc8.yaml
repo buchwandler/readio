@@ -2,7 +2,6 @@ schema: documentledger.doc_record.v4
 doc_path: docs/index.md
 linked_sources:
   - readio/api/__init__.py
-  - readio/book.py
   - readio/cli.py
   - readio/doctor.py
   - readio/speech.py
@@ -16,15 +15,15 @@ sections:
     line_span:
       - 1
       - 13
-    section_hash: 71f840a7e684577bba5385a71b36ede959d5e6d5bac11e552914ed0fe06e8e7f
+    section_hash: 0e5228589c18dd3f5f8c6952ad2ebe9d73cbf72e44d92517ffa814d12ff4e611
     summary: Readio documentation
     text: "# Readio documentation
 
 
-      Readio is a thin convenience layer over specialist speech and audiobook packages.
-      For package-specific controls, use the owning specialist CLI directly. Readio's
-      main addition is orchestration across the `.ssmdbook` stages and a direct literal-text
-      speech command.
+      Readio orchestrates native SSMDConvert `.ssmdoc` and `.ssmdbook` workspaces through
+      specialist speech packages. Specialist APIs own the stage schemas, persisted artifacts,
+      and detailed diagnostics; Readio provides workflow sequencing, a CLI, and direct
+      literal-text speech.
 
 
       ```{toctree}
@@ -48,7 +47,7 @@ sections:
         impact: unknown
         reason: This overview describes the current public API surface.
         tracked_hashes:
-          body_hash: 74365fc8b6946a6240bcc07137691db6976707e1b15af66dc69e96a656402f6b
+          body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
   - section_id: md:section:docs/index.md::specialist-workflow
     doc_path: docs/index.md
     heading_path:
@@ -58,32 +57,25 @@ sections:
     line_span:
       - 14
       - 23
-    section_hash: 9d626e8544f93e288d7eeb1478acffa4dc77e41942d9aee63817dd11a86361da
+    section_hash: 7f5ca3726bed03872ea8e1a6d4fa620473dcf99e6ed2b972fd811fe39569a534
     summary: Specialist workflow
     text: "## Specialist workflow
 
 
-      The manual workflow makes package ownership explicit:
+      The package-owned stages are:
 
 
       ```text
 
-      SSMDConvert → UtterPlan → VoiceRender → AudioCompose → AudioExport
+      SSMDConvert → UtterPlan / RenderPlan → VoiceRender → AudioCompose → AudioExport
 
       ```
 
 
-      Start with the [architecture guide](architecture.md) and use the owning tool's
-      documentation for detailed package options. Readio provides the [CLI shorthand](cli.md)
-      and a small [Python facade](api.md)."
-    links:
-      - source_id: py:function:readio/book.py::build_book
-        source_path: readio/book.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section introduces the specialist workflow and Readio orchestration.
-        tracked_hashes:
-          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
+      Start with the [architecture guide](architecture.md), use the [CLI reference](cli.md)
+      for Readio commands, and see the [Python API guide](api.md) for service calls.
+      Consult each specialist package for complete package-specific options."
+    links: []
   - section_id: md:section:docs/index.md::installation
     doc_path: docs/index.md
     heading_path:
@@ -92,21 +84,16 @@ sections:
     heading_slug: installation
     line_span:
       - 24
-      - 29
-    section_hash: eaedff759cbf5b75b3f9a169c1ae325eea5460b8abfcaee40f01c739d5b01546
+      - 27
+    section_hash: da5545f29d83cddad66ee185d12db639a1b7e6fb157356f072c18453fdf0e3d0
     summary: Installation
     text: '## Installation
 
 
-      Readio requires Python 3.10 or newer. Install Readio with `python -m pip install
-      readio`, then install a synthesis backend through VoiceRender, for example `python
-      -m pip install "voicerender[kokoro]"`. Readio does not provide engine extras or
-      pin backend implementations.
-
-
-      Optional Readio extras only pass through specialist functionality: `readio[spacy]`
-      enables UtterPlan''s spaCy support, and `readio[documents]` enables SSMDConvert''s
-      PDF and DOCX support.'
+      Readio requires Python 3.10 or newer. Install it with `python -m pip install readio`,
+      then install a speech engine through VoiceRender, for example `python -m pip install
+      "readio[kokoro]"`. The optional `readio[documents]`, `readio[spacy]`, and `readio[audioexport]`
+      extras enable document formats, UtterPlan spaCy support, and AudioExport respectively.'
     links: []
   - section_id: md:section:docs/index.md::readio-commands
     doc_path: docs/index.md
@@ -115,66 +102,50 @@ sections:
       - Readio commands
     heading_slug: readio-commands
     line_span:
-      - 30
-      - 40
-    section_hash: 7149da8968b21f3d18d9bc531be661cbcec2151e7ebb77dff228482ca3e1d22a
+      - 28
+      - 38
+    section_hash: b3f38db57dcf4ae9952b0a22261a45abe87e4c9e768a3b6e1a5307e6d1d73ed1
     summary: Readio commands
     text: '## Readio commands
 
 
       ```bash
 
-      readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
+      readio init story.txt -o story.ssmdoc
 
-      readio audiobook convert novel.epub --output novel.ssmdbook
+      readio run story.ssmdoc --profile narrator.renderprofile.toml --language en-US
 
-      readio audiobook build novel.ssmdbook --profile narration.renderprofile.toml
+      readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
 
-      readio doctor
+      readio doctor --json
 
       ```
 
 
-      `speak` accepts literal text and plays VoiceRender''s returned audio through the
-      current device. Audiobook conversion and build delegate to the specialist public
-      APIs. The specialist packages own all persistent workspace artifacts and stage
-      decisions.'
+      The pipeline commands operate on `.ssmdoc` and `.ssmdbook` bundles. Readio writes
+      no parallel project state; stage outputs remain owned by the specialist packages.'
     links:
-      - source_id: py:function:readio/book.py::build_book
-        source_path: readio/book.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section introduces audiobook orchestration.
-        tracked_hashes:
-          body_hash: 06205e4e50bce2d7afe4c91fa65c983345fa87c4aba2d9d26f726cb737b7fa02
-      - source_id: py:function:readio/book.py::convert_book
-        source_path: readio/book.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section introduces EPUB conversion to a specialist workspace.
-        tracked_hashes:
-          body_hash: d98549d12e0a11a1bf0fd2164a2c73627b382512d54c49d10cea628946e3240d
       - source_id: py:function:readio/cli.py::build_parser
         source_path: readio/cli.py
         coverage: implementation-note
         impact: unknown
         reason: This section lists the retained Readio CLI commands.
         tracked_hashes:
-          body_hash: 3fde8ac503c0d8f97f6fc8925605d030c7fc784e025da1c066d9d43b7ea672a1
+          body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
       - source_id: py:function:readio/doctor.py::doctor_report
         source_path: readio/doctor.py
         coverage: implementation-note
         impact: unknown
         reason: This section introduces dependency diagnostics.
         tracked_hashes:
-          body_hash: 6a1210db5d4b1e49d4cdfac38021756880fa8b6fb98a08bb7ba47ebe6994d209
+          body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
       - source_id: py:function:readio/speech.py::speak
         source_path: readio/speech.py
         coverage: implementation-note
         impact: unknown
         reason: This section introduces literal-text speech.
         tracked_hashes:
-          body_hash: 314c0261364434f4f48437a352b0600c4a03f7eb5ee41c566b6294ae3b3c9bf8
+          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
   - section_id: md:section:docs/index.md::no-legacy-migration
     doc_path: docs/index.md
     heading_path:
@@ -182,18 +153,17 @@ sections:
       - No legacy migration
     heading_slug: no-legacy-migration
     line_span:
+      - 39
       - 41
-      - 43
-    section_hash: 963b3c0864a15efef9576227bff4485b5590222557c62d948538b59f614817de
+    section_hash: 305c09e02d8d192ed59982d9274d0d3f7c732437f4170975e3093074dde81247
     summary: No legacy migration
     text: "## No legacy migration
 
 
-      Version 0.5.0 removes Readio-owned generic projects, `.readio` state, `project.json`,
-      and the old plan, render-manifest, and pipeline APIs. There is no migration command
-      or compatibility layer. Readio does not read or attach that state. Convert source
-      material to an SSMDConvert-owned `.ssmdbook` workspace, or continue using the
-      specialist tools directly."
+      Version 0.5 deliberately removes Readio-owned projects, settings, plans, manifests,
+      and stage records. There is no migration command or compatibility layer. Recreate
+      work from source material with `readio init`, or continue with the specialist
+      packages directly."
     links:
       - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
         source_path: tests/test_dependency_boundaries.py
@@ -202,9 +172,10 @@ sections:
         reason: This section documents the explicit no-migration policy enforced by tests.
         tracked_hashes:
           body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-last_fresh_scan_version: 16
-last_fresh_hash: 34ea9a76ce3cd704fe8ae146366c3ba2cb9a7f7dff4ff0eea964da77d8e68a88
+last_fresh_scan_version: 18
+last_fresh_hash: 4fac904b61ab7f66374a8fb0520c0cf48c447b7e48a821a6f54ebbc3fdb5c8eb
 notes:
-  Rewrote overview and specialist workflow after scan 16, reviewed current CLI
-  and Python APIs, and passed the strict Sphinx build.
-version: 180
+  Reviewed affected sections against current Readio public APIs and CLI; strict
+  Sphinx build and focused documentation/workspace tests passed.
+coverage_resolution: null
+version: 214

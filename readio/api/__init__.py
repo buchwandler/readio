@@ -1,29 +1,11 @@
-"""Small public facade for Readio's orchestration operations."""
+"""Public Readio orchestration and VoiceRender management facade."""
 
-from .book import (
-    BookBuildRequest,
-    BookBuildResult,
-    BookProgressEvent,
-    build_book,
-    convert_book,
-    open_book,
-)
-from .configuration import (
-    CONFIG_TEMPLATE,
-    init_settings,
-    load_settings,
-    merge_settings,
-    validate_settings,
-)
-from .document import (
-    DocumentRenderRequest,
-    DocumentRenderResult,
-    DocumentStopAfter,
-    ProgressEvent,
-    ProgressHandler,
-    render_document,
-)
-from .engines import (
+from __future__ import annotations
+
+from voicerender import VoiceCloneRequest  # type: ignore[import-not-found]
+
+from readio.engines import (
+    discover_engine_targets,
     inspect_engine,
     inspect_engine_model,
     install_engine_model,
@@ -33,7 +15,7 @@ from .engines import (
     remove_engine_model,
     verify_engine_model,
 )
-from .profiles import (
+from readio.profiles import (
     create_profile,
     list_profile_roles,
     load_profile,
@@ -43,37 +25,51 @@ from .profiles import (
     set_profile_role,
     validate_profile,
 )
-from .speech import VoiceSelector, parse_voice_selector, speak
-from .voices import (
-    Qwen3VoiceDesignRecipe,
+from readio.speech import VoiceSelector, parse_voice_selector, speak
+from readio.voices import (
     clone_voice,
     create_voice_source,
-    design_voice,
     inspect_voice,
     list_voices,
     show_voice_source,
     verify_voice_source,
 )
+from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
+
+from .service import Readio
+from .types import (
+    BookExportRequest,
+    ComposeRequest,
+    DocumentExportRequest,
+    PipelineEvent,
+    PipelineResult,
+    PlanRequest,
+    RenderPlanRequest,
+    RenderPlanResult,
+    RunRequest,
+    VoiceRenderRequest,
+)
 
 __all__ = [
-    "CONFIG_TEMPLATE",
-    "BookBuildRequest",
-    "BookBuildResult",
-    "BookProgressEvent",
-    "DocumentRenderRequest",
-    "DocumentRenderResult",
-    "DocumentStopAfter",
-    "ProgressEvent",
-    "ProgressHandler",
-    "Qwen3VoiceDesignRecipe",
+    "BookExportRequest",
+    "ComposeRequest",
+    "CreateWorkspaceRequest",
+    "DocumentExportRequest",
+    "PipelineEvent",
+    "PipelineResult",
+    "PlanRequest",
+    "Readio",
+    "RenderPlanRequest",
+    "RenderPlanResult",
+    "RunRequest",
+    "VoiceCloneRequest",
+    "VoiceRenderRequest",
     "VoiceSelector",
-    "build_book",
+    "WorkspaceRef",
     "clone_voice",
-    "convert_book",
     "create_profile",
     "create_voice_source",
-    "design_voice",
-    "init_settings",
+    "discover_engine_targets",
     "inspect_engine",
     "inspect_engine_model",
     "inspect_voice",
@@ -84,20 +80,15 @@ __all__ = [
     "list_profile_roles",
     "list_voices",
     "load_profile",
-    "load_settings",
-    "merge_settings",
-    "open_book",
     "parse_voice_selector",
     "refresh_profile",
     "remove_engine_model",
     "remove_profile_role",
-    "render_document",
     "set_default_profile_role",
     "set_profile_role",
     "show_voice_source",
     "speak",
     "validate_profile",
-    "validate_settings",
     "verify_engine_model",
     "verify_voice_source",
 ]

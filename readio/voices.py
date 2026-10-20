@@ -9,10 +9,6 @@ from typing import Any
 
 import voicerender  # type: ignore[import-not-found]
 from voicerender import VoiceCloneRequest  # type: ignore[import-not-found]
-from voicerender.voice_design import (
-    Qwen3VoiceDesignRecipe,
-    design_qwen3_reference,
-)
 
 from ._outputs import save_specialist_file
 
@@ -148,59 +144,9 @@ def clone_voice(
     return profile
 
 
-def design_voice(
-    *,
-    prompt: str,
-    reference_text: str,
-    output: str | Path,
-    language: str = "en",
-    target: str = "voice-design-1.7b",
-    quality: str = "int4",
-    provider: str = "cpu",
-    seed: int | None = None,
-    temperature: float = 0.9,
-    top_k: int = 50,
-    repetition_penalty: float = 1.05,
-    max_new_tokens: int = 128,
-    cache_dir: str | Path | None = None,
-    catalog: str | Path | None = None,
-    source_output: str | Path | None = None,
-    force: bool = False,
-) -> object:
-    destination = Path(output).expanduser()
-    if destination.exists() or destination.is_symlink():
-        if not force:
-            raise FileExistsError(f"output already exists: {destination}")
-        if destination.is_symlink() or not destination.is_file():
-            raise ValueError(f"refusing to replace non-file output: {destination}")
-    recipe = Qwen3VoiceDesignRecipe(
-        prompt=prompt,
-        reference_text=reference_text,
-        language=language,
-        target_id=target,
-        quality=quality,
-        provider=provider,
-        seed=seed,
-        temperature=temperature,
-        top_k=top_k,
-        repetition_penalty=repetition_penalty,
-        max_new_tokens=max_new_tokens,
-    )
-    return design_qwen3_reference(
-        recipe,
-        destination,
-        cache_dir=cache_dir,
-        catalog=catalog,
-        source_output=source_output,
-        force=force,
-    )
-
-
 __all__ = [
-    "Qwen3VoiceDesignRecipe",
     "clone_voice",
     "create_voice_source",
-    "design_voice",
     "inspect_voice",
     "list_voices",
     "show_voice_source",

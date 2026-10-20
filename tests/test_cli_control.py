@@ -169,6 +169,7 @@ def test_speak_cli_profile_role_and_structured_usage_errors(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     captured: dict[str, object] = {}
+    api_speak = cli.api.speak
     monkeypatch.setattr(
         cli.api,
         "speak",
@@ -199,6 +200,7 @@ def test_speak_cli_profile_role_and_structured_usage_errors(
     assert captured["output"] == output
     assert captured["no_play"] is True
     assert json.loads(capsys.readouterr().out)["result"]["played"] is False
+    monkeypatch.setattr(cli.api, "speak", api_speak)
 
     assert cli.main(["speak", "Hello", "--profile", "narrator.toml", "--voice", "x", "--json"]) == 2
     error = json.loads(capsys.readouterr().out)

@@ -1,141 +1,98 @@
 # Readio
 
-Readio 0.5.0 is a small speech and audiobook convenience layer over specialist packages, with a staged single-document renderer and delegated engine, model, voice, profile, and settings controls. SSMDConvert owns `.ssmdbook` workspaces, UtterPlan owns semantic compilation and RenderPlan projection, VoiceRender owns voice resolution and synthesis, AudioCompose owns composition, and AudioExport owns encoded exports. Readio coordinates those public APIs.
+Readio is a thin orchestrator over specialist speech packages and native SSMDConvert workspaces. It creates and resolves `.ssmdoc` and `.ssmdbook` bundles, then delegates planning, RenderPlan projection, synthesis, composition, and export to the package that owns each stage. One-shot literal speech and local playback remain available.
+
+Readio does not maintain a second project directory, settings file, stage manifest, RenderPlan, or audio-job format. Specialist workspaces, artifacts, reports, and stage decisions are authoritative.
+
+## Install
+
+```bash
+python -m pip install readio
+python -m pip install "readio[kokoro]"  # or another supported VoiceRender engine extra
+python -m pip install "readio[audioexport]"  # optional export stage
+```
+
+`readio[documents]` enables SSMDConvert's optional PDF and DOCX support; `readio[spacy]` enables UtterPlan's optional spaCy support. Backend engines are provided by VoiceRender extras. Readio requires Python 3.10 or newer.
+
+## Quick start
+
+Create a native document workspace, create a VoiceRender profile, and run the pipeline:
+
+```bash
+readio init chapter.docx -o chapter.ssmdoc
+readio profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o narrator.renderprofile.toml
+readio run chapter.ssmdoc --profile narrator.renderprofile.toml --language en-US
+```
+
+For a book, convert the EPUB first. Keeping its RenderProfile in the workspace also makes its provenance available to UtterPlan:
+
+```bash
+readio init novel.epub -o novel.ssmdbook
+readio profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o novel.ssmdbook/narrator.renderprofile.toml
+readio run novel.ssmdbook --profile novel.ssmdbook/narrator.renderprofile.toml \
+  --chapters 5-17 --language en-US --export --output novel.m4b
+```
+
+`run` compiles, projects the RenderPlan, renders, and composes in order. If export is selected, Readio also runs AudioExport. It forwards UtterPlan's exact projected variant unchanged to every downstream stage. To operate one stage at a time or inspect the available options, see the [CLI reference](docs/cli.md).
 
 ## Manual specialist workflow
 
-The specialist commands are the detailed and canonical workflow. Install the stack and one VoiceRender engine extra:
+Use the specialist CLIs when you need package-specific controls. Preserve UtterPlan's exact variant through every stage:
 
 ```bash
-python -m pip install \
-  "ssmdconvert>=0.2.0,<0.3" \
-  "utterplan>=0.6.3,<0.7" \
-  "voicerender>=0.2.0,<0.3" \
-  "renderplan>=0.1.2,<0.2" \
-  "audiocompose>=0.3.0,<0.4" \
-  "audioexport>=0.1.2,<0.2"
-python -m pip install "voicerender[kokoro]>=0.2.0,<0.3"
-```
-
-Convert a book, compile it, and create a VoiceRender profile:
-
-```bash
-ssmdconvert book convert novel.epub --chapters 5-17 -o novel.ssmdbook
-utterplan compile-book novel.ssmdbook --chapters 5-17
-voicerender profile create \
-  --engine kokoro \
-  --target v1.0 \
-  --voice af_heart \
-  --language en-US \
-  -o narration.renderprofile.toml
+ssmdconvert book convert novel.epub -o novel.ssmdbook
+utterplan compile-book novel.ssmdbook
+voicerender profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o novel.ssmdbook/narrator.renderprofile.toml
 utterplan render-book novel.ssmdbook \
-  --chapters 5-17 \
-  --profile narration.renderprofile.toml
-```
+  --profile novel.ssmdbook/narrator.renderprofile.toml
 
-Use the exact variant returned by UtterPlan for every later stage:
-
-```bash
 VARIANT="<exact variant returned by utterplan render-book>"
-voicerender render-book novel.ssmdbook --chapters 5-17 --variant "$VARIANT" \
-  --emphasis-policy defer-to-compose
-audiocompose compose-book novel.ssmdbook --chapters 5-17 --variant "$VARIANT"
-audioexport export-book novel.ssmdbook --chapters 5-17 --variant "$VARIANT" \
-  --output novel.m4b
+voicerender render-book novel.ssmdbook --variant "$VARIANT"
+audiocompose compose-book novel.ssmdbook --variant "$VARIANT"
+audioexport export-book novel.ssmdbook --variant "$VARIANT" --output novel.m4b
 ```
-
-Specialist artifacts and reports remain authoritative. Use specialist CLIs and profiles when you need package-specific controls or detailed diagnostics.
 
 ## Readio shorthand
 
-Install Readio and the backend through VoiceRender, then speak literal text through the current audio device:
+### Direct speech
 
 ```bash
-python -m pip install readio "voicerender[kokoro]>=0.2.0,<0.3"
 readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 ```
 
-Readio also renders one source document through the specialist pipeline and exposes delegated engine/profile controls:
-
-```bash
-readio render article.pdf --profile narration.renderprofile.toml \
-  --output article.m4a --keep-artifacts
-readio engines list
-readio voices list
-readio profile role list narration.renderprofile.toml
-readio config init --output readio.toml
-```
-
-Settings are read only when explicitly selected with `--config PATH`; CLI flags override values from that file.
-
-Readio can also run the book stages as one operation:
-
-```bash
-readio audiobook convert novel.epub --chapters 5-17 --output novel.ssmdbook
-readio audiobook build novel.ssmdbook \
-  --profile narration.renderprofile.toml \
-  --chapters 5-17 \
-  --output novel.m4b
-```
-
-See [`readio --help`](docs/cli.md) for the retained commands and [`readio.api`](docs/api.md) for Python use. `readio doctor` reports specialist package versions and VoiceRender engine availability.
-
-## Installation options
-
-Readio requires Python 3.10 or newer. Install only the core convenience layer with `python -m pip install readio`, then install a backend extra through VoiceRender, for example `voicerender[kokoro]`, `voicerender[piper]`, or `voicerender[inflect]`. Readio does not mirror backend packages as its own extras.
-
-The `readio[spacy]` extra passes through UtterPlan's optional spaCy support. The `readio[documents]` extra passes through SSMDConvert's PDF and DOCX support. Neither is required for EPUB audiobook conversion or direct literal-text speech.
+`speak` sends literal text through VoiceRender and plays the returned audio locally by default. Use `--output FILE.wav --no-play` to save without playback. Readio also retains playback and audio I/O helpers for Python callers.
 
 ## Python API
 
 ```python
-from readio.api import (
-    BookBuildRequest,
-    DocumentRenderRequest,
-    build_book,
-    convert_book,
-    open_book,
-    render_document,
-    speak,
-)
+from pathlib import Path
+from readio.api import PlanRequest, Readio, RenderPlanRequest
 
-workspace = convert_book("novel.epub", "novel.ssmdbook", chapters="5-17")
-book = open_book(workspace.path)
-result = build_book(
-    BookBuildRequest(
-        workspace=book.path,
-        profile="narration.renderprofile.toml",
-        chapters="5-17",
-        output="novel.m4b",
-    )
+service = Readio()
+workspace = service.create_workspace("chapter.txt")  # writes chapter.ssmdoc
+compiled = service.plan(workspace, PlanRequest(language="en-US"))
+projection = service.render_plan(
+    workspace,
+    RenderPlanRequest(profile=Path("narrator.renderprofile.toml")),
 )
-print(result.variant)
-
-document = render_document(
-    DocumentRenderRequest(
-        source="chapter.docx",
-        profile="narration.renderprofile.toml",
-        stop_after="render-plan",
-        keep_artifacts=True,
-    )
-)
-print(document.renderplan_path)
-
-speak("A short sentence.", voice="kokoro:v1.0/af_heart", language="en-US")
+print(workspace.root, projection.variant)
 ```
 
-`build_book` returns the original specialist result objects inside a small Readio orchestration result. Specialist exceptions are not translated into Readio-specific error codes.
+Use `Readio.run()` and `RunRequest` for complete sequencing. The service returns specialist results and preserves the exact UtterPlan-projected variant. See the [Python API guide](docs/api.md).
 
 ## Breaking change in v0.5.0
 
-This is a clean break. Readio-owned generic projects, `.readio` state, `project.json`, legacy plan and render-manifest formats, old project and pipeline commands, and the mirrored engine/runtime APIs have been removed. There is no migration command or runtime compatibility layer. Readio does not read or attach legacy project state. Start from source material and convert it to an SSMDConvert-owned `.ssmdbook` workspace, or use the specialist packages directly.
+SSMDConvert owns conversion and workspace bundles; UtterPlan owns semantic plans and variants; RenderPlan and VoiceRender own their public contracts, profiles, and synthesis; AudioCompose owns composition; AudioExport owns encoding. Readio coordinates these public APIs and does not reproduce their schemas or validations.
 
-The old Readio engine, composition, and export implementations are gone. Install engine extras through VoiceRender, and use UtterPlan, AudioCompose, and AudioExport for their respective specialist operations. See the [v0.5.0 release notes](docs/changelog.md) for the full removal list.
+Version 0.5 is a deliberate clean break. Existing Readio project directories, settings, plans, manifests, and stage records are unsupported; there is no migration command or compatibility layer. Start from source material and create a native workspace with `readio init`, or use the specialist packages directly.
 
 ## Documentation
 
 - [Architecture and ownership](docs/architecture.md)
 - [CLI reference](docs/cli.md)
 - [Python API](docs/api.md)
-- [Examples](examples/README.md)
 - [Changelog](docs/changelog.md)
+- [Examples](examples/README.md)
