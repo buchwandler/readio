@@ -108,9 +108,9 @@ jobs:
               "readio/verification/",
           )
           assert not any(any(name.startswith(prefix) for prefix in forbidden) for name in names)
-          assert importlib.util.find_spec("readio.book")
+          assert importlib.util.find_spec("readio.workspace")
           assert importlib.util.find_spec("readio.speech")
-          for backend in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth", "supertonicsynth", "inflectsynth", "voicefolio"):
+          for backend in ("pykokoro", "pipersynth", "pocketsynth", "kittensynth", "supertonicsynth", "inflectsynth"):
               assert importlib.util.find_spec(backend) is None
           PY
           "${RUNNER_TEMP}/readio-wheel-smoke/bin/readio" --help
