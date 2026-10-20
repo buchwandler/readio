@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal, cast
 
 import audiocompose  # type: ignore[import-not-found]
 
@@ -11,6 +11,14 @@ from readio.api.types import ComposeRequest
 from readio.workspace import WorkspaceRef
 
 ProgressCallback = Callable[[Any], None] | None
+
+ComposeEmphasisPolicy = Literal["segment_fallback", "strict"]
+
+
+def _emphasis_policy(value: str) -> ComposeEmphasisPolicy:
+    if value not in ("segment_fallback", "strict"):
+        raise ValueError("emphasis_policy must be 'segment_fallback' or 'strict'")
+    return cast(ComposeEmphasisPolicy, value)
 
 
 def compose_document(
@@ -31,7 +39,7 @@ def compose_document(
         media_root=request.media_root,
         save_audiojob=request.save_audiojob,
         force=request.force,
-        emphasis_policy=request.emphasis_policy,
+        emphasis_policy=_emphasis_policy(request.emphasis_policy),
         on_progress=on_progress,
     )
 
@@ -56,6 +64,6 @@ def compose_book(
         save_audiojobs=request.save_audiojob,
         force=request.force,
         fail_fast=request.fail_fast,
-        emphasis_policy=request.emphasis_policy,
+        emphasis_policy=_emphasis_policy(request.emphasis_policy),
         on_progress=on_progress,
     )

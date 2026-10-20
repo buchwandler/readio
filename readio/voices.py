@@ -127,7 +127,7 @@ def clone_voice(
         target_id=target,
         language=language,
         reference_wav=Path(reference_wav) if reference_wav is not None else None,
-        voice_source=voice_source,
+        voice_source=Path(voice_source) if isinstance(voice_source, str) else voice_source,
         voicefolio_ref=voicefolio_ref,
         transcript=transcript,
         speaker=speaker,

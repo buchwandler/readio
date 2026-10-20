@@ -10,7 +10,7 @@ import voicerender  # type: ignore[import-not-found]
 from ._outputs import save_specialist_file
 
 
-def _persist_profile(profile: object, path: str | Path, *, force: bool = False) -> Path:
+def _persist_profile(profile: voicerender.RenderProfile, path: str | Path, *, force: bool = False) -> Path:
     return save_specialist_file(
         path,
         lambda destination: voicerender.save_render_profile(profile, destination),

@@ -46,17 +46,17 @@ def resolve_workspace(path: str | Path) -> WorkspaceRef:
         raise FileNotFoundError(root)
 
     if name.endswith(".ssmdoc"):
-        native = ssmdconvert.load_document_workspace(root)
+        document_native = ssmdconvert.load_document_workspace(root)
         return WorkspaceRef(
             root=root,
             kind="document",
-            document_id=native.status.id,
+            document_id=document_native.status.id,
         )
-    native = ssmdconvert.load_book_workspace(root)
+    book_native = ssmdconvert.load_book_workspace(root)
     return WorkspaceRef(
         root=root,
         kind="book",
-        chapter_ids=tuple(chapter.id for chapter in native.book.chapters),
+        chapter_ids=tuple(chapter.id for chapter in book_native.book.chapters),
     )
 
 
