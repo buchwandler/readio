@@ -11,10 +11,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_DEPENDENCIES = {
     "numpy>=1.23",
-    "utterplan>=0.6.5,<0.7",
-    "voicerender>=0.2.3,<0.3",
-    "audiocompose>=0.3.2,<0.4",
-    "ssmdconvert>=0.2.1,<0.3",
+    "utterplan>=0.6.6,<0.7",
+    "voicerender>=0.2.5,<0.3",
+    "audiocompose>=0.3.3,<0.4",
+    "ssmdconvert>=0.2.2,<0.3",
     "sounddevice>=0.4.6,<1.0",
 }
 FORBIDDEN_DISTRIBUTIONS = {
@@ -70,21 +70,21 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
         "inflect",
         "dev",
     }
-    assert optional["spacy"] == ["utterplan[spacy]>=0.6.5,<0.7"]
-    assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.1,<0.3"]
-    assert optional["audioexport"] == ["audioexport>=0.1.2,<0.2"]
+    assert optional["spacy"] == ["utterplan[spacy]>=0.6.6,<0.7"]
+    assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.2,<0.3"]
+    assert optional["audioexport"] == ["audioexport>=0.1.4,<0.2"]
     for extra in ("kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"):
-        assert optional[extra] == [f"voicerender[{extra}]>=0.2.3,<0.3"]
+        assert optional[extra] == [f"voicerender[{extra}]>=0.2.5,<0.3"]
     assert not any("renderplan" in item for item in project["dependencies"])
 
 
 def test_minimum_stack_ci_targets_requested_releases() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
     for requirement in (
-        '"ssmdconvert[pdf,docx]==0.2.1"',
-        '"utterplan[spacy]==0.6.5"',
-        '"voicerender==0.2.3"',
-        '"audiocompose==0.3.2"',
-        '"audioexport==0.1.2"',
+        '"ssmdconvert[pdf,docx]==0.2.2"',
+        '"utterplan[spacy]==0.6.6"',
+        '"voicerender==0.2.5"',
+        '"audiocompose==0.3.3"',
+        '"audioexport==0.1.4"',
     ):
         assert requirement in workflow

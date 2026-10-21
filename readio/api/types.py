@@ -64,39 +64,25 @@ class ComposeRequest:
     voicerender_root: Path | None = None
     output_root: Path | None = None
     media_root: Path | None = None
-    save_audiojob: Path | None = None
+    save_audiojobs: Path | None = None
     force: bool = False
     fail_fast: bool = False
     emphasis_policy: str = "segment_fallback"
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentExportRequest:
-    variant: str
-    output: Path | None = None
-    format: str | None = None
-    bitrate: str | int | None = None
-    metadata: Mapping[str, str] | None = None
-    cover: Path | None = None
-    timeline: Path | None = None
-    audiocompose_root: Path | None = None
-    output_root: Path | None = None
-    force: bool = False
-    ffmpeg: Path | None = None
-    ffprobe: Path | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class BookExportRequest:
+class ExportRequest:
     variant: str
     chapters: str = "all"
     output: Path | None = None
+    format: str | None = None
     profile: Path | None = None
-    metadata: Mapping[str, str] | None = None
-    cover: Path | None = None
     bitrate: str | int | None = None
     sample_rate: int | None = None
     channels: int | None = None
+    metadata: Mapping[str, str] | None = None
+    cover: Path | None = None
+    timeline: Path | None = None
     audiocompose_root: Path | None = None
     output_root: Path | None = None
     force: bool = False
@@ -109,7 +95,7 @@ class RunRequest:
     render_plan: RenderPlanRequest
     render: VoiceRenderRequest
     compose: ComposeRequest
-    export: DocumentExportRequest | BookExportRequest | None = None
+    export: ExportRequest | None = None
     plan: PlanRequest = dataclass_field(default_factory=PlanRequest)
     create: CreateWorkspaceRequest | None = None
 

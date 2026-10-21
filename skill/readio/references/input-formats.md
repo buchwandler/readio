@@ -1,16 +1,17 @@
 # Input formats
 
-Readio exposes three source paths:
+Readio exposes two source paths:
 
-- `readio speak` accepts literal text as positional arguments. It does not read files or interpret Markdown/SSMD. Use `readio.api.speak(text)` when text is already available in Python.
-- `readio init SOURCE` converts a supported source into an SSMDConvert-owned `.ssmdoc` or `.ssmdbook`. EPUB is inferred as a book; other supported formats are documents. SSMDConvert owns the supported formats and optional parser dependencies.
-- Pipeline commands accept an existing native `.ssmdoc` or `.ssmdbook` workspace. Use `readio plan`, `readio render-plan`, or `readio run` to dispatch specialist stages.
+- `readio speak` accepts literal text as positional arguments. It does not interpret Markdown or SSMD. Use `readio.api.speak(text)` when text is already available in Python.
+- `readio bundle convert SOURCE` delegates source conversion to SSMDConvert and produces an editable `.ssmd-bundle`. SSMDConvert owns accepted formats, source-kind detection, and optional parser dependencies.
 
-Do not pass Markdown or SSMD to `speak` expecting a reader pipeline. For structured multi-role or chapter-based content, create a native workspace and use UtterPlan and the downstream specialist workflow.
+Bundle lifecycle commands accept a source for conversion or an existing `.ssmd-bundle` directory. The manifest records whether the bundle represents a book or a document, and specialist APIs perform kind-sensitive dispatch.
+
+Do not pass structured Markdown or SSMD to `speak` expecting a reader pipeline. For structured multi-role or chapter-based content, convert the source into a bundle and use UtterPlan and the downstream specialist workflow.
 
 ```bash
 readio speak "A short literal sentence."
-readio init article.docx -o article.ssmdoc
-readio init novel.epub -o novel.ssmdbook
-readio run article.ssmdoc --profile narrator.renderprofile.toml --language en-US
+readio bundle convert article.docx -o article.ssmd-bundle
+readio bundle convert novel.epub -o novel.ssmd-bundle
+readio bundle run article.ssmd-bundle --profile narrator.renderprofile.toml --language en-US
 ```

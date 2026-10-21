@@ -1,6 +1,6 @@
 # Readio documentation
 
-Readio orchestrates native SSMDConvert `.ssmdoc` and `.ssmdbook` workspaces through specialist speech packages. Specialist APIs own the stage schemas, persisted artifacts, and detailed diagnostics; Readio provides workflow sequencing, a CLI, and direct literal-text speech.
+Readio orchestrates SSMDConvert `.ssmd-bundle` workspaces through specialist speech packages. The bundle manifest determines whether the content represents a book or a document; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides workflow sequencing, a CLI, and direct literal-text speech.
 
 ```{toctree}
 :maxdepth: 1
@@ -28,14 +28,10 @@ Readio requires Python 3.10 or newer. Install it with `python -m pip install rea
 ## Readio commands
 
 ```bash
-readio init story.txt -o story.ssmdoc
-readio run story.ssmdoc --profile narrator.renderprofile.toml --language en-US
+readio bundle convert story.txt -o story.ssmd-bundle
+readio bundle run story.ssmd-bundle --profile narrator.renderprofile.toml --language en-US
 readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
 readio doctor --json
 ```
 
-The pipeline commands operate on `.ssmdoc` and `.ssmdbook` bundles. Readio writes no parallel project state; stage outputs remain owned by the specialist packages.
-
-## No legacy migration
-
-Version 0.5 deliberately removes Readio-owned projects, settings, plans, manifests, and stage records. There is no migration command or compatibility layer. Recreate work from source material with `readio init`, or continue with the specialist packages directly.
+Every SSMD workflow uses the `.ssmd-bundle` format. Readio sequences the package-owned stages without duplicating specialist state or kind-sensitive routing.

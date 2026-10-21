@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from readio.api.types import (
-    BookExportRequest,
     ComposeRequest,
-    DocumentExportRequest,
+    ExportRequest,
     PipelineEvent,
     PipelineResult,
     PlanRequest,
@@ -104,7 +103,7 @@ class Readio:
     def export(
         self,
         workspace: WorkspaceRef | str | Path,
-        request: DocumentExportRequest | BookExportRequest,
+        request: ExportRequest,
     ) -> Any:
         return export(self._workspace(workspace), request)
 

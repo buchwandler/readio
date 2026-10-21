@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import re
 from pathlib import Path
 
 from readio.cli import build_parser
@@ -11,6 +13,7 @@ CURRENT_DOCS = (
     "docs/architecture.md",
     "docs/cli.md",
     "docs/api.md",
+    "examples/README.md",
     "skill/readio/SKILL.md",
     "skill/readio/references/cli.md",
     "skill/readio/references/input-formats.md",
@@ -19,10 +22,14 @@ CURRENT_DOCS = (
 )
 
 
+def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    action = next(item for item in parser._actions if isinstance(item, argparse._SubParsersAction))
+    return action.choices
+
+
 def test_documented_readio_commands_exist_in_the_current_cli() -> None:
-    parser = build_parser()
-    subparsers = next(action for action in parser._actions if action.dest == "command")
-    commands = subparsers.choices
+    commands = _subcommands(build_parser())
+    bundle_commands = _subcommands(commands["bundle"])
 
     for relative_path in CURRENT_DOCS:
         text = (ROOT / relative_path).read_text(encoding="utf-8")
@@ -30,23 +37,39 @@ def test_documented_readio_commands_exist_in_the_current_cli() -> None:
             command_line = line.strip()
             if not command_line.startswith("readio "):
                 continue
-            command = command_line.split(maxsplit=2)[1]
+            parts = command_line.split()
+            if len(parts) < 2:
+                continue
+            command = parts[1]
             if command.startswith("-"):
                 continue
             assert command in commands, f"{relative_path} documents unknown command: {command}"
+            if command == "bundle" and len(parts) >= 3 and not parts[2].startswith("-"):
+                assert parts[2] in bundle_commands, (
+                    f"{relative_path} documents unknown bundle command: {parts[2]}"
+                )
 
 
-def test_current_docs_explain_native_workspaces_and_no_migration() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    architecture = (ROOT / "docs/architecture.md").read_text(encoding="utf-8")
-    cli = (ROOT / "docs/cli.md").read_text(encoding="utf-8")
-
-    for content in (readme, architecture, cli):
-        assert ".ssmdoc" in content
-        assert ".ssmdbook" in content
-        assert "no migration" in content.lower()
-
-    for relative_path in CURRENT_DOCS:
+def test_workflow_docs_use_one_bundle_contract() -> None:
+    selected_docs = (
+        "README.md",
+        "docs/index.md",
+        "docs/architecture.md",
+        "docs/cli.md",
+        "docs/api.md",
+        "examples/README.md",
+        "skill/readio/SKILL.md",
+        "skill/readio/references/cli.md",
+        "skill/readio/references/input-formats.md",
+        "skill/readio/references/ssmd.md",
+        "skill/readio/references/troubleshooting.md",
+    )
+    for relative_path in selected_docs:
         content = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert ".ssmd-bundle" in content, relative_path
+        assert not re.search(r"\.ssmd(?:doc|book)\b", content), relative_path
+        assert not re.search(r"\b(?:compile|render|compose|export)-(?:document|book)\b", content), (
+            relative_path
+        )
         assert "readio audiobook" not in content
-        assert "readio config" not in content
+        assert "readio init" not in content

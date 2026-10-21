@@ -1,4 +1,4 @@
-"""CLI for native `.ssmdoc` and `.ssmdbook` workspace orchestration."""
+"""CLI for native `.ssmd-bundle` workspace orchestration."""
 
 from __future__ import annotations
 
@@ -22,30 +22,43 @@ from .doctor import doctor_report, format_doctor_report
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="readio",
-        description="Orchestrate speech workflows in native .ssmdoc and .ssmdbook workspaces",
+        description="Orchestrate speech workflows in native .ssmd-bundle workspaces",
     )
     parser.add_argument("--version", action="version", version=f"Readio {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     add_control_commands(commands)
-    _add_init_command(commands)
-    _add_plan_command(commands)
-    _add_render_plan_command(commands)
-    _add_render_command(commands)
-    _add_compose_command(commands)
-    _add_export_command(commands)
-    _add_run_command(commands)
+    _add_bundle_commands(commands)
     _add_speak_command(commands)
     doctor = commands.add_parser("doctor", help="Report package and VoiceRender engine health")
     doctor.add_argument("--json", action="store_true")
     return parser
 
 
-def _add_init_command(commands: Any) -> None:
-    command = commands.add_parser("init", help="Convert source into a native SSMD workspace")
+def _add_bundle_commands(commands: Any) -> None:
+    bundle = commands.add_parser(
+        "bundle",
+        help="Convert and process .ssmd-bundle workspaces",
+        description="Lifecycle commands for editable .ssmd-bundle directories.",
+    )
+    stages = bundle.add_subparsers(dest="bundle_command", required=True)
+    _add_bundle_convert_command(stages)
+    _add_bundle_compile_command(stages)
+    _add_bundle_render_plan_command(stages)
+    _add_bundle_render_command(stages)
+    _add_bundle_compose_command(stages)
+    _add_bundle_export_command(stages)
+    _add_bundle_run_command(stages)
+
+
+def _add_bundle_convert_command(commands: Any) -> None:
+    command = commands.add_parser(
+        "convert",
+        help="Convert source material into an SSMD bundle",
+        description="Convert source material into an editable .ssmd-bundle directory.",
+    )
     command.add_argument("source", type=Path)
     command.add_argument("-o", "--output", type=Path)
-    command.add_argument("--kind", choices=("auto", "document", "book"), default="auto")
     command.add_argument("--chapters", default="all")
     command.add_argument("--language")
     command.add_argument("--force", action="store_true")
@@ -53,9 +66,9 @@ def _add_init_command(commands: Any) -> None:
     command.add_argument("--no-progress", action="store_true")
 
 
-def _add_plan_command(commands: Any) -> None:
-    command = commands.add_parser("plan", help="Compile workspace speech with UtterPlan")
-    command.add_argument("workspace", type=Path)
+def _add_bundle_compile_command(commands: Any) -> None:
+    command = commands.add_parser("compile", help="Compile bundle speech with UtterPlan")
+    command.add_argument("bundle", type=Path)
     command.add_argument("--chapters", default="all")
     command.add_argument("--language")
     command.add_argument(
@@ -84,7 +97,6 @@ def _planner_config(args: argparse.Namespace) -> Any | None:
         "renderability_mode": args.renderability_mode,
     }
     controls = {name: value for name, value in controls.items() if value is not None}
-    linguistics = None
     if (
         args.spacy is not None
         or args.spacy_model is not None
@@ -111,9 +123,9 @@ def _planner_config(args: argparse.Namespace) -> Any | None:
     return utterplan.PlannerConfig(language=args.language, **controls)
 
 
-def _add_render_plan_command(commands: Any) -> None:
+def _add_bundle_render_plan_command(commands: Any) -> None:
     command = commands.add_parser("render-plan", help="Project a profile-specific RenderPlan")
-    command.add_argument("workspace", type=Path)
+    command.add_argument("bundle", type=Path)
     command.add_argument("--profile", type=Path, required=True)
     command.add_argument("--variant", help="User-friendly variant label")
     command.add_argument("--chapters", default="all")
@@ -124,9 +136,9 @@ def _add_render_plan_command(commands: Any) -> None:
     command.add_argument("--no-progress", action="store_true")
 
 
-def _add_render_command(commands: Any) -> None:
+def _add_bundle_render_command(commands: Any) -> None:
     command = commands.add_parser("render", help="Render speech through VoiceRender")
-    command.add_argument("workspace", type=Path)
+    command.add_argument("bundle", type=Path)
     command.add_argument("--variant", required=True)
     command.add_argument("--chapters", default="all")
     command.add_argument("--speech", default="all")
@@ -143,23 +155,22 @@ def _add_render_command(commands: Any) -> None:
 
 def _add_compose_options(command: Any) -> None:
     command.add_argument("--sample-rate", type=int)
-    command.add_argument("--channels", type=int)
     command.add_argument("--target-lufs", type=float)
     command.add_argument("--true-peak-ceiling-dbtp", type=float)
     command.add_argument("--clip-policy", choices=("clamp", "warn", "error"))
     command.add_argument("--peak-policy", choices=("reduce_gain", "error"))
 
 
-def _add_compose_command(commands: Any) -> None:
+def _add_bundle_compose_command(commands: Any) -> None:
     command = commands.add_parser("compose", help="Compose rendered segments through AudioCompose")
-    command.add_argument("workspace", type=Path)
+    command.add_argument("bundle", type=Path)
     command.add_argument("--variant", required=True)
     command.add_argument("--chapters", default="all")
     command.add_argument("--renderplan-root", type=Path)
     command.add_argument("--voicerender-root", type=Path)
     command.add_argument("--output-root", type=Path)
     command.add_argument("--media-root", type=Path)
-    command.add_argument("--save-audiojob", type=Path)
+    command.add_argument("--save-audiojobs", type=Path)
     _add_compose_options(command)
     command.add_argument("--force", action="store_true")
     command.add_argument("--fail-fast", action="store_true")
@@ -182,13 +193,13 @@ def _add_export_options(command: Any) -> None:
     command.add_argument("--force", action="store_true")
 
 
-def _add_export_command(commands: Any) -> None:
+def _add_bundle_export_command(commands: Any) -> None:
     command = commands.add_parser("export", help="Export composed audio through AudioExport")
-    command.add_argument("workspace", type=Path)
+    command.add_argument("bundle", type=Path)
     command.add_argument("--variant", required=True)
     command.add_argument("--chapters", default="all")
     command.add_argument("--profile", type=Path, help="AudioExport audiobook profile")
-    command.add_argument("--format", help="Document output format")
+    command.add_argument("--format")
     command.add_argument("--timeline", type=Path)
     command.add_argument("--sample-rate", type=int)
     command.add_argument("--channels", type=int)
@@ -196,11 +207,10 @@ def _add_export_command(commands: Any) -> None:
     command.add_argument("--json", action="store_true")
 
 
-def _add_run_command(commands: Any) -> None:
-    command = commands.add_parser("run", help="Run the complete native workspace pipeline")
-    command.add_argument("source_or_workspace", type=Path)
-    command.add_argument("--workspace-output", type=Path)
-    command.add_argument("--kind", choices=("auto", "document", "book"), default="auto")
+def _add_bundle_run_command(commands: Any) -> None:
+    command = commands.add_parser("run", help="Run the complete SSMD bundle pipeline")
+    command.add_argument("source_or_bundle", type=Path)
+    command.add_argument("--bundle-output", type=Path)
     command.add_argument("--profile", type=Path, required=True)
     command.add_argument("--variant", help="User-friendly RenderPlan label")
     command.add_argument("--chapters", default="all")
@@ -217,8 +227,9 @@ def _add_run_command(commands: Any) -> None:
     command.add_argument("--voicerender-root", type=Path)
     command.add_argument("--compose-output-root", type=Path)
     command.add_argument("--media-root", type=Path)
-    command.add_argument("--save-audiojob", type=Path)
+    command.add_argument("--save-audiojobs", type=Path)
     _add_compose_options(command)
+    command.add_argument("--channels", type=int)
     command.add_argument("--force-render", action="store_true")
     command.add_argument("--force-compose", action="store_true")
     command.add_argument("--force-export", action="store_true")
@@ -317,91 +328,92 @@ def _emit_result(result: Any, *, as_json: bool, human: str | None = None) -> int
     return 0
 
 
-def _compose_request(
-    args: argparse.Namespace, workspace_kind: str, variant: str
-) -> api.ComposeRequest:
+def _compose_request(args: argparse.Namespace, variant: str) -> api.ComposeRequest:
     values = {
-        "sample_rate": args.sample_rate,
-        "channels": args.channels,
-        "clip_policy": args.clip_policy,
-        "target_lufs": args.target_lufs,
-        "true_peak_ceiling_dbtp": args.true_peak_ceiling_dbtp,
-        "peak_policy": args.peak_policy,
+        "sample_rate": getattr(args, "sample_rate", None),
+        "clip_policy": getattr(args, "clip_policy", None),
+        "target_lufs": getattr(args, "target_lufs", None),
+        "true_peak_ceiling_dbtp": getattr(args, "true_peak_ceiling_dbtp", None),
+        "peak_policy": getattr(args, "peak_policy", None),
     }
     option_values = {key: value for key, value in values.items() if value is not None}
-    options = None
-    if option_values:
-        options_type = (
-            audiocompose.BookComposeOptions
-            if workspace_kind == "book"
-            else audiocompose.DocumentComposeOptions
-        )
-        options = options_type(**option_values)
+    options = audiocompose.BundleComposeOptions(**option_values) if option_values else None
+    renderplan_root = getattr(args, "compose_renderplan_root", None)
+    if renderplan_root is None:
+        renderplan_root = getattr(args, "renderplan_root", None)
+    output_root = getattr(args, "compose_output_root", None)
+    if output_root is None:
+        output_root = getattr(args, "output_root", None)
     return api.ComposeRequest(
         variant=variant,
         chapters=args.chapters,
         options=options,
-        renderplan_root=getattr(args, "renderplan_root", None),
+        renderplan_root=renderplan_root,
         voicerender_root=getattr(args, "voicerender_root", None),
-        output_root=getattr(args, "output_root", None),
+        output_root=output_root,
         media_root=getattr(args, "media_root", None),
-        save_audiojob=getattr(args, "save_audiojob", None),
-        force=getattr(args, "force", False),
+        save_audiojobs=getattr(args, "save_audiojobs", None),
+        force=getattr(args, "force_compose", getattr(args, "force", False)),
         fail_fast=getattr(args, "fail_fast", False),
-        emphasis_policy=getattr(args, "emphasis_policy", "segment_fallback"),
+        emphasis_policy=getattr(
+            args, "compose_emphasis_policy", getattr(args, "emphasis_policy", "segment_fallback")
+        ),
     )
 
 
-def _export_request(args: argparse.Namespace, workspace_kind: str, variant: str) -> Any:
-    common = {
-        "variant": variant,
-        "output": args.output,
-        "bitrate": args.bitrate,
-        "metadata": _metadata(args.metadata),
-        "cover": args.cover,
-        "audiocompose_root": args.audiocompose_root,
-        "output_root": args.output_root,
-        "force": args.force,
-        "ffmpeg": args.ffmpeg,
-        "ffprobe": args.ffprobe,
-    }
-    if workspace_kind == "book":
-        return api.BookExportRequest(
-            **common,
-            chapters=args.chapters,
-            profile=args.profile,
-            sample_rate=getattr(args, "sample_rate", None),
-            channels=getattr(args, "channels", None),
-        )
-    return api.DocumentExportRequest(**common, format=args.format, timeline=args.timeline)
+def _export_request(args: argparse.Namespace, variant: str) -> api.ExportRequest:
+    profile = getattr(args, "export_profile", None)
+    if profile is None:
+        profile = getattr(args, "profile", None)
+    output_root = getattr(args, "export_output_root", None)
+    if output_root is None:
+        output_root = getattr(args, "output_root", None)
+    return api.ExportRequest(
+        variant=variant,
+        chapters=args.chapters,
+        output=args.output,
+        format=getattr(args, "format", None),
+        profile=profile,
+        bitrate=args.bitrate,
+        sample_rate=getattr(args, "sample_rate", None),
+        channels=getattr(args, "channels", None),
+        metadata=_metadata(getattr(args, "metadata", [])),
+        cover=args.cover,
+        timeline=getattr(args, "timeline", None),
+        audiocompose_root=args.audiocompose_root,
+        output_root=output_root,
+        force=getattr(args, "force_export", getattr(args, "force", False)),
+        ffmpeg=args.ffmpeg,
+        ffprobe=args.ffprobe,
+    )
 
 
-def _run_command(args: argparse.Namespace, service: api.Readio) -> int:
+def _run_bundle_command(args: argparse.Namespace, service: api.Readio) -> int:
     on_progress = None if args.no_progress else _progress
-    if args.command == "init":
-        init_request = api.CreateWorkspaceRequest(
+
+    if args.bundle_command == "convert":
+        create_request = api.CreateWorkspaceRequest(
             source=args.source,
             output=args.output,
-            kind=args.kind,
             language=args.language,
             chapters=args.chapters,
             force=args.force,
         )
-        workspace = service.create_workspace(args.source, init_request, on_progress=on_progress)
-        init_result = {
-            "workspace_kind": workspace.kind,
-            "workspace": str(workspace.root),
+        workspace = service.create_workspace(args.source, create_request, on_progress=on_progress)
+        convert_payload = {
+            "bundle": str(workspace.root),
+            "bundle_kind": workspace.kind,
             "manifest": str(workspace.root / "manifest.json"),
         }
         return _emit_result(
-            init_result,
+            convert_payload,
             as_json=args.json,
-            human=f"Created .ssmd{'book' if workspace.kind == 'book' else 'doc'} workspace: {workspace.root}",
+            human=f"Created SSMD bundle: {workspace.root} (kind: {workspace.kind})",
         )
 
-    if args.command == "plan":
-        plan_result = service.plan(
-            args.workspace,
+    if args.bundle_command == "compile":
+        result = service.plan(
+            args.bundle,
             api.PlanRequest(
                 chapters=args.chapters,
                 language=args.language,
@@ -411,11 +423,11 @@ def _run_command(args: argparse.Namespace, service: api.Readio) -> int:
             ),
             on_progress=on_progress,
         )
-        return _emit_result(plan_result, as_json=args.json, human="UtterPlan compilation complete.")
+        return _emit_result(result, as_json=args.json, human="UtterPlan compilation complete.")
 
-    if args.command == "render-plan":
-        projection_result = service.render_plan(
-            args.workspace,
+    if args.bundle_command == "render-plan":
+        projection = service.render_plan(
+            args.bundle,
             api.RenderPlanRequest(
                 profile=args.profile,
                 variant=args.variant,
@@ -426,14 +438,16 @@ def _run_command(args: argparse.Namespace, service: api.Readio) -> int:
             ),
             on_progress=on_progress,
         )
-        payload = {"variant": projection_result.variant, "result": projection_result.native}
+        result = {"variant": projection.variant, "result": projection.native}
         return _emit_result(
-            payload, as_json=args.json, human=f"RenderPlan variant: {projection_result.variant}"
+            result,
+            as_json=args.json,
+            human=f"RenderPlan variant: {projection.variant}",
         )
 
-    if args.command == "render":
-        rendering_result = service.render(
-            args.workspace,
+    if args.bundle_command == "render":
+        result = service.render(
+            args.bundle,
             api.VoiceRenderRequest(
                 variant=args.variant,
                 chapters=args.chapters,
@@ -448,67 +462,27 @@ def _run_command(args: argparse.Namespace, service: api.Readio) -> int:
             ),
             on_progress=on_progress,
         )
-        return _emit_result(rendering_result, as_json=args.json, human="VoiceRender complete.")
+        return _emit_result(result, as_json=args.json, human="VoiceRender complete.")
 
-    if args.command == "compose":
-        workspace = service.resolve_workspace(args.workspace)
-        compose_request = _compose_request(args, workspace.kind, args.variant)
-        composition_result = service.compose(workspace, compose_request, on_progress=on_progress)
-        return _emit_result(composition_result, as_json=args.json, human="AudioCompose complete.")
-
-    if args.command == "export":
-        workspace = service.resolve_workspace(args.workspace)
-        export_result = service.export(
-            workspace, _export_request(args, workspace.kind, args.variant)
+    if args.bundle_command == "compose":
+        result = service.compose(
+            args.bundle, _compose_request(args, args.variant), on_progress=on_progress
         )
-        return _emit_result(export_result, as_json=args.json, human="AudioExport complete.")
+        return _emit_result(result, as_json=args.json, human="AudioCompose complete.")
 
-    if args.command == "run":
-        source = args.source_or_workspace
-        kind = args.kind
-        if kind == "auto":
-            name = source.name.casefold()
-            kind = (
-                "book"
-                if name.endswith(".ssmdbook") or source.suffix.casefold() == ".epub"
-                else "document"
-            )
-        export_request: api.DocumentExportRequest | api.BookExportRequest | None = None
-        if args.export:
-            common = {
-                "variant": "pending",
-                "output": args.output,
-                "bitrate": args.bitrate,
-                "metadata": _metadata(args.metadata),
-                "cover": args.cover,
-                "audiocompose_root": args.audiocompose_root,
-                "output_root": args.export_output_root,
-                "force": args.force_export,
-                "ffmpeg": args.ffmpeg,
-                "ffprobe": args.ffprobe,
-            }
-            if kind == "book":
-                export_request = api.BookExportRequest(
-                    **common,
-                    chapters=args.chapters,
-                    profile=args.export_profile,
-                    sample_rate=args.sample_rate,
-                    channels=args.channels,
-                )
-            else:
-                export_request = api.DocumentExportRequest(
-                    **common,
-                    format=args.format,
-                    timeline=args.timeline,
-                )
+    if args.bundle_command == "export":
+        result = service.export(args.bundle, _export_request(args, args.variant))
+        return _emit_result(result, as_json=args.json, human="AudioExport complete.")
+
+    if args.bundle_command == "run":
+        source = args.source_or_bundle
         run_request = api.RunRequest(
             create=api.CreateWorkspaceRequest(
                 source=source,
-                kind=args.kind,
+                output=args.bundle_output,
                 language=args.language,
                 chapters=args.chapters,
                 force=args.force_convert,
-                output=args.workspace_output,
             ),
             plan=api.PlanRequest(
                 chapters=args.chapters,
@@ -537,35 +511,25 @@ def _run_command(args: argparse.Namespace, service: api.Readio) -> int:
                 fail_fast=args.fail_fast,
                 emphasis_policy=args.emphasis_policy,
             ),
-            compose=api.ComposeRequest(
-                variant="pending",
-                chapters=args.chapters,
-                options=_compose_request(args, kind, "pending").options,
-                renderplan_root=args.compose_renderplan_root,
-                voicerender_root=args.voicerender_root,
-                output_root=args.compose_output_root,
-                media_root=args.media_root,
-                save_audiojob=args.save_audiojob,
-                force=args.force_compose,
-                fail_fast=args.fail_fast,
-                emphasis_policy=args.compose_emphasis_policy,
-            ),
-            export=export_request,
+            compose=_compose_request(args, "pending"),
+            export=_export_request(args, "pending") if args.export else None,
         )
         pipeline_result = service.run(source, run_request, on_progress=on_progress)
-        payload = {
-            "workspace_kind": pipeline_result.workspace.kind,
-            "workspace": str(pipeline_result.workspace.root),
+        pipeline_payload = {
+            "bundle": str(pipeline_result.workspace.root),
+            "bundle_kind": pipeline_result.workspace.kind,
             "variant": pipeline_result.variant,
             "completed_stages": ["compile", "render-plan", "render", "compose"]
             + (["export"] if pipeline_result.export is not None else []),
             "export": pipeline_result.export,
         }
         return _emit_result(
-            payload, as_json=args.json, human=f"Completed pipeline: {pipeline_result.variant}"
+            pipeline_payload,
+            as_json=args.json,
+            human=f"Completed pipeline: {pipeline_result.variant}",
         )
 
-    raise AssertionError(f"unknown command {args.command}")
+    raise AssertionError(f"unknown bundle command {args.bundle_command}")
 
 
 def _run_speak(args: argparse.Namespace) -> int:
@@ -615,8 +579,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     service = api.Readio()
     try:
-        if args.command in {"init", "plan", "render-plan", "render", "compose", "export", "run"}:
-            return _run_command(args, service)
+        if args.command == "bundle":
+            return _run_bundle_command(args, service)
         if args.command == "speak":
             return _run_speak(args)
         if args.command == "doctor":

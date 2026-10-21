@@ -1,13 +1,13 @@
 # Python API
 
-`readio.api` exposes a small orchestration service and management functions that delegate to specialist package-root APIs. Specialist results are returned unchanged; Readio does not mirror their option schemas or translate their exceptions.
+`readio.api` exposes a small orchestration service and management functions that delegate to specialist package-root APIs. Specialist results are returned unchanged; Readio does not mirror their option schemas or translate their validations.
 
 ```python
 from pathlib import Path
 from readio.api import (
-    BookExportRequest,
-    CreateWorkspaceRequest,
     ComposeRequest,
+    CreateWorkspaceRequest,
+    ExportRequest,
     PlanRequest,
     Readio,
     RenderPlanRequest,
@@ -16,56 +16,65 @@ from readio.api import (
 )
 ```
 
-## Workspace lifecycle
+## Bundle lifecycle
 
-`Readio.create_workspace(source, request=None)` converts source material through SSMDConvert and returns an immutable `WorkspaceRef`. EPUB input defaults to a `.ssmdbook`; other supported input defaults to `.ssmdoc`. `Readio.resolve_workspace(path)` validates and loads an existing native workspace. No Readio project registry or migration is involved.
+`Readio.create_workspace(source, request=None)` converts source material through SSMDConvert and returns an immutable `WorkspaceRef`. SSMDConvert chooses the bundle kind and default destination. Every resulting workspace uses the `.ssmd-bundle` suffix. `Readio.resolve_workspace(path)` asks SSMDConvert to validate and load an existing editable bundle.
 
 ```python
 service = Readio()
 workspace = service.create_workspace("article.txt")
-assert workspace.root.suffix == ".ssmdoc"
+assert workspace.root.name == "article.ssmd-bundle"
 ```
 
-Use `CreateWorkspaceRequest` to select kind, output path, language, chapter range, or force behavior. Its source must match the `source` argument.
+Use `CreateWorkspaceRequest` to pass an explicit output path, language, chapter selector, or force behavior. It does not contain a kind selector; source and manifest kind detection belong to SSMDConvert.
 
-## Planning and pipeline sequencing
+## Planning and stage operations
 
-`Readio.plan(workspace, PlanRequest(...))` delegates semantic compilation to UtterPlan. `Readio.render_plan(workspace, RenderPlanRequest(profile=...))` returns `RenderPlanResult(native, variant)`. The `variant` is the exact value returned by UtterPlan.
+`Readio.plan(workspace, PlanRequest(...))` delegates semantic compilation to UtterPlan. `Readio.render_plan(workspace, RenderPlanRequest(profile=...))` returns `RenderPlanResult(native, variant)`. The variant is the exact value returned by UtterPlan.
 
-`Readio.render`, `Readio.compose`, and `Readio.export` dispatch by workspace kind to VoiceRender, AudioCompose, and AudioExport. Requests contain Readio routing fields and specialist-native option values; artifacts and reports remain package-owned.
+`Readio.render`, `Readio.compose`, and `Readio.export` forward requests to VoiceRender, AudioCompose, and AudioExport bundle APIs. Requests contain Readio routing fields and specialist-native option values; artifacts and reports remain package-owned. `WorkspaceRef.kind` is informational and does not select a Readio implementation.
 
-`Readio.run(source_or_workspace, RunRequest(...))` performs workspace creation/resolution, planning, projection, rendering, composition, and optional export. It replaces downstream request variants with the exact projected variant before dispatch:
+`ComposeRequest` supports bundle composition options, optional output policy, stage roots, pause policy, `save_audiojobs`, and force/fail-fast behavior. The specialist validates kind-sensitive composition rules.
+
+Use one `ExportRequest` for both book and document bundles:
+
+```python
+export_request = ExportRequest(
+    variant="exact-renderplan-variant",
+    chapters="all",
+    output=Path("article.m4a"),
+    format="m4a",
+    metadata={"title": "Article"},
+)
+result = service.export(workspace, export_request)
+```
+
+AudioExport owns kind-sensitive option validation. Its integration is optional; installing `readio[audioexport]` provides it.
+
+## Complete pipeline sequencing
+
+`Readio.run(source_or_bundle, RunRequest(...))` converts or resolves the input, then plans, projects, renders, composes, and optionally exports. It replaces downstream request variants with the exact projected variant before dispatch:
 
 ```python
 profile = Path("narrator.renderprofile.toml")
 result = service.run(
-    workspace.root,
+    "article.txt",
     RunRequest(
+        create=CreateWorkspaceRequest(source=Path("article.txt")),
         plan=PlanRequest(language="en-US"),
         render_plan=RenderPlanRequest(profile=profile),
         render=VoiceRenderRequest(variant="pending"),
         compose=ComposeRequest(variant="pending"),
+        export=ExportRequest(variant="pending", output=Path("article.m4a")),
     ),
 )
-print(result.variant)  # exact UtterPlan variant
+print(result.workspace.root, result.variant)
 ```
 
-`PipelineResult` retains the workspace, specialist results, projected variant, and optional export result. `PipelineEvent` adapts stage progress and retains the original event as `source`. Specialist exceptions propagate through a small stage-context wrapper.
+`PipelineResult` retains the workspace, specialist results, projected variant, and optional export result. `PipelineEvent` adapts stage progress and retains the original event as `source`. Specialist failures are wrapped with stage context while preserving their error code and cause.
 
-## Book operations
+## Direct speech and management
 
-`Readio.create_workspace()` converts EPUB input into a native `.ssmdbook`; `CreateWorkspaceRequest` can select chapters and conversion language. `PlanRequest`, `RenderPlanRequest`, `VoiceRenderRequest`, and `ComposeRequest` carry book chapter selectors to the corresponding specialists. Use `BookExportRequest` when requesting book export through the Python service.
+`readio.api.speak(text, ...)` synthesizes literal text through VoiceRender and plays it locally unless `no_play=True`. It accepts a voice selector or a saved RenderProfile and role, and can save WAV output. It does not create a bundle or invoke UtterPlan, AudioCompose, or AudioExport.
 
-Store a book's RenderProfile inside its workspace so UtterPlan can record a workspace-relative provenance reference during projection.
-
-## Direct speech
-
-`readio.api.speak(text, ...)` synthesizes literal text through VoiceRender and plays it locally unless `no_play=True`. It accepts a voice selector or a saved RenderProfile and role, and can save WAV output. It does not create a workspace or invoke UtterPlan, AudioCompose, or AudioExport.
-
-## VoiceRender management
-
-`readio.api` provides thin delegates for engine/model discovery and management, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. Calls use VoiceRender's public package-root API and preserve its result objects and validation behavior. Readio does not provide voice design or an engine implementation.
-
-## Compatibility policy
-
-Version 0.5 is a clean break. Readio-owned project directories, settings, plans, manifests, and old stage APIs are unsupported. There is no migration, compatibility alias, or hidden state attachment. Use SSMDConvert to create native `.ssmdoc`/`.ssmdbook` workspaces from source material, or use the specialist packages directly.
+`readio.api` also provides thin delegates for engine/model discovery and management, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. Calls use VoiceRender's public package-root API and preserve its result objects and validation behavior.

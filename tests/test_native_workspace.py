@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import ssmdconvert
@@ -31,22 +32,20 @@ def _make_epub(path: Path) -> None:
     epub.write_epub(str(path), book)
 
 
-def test_create_and_resolve_native_document_workspace(tmp_path: Path) -> None:
+def test_create_and_resolve_document_bundle(tmp_path: Path) -> None:
     source = tmp_path / "story.txt"
     source.write_text("A short story.", encoding="utf-8")
 
     workspace = create_workspace(source)
 
     assert workspace.kind == "document"
-    assert workspace.root == (tmp_path / "story.ssmdoc").resolve()
-    assert workspace.document_id == "document-0001"
+    assert workspace.root == (tmp_path / "story.ssmd-bundle").resolve()
     assert (workspace.root / "manifest.json").is_file()
-    assert (workspace.root / "document.ssmd.md").is_file()
     assert not (workspace.root / ".readio").exists()
     assert resolve_workspace(workspace.root) == workspace
 
 
-def test_create_native_document_from_valid_ssmd_source(tmp_path: Path) -> None:
+def test_create_document_bundle_from_valid_ssmd_source(tmp_path: Path) -> None:
     source = tmp_path / "article.ssmd.md"
     source.write_text(
         '---\nssmd_version: "0.9"\ntitle: "Article"\nlanguage: en\n---\n\nHello.\n',
@@ -55,29 +54,64 @@ def test_create_native_document_from_valid_ssmd_source(tmp_path: Path) -> None:
 
     workspace = create_workspace(source)
 
-    assert workspace.root.name == "article.ssmdoc"
+    assert workspace.root.name == "article.ssmd-bundle"
     assert workspace.kind == "document"
+    assert (workspace.root / "manifest.json").is_file()
 
 
-def test_create_selected_book_workspace_with_package_chapter_ids(tmp_path: Path) -> None:
+def test_create_epub_bundle_uses_manifest_kind(tmp_path: Path) -> None:
     source = tmp_path / "book.epub"
     _make_epub(source)
 
-    workspace = create_workspace(
-        source,
-        CreateWorkspaceRequest(source=source, chapters="2"),
-    )
+    workspace = create_workspace(source)
 
-    native = ssmdconvert.load_book_workspace(workspace.root)
     assert workspace.kind == "book"
-    assert workspace.root == (tmp_path / "book.ssmdbook").resolve()
-    assert workspace.chapter_ids == ("chapter-0002",)
-    assert tuple(chapter.id for chapter in native.book.chapters) == workspace.chapter_ids
+    assert workspace.root == (tmp_path / "book.ssmd-bundle").resolve()
     assert (workspace.root / "manifest.json").is_file()
     assert not (workspace.root / ".readio").exists()
 
 
-def test_existing_native_workspace_is_used_without_reconversion(
+def test_conversion_forwards_output_and_options_to_ssmdconvert(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "story.txt"
+    source.write_text("A short story.", encoding="utf-8")
+    output = tmp_path / "exact.ssmd-bundle"
+    output.mkdir()
+    progress = lambda _event: None
+    captured: dict[str, object] = {}
+
+    def convert_bundle(source_arg: Path, **kwargs: object) -> object:
+        captured["source"] = source_arg
+        captured.update(kwargs)
+        return SimpleNamespace(output=output)
+
+    monkeypatch.setattr(ssmdconvert, "convert_bundle", convert_bundle)
+    monkeypatch.setattr(
+        ssmdconvert, "load_bundle_workspace", lambda _root: SimpleNamespace(kind="document")
+    )
+    request = CreateWorkspaceRequest(
+        source=source,
+        output=output,
+        language="en-US",
+        chapters="2-4",
+        force=True,
+    )
+
+    workspace = create_workspace(source, request, on_progress=progress)
+
+    assert workspace.root == output.resolve()
+    assert captured == {
+        "source": source.resolve(),
+        "output": output,
+        "chapters": "2-4",
+        "language": "en-US",
+        "force": True,
+        "on_progress": progress,
+    }
+
+
+def test_existing_bundle_is_resolved_without_reconversion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "story.txt"
@@ -85,39 +119,43 @@ def test_existing_native_workspace_is_used_without_reconversion(
     created = create_workspace(source)
 
     def unexpected_conversion(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("existing workspace must not be reconverted")
+        raise AssertionError("existing bundle must not be reconverted")
 
-    monkeypatch.setattr(ssmdconvert, "convert_document_artifact", unexpected_conversion)
+    monkeypatch.setattr(ssmdconvert, "convert_bundle", unexpected_conversion)
     assert create_workspace(created.root) == created
 
 
-def test_strict_suffix_missing_path_and_kind_mismatch_errors(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match=r"must end in \.ssmdoc or \.ssmdbook"):
-        resolve_workspace(tmp_path / "not-a-workspace")
+def test_rejects_wrong_suffix_packed_bundle_missing_path_and_non_directory(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=r"must end in \.ssmd-bundle"):
+        resolve_workspace(tmp_path / "not-a-bundle")
+
+    with pytest.raises(
+        ValueError, match="packed .ssmd-bundle.zip artifacts are not pipeline workspaces"
+    ):
+        resolve_workspace(tmp_path / "packed.ssmd-bundle.zip")
 
     with pytest.raises(FileNotFoundError):
-        resolve_workspace(tmp_path / "missing.ssmdoc")
+        resolve_workspace(tmp_path / "missing.ssmd-bundle")
 
-    source = tmp_path / "story.txt"
-    source.write_text("A short story.", encoding="utf-8")
-    with pytest.raises(ValueError, match=r"cannot end in \.ssmdbook"):
-        create_workspace(
-            source,
-            CreateWorkspaceRequest(source=source, output=tmp_path / "wrong.ssmdbook"),
-        )
+    bundle_file = tmp_path / "not-a-directory.ssmd-bundle"
+    bundle_file.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(ValueError, match="requires an editable .ssmd-bundle directory"):
+        resolve_workspace(bundle_file)
 
 
-def test_package_loader_exception_is_propagated_unchanged(
+def test_loader_exception_is_propagated_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = tmp_path / "malformed.ssmdoc"
+    root = tmp_path / "malformed.ssmd-bundle"
     root.mkdir()
     failure = RuntimeError("invalid native manifest")
 
     def fail_loader(_path: Path) -> None:
         raise failure
 
-    monkeypatch.setattr(ssmdconvert, "load_document_workspace", fail_loader)
+    monkeypatch.setattr(ssmdconvert, "load_bundle_workspace", fail_loader)
 
     with pytest.raises(RuntimeError) as caught:
         resolve_workspace(root)

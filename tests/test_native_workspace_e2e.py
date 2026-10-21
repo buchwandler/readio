@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal
+from typing import Any, Literal
 
 import audiocompose
 import pytest
@@ -39,10 +39,10 @@ def _write_epub(path: Path) -> None:
         chapters.append(chapter)
     book.add_item(epub.EpubNav())
     book.add_item(epub.EpubNcx())
-    book.toc = tuple(
+    book.toc = [
         epub.Link(chapter.file_name, chapter.title, f"chapter-{number}")
         for number, chapter in enumerate(chapters, start=1)
-    )
+    ]
     book.spine = ["nav", *chapters]
     epub.write_epub(str(path), book)
 
@@ -61,7 +61,7 @@ def _write_profile(path: Path) -> None:
 
 
 @pytest.mark.parametrize("kind", ["document", "book"])
-def test_document_and_book_full_run_without_tts_engine(
+def test_bundle_kinds_use_the_same_model_free_full_run_api(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     kind: Literal["document", "book"],
@@ -77,30 +77,21 @@ def test_document_and_book_full_run_without_tts_engine(
     profile = workspace.root / "narrator.renderprofile.toml"
     _write_profile(profile)
 
-    observed: dict[str, str] = {}
+    observed: dict[str, Any] = {}
 
-    def render_document(_path: Path, **kwargs: object) -> object:
-        observed["render"] = str(kwargs["variant"])
+    def render_bundle(path: Path, **kwargs: Any) -> object:
+        observed["render_path"] = path
+        observed["render_variant"] = kwargs["variant"]
         return SimpleNamespace(rendered=True)
 
-    def render_book(_path: Path, **kwargs: object) -> object:
-        observed["render"] = str(kwargs["variant"])
-        return SimpleNamespace(rendered=True)
-
-    def compose_document(_path: Path, **kwargs: object) -> object:
-        observed["compose"] = str(kwargs["variant"])
+    def compose_bundle(path: Path, **kwargs: Any) -> object:
+        observed["compose_path"] = path
+        observed["compose_variant"] = kwargs["variant"]
+        observed["compose_options"] = kwargs["options"]
         return SimpleNamespace(composed=True)
 
-    def compose_book(_path: Path, **kwargs: object) -> object:
-        observed["compose"] = str(kwargs["variant"])
-        return SimpleNamespace(composed=True)
-
-    if kind == "document":
-        monkeypatch.setattr(voicerender, "render_document", render_document)
-        monkeypatch.setattr(audiocompose, "compose_document", compose_document)
-    else:
-        monkeypatch.setattr(voicerender, "render_book", render_book)
-        monkeypatch.setattr(audiocompose, "compose_book", compose_book)
+    monkeypatch.setattr(voicerender, "render_bundle", render_bundle)
+    monkeypatch.setattr(audiocompose, "compose_bundle", compose_bundle)
 
     result = service.run(
         workspace.root,
@@ -118,7 +109,12 @@ def test_document_and_book_full_run_without_tts_engine(
     assert result.render_plan.variant == result.variant
     assert result.render.rendered is True
     assert result.compose.composed is True
-    assert observed == {"render": result.variant, "compose": result.variant}
+    assert observed["render_path"] == workspace.root
+    assert observed["compose_path"] == workspace.root
+    assert observed["render_variant"] == result.variant
+    assert observed["compose_variant"] == result.variant
+    assert observed["compose_options"].chapters == "all"
     assert (workspace.root / "manifest.json").is_file()
+    assert workspace.root.name.endswith(".ssmd-bundle")
     assert not (workspace.root / ".readio").exists()
     assert not (workspace.root / "project.json").exists()

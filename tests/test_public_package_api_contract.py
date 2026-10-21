@@ -6,23 +6,10 @@ from typing import Any
 import pytest
 
 CORE_PUBLIC_APIS = {
-    "ssmdconvert": (
-        "convert_book",
-        "write_book_bundle",
-        "load_book_workspace",
-        "convert_document_artifact",
-        "write_document_bundle",
-        "load_document_workspace",
-    ),
-    "utterplan": (
-        "compile_ssmdoc",
-        "compile_book",
-        "render_ssmdoc",
-        "render_book",
-    ),
+    "ssmdconvert": ("convert_bundle", "load_bundle_workspace"),
+    "utterplan": ("compile_bundle", "render_bundle"),
     "voicerender": (
-        "render_document",
-        "render_book",
+        "render_bundle",
         "list_engines",
         "engine_status",
         "engine_options",
@@ -52,26 +39,17 @@ CORE_PUBLIC_APIS = {
         "remove_profile_role",
         "set_default_profile_role",
     ),
-    "audiocompose": ("compose_document", "compose_book"),
+    "audiocompose": ("compose_bundle", "BundleComposeOptions"),
 }
 
 
 @pytest.mark.parametrize(("package", "symbols"), CORE_PUBLIC_APIS.items())
 def test_core_specialist_public_apis_are_importable(package: str, symbols: tuple[str, ...]) -> None:
     module: Any = import_module(package)
-
     missing = [symbol for symbol in symbols if not callable(getattr(module, symbol, None))]
-
     assert not missing, f"{package} is missing public root APIs: {', '.join(missing)}"
 
 
-def test_optional_audioexport_public_apis_are_importable() -> None:
+def test_optional_audioexport_public_api_is_importable() -> None:
     module = pytest.importorskip("audioexport")
-
-    missing = [
-        symbol
-        for symbol in ("export_document", "export_book")
-        if not callable(getattr(module, symbol, None))
-    ]
-
-    assert not missing, f"audioexport is missing public root APIs: {', '.join(missing)}"
+    assert callable(getattr(module, "export_bundle", None))

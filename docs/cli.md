@@ -1,53 +1,68 @@
 # CLI reference
 
-Readio's CLI creates or resolves native `.ssmdoc` and `.ssmdbook` workspaces and dispatches each stage to its owning specialist package. Use `readio --help` and command-specific help for the installed option set.
+Readio's lifecycle commands live under `readio bundle`. Every workflow operates on an editable `.ssmd-bundle` directory; the manifest determines its content kind and specialists dispatch accordingly. Use `readio --help`, `readio bundle --help`, and command-specific help for the installed options.
 
 ```bash
 readio --help
-readio init --help
-readio plan --help
-readio render-plan --help
-readio run --help
+readio bundle --help
+readio bundle convert --help
+readio bundle compile --help
+readio bundle run --help
 readio speak --help
 readio doctor --help
 ```
 
-## Native workspace workflows
+## Bundle lifecycle
 
-### Create and plan
+### Convert and compile
 
 ```bash
-readio init article.docx -o article.ssmdoc
-readio plan article.ssmdoc --language en-US
-readio init novel.epub -o novel.ssmdbook
-readio plan novel.ssmdbook --language en-US --chapters 5-17
+readio bundle convert article.docx -o article.ssmd-bundle
+readio bundle compile article.ssmd-bundle --language en-US
+readio bundle convert novel.epub -o novel.ssmd-bundle
+readio bundle compile novel.ssmd-bundle --language en-US --chapters 5-17
 ```
 
-`init` delegates conversion and bundle writing to SSMDConvert. It infers EPUB as a book and other supported inputs as documents unless `--kind` is supplied. Outputs use the matching `.ssmdoc` or `.ssmdbook` suffix. `plan` delegates compilation to UtterPlan; its planner options include language, diagnostics, text preparation, overlap/renderability policy, and optional spaCy controls.
+`bundle convert` delegates source conversion and output handling to SSMDConvert. Readio forwards the source, optional output path, chapters, language, and force option; it does not choose the bundle kind or construct an output suffix. `bundle compile` delegates semantic compilation to UtterPlan. Planner options include language, diagnostics, text preparation, overlap/renderability policy, and optional spaCy controls.
 
-### Manual specialist workflow
+### RenderPlan projection
 
 ```bash
-readio render-plan article.ssmdoc --profile narrator.renderprofile.toml --json
+readio bundle render-plan article.ssmd-bundle \
+  --profile narrator.renderprofile.toml --json
+```
+
+`render-plan` delegates profile-specific projection to UtterPlan and reports the specialist's exact variant. Preserve that value unchanged when running stages manually.
+
+### Render, compose, and export
+
+```bash
 VARIANT="<exact variant returned by render-plan>"
-readio render article.ssmdoc --variant "$VARIANT"
-readio compose article.ssmdoc --variant "$VARIANT"
-readio export article.ssmdoc --variant "$VARIANT" --output article.m4a
+readio bundle render article.ssmd-bundle --variant "$VARIANT"
+readio bundle compose article.ssmd-bundle --variant "$VARIANT" \
+  --save-audiojobs audiojobs.json
+readio bundle export article.ssmd-bundle --variant "$VARIANT" \
+  --output article.m4a
 ```
 
-`render-plan` delegates profile-specific projection to UtterPlan and emits the specialist variant. When running stages manually, pass that exact variant unchanged to `render`, `compose`, and `export`. `render` delegates to VoiceRender; `compose` to AudioCompose; `export` to AudioExport. The export stage requires the optional AudioExport integration (install `readio[audioexport]`).
+`render` delegates to VoiceRender, `compose` to AudioCompose, and `export` to optional AudioExport. Use `--save-audiojobs` to request AudioCompose job output. The export command exposes the kind-neutral `ExportRequest` options, including output/profile, format, timeline, sample rate, channels, metadata, cover, roots, encoder paths, and force behavior. AudioExport validates kind-sensitive option combinations. Install the optional integration with `python -m pip install "readio[audioexport]"`.
 
 ### Run the complete pipeline
 
 ```bash
-readio run article.docx --profile narrator.renderprofile.toml \
+readio bundle run article.docx \
+  --bundle-output article.ssmd-bundle \
+  --profile narrator.renderprofile.toml \
   --language en-US --json
-readio run novel.ssmdbook \
-  --profile novel.ssmdbook/narrator.renderprofile.toml \
+
+readio bundle run novel.ssmd-bundle \
+  --profile novel.ssmd-bundle/narrator.renderprofile.toml \
   --chapters 5-17 --language en-US --export --output novel.m4b
 ```
 
-`run` can accept source material or an existing workspace. It creates/resolves the native workspace, compiles, projects the RenderPlan, renders, and composes. `--export` adds the optional export stage. Readio forwards UtterPlan's projected variant unchanged across all downstream calls. Stage-specific roots, policies, force flags, chapter selection, metadata, and encoder paths are forwarded to specialist APIs rather than reimplemented.
+`bundle run` accepts source material or an existing bundle. It converts source material when needed, then compiles, projects the RenderPlan, renders, and composes. `--export` adds the optional AudioExport stage. Readio forwards UtterPlan's projected variant unchanged across downstream calls. `--bundle-output` selects the output path for source conversion. The command does not accept a caller-selected kind; SSMDConvert and the bundle manifest own kind detection.
+
+Stage-specific roots, policies, force flags, chapter selection, metadata, and encoder paths are forwarded to specialist APIs rather than reimplemented. Use `--no-progress` to disable callbacks. Progress is written to stderr, separately from JSON results on stdout.
 
 ## Voice and profile management
 
@@ -57,7 +72,7 @@ These command groups delegate to VoiceRender:
 - `voices` discovers voices; `voice source` creates and inspects voice-source artifacts; `voice clone` creates a specialist RenderProfile.
 - `profile` creates, inspects, validates, refreshes, and manages RenderProfile roles.
 
-Use the command-specific `--help` output for selectors and options. Install engine backends through VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.
+Use command-specific help for selectors and options. Install engine backends through VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.
 
 ## Direct speech
 
@@ -76,8 +91,4 @@ readio doctor
 readio doctor --json
 ```
 
-Doctor reports specialist package versions and VoiceRender engine availability. Progress is written to stderr; JSON results and structured errors are written to stdout. `--no-progress` disables progress callbacks on workflows that support them.
-
-## Removed commands
-
-The current CLI has no `config`, `audiobook`, or former generic project/plan/render-manifest command groups. Readio does not read a `readio.toml` or `.readio` state, and provides no migration path for its former project format. Use `readio init` to create a new native workspace from source material, or use the specialist packages directly.
+Doctor reports specialist package versions and VoiceRender engine availability. Structured errors and JSON results are written to stdout; progress is written to stderr.

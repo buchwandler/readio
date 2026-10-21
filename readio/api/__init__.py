@@ -38,9 +38,8 @@ from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
 
 from .service import Readio
 from .types import (
-    BookExportRequest,
     ComposeRequest,
-    DocumentExportRequest,
+    ExportRequest,
     PipelineEvent,
     PipelineResult,
     PlanRequest,
@@ -51,10 +50,9 @@ from .types import (
 )
 
 __all__ = [
-    "BookExportRequest",
     "ComposeRequest",
     "CreateWorkspaceRequest",
-    "DocumentExportRequest",
+    "ExportRequest",
     "PipelineEvent",
     "PipelineResult",
     "PlanRequest",
