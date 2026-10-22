@@ -13,10 +13,11 @@ Use Readio to create or operate SSMDConvert `.ssmd-bundle` workspaces, coordinat
 1. **Exact speech:** Do not paraphrase requested text. Use `readio speak` or `readio.api.speak` for literal text.
 2. **Bundle workflow:** Use `readio bundle convert SOURCE` to create an editable `.ssmd-bundle`. SSMDConvert determines source kind and accepted formats.
 3. **Complete pipeline:** Use `readio bundle run SOURCE_OR_BUNDLE --profile PROFILE --language LANG`. The command compiles, projects, renders, and composes; `--export` adds optional AudioExport.
-4. **Stage identity:** Preserve the exact variant returned by UtterPlan when continuing manually. `readio bundle run` forwards the projected variant unchanged; do not invent or normalize it.
-5. **Package-specific control:** Use SSMDConvert, UtterPlan, VoiceRender, AudioCompose, or AudioExport CLIs directly for detailed domain options and reports.
-6. **Profiles and engines:** Readio management commands delegate to VoiceRender. Install backend extras through VoiceRender or the corresponding Readio pass-through extra.
-7. **Agents:** Use explicit bundle/output paths. Progress is on stderr; use `--json` for machine-readable results and errors.
+4. **Status before resuming:** Run `readio bundle status BUNDLE` before manually continuing an interrupted workflow. Use its exact variant and next-action argument array; do not guess from filenames.
+5. **Stage identity:** Preserve the exact variant returned by UtterPlan when continuing manually. `readio bundle run` forwards the projected variant unchanged; do not invent or normalize it.
+6. **Package-specific control:** Use SSMDConvert, UtterPlan, VoiceRender, AudioCompose, or AudioExport CLIs directly for detailed domain options and reports.
+7. **Profiles and engines:** Readio management commands delegate to VoiceRender. Install backend extras through VoiceRender or the corresponding Readio pass-through extra.
+8. **Agents:** Use explicit bundle/output paths. Progress is on stderr; use `--json` for machine-readable results and errors.
 
 ## Basic commands
 
@@ -31,6 +32,7 @@ readio bundle run chapter.ssmd-bundle --profile narrator.renderprofile.toml \
   --language en-US
 readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 readio doctor --json
+readio bundle status chapter.ssmd-bundle
 ```
 
 For a book, create the RenderProfile inside the bundle when its provenance should be available during projection:

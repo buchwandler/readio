@@ -176,6 +176,7 @@ def test_help_exposes_nested_bundle_workflows_without_kind_selection() -> None:
         "compose",
         "export",
         "run",
+        "status",
     }
     assert ".ssmd-bundle" in bundle_parser.format_help()
     assert "--kind" not in bundle_subparsers.choices["convert"].format_help()

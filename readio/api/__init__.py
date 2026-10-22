@@ -38,21 +38,30 @@ from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
 
 from .service import Readio
 from .types import (
+    BundleStatus,
     ComposeRequest,
     ExportRequest,
+    NextAction,
     PipelineEvent,
     PipelineResult,
     PlanRequest,
     RenderPlanRequest,
     RenderPlanResult,
     RunRequest,
+    StageStatus,
+    StatusRequest,
+    StatusStage,
+    StatusState,
+    VariantStatus,
     VoiceRenderRequest,
 )
 
 __all__ = [
+    "BundleStatus",
     "ComposeRequest",
     "CreateWorkspaceRequest",
     "ExportRequest",
+    "NextAction",
     "PipelineEvent",
     "PipelineResult",
     "PlanRequest",
@@ -60,6 +69,11 @@ __all__ = [
     "RenderPlanRequest",
     "RenderPlanResult",
     "RunRequest",
+    "StageStatus",
+    "StatusRequest",
+    "StatusStage",
+    "StatusState",
+    "VariantStatus",
     "VoiceCloneRequest",
     "VoiceRenderRequest",
     "VoiceSelector",

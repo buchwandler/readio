@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import shlex
 import sys
+import traceback
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from enum import Enum
@@ -16,7 +19,45 @@ import utterplan  # type: ignore[import-not-found]
 
 from . import __version__, api
 from .cli_control import CLIUsageError, add_control_commands, run_control_command
+from .diagnostics import configure_diagnostics, log_event, logger_for, timed_span
 from .doctor import doctor_report, format_doctor_report
+
+
+def _extract_global_verbosity(argv: Sequence[str]) -> tuple[list[str], int]:
+    """Remove verbosity switches globally, stopping at the literal ``--``."""
+    remaining: list[str] = []
+    verbosity = 0
+    iterator = iter(argv)
+    for token in iterator:
+        if token == "--":
+            remaining.append(token)
+            remaining.extend(iterator)
+            break
+        if token in {"-v", "--verbose"}:
+            verbosity += 1
+        elif token == "-vv":
+            verbosity += 2
+        else:
+            remaining.append(token)
+    return remaining, min(verbosity, 2)
+
+
+def _command_name(args: argparse.Namespace) -> str:
+    parts = [str(args.command)]
+    for attribute in (
+        "bundle_command",
+        "engine_command",
+        "model_command",
+        "voices_command",
+        "voice_command",
+        "profile_command",
+        "role_command",
+        "source_command",
+    ):
+        value = getattr(args, attribute, None)
+        if value:
+            parts.append(str(value))
+    return ".".join(parts)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="Orchestrate speech workflows in native .ssmd-bundle workspaces",
     )
     parser.add_argument("--version", action="version", version=f"Readio {__version__}")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="increase diagnostic verbosity; repeat for DEBUG (-vv)",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     add_control_commands(commands)
@@ -49,6 +97,19 @@ def _add_bundle_commands(commands: Any) -> None:
     _add_bundle_compose_command(stages)
     _add_bundle_export_command(stages)
     _add_bundle_run_command(stages)
+    _add_bundle_status_command(stages)
+
+
+def _add_bundle_status_command(commands: Any) -> None:
+    command = commands.add_parser(
+        "status",
+        help="Inspect bundle pipeline state and show the next runnable command",
+    )
+    command.add_argument("bundle", type=Path)
+    command.add_argument("--chapters", default="all")
+    command.add_argument("--profile", type=Path)
+    command.add_argument("--variant")
+    command.add_argument("--json", action="store_true")
 
 
 def _add_bundle_convert_command(commands: Any) -> None:
@@ -328,6 +389,68 @@ def _emit_result(result: Any, *, as_json: bool, human: str | None = None) -> int
     return 0
 
 
+def _format_stage_status(status: api.StageStatus, *, indent: str = "") -> str:
+    return f"{indent}{status.stage:<14} {status.state:<12} {status.summary}".rstrip()
+
+
+def _format_bundle_status(result: api.BundleStatus, chapters: str) -> str:
+    lines = [
+        f"Bundle: {result.workspace.root}",
+        f"Kind: {result.workspace.kind}",
+        f"Scope: {chapters} chapters",
+        "",
+        "PIPELINE",
+        _format_stage_status(result.compile),
+    ]
+    for variant in result.variants:
+        lines.extend(
+            [
+                "",
+                f"VARIANT {variant.variant}",
+                _format_stage_status(variant.render_plan, indent="  "),
+                _format_stage_status(variant.render, indent="  "),
+                _format_stage_status(variant.compose, indent="  "),
+                _format_stage_status(variant.export, indent="  "),
+            ]
+        )
+    if result.next_actions:
+        lines.extend(["", "NEXT"])
+        for action in result.next_actions:
+            if action.argv:
+                label = "Next (will replace stale output):" if action.destructive else "Next:"
+                lines.extend([label, f"  {shlex.join(action.argv)}"])
+            elif "profile" in action.requires:
+                lines.extend(
+                    [
+                        f"Next: {action.reason}",
+                        (
+                            "  readio bundle render-plan "
+                            f"{shlex.quote(str(result.workspace.root))} --profile <PROFILE> --chapters "
+                            f"{shlex.quote(chapters)}"
+                        ),
+                    ]
+                )
+            else:
+                requirement = ", ".join(action.requires) or "additional context"
+                lines.append(f"Next: {action.reason} (requires {requirement}).")
+    elif (
+        result.compile.state == "complete"
+        and result.variants
+        and all(
+            item.render_plan.state == item.render.state == item.compose.state == "complete"
+            for item in result.variants
+        )
+    ):
+        lines.extend(["", "Core pipeline complete."])
+    else:
+        lines.extend(
+            ["", "No safe next action could be determined from available specialist state."]
+        )
+    if result.warnings:
+        lines.extend(["", "WARNINGS", *(f"- {warning}" for warning in result.warnings)])
+    return "\n".join(lines)
+
+
 def _compose_request(args: argparse.Namespace, variant: str) -> api.ComposeRequest:
     values = {
         "sample_rate": getattr(args, "sample_rate", None),
@@ -389,7 +512,22 @@ def _export_request(args: argparse.Namespace, variant: str) -> api.ExportRequest
 
 
 def _run_bundle_command(args: argparse.Namespace, service: api.Readio) -> int:
-    on_progress = None if args.no_progress else _progress
+    on_progress = None if getattr(args, "no_progress", False) else _progress
+
+    if args.bundle_command == "status":
+        status_result = service.status(
+            args.bundle,
+            api.StatusRequest(
+                chapters=args.chapters,
+                profile=args.profile,
+                variant=args.variant,
+            ),
+        )
+        return _emit_result(
+            status_result,
+            as_json=args.json,
+            human=_format_bundle_status(status_result, args.chapters),
+        )
 
     if args.bundle_command == "convert":
         create_request = api.CreateWorkspaceRequest(
@@ -575,26 +713,40 @@ def _report_error(error: Exception, args: argparse.Namespace, *, status: int) ->
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    supplied_argv = list(sys.argv[1:] if argv is None else argv)
+    parse_argv, verbosity = _extract_global_verbosity(supplied_argv)
+    configure_diagnostics(verbosity)
     parser = build_parser()
-    args = parser.parse_args(argv)
-    service = api.Readio()
+    args = parser.parse_args(parse_argv)
+    command_name = _command_name(args)
+    logger = logger_for("cli")
+    log_event(logger, logging.DEBUG, "command.dispatch", command=command_name, verbosity=verbosity)
     try:
-        if args.command == "bundle":
-            return _run_bundle_command(args, service)
-        if args.command == "speak":
-            return _run_speak(args)
-        if args.command == "doctor":
-            result = doctor_report()
-            if args.json:
-                print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
-            else:
-                print(format_doctor_report(result))
-            return 0
-        if args.command in {"engines", "models", "voices", "voice", "profile"}:
-            return run_control_command(args, api)
+        with timed_span(
+            logger,
+            "command",
+            level=logging.DEBUG if verbosity >= 2 else logging.INFO,
+            command=command_name,
+        ):
+            service = api.Readio()
+            if args.command == "bundle":
+                return _run_bundle_command(args, service)
+            if args.command == "speak":
+                return _run_speak(args)
+            if args.command == "doctor":
+                result = doctor_report()
+                if args.json:
+                    print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
+                else:
+                    print(format_doctor_report(result))
+                return 0
+            if args.command in {"engines", "models", "voices", "voice", "profile"}:
+                return run_control_command(args, api)
     except CLIUsageError as error:
         return _report_error(error, args, status=2)
     except Exception as error:  # noqa: BLE001
+        if verbosity >= 2:
+            traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
         return _report_error(error, args, status=1)
     raise AssertionError(f"unhandled command: {args.command}")
 

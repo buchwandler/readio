@@ -13,6 +13,15 @@ readio bundle run chapter.ssmd-bundle --profile narrator.renderprofile.toml --la
 
 All SSMD lifecycle operations use editable `.ssmd-bundle` directories. `convert` delegates source handling and bundle creation to SSMDConvert. `compile` delegates to UtterPlan. `render-plan` projects a profile-specific RenderPlan; when continuing manually, pass its exact variant unchanged:
 
+### Read-only status
+
+Run `readio bundle status BUNDLE` before manually resuming an interrupted workflow. It reports specialist-owned state and the first safe next action, if known, without writing files. An incomplete workflow is a successful status result; unavailable inspection is shown as `unknown` rather than guessed.
+
+```bash
+readio bundle status novel.ssmd-bundle --chapters 5-17
+readio bundle status novel.ssmd-bundle --variant 'exact-variant' --json
+```
+
 ```bash
 VARIANT="<exact variant returned by render-plan>"
 readio bundle render chapter.ssmd-bundle --variant "$VARIANT"
@@ -40,3 +49,11 @@ readio doctor --json
 ```
 
 `speak` synthesizes literal text through VoiceRender and plays by default. `--output` writes WAV; `--no-play` skips playback. Doctor reports specialist versions and VoiceRender engine availability.
+
+Global `-v`/`--verbose` and `-vv` flags work before or after nested commands. Diagnostics and monotonic timing go to stderr; JSON and normal results stay on stdout. `--no-progress` suppresses progress callbacks, not verbose diagnostics:
+
+```bash
+readio -v bundle status novel.ssmd-bundle
+readio bundle status novel.ssmd-bundle -vv --json
+readio -vv bundle run novel.ssmd-bundle --profile narrator.renderprofile.toml --no-progress
+```

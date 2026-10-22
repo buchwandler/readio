@@ -30,6 +30,7 @@ def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.Argument
 def test_documented_readio_commands_exist_in_the_current_cli() -> None:
     commands = _subcommands(build_parser())
     bundle_commands = _subcommands(commands["bundle"])
+    assert "status" in bundle_commands
 
     for relative_path in CURRENT_DOCS:
         text = (ROOT / relative_path).read_text(encoding="utf-8")

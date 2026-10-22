@@ -51,6 +51,15 @@ readio bundle run chapter.docx \
 
 To operate one stage at a time, use `readio bundle convert`, `compile`, `render-plan`, `render`, `compose`, or `export`. See the [CLI reference](docs/cli.md).
 
+Inspect current state before continuing or resuming manually:
+
+```bash
+readio bundle status novel.ssmd-bundle --chapters 5-17
+readio -vv bundle status novel.ssmd-bundle --json
+```
+
+Status is read-only, derives state from specialist APIs, and prints the next safe command when one can be identified. Verbose diagnostics and monotonic command/stage timing go to stderr; JSON results stay on stdout.
+
 ## Manual specialist workflow
 
 Use specialist CLIs for package-specific controls. Preserve UtterPlan's exact variant through every stage:

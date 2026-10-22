@@ -52,4 +52,13 @@ def test_core_specialist_public_apis_are_importable(package: str, symbols: tuple
 
 def test_optional_audioexport_public_api_is_importable() -> None:
     module = pytest.importorskip("audioexport")
+
     assert callable(getattr(module, "export_bundle", None))
+
+
+def test_readio_status_api_is_public() -> None:
+    from readio import api
+
+    for symbol in ("BundleStatus", "NextAction", "StageStatus", "StatusRequest", "VariantStatus"):
+        assert hasattr(api, symbol), f"readio.api is missing {symbol}"
+    assert callable(api.Readio.status)

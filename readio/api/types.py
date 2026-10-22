@@ -14,6 +14,65 @@ DiagnosticsMode = Literal["errors", "warnings", "all", "none"]
 PipelineStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
 
 
+StatusState = Literal[
+    "not_started",
+    "partial",
+    "complete",
+    "stale",
+    "blocked",
+    "unavailable",
+    "unknown",
+    "error",
+]
+StatusStage = Literal["bundle", "compile", "render_plan", "render", "compose", "export"]
+
+
+@dataclass(frozen=True, slots=True)
+class StatusRequest:
+    chapters: str = "all"
+    profile: Path | None = None
+    variant: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StageStatus:
+    stage: StatusStage
+    state: StatusState
+    summary: str
+    current: int | None = None
+    total: int | None = None
+    package: str | None = None
+    details: Mapping[str, object] = dataclass_field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class VariantStatus:
+    variant: str
+    profile: Path | None
+    render_plan: StageStatus
+    render: StageStatus
+    compose: StageStatus
+    export: StageStatus
+
+
+@dataclass(frozen=True, slots=True)
+class NextAction:
+    stage: StatusStage
+    reason: str
+    argv: tuple[str, ...]
+    destructive: bool = False
+    requires: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class BundleStatus:
+    workspace: WorkspaceRef
+    compile: StageStatus
+    variants: tuple[VariantStatus, ...]
+    next_actions: tuple[NextAction, ...]
+    warnings: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class PlanRequest:
     chapters: str = "all"

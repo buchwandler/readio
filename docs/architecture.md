@@ -59,7 +59,7 @@ Consult each specialist package for complete package-specific options.
 
 ## Persistent state
 
-The editable bundle and all stage artifacts remain specialist-owned. Readio writes no parallel project state, manifest, stage status, RenderPlan, render manifest, composition job, or export format. Its `WorkspaceRef`, progress events, and pipeline results are in-memory routing/adaptation values only.
+The editable bundle and all stage artifacts remain specialist-owned. Readio writes no parallel project state, manifest, stage status, RenderPlan, render manifest, composition job, or export format. Its `WorkspaceRef`, progress events, pipeline results, and bundle status view are in-memory routing/adaptation values only. Status is a derived read-only view over specialist-owned state; Readio persists no stage-status database or project metadata.
 
 ## Dependency boundary
 

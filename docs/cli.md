@@ -23,6 +23,17 @@ readio bundle convert novel.epub -o novel.ssmd-bundle
 readio bundle compile novel.ssmd-bundle --language en-US --chapters 5-17
 ```
 
+### Read-only bundle status
+
+Use status before resuming an interrupted workflow. It validates the editable bundle and reports specialist-owned compile, RenderPlan, render, compose, and optional export state, with the first safe next command when known:
+
+```bash
+readio bundle status novel.ssmd-bundle
+readio bundle status novel.ssmd-bundle --profile narrator.renderprofile.toml --chapters 5-17
+readio bundle status novel.ssmd-bundle --variant 'exact-variant' --json
+```
+
+Inspection is read-only. Incomplete work returns success; invalid bundles or failed inspection return an error. A missing specialist inspection capability is reported as `unknown` rather than inferred from filenames.
 `bundle convert` delegates source conversion and output handling to SSMDConvert. Readio forwards the source, optional output path, chapters, language, and force option; it does not choose the bundle kind or construct an output suffix. `bundle compile` delegates semantic compilation to UtterPlan. Planner options include language, diagnostics, text preparation, overlap/renderability policy, and optional spaCy controls.
 
 ### RenderPlan projection
@@ -92,3 +103,15 @@ readio doctor --json
 ```
 
 Doctor reports specialist package versions and VoiceRender engine availability. Structured errors and JSON results are written to stdout; progress is written to stderr.
+
+## Verbose diagnostics and timing
+
+Global `-v`/`--verbose` and `-vv` flags are accepted before or after nested commands. `-v` emits INFO diagnostics and elapsed command/stage timings; `-vv` adds DEBUG dispatch and inspection details plus tracebacks for unexpected errors. Diagnostic output is sent to stderr, leaving normal results and JSON on stdout.
+
+```bash
+readio -v bundle status novel.ssmd-bundle
+readio bundle status novel.ssmd-bundle -vv --json
+readio -vv bundle run novel.ssmd-bundle --profile narrator.renderprofile.toml --no-progress
+```
+
+`--no-progress` suppresses progress callbacks only; verbose diagnostics and timing remain enabled. Timings use a monotonic clock and are not persisted.

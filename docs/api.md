@@ -12,6 +12,11 @@ from readio.api import (
     Readio,
     RenderPlanRequest,
     RunRequest,
+    BundleStatus,
+    NextAction,
+    StageStatus,
+    StatusRequest,
+    VariantStatus,
     VoiceRenderRequest,
 )
 ```
@@ -25,6 +30,23 @@ service = Readio()
 workspace = service.create_workspace("article.txt")
 assert workspace.root.name == "article.ssmd-bundle"
 ```
+
+## Derived bundle status
+
+`Readio.status(workspace, StatusRequest(...))` returns an in-memory, read-only view of specialist-owned state. It does not create stage records or modify the workspace. Stage states that a specialist cannot safely inspect are reported as `unknown`; incomplete work is not an exception.
+
+```python
+from readio.api import StatusRequest
+
+status = service.status(
+    "novel.ssmd-bundle",
+    StatusRequest(chapters="5-17", profile=Path("narrator.renderprofile.toml")),
+)
+for action in status.next_actions:
+    print(action.argv)  # exact argument array; no shell quoting required
+```
+
+`BundleStatus` contains compile state, per-variant `StageStatus` values, warnings, and `NextAction` argument arrays. Variant identifiers are preserved exactly. CLI verbose logging/timing is written to stderr and does not change API results.
 
 Use `CreateWorkspaceRequest` to pass an explicit output path, language, chapter selector, or force behavior. It does not contain a kind selector; source and manifest kind detection belong to SSMDConvert.
 
