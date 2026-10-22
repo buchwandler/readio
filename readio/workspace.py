@@ -5,11 +5,24 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import ssmdconvert  # type: ignore[import-not-found]
 
 WorkspaceKind = Literal["document", "book"]
+
+
+def default_bundle_workspace_path(source: str | Path) -> Path:
+    """Return the canonical bundle destination chosen by SSMDConvert."""
+    return Path(ssmdconvert.default_bundle_workspace_path(Path(source).expanduser()))
+
+
+def inspect_source_kind(source: str | Path) -> WorkspaceKind:
+    """Detect source kind through SSMDConvert's public inspection API."""
+    kind = ssmdconvert.inspect_bundle_source(Path(source).expanduser()).kind
+    if kind not in ("book", "document"):
+        raise ValueError(f"SSMDConvert returned unsupported source kind {kind!r}")
+    return cast(WorkspaceKind, kind)
 
 
 @dataclass(frozen=True, slots=True)

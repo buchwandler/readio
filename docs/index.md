@@ -1,6 +1,6 @@
 # Readio documentation
 
-Readio orchestrates SSMDConvert `.ssmd-bundle` workspaces through specialist speech packages. The bundle manifest determines whether the content represents a book or a document; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides workflow sequencing, a CLI, and direct literal-text speech.
+Readio's intent-first render workflow uses a visible, user-owned TOML request and a separate VoiceRender RenderProfile to orchestrate specialist speech packages. SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides workflow sequencing, low-level stage commands, and direct literal-text speech without hidden workspace state.
 
 ```{toctree}
 :maxdepth: 1
@@ -28,10 +28,13 @@ Readio requires Python 3.10 or newer. Install it with `python -m pip install rea
 ## Readio commands
 
 ```bash
-readio bundle convert story.txt -o story.ssmd-bundle
-readio bundle run story.ssmd-bundle --profile narrator.renderprofile.toml --language en-US
+readio profile create --engine kokoro --target v1.0 --voice af_heart --language en-US -o narrator.renderprofile.toml
+readio intent document create story.txt --profile narrator.renderprofile.toml --language en-US
+readio render --config story.readio.toml --dry-run
+readio render --config story.readio.toml
+readio bundle run story.txt --bundle-output story.ssmd-bundle --profile narrator.renderprofile.toml --language en-US
 readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
 readio doctor --json
-```
 
-Every SSMD workflow uses the `.ssmd-bundle` format. Readio sequences the package-owned stages without duplicating specialist state or kind-sensitive routing.
+`readio render` is the intent-first complete workflow; `readio bundle run` and the individual `readio bundle` stage commands remain available for advanced control. Every workflow uses specialist-owned `.ssmd-bundle` state, and Readio persists no hidden `.readio/` workspace files.
+```

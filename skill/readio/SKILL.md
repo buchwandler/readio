@@ -6,47 +6,48 @@ compatibility: Requires Readio and specialist packages for the selected workflow
 
 # Readio
 
-Use Readio to create or operate SSMDConvert `.ssmd-bundle` workspaces, coordinate specialist speech stages, or speak literal text. The bundle manifest determines whether content is a book or a document; specialists own kind-sensitive dispatch and validation.
+Use Readio's user-owned render-intent workflow for complete book/document renders, or operate lower-level SSMDConvert `.ssmd-bundle` stages when needed. Keep the Readio intent TOML separate from the VoiceRender RenderProfile; the bundle manifest determines content kind, and specialists own kind-sensitive dispatch and validation.
 
 ## Workflow decisions
 
 1. **Exact speech:** Do not paraphrase requested text. Use `readio speak` or `readio.api.speak` for literal text.
-2. **Bundle workflow:** Use `readio bundle convert SOURCE` to create an editable `.ssmd-bundle`. SSMDConvert determines source kind and accepted formats.
-3. **Complete pipeline:** Use `readio bundle run SOURCE_OR_BUNDLE --profile PROFILE --language LANG`. The command compiles, projects, renders, and composes; `--export` adds optional AudioExport.
-4. **Status before resuming:** Run `readio bundle status BUNDLE` before manually continuing an interrupted workflow. Use its exact variant and next-action argument array; do not guess from filenames.
-5. **Stage identity:** Preserve the exact variant returned by UtterPlan when continuing manually. `readio bundle run` forwards the projected variant unchanged; do not invent or normalize it.
-6. **Package-specific control:** Use SSMDConvert, UtterPlan, VoiceRender, AudioCompose, or AudioExport CLIs directly for detailed domain options and reports.
-7. **Profiles and engines:** Readio management commands delegate to VoiceRender. Install backend extras through VoiceRender or the corresponding Readio pass-through extra.
-8. **Agents:** Use explicit bundle/output paths. Progress is on stderr; use `--json` for machine-readable results and errors.
+2. **Complete render:** Create/review an intent with `readio intent book|document create`, then run `readio render --config PATH`. Use `readio intent show` and `validate` before rendering.
+3. **One-off render:** Use `readio render SOURCE --profile PROFILE` when a persistent Readio intent is unnecessary; the VoiceRender RenderProfile remains a separate input.
+4. **Safe reruns:** Existing bundles are reused. Rerun only with `--force-stage STAGE` or `--restart-from STAGE`; forcing export is required to replace existing final output. Export tools are preflighted before conversion.
+5. **Intent status:** Use `readio status --config PATH` for a saved-intent overview. For manual stage-by-stage recovery, use `readio bundle status BUNDLE` and follow its exact next-action arguments.
+6. **Stage identity:** Preserve UtterPlan's exact projected variant through VoiceRender, AudioCompose, and AudioExport; never invent or normalize it.
+7. **Advanced control:** `readio bundle run` and individual `readio bundle` commands remain available; specialist CLIs provide package-specific details and reports.
+8. **Profiles and agents:** Profile/engine commands delegate to VoiceRender. Use explicit user-owned intent, profile, bundle, and output paths. Progress is on stderr; use `--json` for machine-readable results.
 
-## Basic commands
+## Intent-first commands
 
 ```bash
 python -m pip install readio
 python -m pip install "readio[kokoro]"
 
-readio bundle convert chapter.docx -o chapter.ssmd-bundle
 readio profile create --engine kokoro --target v1.0 --voice af_heart \
   --language en-US -o narrator.renderprofile.toml
-readio bundle run chapter.ssmd-bundle --profile narrator.renderprofile.toml \
-  --language en-US
+readio intent document create chapter.docx --profile narrator.renderprofile.toml --language en-US
+readio intent show chapter.readio.toml --resolved
+readio intent validate chapter.readio.toml
+readio render --config chapter.readio.toml --dry-run
+readio render --config chapter.readio.toml
+readio status --config chapter.readio.toml
 readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 readio doctor --json
+```
+
+Book intents default to M4B; document intents default to MP3. `readio render SOURCE --profile PROFILE` is the one-off alternative. Intent TOML is user-owned and separate from the VoiceRender RenderProfile; Readio creates no `.readio/` workspace state. AudioExport is optional (`readio[audioexport]`), and selected format/FFmpeg/FFprobe readiness is checked before conversion.
+
+For low-level lifecycle or stage-by-stage control, retain the existing `readio bundle convert`, `compile`, `render-plan`, `render`, `compose`, `export`, `status`, and `run` commands:
+
+```bash
+readio bundle run chapter.docx --bundle-output chapter.ssmd-bundle \
+  --profile narrator.renderprofile.toml --language en-US
 readio bundle status chapter.ssmd-bundle
 ```
 
-For a book, create the RenderProfile inside the bundle when its provenance should be available during projection:
-
-```bash
-readio bundle convert novel.epub -o novel.ssmd-bundle
-readio profile create --engine kokoro --target v1.0 --voice af_heart \
-  --language en-US -o novel.ssmd-bundle/narrator.renderprofile.toml
-readio bundle run novel.ssmd-bundle \
-  --profile novel.ssmd-bundle/narrator.renderprofile.toml \
-  --language en-US --chapters 5-17
-```
-
-The lifecycle commands are documented in [CLI reference](references/cli.md). Input handling is covered in [Input formats](references/input-formats.md); specialist ownership and manual workflows are covered in [SSMD](references/ssmd.md).
+The complete command catalog is in [CLI reference](references/cli.md). Input handling is covered in [Input formats](references/input-formats.md); specialist ownership and manual workflows are covered in [SSMD](references/ssmd.md).
 
 ## Specialist workflow
 

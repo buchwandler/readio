@@ -8,7 +8,7 @@ from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any, Literal
 
-from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
+from readio.workspace import CreateWorkspaceRequest, WorkspaceKind, WorkspaceRef
 
 DiagnosticsMode = Literal["errors", "warnings", "all", "none"]
 PipelineStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
@@ -177,6 +177,43 @@ class PipelineResult:
     compose: Any
     export: Any | None
     variant: str
+
+
+@dataclass(frozen=True, slots=True)
+class RenderExecutionOptions:
+    """Explicit controls for destructive pipeline stage reruns and export tools."""
+
+    force_stages: tuple[PipelineStage, ...] = ()
+    restart_from: PipelineStage | None = None
+    reset_stale_output: bool = False
+    ffmpeg: Path | None = None
+    ffprobe: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RenderIntentPlan:
+    """Read-only status and execution outline for a resolved intent."""
+
+    resolved: Any
+    status: BundleStatus | None
+    stages: tuple[str, ...]
+    convert_required: bool
+    output_exists: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RenderIntentResult:
+    """Final output and specialist stage results for an intent-driven render."""
+
+    workspace: WorkspaceRef
+    kind: WorkspaceKind
+    source: Path
+    profile: Path
+    variant: str
+    output: Path
+    pipeline: PipelineResult
+    converted: bool
+    elapsed_seconds: float
 
 
 Metadata = Mapping[str, str]

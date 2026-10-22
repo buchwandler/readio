@@ -1,8 +1,10 @@
 # Readio architecture
 
-Readio is a thin orchestration layer over specialist public APIs. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces; the bundle manifest records whether content is a book or a document. UtterPlan, VoiceRender, AudioCompose, and AudioExport own their stage contracts and perform kind-sensitive dispatch. Readio uses one lifecycle for every bundle.
+Readio is an intent-first orchestration layer over specialist public APIs. A visible, user-owned TOML render intent describes a complete request; the separate VoiceRender RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces, whose manifest determines whether content is a book or document. UtterPlan, VoiceRender, AudioCompose, and optional AudioExport own their stage contracts and perform kind-sensitive dispatch.
 
-## Bundle workflow
+## Intent-driven bundle workflow
+
+The intent and profile live at user-selected paths, typically outside the bundle. Readio resolves paths, validates configuration, and checks selected AudioExport/FFmpeg/FFprobe readiness before launching conversion; it does not add workflow state to the workspace.
 
 ```text
 source material
@@ -16,23 +18,25 @@ source material
   → AudioExport bundle export (optional)
 ```
 
-`readio bundle run` sequences these stages. The RenderPlan result supplies the exact variant sent unchanged to VoiceRender, AudioCompose, and optional AudioExport. The manual CLI and Python service expose the same specialist stages for workflows that need stage-by-stage control. Readio does not normalize or reconstruct the variant.
+`readio render` resolves the saved intent (or one-off source options), then sequences these stages; `readio bundle run` remains available for lower-level control. The RenderPlan result supplies the exact variant sent unchanged to VoiceRender, AudioCompose, and optional AudioExport. Explicit force/restart controls protect existing artifacts, and AudioExport preflight runs before conversion. Readio does not normalize or reconstruct the variant.
 
 A book bundle may contain multiple chapter items; a document bundle represents a single document item. This is a content distinction recorded by the manifest, not a second workspace format or Readio routing policy.
 
 ## Ownership
 
-| Concern                                          | Owner                  | Readio's role                                                     |
-| ------------------------------------------------ | ---------------------- | ----------------------------------------------------------------- |
-| Source conversion, `.ssmd-bundle`, manifest kind | SSMDConvert            | Forward conversion requests and resolve validated bundles         |
-| Semantic plans and RenderPlan projection         | UtterPlan / RenderPlan | Forward bundle requests and preserve the exact returned variant   |
-| Profiles, voices, engines, models, and synthesis | VoiceRender            | Delegate management and bundle rendering                          |
-| ONNX Runtime build and provider policy           | VoiceRender            | Expose status and provider selection; do not manage distributions |
-| Composition and audio-job artifacts              | AudioCompose           | Forward one bundle compose request and return the native result   |
-| Encoding and export artifacts                    | AudioExport            | Forward one bundle export request; integration is optional        |
-| CLI, sequencing, and playback convenience        | Readio                 | Coordinate public calls and adapt progress                        |
+| Concern                                          | Owner                  | Readio's role                                                         |
+| ------------------------------------------------ | ---------------------- | --------------------------------------------------------------------- |
+| Requested render settings and intent file        | User                   | Readio validates/resolves and orchestrates; no hidden workspace state |
+| Voice roles and RenderProfile                    | VoiceRender / user     | Readio references the profile; does not define a cast schema          |
+| Source conversion, `.ssmd-bundle`, manifest kind | SSMDConvert            | Forward conversion requests and resolve validated bundles             |
+| Semantic plans and RenderPlan projection         | UtterPlan / RenderPlan | Forward bundle requests and preserve the exact returned variant       |
+| Profiles, voices, engines, models, and synthesis | VoiceRender            | Delegate management and bundle rendering                              |
+| ONNX Runtime build and provider policy           | VoiceRender            | Expose status and provider selection; do not manage distributions     |
+| Composition and audio-job artifacts              | AudioCompose           | Forward one bundle compose request and return the native result       |
+| Encoding and export artifacts                    | AudioExport            | Forward one bundle export request; integration is optional            |
+| CLI, sequencing, and playback convenience        | Readio                 | Coordinate public calls and adapt progress                            |
 
-`WorkspaceRef.kind` is informational. Readio does not branch on it, parse manifests, validate chapter selectors, or duplicate specialist bundle rules.
+`WorkspaceRef.kind` is an informational consistency check, not a selector for Readio-specific implementations. SSMDConvert determines source/bundle kind, specialists own chapter validation and kind-sensitive dispatch, and Readio rejects a resolved workspace whose kind contradicts the intent.
 
 ## Direct speech and management
 
@@ -60,7 +64,7 @@ Consult each specialist package for complete package-specific options.
 
 ## Persistent state
 
-The editable bundle and all stage artifacts remain specialist-owned. Readio writes no parallel project state, manifest, stage status, RenderPlan, render manifest, composition job, or export format. Its `WorkspaceRef`, progress events, pipeline results, and bundle status view are in-memory routing/adaptation values only. Status is a derived read-only view over specialist-owned state; Readio persists no stage-status database or project metadata.
+The editable bundle and all stage artifacts remain specialist-owned. Readio may read or create a user-selected `*.readio.toml` intent file, but never stores it as hidden project state. Readio writes no `.readio/` workspace directory, parallel manifest, stage status, RenderPlan, render manifest, composition job, export format, or status database. Its `WorkspaceRef`, progress events, pipeline results, and status view are in-memory routing/adaptation values; status is derived read-only from specialist APIs.
 
 ## Dependency boundary
 

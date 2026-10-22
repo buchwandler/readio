@@ -16,6 +16,7 @@ EXPECTED_DEPENDENCIES = {
     "audiocompose>=0.3.3,<0.4",
     "ssmdconvert>=0.2.2,<0.3",
     "sounddevice>=0.4.6,<1.0",
+    "tomli>=2.0; python_version < '3.11'",
 }
 FORBIDDEN_DISTRIBUTIONS = {
     "pykokoro",

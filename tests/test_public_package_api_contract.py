@@ -75,3 +75,23 @@ def test_readio_status_api_is_public() -> None:
     ):
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
     assert callable(api.Readio.status)
+
+
+def test_readio_render_intent_api_is_public() -> None:
+    from readio import api
+
+    for symbol in (
+        "RenderExecutionOptions",
+        "RenderIntentPlan",
+        "RenderIntentResult",
+        "PipelineStage",
+        "ResolvedRenderIntent",
+        "create_book_intent",
+        "create_document_intent",
+        "load_render_intent",
+        "save_render_intent",
+    ):
+        assert hasattr(api, symbol), f"readio.api is missing {symbol}"
+    assert callable(api.Readio.resolve_intent)
+    assert callable(api.Readio.plan_render_intent)
+    assert callable(api.Readio.render_intent)

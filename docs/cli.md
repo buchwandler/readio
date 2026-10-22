@@ -1,9 +1,12 @@
 # CLI reference
 
-Readio's lifecycle commands live under `readio bundle`. Every workflow operates on an editable `.ssmd-bundle` directory; the manifest determines its content kind and specialists dispatch accordingly. Use `readio --help`, `readio bundle --help`, and command-specific help for the installed options.
+Readio's intent-first workflow starts with a user-owned TOML render intent and runs a complete book or document render through top-level `readio render`. The lower-level `readio bundle` lifecycle remains available for advanced stage-by-stage workflows. Every render uses specialist-owned editable `.ssmd-bundle` workspaces; the bundle manifest determines content kind.
 
 ```bash
 readio --help
+readio intent --help
+readio render --help
+readio status --help
 readio bundle --help
 readio bundle convert --help
 readio bundle compile --help
@@ -12,7 +15,39 @@ readio speak --help
 readio doctor --help
 ```
 
-## Bundle lifecycle
+## Intent-first render
+
+A render intent is reviewable TOML owned by the user. It records source/bundle paths, book or document defaults, a separate VoiceRender RenderProfile reference, planning and composition policies, and final AudioExport settings. It does not define voice roles or store hidden `.readio/` state.
+
+Create the intent with the kind-specific command. The default file is `<source-stem>.readio.toml`; `--output-config`, `--stdout`, `--minimal`, and `--force` control persistence:
+
+```bash
+readio profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o narrator.renderprofile.toml
+readio intent document create article.docx \
+  --profile narrator.renderprofile.toml --language en-US
+readio intent book create novel.epub \
+  --profile narrator.renderprofile.toml --language en-US --chapters 5-17
+readio intent show novel.readio.toml --resolved
+readio intent validate novel.readio.toml
+```
+
+`intent show --toml` prints normalized TOML; `--resolved` displays config-relative paths and inferred values; `--json` emits structured output. Book intents default to M4B and accept `--chapters`; document intents default to MP3. Document formats are checked against AudioExport's public registry. Create options also cover planning, render, compose, metadata, cover, timeline, bitrate, and sample rate; see `readio intent book create --help` and `readio intent document create --help`.
+
+Render a saved intent, or provide a source plus a VoiceRender profile for a one-off run:
+
+```bash
+readio render --config novel.readio.toml --dry-run
+readio render --config novel.readio.toml
+readio render article.docx --profile narrator.renderprofile.toml --language en-US
+readio status --config novel.readio.toml
+```
+
+CLI values override saved intent values. `--dry-run` resolves the workflow, checks export readiness, and reports existing bundle/stage status without running conversion or downstream stages. `status --config` is a read-only view. Existing bundles are reused by default. Rerunning is explicit: repeat `--force-stage STAGE` for individual stages or use `--restart-from STAGE` to force that stage and all later stages. `--reconvert` is an alias for forcing conversion; `--reset-stale-output` is separately explicit. An existing final output must be explicitly forced with `--force-stage export` or `--restart-from export`.
+
+AudioExport is optional (`pip install "readio[audioexport]"`). Before conversion, rendering checks the selected AudioExport format/encoder and FFmpeg/FFprobe; pass `--ffmpeg PATH` or `--ffprobe PATH` to select executables. JSON results go to stdout while progress/diagnostics go to stderr.
+
+## Advanced bundle lifecycle
 
 ### Convert and compile
 

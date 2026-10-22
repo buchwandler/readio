@@ -10,11 +10,13 @@ from readio.api import (
     ExportRequest,
     PlanRequest,
     Readio,
+    RenderExecutionOptions,
     RenderPlanRequest,
     RenderPlanResult,
     RunRequest,
     VoiceRenderRequest,
     WorkspaceRef,
+    create_document_intent,
 )
 from readio.api import service as service_module
 
@@ -88,3 +90,46 @@ def test_run_propagates_exact_projection_variant_through_one_pipeline(
     assert calls["render"] == projected_variant
     assert calls["compose"] == projected_variant
     assert calls["export"] == projected_variant
+
+
+def test_public_render_intent_api_delegates_options_and_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    intent = create_document_intent("article.md", profile="article.renderprofile.toml")
+    options = RenderExecutionOptions(force_stages=("render",))
+    progress = print
+    marker = object()
+    calls: dict[str, object] = {}
+
+    def execute(
+        service: Readio,
+        received_intent: object,
+        received_options: RenderExecutionOptions | None,
+        *,
+        on_progress: object,
+        **overrides: object,
+    ) -> object:
+        calls.update(
+            service=service,
+            intent=received_intent,
+            options=received_options,
+            on_progress=on_progress,
+            overrides=overrides,
+        )
+        return marker
+
+    monkeypatch.setattr(service_module, "_render_intent", execute)
+    service = Readio()
+    result = service.render_intent(
+        intent,
+        options,
+        on_progress=progress,
+        output=tmp_path / "article.mp3",
+    )
+
+    assert result is marker
+    assert calls["service"] is service
+    assert calls["intent"] is intent
+    assert calls["options"] is options
+    assert calls["on_progress"] is progress
+    assert calls["overrides"] == {"output": tmp_path / "article.mp3"}

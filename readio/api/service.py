@@ -15,14 +15,25 @@ from readio.api.types import (
     PipelineEvent,
     PipelineResult,
     PlanRequest,
+    RenderExecutionOptions,
+    RenderIntentPlan,
+    RenderIntentResult,
     RenderPlanRequest,
     RunRequest,
     StatusRequest,
     VoiceRenderRequest,
 )
 from readio.diagnostics import log_event, logger_for, timed_span
+from readio.intent import RenderIntent
+from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
 from readio.pipeline import compose, export, plan, render, render_plan
 from readio.progress import normalize_progress
+from readio.render_service import (
+    plan_render_intent as _plan_render_intent,
+)
+from readio.render_service import (
+    render_intent as _render_intent,
+)
 from readio.status import inspect_status
 from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
 from readio.workspace import create_workspace as _create_workspace
@@ -187,6 +198,36 @@ class Readio:
             variant=selected.variant,
         ):
             return inspect_status(resolved, selected)
+
+    def resolve_intent(self, intent: RenderIntent, **overrides: Any) -> ResolvedRenderIntent:
+        """Resolve a render intent and apply explicit path/value overrides."""
+        return resolve_render_intent(intent, **overrides)
+
+    def plan_render_intent(
+        self,
+        intent: RenderIntent,
+        options: RenderExecutionOptions | None = None,
+        **overrides: Any,
+    ) -> RenderIntentPlan:
+        """Resolve an intent and inspect current state without running stages."""
+        return _plan_render_intent(self, intent, options, **overrides)
+
+    def render_intent(
+        self,
+        intent: RenderIntent,
+        options: RenderExecutionOptions | None = None,
+        *,
+        on_progress: ProgressHandler = None,
+        **overrides: Any,
+    ) -> RenderIntentResult:
+        """Execute a complete intent through the existing specialist stage APIs."""
+        return _render_intent(
+            self,
+            intent,
+            options,
+            on_progress=on_progress,
+            **overrides,
+        )
 
     def run(
         self,

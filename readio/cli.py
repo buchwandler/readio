@@ -9,7 +9,7 @@ import shlex
 import sys
 import traceback
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, is_dataclass
+from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,21 @@ from . import __version__, api
 from .cli_control import CLIUsageError, add_control_commands, run_control_command
 from .diagnostics import configure_diagnostics, log_event, logger_for, timed_span
 from .doctor import doctor_report, format_doctor_report
+from .integrations.audioexport import supported_formats
+from .intent import (
+    CLIP_POLICIES,
+    COMPOSE_EMPHASIS_POLICIES,
+    DIAGNOSTICS_MODES,
+    OVERLAP_MODES,
+    PEAK_POLICIES,
+    RENDERABILITY_MODES,
+    SPACY_MODEL_SIZES,
+    SPACY_MODES,
+    TEXT_PREPARATIONS,
+    _default_stem,
+)
+from .intent_resolver import resolve_render_intent
+from .workspace import inspect_source_kind
 
 
 def _extract_global_verbosity(argv: Sequence[str]) -> tuple[list[str], int]:
@@ -45,6 +60,8 @@ def _extract_global_verbosity(argv: Sequence[str]) -> tuple[list[str], int]:
 def _command_name(args: argparse.Namespace) -> str:
     parts = [str(args.command)]
     for attribute in (
+        "intent_command",
+        "intent_action",
         "bundle_command",
         "engine_command",
         "model_command",
@@ -77,11 +94,608 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     add_control_commands(commands)
+    _add_intent_commands(commands)
+    _add_render_command(commands)
+    _add_status_command(commands)
     _add_bundle_commands(commands)
     _add_speak_command(commands)
     doctor = commands.add_parser("doctor", help="Report package and VoiceRender engine health")
     doctor.add_argument("--json", action="store_true")
     return parser
+
+
+def _add_intent_commands(commands: Any) -> None:
+    intent = commands.add_parser(
+        "intent",
+        help="Create, review, and validate declarative render intents",
+        description="Create reviewable book and document render-intent TOML files.",
+    )
+    actions = intent.add_subparsers(dest="intent_command", required=True)
+
+    for kind in ("book", "document"):
+        kind_parser = actions.add_parser(kind, help=f"Manage {kind} render intents")
+        kind_actions = kind_parser.add_subparsers(dest="intent_action", required=True)
+        create = kind_actions.add_parser("create", help=f"Create a {kind} render intent")
+        create.add_argument("source", type=Path)
+        output_group = create.add_mutually_exclusive_group()
+        output_group.add_argument("-o", "--output-config", type=Path)
+        output_group.add_argument("--stdout", action="store_true")
+        create.add_argument("--minimal", action="store_true")
+        create.add_argument("--force", action="store_true", help="Replace an existing intent file")
+        create.add_argument("--json", action="store_true")
+        _add_intent_create_options(create, kind=kind)
+
+    show = actions.add_parser("show", help="Review a saved render intent")
+    show.add_argument("path", type=Path)
+    show_modes = show.add_mutually_exclusive_group()
+    show_modes.add_argument("--toml", action="store_true", help="Print normalized TOML")
+    show_modes.add_argument(
+        "--resolved", action="store_true", help="Resolve paths and inferred defaults"
+    )
+    show.add_argument("--json", action="store_true")
+
+    validate = actions.add_parser("validate", help="Validate an intent without rendering")
+    validate.add_argument("path", type=Path)
+    validate.add_argument("--json", action="store_true")
+
+
+def _add_intent_create_options(command: Any, *, kind: str) -> None:
+    from .intent import ComposeIntent, PlanningIntent, RenderOptionsIntent
+
+    command.add_argument("--profile", type=Path, required=True, help="VoiceRender RenderProfile")
+    command.add_argument("--bundle", type=Path, help="Desired or known .ssmd-bundle path")
+    command.add_argument("--variant", help="Optional UtterPlan projection label")
+    command.add_argument("--language")
+    if kind == "book":
+        command.add_argument("--chapters", default="all")
+
+    planning = PlanningIntent()
+    command.add_argument("--diagnostics", choices=DIAGNOSTICS_MODES, default=planning.diagnostics)
+    command.add_argument(
+        "--text-preparation", choices=TEXT_PREPARATIONS, default=planning.text_preparation
+    )
+    command.add_argument("--overlap-mode", choices=OVERLAP_MODES, default=planning.overlap_mode)
+    command.add_argument(
+        "--renderability-mode", choices=RENDERABILITY_MODES, default=planning.renderability_mode
+    )
+    command.add_argument("--spacy", choices=SPACY_MODES, default=planning.spacy)
+    command.add_argument("--spacy-model")
+    command.add_argument("--spacy-model-size", choices=SPACY_MODEL_SIZES)
+    command.add_argument(
+        "--require-spacy",
+        action=argparse.BooleanOptionalAction,
+        default=planning.require_spacy,
+    )
+
+    render = RenderOptionsIntent()
+    command.add_argument("--speech", default=render.speech)
+    command.add_argument("--emphasis-policy", default=render.emphasis_policy)
+
+    compose = ComposeIntent()
+    command.add_argument(
+        "--compose-emphasis-policy",
+        choices=COMPOSE_EMPHASIS_POLICIES,
+        default=compose.emphasis_policy,
+    )
+    command.add_argument("--compose-sample-rate", type=int, default=compose.sample_rate)
+    command.add_argument("--target-lufs", type=float, default=compose.target_lufs)
+    command.add_argument("--true-peak-ceiling-dbtp", type=float)
+    command.add_argument("--clip-policy", choices=CLIP_POLICIES)
+    command.add_argument("--peak-policy", choices=PEAK_POLICIES)
+
+    if kind == "book":
+        command.add_argument("--format", choices=("m4b",), default="m4b")
+    else:
+        command.add_argument("--format", default="mp3", help="AudioExport format (default: mp3)")
+    command.add_argument("--output", type=Path, help="Final media output path")
+    command.add_argument("--bitrate", help="AudioExport bitrate")
+    command.add_argument("--export-sample-rate", type=int)
+    command.add_argument("--channels", type=int)
+    command.add_argument("--cover", type=Path)
+    command.add_argument("--timeline", type=Path)
+
+    for option in ("title", "author", "album", "year", "genre", "comment"):
+        command.add_argument(f"--{option}")
+    if kind == "book":
+        command.add_argument("--narrator")
+        command.add_argument("--series")
+        command.add_argument("--series-index")
+    command.add_argument(
+        "--metadata",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Additional metadata; convenience flags take precedence",
+    )
+
+
+def _default_intent_config_path(source: Path) -> Path:
+    return source.with_name(f"{_default_stem(source)}.readio.toml")
+
+
+def _intent_metadata(args: argparse.Namespace, *, book: bool) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for entry in args.metadata:
+        key, separator, value = entry.partition("=")
+        key = key.strip()
+        if not separator or not key:
+            raise CLIUsageError(f"--metadata expects KEY=VALUE, got {entry!r}")
+        if key in metadata:
+            raise CLIUsageError(f"metadata key {key!r} was supplied more than once")
+        metadata[key] = value
+
+    convenience = ["title", "author", "album", "year", "genre", "comment"]
+    if book:
+        convenience.extend(("narrator", "series", "series_index"))
+    for name in convenience:
+        value = getattr(args, name, None)
+        if value is not None:
+            metadata[name] = value
+    return metadata
+
+
+def _create_render_intent(args: argparse.Namespace) -> int:
+    if args.stdout and args.json:
+        raise CLIUsageError("--stdout prints TOML and cannot be combined with --json")
+    if args.stdout and args.force:
+        raise CLIUsageError("--force applies only when writing an intent file")
+
+    book = args.intent_command == "book"
+    kind = "book" if book else "document"
+    format_spec: Any | None = None
+    output_format = args.format.casefold()
+    if not book:
+        formats = supported_formats()
+        if output_format not in formats:
+            supported = ", ".join(sorted(formats))
+            raise CLIUsageError(
+                f"AudioExport does not support output format {output_format!r}; "
+                f"supported formats: {supported}"
+            )
+        format_spec = formats[output_format]
+
+    kwargs: dict[str, Any] = {
+        "profile": args.profile,
+        "bundle": args.bundle,
+        "language": args.language,
+        "variant": args.variant,
+        "diagnostics": args.diagnostics,
+        "text_preparation": args.text_preparation,
+        "overlap_mode": args.overlap_mode,
+        "renderability_mode": args.renderability_mode,
+        "spacy": args.spacy,
+        "spacy_model": args.spacy_model,
+        "spacy_model_size": args.spacy_model_size,
+        "require_spacy": args.require_spacy,
+        "speech": args.speech,
+        "emphasis_policy": args.emphasis_policy,
+        "compose_emphasis_policy": args.compose_emphasis_policy,
+        "compose_sample_rate": args.compose_sample_rate,
+        "target_lufs": args.target_lufs,
+        "true_peak_ceiling_dbtp": args.true_peak_ceiling_dbtp,
+        "clip_policy": args.clip_policy,
+        "peak_policy": args.peak_policy,
+        "output_format": output_format,
+        "output": args.output,
+        "bitrate": args.bitrate if args.bitrate is not None else ("96k" if book else None),
+        "export_sample_rate": args.export_sample_rate,
+        "channels": args.channels,
+        "cover": args.cover,
+        "timeline": args.timeline,
+        "metadata": _intent_metadata(args, book=book),
+    }
+    if book:
+        kwargs["chapters"] = args.chapters
+        intent = api.create_book_intent(args.source, **kwargs)
+    else:
+        intent = api.create_document_intent(args.source, **kwargs)
+
+    expected_extension = ".m4b" if book else getattr(format_spec, "extension", None)
+    if not isinstance(expected_extension, str) or not expected_extension.startswith("."):
+        raise CLIUsageError("AudioExport returned a format without a valid file extension")
+    if (
+        intent.output.path is None
+        or intent.output.path.suffix.casefold() != expected_extension.casefold()
+    ):
+        raise CLIUsageError(
+            f"output path extension must be {expected_extension} for format {output_format!r}"
+        )
+    if args.stdout:
+        sys.stdout.write(api.dump_render_intent(intent, minimal=args.minimal))
+        return 0
+
+    config_path = args.output_config or _default_intent_config_path(args.source.expanduser())
+    saved_path = api.save_render_intent(
+        intent,
+        config_path,
+        minimal=args.minimal,
+        force=args.force,
+    )
+    if args.json:
+        return _emit_result(
+            {
+                "config": saved_path,
+                "kind": kind,
+                "source": intent.input.source,
+                "bundle": intent.input.bundle,
+                "profile": intent.voice.profile,
+                "format": intent.output.format,
+                "output": intent.output.path,
+                "minimal": args.minimal,
+            },
+            as_json=True,
+        )
+
+    lines = [
+        f"Created render intent: {saved_path}",
+        "",
+        f"Kind:       {kind}",
+        f"Source:     {intent.input.source}",
+    ]
+    if book:
+        lines.append(f"Selection:  {intent.input.chapters} chapters")
+    lines.extend(
+        (
+            f"Profile:    {intent.voice.profile}",
+            f"Format:     {intent.output.format}",
+            f"Output:     {intent.output.path}",
+            "",
+            "Review:",
+            f"  readio intent show {saved_path}",
+            "",
+            "Render:",
+            f"  readio render --config {saved_path}",
+        )
+    )
+    print("\n".join(lines))
+    return 0
+
+
+def _intent_display(value: object) -> str:
+    return "<not set>" if value is None else str(value)
+
+
+def _format_intent(intent: Any, path: Path) -> str:
+    lines = [
+        f"Intent: {path}",
+        f"Schema: {intent.schema}",
+        f"Kind:   {_intent_display(intent.kind)}",
+        "",
+        "Input",
+        f"  source       {_intent_display(intent.input.source)}",
+        f"  bundle       {_intent_display(intent.input.bundle)}",
+    ]
+    if intent.kind == "book":
+        lines.append(f"  chapters     {_intent_display(intent.input.chapters)}")
+    lines.extend(
+        (
+            f"  language     {_intent_display(intent.input.language)}",
+            "",
+            "Voice",
+            f"  profile      {_intent_display(intent.voice.profile)}",
+            f"  variant      {intent.voice.variant or '<automatic>'}",
+            "",
+            "Planning",
+            f"  diagnostics          {intent.planning.diagnostics}",
+            f"  text preparation     {intent.planning.text_preparation}",
+            f"  overlap mode         {intent.planning.overlap_mode}",
+            f"  renderability        {intent.planning.renderability_mode}",
+            f"  spaCy                {intent.planning.spacy}",
+            f"  spaCy model          {_intent_display(intent.planning.spacy_model)}",
+            f"  spaCy model size     {_intent_display(intent.planning.spacy_model_size)}",
+            f"  require spaCy        {intent.planning.require_spacy}",
+            "",
+            "Render",
+            f"  speech               {intent.render.speech}",
+            f"  render emphasis      {intent.render.emphasis_policy}",
+            "",
+            "Compose",
+            f"  sample rate          {_intent_display(intent.compose.sample_rate)} Hz",
+            f"  target loudness      {_intent_display(intent.compose.target_lufs)} LUFS",
+            f"  emphasis policy      {intent.compose.emphasis_policy}",
+            f"  true peak ceiling    {_intent_display(intent.compose.true_peak_ceiling_dbtp)} dBTP",
+            f"  clip policy          {_intent_display(intent.compose.clip_policy)}",
+            f"  peak policy          {_intent_display(intent.compose.peak_policy)}",
+            "",
+            "Output",
+            f"  format               {intent.output.format}",
+            f"  path                 {_intent_display(intent.output.path)}",
+            f"  bitrate              {_intent_display(intent.output.bitrate)}",
+            f"  sample rate          {_intent_display(intent.output.sample_rate)} Hz",
+            f"  channels             {_intent_display(intent.output.channels)}",
+            f"  cover                {_intent_display(intent.output.cover)}",
+            f"  timeline             {_intent_display(intent.output.timeline)}",
+        )
+    )
+    if intent.output.metadata:
+        lines.append("  metadata")
+        lines.extend(
+            f"    {key} = {value}" for key, value in sorted(intent.output.metadata.items())
+        )
+    return "\n".join(lines)
+
+
+def _format_resolved_intent(resolved: Any) -> str:
+    return "\n".join(
+        (
+            f"Config path:    {resolved.config_path}",
+            f"Kind:           {resolved.kind}",
+            f"Source:         {resolved.source}",
+            f"Bundle:         {resolved.bundle}",
+            f"Profile:        {resolved.profile}",
+            f"Chapters:       {resolved.chapters}",
+            f"Format:         {resolved.output_format}",
+            f"Output:         {resolved.output}",
+        )
+    )
+
+
+def _run_intent_command(args: argparse.Namespace) -> int:
+    if args.intent_command in {"book", "document"}:
+        return _create_render_intent(args)
+
+    intent = api.load_render_intent(args.path)
+    if args.intent_command == "show":
+        if args.toml and args.json:
+            raise CLIUsageError("--toml cannot be combined with --json")
+        if args.toml:
+            sys.stdout.write(api.dump_render_intent(intent))
+            return 0
+        if args.resolved:
+            resolved = resolve_render_intent(
+                intent,
+                config_path=args.path,
+                check_output_collision=False,
+            )
+            return _emit_result(
+                {"intent": intent, "resolved": resolved},
+                as_json=args.json,
+                human=_format_resolved_intent(resolved),
+            )
+        return _emit_result(
+            intent,
+            as_json=args.json,
+            human=_format_intent(intent, args.path),
+        )
+
+    if args.intent_command == "validate":
+        resolved = resolve_render_intent(
+            intent,
+            config_path=args.path,
+            check_output_collision=False,
+        )
+        return _emit_result(
+            {"valid": True, "config": args.path, "resolved": resolved},
+            as_json=args.json,
+            human=f"Intent is valid: {args.path}",
+        )
+    raise AssertionError(f"unknown intent command {args.intent_command}")
+
+
+def _render_execution_options(args: argparse.Namespace) -> api.RenderExecutionOptions:
+    stage_names: dict[str, api.PipelineStage] = {
+        "convert": "convert",
+        "compile": "compile",
+        "render-plan": "render_plan",
+        "render": "render",
+        "compose": "compose",
+        "export": "export",
+    }
+    requested = list(args.force_stage)
+    if args.reconvert and "convert" not in requested:
+        requested.append("convert")
+    force_stages = tuple(dict.fromkeys(stage_names[name] for name in requested))
+    restart_from = stage_names[args.restart_from] if args.restart_from is not None else None
+    return api.RenderExecutionOptions(
+        force_stages=force_stages,
+        restart_from=restart_from,
+        reset_stale_output=args.reset_stale_output,
+        ffmpeg=args.ffmpeg,
+        ffprobe=args.ffprobe,
+    )
+
+
+def _one_off_render_intent(args: argparse.Namespace, service: api.Readio) -> api.RenderIntent:
+    if args.source is None:
+        raise CLIUsageError("provide SOURCE or --config PATH")
+    if args.profile is None:
+        raise CLIUsageError("--profile is required when no --config is supplied")
+
+    if args.source.name.casefold().endswith(".ssmd-bundle"):
+        kind = service.resolve_workspace(args.source).kind
+    else:
+        kind = inspect_source_kind(args.source)
+    kwargs: dict[str, Any] = {
+        "profile": args.profile,
+        "bundle": args.bundle,
+        "language": args.language,
+        "variant": args.variant,
+        "output_format": args.output_format or "auto",
+        "output": args.output,
+    }
+    if kind == "book":
+        kwargs["chapters"] = args.chapters or "all"
+        return api.create_book_intent(args.source, **kwargs)
+    return api.create_document_intent(args.source, **kwargs)
+
+
+def _format_render_plan(plan: api.RenderIntentPlan) -> str:
+    resolved = plan.resolved
+    lines = [
+        "Readio render (dry run)",
+        f"Source:   {resolved.source}",
+        f"Kind:     {resolved.kind}",
+        f"Bundle:   {resolved.bundle}",
+        f"Profile:  {resolved.profile}",
+        f"Output:   {resolved.output}",
+        "",
+    ]
+    status = plan.status
+    variant_status = None
+    if status is not None:
+        candidates = [item for item in status.variants if item.profile == resolved.profile]
+        if resolved.intent.voice.variant is not None:
+            variant_status = next(
+                (item for item in candidates if item.variant == resolved.intent.voice.variant),
+                None,
+            )
+        if variant_status is None and candidates:
+            variant_status = candidates[0]
+
+    stage_states = {
+        "convert": "required" if plan.convert_required else "reuse",
+        "compile": status.compile.state if status is not None else "not_started",
+        "render-plan": (
+            variant_status.render_plan.state if variant_status is not None else "not_started"
+        ),
+        "render": variant_status.render.state if variant_status is not None else "not_started",
+        "compose": variant_status.compose.state if variant_status is not None else "not_started",
+        "export": variant_status.export.state if variant_status is not None else "not_started",
+    }
+    for index, stage in enumerate(plan.stages, start=1):
+        detail = ""
+        if stage == "render-plan" and variant_status is not None:
+            detail = f" variant={variant_status.variant}"
+        lines.append(f"[{index}/{len(plan.stages)}] {stage:<12} {stage_states[stage]}{detail}")
+    if plan.output_exists:
+        lines.extend(("", "Output already exists; use --force-stage export to replace it."))
+    return "\n".join(lines)
+
+
+def _run_render_command(args: argparse.Namespace, service: api.Readio) -> int:
+    intent = (
+        api.load_render_intent(args.config)
+        if args.config is not None
+        else _one_off_render_intent(args, service)
+    )
+    overrides = {
+        "config_path": args.config,
+        "source": args.source,
+        "bundle": args.bundle,
+        "profile": args.profile,
+        "variant": args.variant,
+        "chapters": args.chapters,
+        "language": args.language,
+        "output_format": args.output_format,
+        "output": args.output,
+    }
+    overrides = {name: value for name, value in overrides.items() if value is not None}
+    options = _render_execution_options(args)
+    if args.dry_run:
+        plan = service.plan_render_intent(intent, options, **overrides)
+        return _emit_result(
+            plan,
+            as_json=args.json,
+            human=_format_render_plan(plan),
+        )
+
+    result = service.render_intent(
+        intent,
+        options,
+        on_progress=None if args.no_progress else _progress,
+        **overrides,
+    )
+    human = "\n".join(
+        (
+            "Readio render complete",
+            f"Bundle:  {result.workspace.root}",
+            f"Kind:    {result.kind}",
+            f"Profile: {result.profile}",
+            f"Variant: {result.variant}",
+            f"Output:  {result.output}",
+        )
+    )
+    return _emit_result(result, as_json=args.json, human=human)
+
+
+def _run_intent_status(args: argparse.Namespace, service: api.Readio) -> int:
+    intent = api.load_render_intent(args.config)
+    resolved = service.resolve_intent(
+        intent,
+        config_path=args.config,
+        check_output_collision=False,
+    )
+    status = None
+    if resolved.bundle.exists():
+        status = service.status(
+            resolved.bundle,
+            api.StatusRequest(
+                chapters=resolved.chapters,
+                profile=resolved.profile,
+                variant=resolved.intent.voice.variant,
+            ),
+        )
+    next_action = status.next_actions[0] if status is not None and status.next_actions else None
+    result = {
+        "resolved": resolved,
+        "status": status,
+        "next_action": next_action,
+        "convert_required": status is None,
+    }
+    lines = [
+        f"Source:   {resolved.source}",
+        f"Bundle:   {resolved.bundle}",
+        f"Profile:  {resolved.profile}",
+        f"Output:   {resolved.output}",
+        "",
+    ]
+    if status is None:
+        lines.extend(
+            ("convert       not_started", "compile       not_started", "Next:", "  convert")
+        )
+    else:
+        lines.append(_format_bundle_status(status, resolved.chapters))
+        if next_action is not None:
+            lines.extend(("", "Next:", f"  {next_action.stage}"))
+    return _emit_result(result, as_json=args.json, human="\n".join(lines))
+
+
+def _add_status_command(commands: Any) -> None:
+    status = commands.add_parser("status", help="Inspect status using a saved render intent")
+    status.add_argument(
+        "--config", type=Path, required=True, help="Saved *.readio.toml render intent"
+    )
+    status.add_argument("--json", action="store_true")
+
+
+def _add_render_command(commands: Any) -> None:
+    command = commands.add_parser(
+        "render",
+        help="Render a source or saved intent through all specialist stages",
+        description="Converge source material and a RenderProfile to final audio output.",
+    )
+    command.add_argument("source", nargs="?", type=Path)
+    command.add_argument("--config", type=Path, help="Saved *.readio.toml render intent")
+    command.add_argument(
+        "--profile", type=Path, help="Override or supply a VoiceRender RenderProfile"
+    )
+    command.add_argument("--bundle", type=Path, help="Override the target .ssmd-bundle path")
+    command.add_argument("--variant", help="Override the user-friendly UtterPlan variant label")
+    command.add_argument("--chapters", help="Override the book chapter selector")
+    command.add_argument("--language", help="Override source/planner language")
+    command.add_argument("--format", dest="output_format", help="Override final AudioExport format")
+    command.add_argument("--output", type=Path, help="Override final media output path")
+    command.add_argument(
+        "--dry-run", action="store_true", help="Resolve and inspect status without rendering"
+    )
+    command.add_argument(
+        "--force-stage",
+        action="append",
+        choices=("convert", "compile", "render-plan", "render", "compose", "export"),
+        default=[],
+        help="Explicitly force one stage; may be repeated",
+    )
+    command.add_argument(
+        "--restart-from",
+        choices=("convert", "compile", "render-plan", "render", "compose", "export"),
+        help="Force this stage and every later stage",
+    )
+    command.add_argument("--reconvert", action="store_true", help="Explicitly force conversion")
+    command.add_argument("--reset-stale-output", action="store_true")
+    command.add_argument("--ffmpeg", type=Path, help="FFmpeg executable override")
+    command.add_argument("--ffprobe", type=Path, help="FFprobe executable override")
+    command.add_argument("--json", action="store_true")
+    command.add_argument("--no-progress", action="store_true")
 
 
 def _add_bundle_commands(commands: Any) -> None:
@@ -369,7 +983,7 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     if is_dataclass(value) and not isinstance(value, type):
-        return _json_value(asdict(value))
+        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, Mapping):
         return {str(key): _json_value(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
@@ -707,6 +1321,10 @@ def _report_error(error: Exception, args: argparse.Namespace, *, status: int) ->
             "message": str(error),
             "stage": getattr(error, "stage", None),
         }
+        for name in ("package", "workspace", "profile", "variant", "next_action"):
+            value = getattr(error, name, None)
+            if value is not None:
+                details[name] = str(value) if isinstance(value, Path) else value
         print(json.dumps({"ok": False, "error": details}, ensure_ascii=False))
     else:
         print(f"readio: {error}", file=sys.stderr)
@@ -729,7 +1347,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             level=logging.DEBUG if verbosity >= 2 else logging.INFO,
             command=command_name,
         ):
+            if args.command == "intent":
+                return _run_intent_command(args)
             service = api.Readio()
+            if args.command == "render":
+                return _run_render_command(args, service)
+            if args.command == "status":
+                return _run_intent_status(args, service)
             if args.command == "bundle":
                 return _run_bundle_command(args, service)
             if args.command == "speak":

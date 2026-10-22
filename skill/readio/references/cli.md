@@ -1,8 +1,32 @@
 # CLI reference
 
-Use `readio --help`, `readio bundle --help`, and command-specific help for installed options. Readio delegates domain behavior and persisted artifacts to SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and optional AudioExport.
+The intent-first complete workflow uses `readio intent` to create/review user-owned TOML and `readio render` to execute. `readio bundle` remains the advanced stage-by-stage interface. Readio delegates domain behavior and persisted artifacts to SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and optional AudioExport.
 
-## Bundle lifecycle
+## Intent-first render
+
+Create a separate VoiceRender profile, then create and review a kind-specific Readio intent. The default config is `<source-stem>.readio.toml`:
+
+```bash
+readio profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o narrator.renderprofile.toml
+readio intent document create article.docx --profile narrator.renderprofile.toml --language en-US
+readio intent book create novel.epub --profile narrator.renderprofile.toml --chapters 5-17
+readio intent show novel.readio.toml --resolved
+readio intent validate novel.readio.toml
+```
+
+Book output defaults to M4B and documents to MP3. Intent options include `--output-config`, `--stdout`, `--minimal`, and safe overwrite with `--force`; see kind-specific `create --help` for planning, composition, metadata, and export options. VoiceRender RenderProfile remains a separate configuration, not a Readio cast schema.
+
+```bash
+readio render --config novel.readio.toml --dry-run
+readio render --config novel.readio.toml
+readio render article.docx --profile narrator.renderprofile.toml --language en-US
+readio status --config novel.readio.toml
+```
+
+`--dry-run` resolves configuration and inspects existing specialist status without executing stages. Existing bundles are reused. Use repeated `--force-stage STAGE` or `--restart-from STAGE` for explicit reruns; existing output requires forcing `export`. `--reconvert` forces conversion, and `--reset-stale-output` is separate. AudioExport is optional (`readio[audioexport]`); selected format, FFmpeg, and FFprobe are preflighted before conversion. `--ffmpeg PATH` and `--ffprobe PATH` select tool overrides. Progress/diagnostics use stderr; `--json` results use stdout. Readio writes no `.readio/` workspace state.
+
+## Advanced bundle lifecycle
 
 ```bash
 readio bundle convert chapter.docx -o chapter.ssmd-bundle

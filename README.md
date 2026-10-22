@@ -1,6 +1,6 @@
 # Readio
 
-Readio is a thin orchestrator over specialist speech packages and native SSMDConvert `.ssmd-bundle` workspaces. The bundle manifest determines whether content represents a book or a document; Readio uses the same workflow for either kind and does not maintain a second project format.
+Readio is an intent-first orchestrator over specialist speech packages and native SSMDConvert `.ssmd-bundle` workspaces. A user-owned Readio render intent describes a complete book or document render; the bundle manifest still determines content kind, and Readio creates no parallel project format or hidden workspace state.
 
 Specialist packages own validation, schemas, persisted artifacts, reports, and kind-sensitive dispatch. Readio coordinates conversion, planning, RenderPlan projection, rendering, composition, and optional export. One-shot literal speech and local playback remain available.
 
@@ -16,29 +16,51 @@ python -m pip install "readio[audioexport]"  # optional export stage
 
 ## Quick start
 
-Convert a document source into an editable bundle, create a VoiceRender profile, and run the pipeline:
+Create a VoiceRender RenderProfile, then create and review a user-owned Readio render intent. The two TOML files have separate responsibilities: the RenderProfile defines voice roles; the intent describes the requested conversion, planning, composition, and output.
+
+```bash
+readio profile create --engine kokoro --target v1.0 --voice af_heart \
+  --language en-US -o narrator.renderprofile.toml
+readio intent document create chapter.docx \
+  --profile narrator.renderprofile.toml --language en-US
+readio intent show chapter.readio.toml --resolved
+readio intent validate chapter.readio.toml
+readio render --config chapter.readio.toml --dry-run
+readio render --config chapter.readio.toml
+```
+
+Book intents default to M4B and support chapter selection; document intents default to MP3. Both reuse existing `.ssmd-bundle` workspaces and preserve UtterPlan's exact projected variant through VoiceRender, AudioCompose, and AudioExport.
+
+```bash
+readio intent book create novel.epub \
+  --profile narrator.renderprofile.toml --language en-US --chapters 5-17
+readio render --config novel.readio.toml
+```
+
+For a one-off render without saving a Readio intent, provide the source and separate RenderProfile directly:
+
+```bash
+readio render chapter.docx --profile narrator.renderprofile.toml --language en-US
+```
+
+`readio render --dry-run` resolves paths and reports bundle/stage status without executing stages. Existing bundles are reused by default; use `--force-stage STAGE` or `--restart-from STAGE` for explicit reruns. Replacing an existing final output requires forcing `export`. AudioExport is optional (`pip install "readio[audioexport]"`); Readio preflights the selected format, FFmpeg, and FFprobe before conversion, with `--ffmpeg` and `--ffprobe` overrides.
+
+Intent files are visible user-owned configuration, not hidden workspace state. Readio creates no `.readio/` directory. The independent `readio status --config novel.readio.toml` command reports derived state for a saved intent.
+
+## Advanced bundle and stage workflows
+
+`readio bundle run` remains available when you want to manage the lifecycle directly:
 
 ```bash
 readio bundle convert chapter.docx -o chapter.ssmd-bundle
-readio profile create --engine kokoro --target v1.0 --voice af_heart \
-  --language en-US -o narrator.renderprofile.toml
 readio bundle run chapter.ssmd-bundle \
-  --profile narrator.renderprofile.toml \
-  --language en-US
-```
+  --profile narrator.renderprofile.toml --language en-US
 
-Books use the same bundle suffix and lifecycle. Keeping the RenderProfile in the bundle also makes its provenance available during projection:
-
-```bash
 readio bundle convert novel.epub -o novel.ssmd-bundle
-readio profile create --engine kokoro --target v1.0 --voice af_heart \
-  --language en-US -o novel.ssmd-bundle/narrator.renderprofile.toml
 readio bundle run novel.ssmd-bundle \
   --profile novel.ssmd-bundle/narrator.renderprofile.toml \
   --chapters 5-17 --language en-US --export --output novel.m4b
 ```
-
-`readio bundle run` compiles, projects a RenderPlan, renders, and composes in order. If `--export` is selected, Readio also calls AudioExport. It forwards UtterPlan's exact projected variant unchanged to every downstream stage. AudioExport is optional; install `readio[audioexport]` to use it.
 
 Run from a source file directly with `--bundle-output` when you want to choose the output directory:
 
@@ -49,16 +71,7 @@ readio bundle run chapter.docx \
   --language en-US
 ```
 
-To operate one stage at a time, use `readio bundle convert`, `compile`, `render-plan`, `render`, `compose`, or `export`. See the [CLI reference](docs/cli.md).
-
-Inspect current state before continuing or resuming manually:
-
-```bash
-readio bundle status novel.ssmd-bundle --chapters 5-17
-readio -vv bundle status novel.ssmd-bundle --json
-```
-
-Status is read-only, derives state from specialist APIs, and prints the next safe command when one can be identified. Verbose diagnostics and monotonic command/stage timing go to stderr; JSON results stay on stdout.
+For stage-by-stage control, use `readio bundle convert`, `compile`, `render-plan`, `render`, `compose`, or `export`. `readio bundle status novel.ssmd-bundle` inspects an existing bundle; use `readio status --config novel.readio.toml` for an intent-based view. See the [CLI reference](docs/cli.md) for advanced options.
 
 ## Manual specialist workflow
 
@@ -106,19 +119,20 @@ An installed ONNX Runtime distribution/build is distinct from its execution prov
 
 ```python
 from pathlib import Path
-from readio.api import PlanRequest, Readio, RenderPlanRequest
+from readio.api import Readio, RenderExecutionOptions, create_document_intent
 
 service = Readio()
-workspace = service.create_workspace("chapter.txt")
-compiled = service.plan(workspace, PlanRequest(language="en-US"))
-projection = service.render_plan(
-    workspace,
-    RenderPlanRequest(profile=Path("narrator.renderprofile.toml")),
+intent = create_document_intent(
+    Path("chapter.txt"),
+    profile=Path("narrator.renderprofile.toml"),
+    language="en-US",
 )
-print(workspace.root, projection.variant)
+plan = service.plan_render_intent(intent)
+result = service.render_intent(intent, RenderExecutionOptions())
+print(plan.resolved.output, result.variant)
 ```
 
-`WorkspaceRef.kind` is informational. Specialist bundle APIs perform operational kind dispatch. Use `Readio.run()` and `RunRequest` for complete sequencing, or call stage methods individually. The service preserves the exact projected variant and provides one kind-neutral `ExportRequest`. See the [Python API guide](docs/api.md).
+For advanced stage-by-stage use, `Readio.run()` and `RunRequest` remain available, as do the individual stage methods. VoiceRender's RenderProfile stays separate from the Readio intent, and all downstream stages receive the exact projected variant. See the [Python API guide](docs/api.md).
 
 ## Documentation
 

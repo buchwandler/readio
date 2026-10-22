@@ -11,6 +11,14 @@ from readio.api import (
     PlanRequest,
     Readio,
     RenderPlanRequest,
+    RenderExecutionOptions,
+    RenderIntentPlan,
+    RenderIntentResult,
+    ResolvedRenderIntent,
+    create_book_intent,
+    create_document_intent,
+    load_render_intent,
+    save_render_intent,
     RunRequest,
     BundleStatus,
     NextAction,
@@ -50,11 +58,44 @@ for action in status.next_actions:
 
 Use `CreateWorkspaceRequest` to pass an explicit output path, language, chapter selector, or force behavior. It does not contain a kind selector; source and manifest kind detection belong to SSMDConvert.
 
+## Intent-first complete renders
+
+`RenderIntent` captures the requested book/document workflow; `VoiceIntent.profile` points to a separate, user-owned VoiceRender RenderProfile. It is not a voice-role or cast schema. Factories provide kind-specific defaults (book to M4B, document to MP3), while strict TOML helpers support persistent review:
+
+```python
+from pathlib import Path
+from readio.api import (
+    Readio,
+    RenderExecutionOptions,
+    create_document_intent,
+    load_render_intent,
+    save_render_intent,
+)
+
+config = Path("article.readio.toml")
+intent = create_document_intent(
+    Path("article.docx"),
+    profile=Path("narrator.renderprofile.toml"),
+    language="en-US",
+)
+save_render_intent(intent, config)
+intent = load_render_intent(config)
+service = Readio()
+resolved = service.resolve_intent(intent, config_path=config)
+plan = service.plan_render_intent(intent, config_path=config)
+result = service.render_intent(intent, RenderExecutionOptions(), config_path=config)
+print(resolved.output, plan.convert_required, result.variant)
+```
+
+`resolve_intent` applies config-relative paths and validates source/bundle kind, profile, AudioExport format/extension, and output safety. `plan_render_intent` reports existing specialist status and output collisions without executing pipeline stages. `render_intent` reuses a validated existing bundle by default, otherwise converts, compiles, projects, renders, composes, and exports. Its `RenderIntentResult` contains the resolved output, workspace, selected kind, exact projected variant, stage results, and conversion/timing summary.
+
+`RenderExecutionOptions.force_stages` explicitly reruns selected stages; `restart_from` forces that stage and all downstream stages. `reset_stale_output`, `ffmpeg`, and `ffprobe` are independent execution controls. Existing output replacement is permitted only when export is forced. Export preflight uses AudioExport's format registry and doctor API before conversion. Specialist exceptions are wrapped with stage/package/profile/variant context while preserving their error code and cause.
+
 ## Planning and stage operations
 
 `Readio.plan(workspace, PlanRequest(...))` delegates semantic compilation to UtterPlan. `Readio.render_plan(workspace, RenderPlanRequest(profile=...))` returns `RenderPlanResult(native, variant)`. The variant is the exact value returned by UtterPlan.
 
-`Readio.render`, `Readio.compose`, and `Readio.export` forward requests to VoiceRender, AudioCompose, and AudioExport bundle APIs. Requests contain Readio routing fields and specialist-native option values; artifacts and reports remain package-owned. `WorkspaceRef.kind` is informational and does not select a Readio implementation.
+`Readio.render`, `Readio.compose`, and `Readio.export` forward requests to VoiceRender, AudioCompose, and AudioExport bundle APIs. Requests contain Readio routing fields and specialist-native option values; artifacts and reports remain package-owned. `WorkspaceRef.kind` is a consistency check, not a selector for kind-specific Readio implementations.
 
 `ComposeRequest` supports bundle composition options, optional output policy, stage roots, pause policy, `save_audiojobs`, and force/fail-fast behavior. The specialist validates kind-sensitive composition rules.
 
@@ -73,7 +114,7 @@ result = service.export(workspace, export_request)
 
 AudioExport owns kind-sensitive option validation. Its integration is optional; installing `readio[audioexport]` provides it.
 
-## Complete pipeline sequencing
+## Lower-level complete pipeline sequencing
 
 `Readio.run(source_or_bundle, RunRequest(...))` converts or resolves the input, then plans, projects, renders, composes, and optionally exports. It replaces downstream request variants with the exact projected variant before dispatch:
 

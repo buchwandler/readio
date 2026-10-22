@@ -156,8 +156,9 @@ def test_help_exposes_nested_bundle_workflows_without_kind_selection() -> None:
     )
     root_commands = root_subparsers.choices
     assert "bundle" in root_commands
+    assert "render" in root_commands
     assert ".ssmd-bundle" in help_text
-    for old_command in ("init", "plan", "render-plan", "render", "compose", "export", "run"):
+    for old_command in ("init", "plan", "render-plan", "compose", "export", "run"):
         assert old_command not in root_commands
         with pytest.raises(SystemExit):
             parser.parse_args([old_command, "sample"])
