@@ -8,6 +8,7 @@
 
 - Added direct speech and audiobook orchestration through specialist APIs
 - Added native document and book run workflows over specialist-owned SSMD workspaces
+- Added ONNX Runtime provider inspection and selection through Readio's public API and CLI
 
 ### Changed
 

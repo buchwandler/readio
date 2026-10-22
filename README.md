@@ -86,6 +86,22 @@ readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 
 `speak` sends literal text through VoiceRender and plays the returned audio locally by default. Use `--output FILE.wav --no-play` to save without playback. Readio also retains playback and audio I/O helpers for Python callers.
 
+## ONNX Runtime controls
+
+Inspect the ONNX Runtime distribution/build and provider policy, or choose providers for future compatible sessions:
+
+```bash
+readio runtime status
+readio runtime list
+readio runtime use cpu
+readio runtime use cuda
+readio runtime use auto
+readio runtime use cuda,cpu
+readio runtime reset
+```
+
+An installed ONNX Runtime distribution/build is distinct from its execution providers. `runtime status` reports the imported build and its available providers; `runtime list` shows detected distributions and providers reported by that build. A selected/resolved provider policy is for new sessions, not proof of an active inference session. Readio does not install, uninstall, or switch ONNX Runtime distributions; package changes are managed outside Readio. Environment variables such as `ONNXVOICE_PROVIDER` override the saved preference, and `runtime reset` does not unset environment variables. Explicit `--engine-option providers=...` or a provider configured in a RenderProfile remains an intentional override of the global default.
+
 ## Python API
 
 ```python

@@ -51,7 +51,7 @@ jobs:
           python -m pip install \
             "ssmdconvert[pdf,docx]==0.2.2" \
             "utterplan[spacy]==0.6.6" \
-            "voicerender==0.2.5" \
+            "voicerender==0.2.6" \
             "audiocompose==0.3.3" \
             "audioexport==0.1.4"
           python -m pip install -e ".[dev,documents,spacy]"

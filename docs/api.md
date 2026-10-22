@@ -100,3 +100,18 @@ print(result.workspace.root, result.variant)
 `readio.api.speak(text, ...)` synthesizes literal text through VoiceRender and plays it locally unless `no_play=True`. It accepts a voice selector or a saved RenderProfile and role, and can save WAV output. It does not create a bundle or invoke UtterPlan, AudioCompose, or AudioExport.
 
 `readio.api` also provides thin delegates for engine/model discovery and management, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. Calls use VoiceRender's public package-root API and preserve its result objects and validation behavior.
+
+## ONNX Runtime controls
+
+The runtime control functions delegate to VoiceRender's public package-root APIs and return its `OnnxRuntimeStatus` object for inspection:
+
+```python
+from readio.api import reset_runtime_providers, runtime_status, set_runtime_providers
+
+status = runtime_status()
+set_runtime_providers("cuda,cpu")
+status = runtime_status()  # policy and resolution for future sessions
+status = reset_runtime_providers()
+```
+
+`runtime_status()` describes the imported distribution/build, available providers, configured policy and its source, and resolution for new sessions; it does not report a provider active in an initialized synthesis session. A distribution/package is distinct from an execution provider. Environment variables such as `ONNXVOICE_PROVIDER` override the saved preference, and reset does not unset them. Explicit engine provider options and providers set in a RenderProfile remain intentional overrides. Readio does not install or switch runtime distributions.

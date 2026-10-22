@@ -15,6 +15,7 @@ BACKEND_ROOTS = frozenset(
         "soprosynth",
         "qwen3synth",
         "onnxvoice",
+        "onnxruntime",
         "voicefolio",
     }
 )
@@ -60,6 +61,19 @@ def test_runtime_imports_only_specialist_package_roots() -> None:
         if any(module.startswith(prefix) for prefix in PRIVATE_IMPORT_PREFIXES)
     }
     assert not private_imports
+
+
+def test_runtime_facade_imports_only_voicerender_from_the_synthesis_stack() -> None:
+    runtime_path = ROOT / "readio/runtime.py"
+    tree = ast.parse(runtime_path.read_text(encoding="utf-8"), filename=str(runtime_path))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported.add(node.module.split(".", 1)[0])
+    assert imported & SPECIALIST_ROOTS == {"voicerender"}
+    assert not imported & {"onnxvoice", "onnxruntime"}
 
 
 def test_specialist_imports_use_only_public_roots() -> None:

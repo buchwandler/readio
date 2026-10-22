@@ -95,6 +95,22 @@ readio speak --profile narrator.renderprofile.toml --role narrator \
 
 `speak` synthesizes literal text through VoiceRender and plays by default. `--output` writes WAV and `--no-play` skips local playback. Use `--json` for a machine-readable result.
 
+## ONNX Runtime provider controls
+
+```bash
+readio runtime status
+readio runtime status --json
+readio runtime list
+readio runtime list --json
+readio runtime use cpu
+readio runtime use cuda
+readio runtime use auto
+readio runtime use cuda,cpu
+readio runtime reset
+```
+
+`runtime status` distinguishes the imported ONNX Runtime distribution/build from its available providers, configured policy, source, and providers resolved for new sessions. `runtime list` lists detected distributions and providers reported by the imported build; its `SELECTED` column is not an active-session report. Provider availability is determined by the imported build. `runtime use` saves a default policy for future compatible sessions and does not install, uninstall, or switch runtime distributions. Environment variables such as `ONNXVOICE_PROVIDER` override saved configuration; `runtime reset` removes the saved preference but does not unset environment variables. An explicit `--engine-option providers=...` or provider set in a RenderProfile overrides the global default. Runtime package/distribution changes are performed outside Readio.
+
 ## Dependency diagnostics
 
 ```bash
@@ -102,7 +118,7 @@ readio doctor
 readio doctor --json
 ```
 
-Doctor reports specialist package versions and VoiceRender engine availability. Structured errors and JSON results are written to stdout; progress is written to stderr.
+Doctor reports specialist package versions, VoiceRender engine availability, and compact ONNX Runtime distribution and provider-policy status. A missing or failed runtime is shown with a concise diagnostic instead of crashing the report.
 
 ## Verbose diagnostics and timing
 

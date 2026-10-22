@@ -25,6 +25,7 @@ from readio.profiles import (
     set_profile_role,
     validate_profile,
 )
+from readio.runtime import reset_runtime_providers, runtime_status, set_runtime_providers
 from readio.speech import VoiceSelector, parse_voice_selector, speak
 from readio.voices import (
     clone_voice,
@@ -96,8 +97,11 @@ __all__ = [
     "refresh_profile",
     "remove_engine_model",
     "remove_profile_role",
+    "reset_runtime_providers",
+    "runtime_status",
     "set_default_profile_role",
     "set_profile_role",
+    "set_runtime_providers",
     "show_voice_source",
     "speak",
     "validate_profile",

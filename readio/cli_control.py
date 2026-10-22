@@ -28,6 +28,28 @@ def add_control_commands(commands: Any) -> None:
     engine_options.add_argument("--target")
     engine_options.add_argument("--json", action="store_true")
 
+    runtime = commands.add_parser(
+        "runtime",
+        help="Inspect and select ONNX Runtime execution providers.",
+        description="Inspect the imported ONNX Runtime build and select providers for new sessions.",
+    )
+    runtime_commands = runtime.add_subparsers(dest="runtime_command", required=True)
+    runtime_status = runtime_commands.add_parser(
+        "status", help="Show the imported ONNX Runtime build and effective provider policy."
+    )
+    runtime_status.add_argument("--json", action="store_true")
+    runtime_list = runtime_commands.add_parser(
+        "list", help="List detected ORT distributions and providers reported by the imported build."
+    )
+    runtime_list.add_argument("--json", action="store_true")
+    runtime_use = runtime_commands.add_parser(
+        "use", help="Save the default provider policy for new compatible sessions."
+    )
+    runtime_use.add_argument("providers", metavar="PROVIDERS")
+    runtime_use.add_argument("--json", action="store_true")
+    runtime_reset = runtime_commands.add_parser("reset", help="Remove the saved provider policy.")
+    runtime_reset.add_argument("--json", action="store_true")
+
     models = commands.add_parser("models", help="Manage VoiceRender engine models")
     model_commands = models.add_subparsers(dest="model_command", required=True)
     model_list = model_commands.add_parser("list", help="List engine models")
@@ -258,8 +280,159 @@ def _human_summary(value: Any) -> str:
     return str(value)
 
 
+def _provider_source_label(source: Any) -> str:
+    value = getattr(source, "value", source)
+    labels = {
+        "default": "built-in default",
+        "user_config": "user config",
+        "environment": "ONNXVOICE_PROVIDER",
+        "environment_variable": "ONNXVOICE_PROVIDER",
+    }
+    return labels.get(str(value), str(value).replace("_", " "))
+
+
+def _provider_names(providers: Sequence[str], *, empty: str = "none reported") -> str:
+    return ", ".join(str(provider) for provider in providers) or empty
+
+
+def _runtime_json_result(status: Any) -> dict[str, Any]:
+    value = _json_value(status)
+    if isinstance(value, Mapping):
+        return {"kind": "onnx", **value}
+    return {"kind": "onnx", "status": value}
+
+
+def _format_runtime_status(status: Any) -> str:
+    imported = getattr(status, "imported_distribution", None)
+    module_version = getattr(status, "module_version", None)
+    distribution = str(imported or "not identified")
+    if imported and module_version:
+        distribution = f"{imported} {module_version}"
+    state = str(getattr(status, "distribution_state", "unknown"))
+    lines = [
+        "ONNX Runtime",
+        "",
+        f"{'Importable':<22}: {'yes' if getattr(status, 'importable', False) else 'no'}",
+        f"{'Distribution':<22}: {distribution}",
+        f"{'Distribution state':<22}: {state}",
+    ]
+    if module_version:
+        lines.append(f"{'Module version':<22}: {module_version}")
+    module_path = getattr(status, "module_path", None)
+    if module_path is not None:
+        lines.append(f"{'Module path':<22}: {module_path}")
+    build_device = getattr(status, "build_device", None)
+    if build_device:
+        lines.append(f"{'Build device':<22}: {build_device}")
+    available = tuple(getattr(status, "available_providers", ()))
+    configured = tuple(getattr(status, "configured_providers", ()))
+    resolved = tuple(getattr(status, "resolved_providers", ()))
+    lines.extend(["", "Available providers:"])
+    lines.extend(f"  {provider}" for provider in available)
+    if not available:
+        lines.append("  (none reported)")
+    lines.extend(
+        [
+            f"{'Configured policy':<22}: {_provider_names(configured, empty='none')}",
+            f"{'Policy source':<22}: {_provider_source_label(getattr(status, 'provider_source', 'unknown'))}",
+            "Resolved for new sessions:",
+        ]
+    )
+    if resolved:
+        lines.extend(f"  {provider}" for provider in resolved)
+    else:
+        lines.append("  (none reported)")
+    if state == "ambiguous":
+        lines.extend(
+            [
+                "",
+                "Warning: multiple ONNX Runtime distributions claim the imported module.",
+                "Keep one ONNX Runtime distribution per Python environment.",
+            ]
+        )
+    import_error = getattr(status, "import_error", None)
+    if import_error:
+        lines.extend(["", f"Import error: {import_error}"])
+    resolution_error = getattr(status, "resolution_error", None)
+    if resolution_error:
+        lines.extend(["", f"Provider resolution error: {resolution_error}"])
+    return "\n".join(lines)
+
+
+def _format_runtime_list(status: Any) -> str:
+    lines = [
+        "Installed ONNX Runtime distributions",
+        "NAME                 VERSION       IMPORT OWNER",
+    ]
+    distributions = getattr(status, "distributions", ())
+    if distributions:
+        for distribution in distributions:
+            owner = "yes" if getattr(distribution, "owns_import", False) else "no"
+            lines.append(
+                f"{getattr(distribution, 'name', 'unknown'):<20} "
+                f"{getattr(distribution, 'version', 'unknown'):<13} {owner}"
+            )
+    else:
+        lines.append("(none detected)")
+    resolved = set(getattr(status, "resolved_providers", ()))
+    lines.extend(
+        ["", "Providers reported by imported ORT", "PROVIDER                     SELECTED"]
+    )
+    providers = getattr(status, "available_providers", ())
+    if providers:
+        lines.extend(
+            f"{provider:<29} {'yes' if provider in resolved else 'no'}" for provider in providers
+        )
+    else:
+        lines.append("(none reported)")
+    return "\n".join(lines)
+
+
+def _format_runtime_use(providers: str, status: Any) -> str:
+    lines = [
+        f"Saved ONNX provider policy: {providers}",
+        f"Effective source is currently: {_provider_source_label(getattr(status, 'provider_source', 'unknown'))}",
+        f"Effective resolved provider: {_provider_names(getattr(status, 'resolved_providers', ()))}",
+        "Applies to new sessions.",
+    ]
+    return "\n".join(lines)
+
+
+def _format_runtime_reset(status: Any) -> str:
+    return "\n".join(
+        [
+            "Removed saved ONNX provider preference.",
+            f"Effective source: {_provider_source_label(getattr(status, 'provider_source', 'unknown'))}",
+            f"Resolved for new sessions: {_provider_names(getattr(status, 'resolved_providers', ()))}",
+        ]
+    )
+
+
 def run_control_command(args: argparse.Namespace, api: Any) -> int:
     command = args.command
+    if command == "runtime":
+        if args.runtime_command == "use":
+            api.set_runtime_providers(args.providers)
+            result = api.runtime_status()
+            if args.json:
+                return _emit(_runtime_json_result(result), as_json=True)
+            print(_format_runtime_use(args.providers, result))
+            return 0
+        if args.runtime_command == "reset":
+            result = api.reset_runtime_providers()
+            if args.json:
+                return _emit(_runtime_json_result(result), as_json=True)
+            print(_format_runtime_reset(result))
+            return 0
+        result = api.runtime_status()
+        if args.json:
+            return _emit(_runtime_json_result(result), as_json=True)
+        formatter = (
+            _format_runtime_status if args.runtime_command == "status" else _format_runtime_list
+        )
+        print(formatter(result))
+        return 0
+
     if command == "engines":
         if args.engine_command == "list":
             result = api.list_engines()

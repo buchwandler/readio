@@ -52,6 +52,7 @@ def _command_name(args: argparse.Namespace) -> str:
         "voice_command",
         "profile_command",
         "role_command",
+        "runtime_command",
         "source_command",
     ):
         value = getattr(args, attribute, None)
@@ -740,7 +741,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else:
                     print(format_doctor_report(result))
                 return 0
-            if args.command in {"engines", "models", "voices", "voice", "profile"}:
+            if args.command in {"engines", "models", "voices", "voice", "profile", "runtime"}:
                 return run_control_command(args, api)
     except CLIUsageError as error:
         return _report_error(error, args, status=2)

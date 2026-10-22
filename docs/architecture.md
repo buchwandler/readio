@@ -22,14 +22,15 @@ A book bundle may contain multiple chapter items; a document bundle represents a
 
 ## Ownership
 
-| Concern                                          | Owner                  | Readio's role                                                   |
-| ------------------------------------------------ | ---------------------- | --------------------------------------------------------------- |
-| Source conversion, `.ssmd-bundle`, manifest kind | SSMDConvert            | Forward conversion requests and resolve validated bundles       |
-| Semantic plans and RenderPlan projection         | UtterPlan / RenderPlan | Forward bundle requests and preserve the exact returned variant |
-| Profiles, voices, engines, models, and synthesis | VoiceRender            | Delegate management and bundle rendering                        |
-| Composition and audio-job artifacts              | AudioCompose           | Forward one bundle compose request and return the native result |
-| Encoding and export artifacts                    | AudioExport            | Forward one bundle export request; integration is optional      |
-| CLI, sequencing, and playback convenience        | Readio                 | Coordinate public calls and adapt progress                      |
+| Concern                                          | Owner                  | Readio's role                                                     |
+| ------------------------------------------------ | ---------------------- | ----------------------------------------------------------------- |
+| Source conversion, `.ssmd-bundle`, manifest kind | SSMDConvert            | Forward conversion requests and resolve validated bundles         |
+| Semantic plans and RenderPlan projection         | UtterPlan / RenderPlan | Forward bundle requests and preserve the exact returned variant   |
+| Profiles, voices, engines, models, and synthesis | VoiceRender            | Delegate management and bundle rendering                          |
+| ONNX Runtime build and provider policy           | VoiceRender            | Expose status and provider selection; do not manage distributions |
+| Composition and audio-job artifacts              | AudioCompose           | Forward one bundle compose request and return the native result   |
+| Encoding and export artifacts                    | AudioExport            | Forward one bundle export request; integration is optional        |
+| CLI, sequencing, and playback convenience        | Readio                 | Coordinate public calls and adapt progress                        |
 
 `WorkspaceRef.kind` is informational. Readio does not branch on it, parse manifests, validate chapter selectors, or duplicate specialist bundle rules.
 
@@ -64,3 +65,7 @@ The editable bundle and all stage artifacts remain specialist-owned. Readio writ
 ## Dependency boundary
 
 Readio imports specialist package-root public APIs only: SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and optional AudioExport. It does not import specialist private submodules or backend SDKs. Playback and audio I/O helpers unrelated to bundle stages remain in Readio.
+
+## Machine-level runtime policy
+
+Readio exposes VoiceRender's ONNX Runtime status and provider-policy APIs through `readio.api` and `readio runtime`. The imported runtime distribution/build is not the same as an execution provider; provider selection affects future compatible sessions and does not prove which provider an existing session used. Environment variables such as `ONNXVOICE_PROVIDER` override a saved preference, and reset does not unset those variables. Explicit engine options and RenderProfile provider settings remain overrides. Provider aliases, precedence, validation, persistence, and installation guidance stay with VoiceRender; Readio does not install or switch runtime distributions or add runtime state to bundles, profiles, RenderPlans, or other project artifacts.

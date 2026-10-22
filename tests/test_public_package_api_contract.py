@@ -25,6 +25,10 @@ CORE_PUBLIC_APIS = {
         "parse_voice_selector",
         "VoiceCloneRequest",
         "clone_voice_profile",
+        "OnnxRuntimeStatus",
+        "onnx_runtime_status",
+        "set_onnx_runtime_providers",
+        "clear_onnx_runtime_providers",
         "create_voice_source",
         "load_voice_source",
         "save_voice_source",
@@ -59,6 +63,15 @@ def test_optional_audioexport_public_api_is_importable() -> None:
 def test_readio_status_api_is_public() -> None:
     from readio import api
 
-    for symbol in ("BundleStatus", "NextAction", "StageStatus", "StatusRequest", "VariantStatus"):
+    for symbol in (
+        "BundleStatus",
+        "NextAction",
+        "StageStatus",
+        "StatusRequest",
+        "VariantStatus",
+        "runtime_status",
+        "set_runtime_providers",
+        "reset_runtime_providers",
+    ):
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
     assert callable(api.Readio.status)

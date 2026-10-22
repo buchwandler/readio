@@ -3,7 +3,7 @@ schema_version: 2
 object_type: release
 versioning:
   schema_version: 1
-  revision: 7
+  revision: 8
 version: v0.5.0
 status: planned
 history_state: curated
@@ -16,7 +16,7 @@ changelog_file: docs/changelog.md
 boundary_ref: null
 source_refs: []
 source_count: null
-entry_count: 6
+entry_count: 7
 artifact_count: 0
 git_base_ref: null
 git_base_sha: null
