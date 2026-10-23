@@ -37,6 +37,38 @@ readio intent book create novel.epub \
 readio render --config novel.readio.toml
 ```
 
+### Create profiles from SSMD voice roles
+
+For an SSMD document with one explicit `narrator` role, inspect and create its profile directly:
+
+```bash
+readio profile document inspect chapter.ssmd.md
+readio profile document create chapter.ssmd.md \
+  --engine kokoro --target v1.0 --language en-US \
+  --voice narrator=af_heart \
+  -o chapter.renderprofile.toml
+```
+
+For a multi-speaker source, assign each logical role in one command. Logical roles stay distinct even when they intentionally share one physical TTS voice:
+
+```bash
+readio profile document inspect meeting.ssmd.md
+readio profile document create meeting.ssmd.md \
+  --engine kokoro --target v1.0 --language en-US \
+  --voice narrator=af_heart \
+  --voice host=af_sarah \
+  --voice guest=am_michael \
+  --same-as analyst=guest \
+  --default-role narrator \
+  -o meeting.renderprofile.toml
+
+readio intent document create meeting.ssmd.md \
+  --profile meeting.renderprofile.toml --language en-US
+readio intent show meeting.readio.toml --resolved
+```
+
+Here four logical roles use three physical voices: `analyst` receives a copy of `guest`'s complete binding. The reviewable VoiceRender RenderProfile remains separate from the Readio intent; Readio does not choose voices or create a profile automatically.
+
 For a one-off render without saving a Readio intent, provide the source and separate RenderProfile directly:
 
 ```bash

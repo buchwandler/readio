@@ -68,6 +68,7 @@ def _command_name(args: argparse.Namespace) -> str:
         "voices_command",
         "voice_command",
         "profile_command",
+        "profile_document_command",
         "role_command",
         "runtime_command",
         "source_command",
@@ -142,7 +143,7 @@ def _add_intent_commands(commands: Any) -> None:
 def _add_intent_create_options(command: Any, *, kind: str) -> None:
     from .intent import ComposeIntent, PlanningIntent, RenderOptionsIntent
 
-    command.add_argument("--profile", type=Path, required=True, help="VoiceRender RenderProfile")
+    command.add_argument("--profile", type=Path, help="VoiceRender RenderProfile")
     command.add_argument("--bundle", type=Path, help="Desired or known .ssmd-bundle path")
     command.add_argument("--variant", help="Optional UtterPlan projection label")
     command.add_argument("--language")
@@ -234,6 +235,85 @@ def _intent_metadata(args: argparse.Namespace, *, book: bool) -> dict[str, str]:
     return metadata
 
 
+class _ProfileRequiredError(CLIUsageError):
+    code = "profile_required"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        source_roles: list[str],
+        next_action: list[str],
+    ) -> None:
+        self.source_roles = source_roles
+        self.next_action = next_action
+        super().__init__(message)
+
+
+def _profile_required_error(args: argparse.Namespace, kind: str) -> _ProfileRequiredError:
+    source = args.source.expanduser()
+    source_roles: list[str] = []
+    if kind == "document" and source.name.casefold().endswith(".ssmd.md") and source.is_file():
+        requirements = api.inspect_document_voice_requirements(source)
+        source_roles = [role.name for role in requirements.roles]
+
+    suffix = ".ssmd.md"
+    stem = source.name[: -len(suffix)] if source.name.casefold().endswith(suffix) else source.stem
+    profile_output = source.with_name(f"{stem}.renderprofile.toml")
+    if source_roles:
+        next_action = [
+            "readio",
+            "profile",
+            "document",
+            "create",
+            str(source),
+            "--engine",
+            "<ENGINE>",
+            "--target",
+            "<TARGET>",
+            "--language",
+            "<LANGUAGE>",
+        ]
+        for role in source_roles:
+            next_action.extend(("--voice", f"{role}=<VOICE>"))
+    else:
+        next_action = [
+            "readio",
+            "profile",
+            "create",
+            "--engine",
+            "<ENGINE>",
+            "--target",
+            "<TARGET>",
+            "--language",
+            "<LANGUAGE>",
+            "--voice",
+            "<VOICE>",
+        ]
+    next_action.extend(("-o", str(profile_output)))
+
+    lines = ["this render intent needs a VoiceRender profile."]
+    if source_roles:
+        lines.extend(
+            ["", "Detected document voice roles:", *(f"  {role}" for role in source_roles)]
+        )
+    lines.extend(
+        [
+            "",
+            "Create one first:",
+            f"  {shlex.join(next_action)}",
+            "",
+            "Then:",
+            f"  {shlex.join(['readio', 'intent', kind, 'create', str(source), '--profile', str(profile_output)])}",
+        ]
+    )
+    return _ProfileRequiredError(
+        "\n".join(lines),
+        source_roles=source_roles,
+        next_action=next_action,
+    )
+
+
 def _create_render_intent(args: argparse.Namespace) -> int:
     if args.stdout and args.json:
         raise CLIUsageError("--stdout prints TOML and cannot be combined with --json")
@@ -242,6 +322,9 @@ def _create_render_intent(args: argparse.Namespace) -> int:
 
     book = args.intent_command == "book"
     kind = "book" if book else "document"
+
+    if args.profile is None:
+        raise _profile_required_error(args, kind)
     format_spec: Any | None = None
     output_format = args.format.casefold()
     if not book:
@@ -1321,7 +1404,7 @@ def _report_error(error: Exception, args: argparse.Namespace, *, status: int) ->
             "message": str(error),
             "stage": getattr(error, "stage", None),
         }
-        for name in ("package", "workspace", "profile", "variant", "next_action"):
+        for name in ("package", "workspace", "profile", "variant", "source_roles", "next_action"):
             value = getattr(error, name, None)
             if value is not None:
                 details[name] = str(value) if isinstance(value, Path) else value

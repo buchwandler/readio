@@ -83,6 +83,21 @@ def test_specialist_imports_use_only_public_roots() -> None:
     assert specialist_imports <= SPECIALIST_ROOTS
 
 
+def test_source_profile_adapter_uses_public_specialist_root_imports() -> None:
+    path = ROOT / "readio/profile_source.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imports = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imports.add(node.module)
+
+    assert {"utterplan", "voicerender"} <= imports
+    assert not any(module.startswith(("utterplan.", "voicerender.")) for module in imports)
+    assert "re" not in imports
+
+
 def test_runtime_contains_no_legacy_persistence_identifiers() -> None:
     for path in (ROOT / "readio").rglob("*.py"):
         source = path.read_text(encoding="utf-8")

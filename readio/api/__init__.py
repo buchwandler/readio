@@ -37,6 +37,14 @@ from readio.intent_codec import (
     save_render_intent,
 )
 from readio.intent_resolver import ResolvedRenderIntent
+from readio.profile_source import (
+    DocumentVoiceRequirements,
+    DocumentVoiceRole,
+    RoleAlias,
+    RoleVoiceBinding,
+    create_document_profile,
+    inspect_document_voice_requirements,
+)
 from readio.profiles import (
     create_profile,
     list_profile_roles,
@@ -89,6 +97,8 @@ __all__ = [
     "ComposeIntent",
     "ComposeRequest",
     "CreateWorkspaceRequest",
+    "DocumentVoiceRequirements",
+    "DocumentVoiceRole",
     "ExportRequest",
     "InputIntent",
     "IntentKind",
@@ -108,6 +118,8 @@ __all__ = [
     "RenderPlanRequest",
     "RenderPlanResult",
     "ResolvedRenderIntent",
+    "RoleAlias",
+    "RoleVoiceBinding",
     "RunRequest",
     "StageStatus",
     "StatusRequest",
@@ -122,10 +134,12 @@ __all__ = [
     "clone_voice",
     "create_book_intent",
     "create_document_intent",
+    "create_document_profile",
     "create_profile",
     "create_voice_source",
     "discover_engine_targets",
     "dump_render_intent",
+    "inspect_document_voice_requirements",
     "inspect_engine",
     "inspect_engine_model",
     "inspect_voice",

@@ -95,3 +95,19 @@ def test_readio_render_intent_api_is_public() -> None:
     assert callable(api.Readio.resolve_intent)
     assert callable(api.Readio.plan_render_intent)
     assert callable(api.Readio.render_intent)
+
+
+def test_readio_source_aware_profile_api_is_public() -> None:
+    from readio import api
+
+    for symbol in (
+        "DocumentVoiceRequirements",
+        "DocumentVoiceRole",
+        "RoleAlias",
+        "RoleVoiceBinding",
+        "create_document_profile",
+        "inspect_document_voice_requirements",
+    ):
+        assert hasattr(api, symbol), f"readio.api is missing {symbol}"
+    assert callable(api.create_document_profile)
+    assert callable(api.inspect_document_voice_requirements)

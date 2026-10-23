@@ -92,6 +92,47 @@ def test_document_create_uses_authoritative_formats_and_default_intent_path(
     assert not (tmp_path / ".readio").exists()
 
 
+def test_document_create_without_profile_reports_detected_roles_and_next_action(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "cast.ssmd.md"
+    source.write_text(
+        ':::{voice="host"}\nHost line.\n:::\n\n:::{voice="narrator"}\nNarration.\n:::\n',
+        encoding="utf-8",
+    )
+
+    assert cli.main(["intent", "document", "create", str(source)]) == 2
+    human = capsys.readouterr().err
+    assert "this render intent needs a VoiceRender profile" in human
+    assert "Detected document voice roles:" in human
+    assert "  narrator" in human and "  host" in human
+    assert "readio profile document create" in human
+    assert "narrator=<VOICE>" in human
+    assert "readio intent document create" in human
+    assert not (tmp_path / "cast.readio.toml").exists()
+    assert not (tmp_path / "cast.renderprofile.toml").exists()
+
+    assert cli.main(["intent", "document", "create", str(source), "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "profile_required"
+    assert error["source_roles"] == ["narrator", "host"]
+    assert error["next_action"][:4] == ["readio", "profile", "document", "create"]
+    assert "--voice" in error["next_action"]
+    assert not (tmp_path / "cast.readio.toml").exists()
+    assert not (tmp_path / "cast.renderprofile.toml").exists()
+
+
+def test_book_create_without_profile_has_structured_generic_next_action(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["intent", "book", "create", "novel.epub", "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "profile_required"
+    assert error["source_roles"] == []
+    assert error["next_action"][:3] == ["readio", "profile", "create"]
+    assert not (tmp_path / "novel.readio.toml").exists()
+
+
 def test_creator_force_and_metadata_precedence_are_deterministic(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

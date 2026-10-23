@@ -32,6 +32,7 @@ readio intent show novel.readio.toml --resolved
 readio intent validate novel.readio.toml
 ```
 
+If `--profile` is omitted from an intent create command, Readio reports the missing profile as an actionable usage error. For an existing `.ssmd.md` document it lists detected voice roles and suggests `readio profile document create`; it never selects voices or writes a profile automatically. A saved intent still requires an external VoiceRender RenderProfile path.
 `intent show --toml` prints normalized TOML; `--resolved` displays config-relative paths and inferred values; `--json` emits structured output. Book intents default to M4B and accept `--chapters`; document intents default to MP3. Document formats are checked against AudioExport's public registry. Create options also cover planning, render, compose, metadata, cover, timeline, bitrate, and sample rate; see `readio intent book create --help` and `readio intent document create --help`.
 
 Render a saved intent, or provide a source plus a VoiceRender profile for a one-off run:
@@ -119,6 +120,45 @@ These command groups delegate to VoiceRender:
 - `profile` creates, inspects, validates, refreshes, and manages RenderProfile roles.
 
 Use command-specific help for selectors and options. Install engine backends through VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.
+
+### Source-aware profiles for SSMD documents
+
+`profile document` inspects explicit voice-role blocks in an existing `.ssmd.md` source using UtterPlan. Inspection does not infer speakers from prose or download language/engine models. Roles appear in source order, with `narrator` first when present; the block counts are useful for reviewing a cast:
+
+```bash
+readio profile document inspect SOURCE [--json]
+```
+
+Create a complete native VoiceRender RenderProfile in one command:
+
+```text
+readio profile document create SOURCE
+  --engine ENGINE --target TARGET --language LANGUAGE
+  [--voice ROLE=VOICE]...
+  [--same-as ROLE=ROLE]...
+  [--speaker ROLE=SPEAKER]...
+  [--option ROLE:KEY=VALUE]...
+  [--default-role ROLE] [--offline] [--refresh]
+  -o OUTPUT [--force] [--json]
+```
+
+Common engine, target, and language values are required; Readio does not guess them. A bare `--voice ROLE=VOICE` inherits the command engine and target. A full VoiceRender selector such as `--voice narrator=kokoro:v1.0/af_heart` supplies that role's engine and target and overrides those defaults. `--speaker` is mutually exclusive with `--voice` for a role. `--option` repeats for role-specific engine options.
+
+Every discovered role needs a direct voice/speaker binding or an explicit alias. For example, four logical roles can share three physical voices:
+
+```bash
+readio profile document create meeting.ssmd.md \
+  --engine kokoro --target v1.0 --language en-US \
+  --voice narrator=af_heart --voice host=af_sarah \
+  --voice guest=am_michael --same-as analyst=guest \
+  --default-role narrator -o meeting.renderprofile.toml
+```
+
+`--same-as analyst=guest` copies the complete `guest` binding while preserving `analyst` as a separate logical role. Missing, duplicate, unknown, conflicting, or cyclic assignments fail before the final profile is written. Existing output is protected unless `--force` is supplied. Profile serialization and validation remain VoiceRender-owned.
+
+Inspect output can be JSON for tools; it includes `source`, `roles` with block counts, and `default_role_candidate`. Create JSON additionally reports `output`, `discovered_roles`, `bound_roles`, `aliases`, `default_role`, and the VoiceRender `profile_id` when available.
+
+Keep the two artifacts separate: review the generated `*.renderprofile.toml`, then create an intent with `readio intent document create SOURCE --profile PROFILE`. Intent creation without `--profile` gives an actionable next command for SSMD sources, but does not choose voices or create either artifact automatically.
 
 ## Direct speech
 

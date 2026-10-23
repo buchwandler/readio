@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import shlex
 from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import Path
@@ -144,6 +145,43 @@ def add_control_commands(commands: Any) -> None:
     profile_create.add_argument("-o", "--output", type=Path, required=True)
     profile_create.add_argument("--force", action="store_true")
     profile_create.add_argument("--json", action="store_true")
+
+    profile_document = profile_commands.add_parser(
+        "document", help="Inspect SSMD voice roles and create a source-aware profile"
+    )
+    profile_document_commands = profile_document.add_subparsers(
+        dest="profile_document_command", required=True
+    )
+    profile_document_inspect = profile_document_commands.add_parser(
+        "inspect", help="Inspect logical voice roles in an SSMD document"
+    )
+    profile_document_inspect.add_argument("source", type=Path)
+    profile_document_inspect.add_argument("--json", action="store_true")
+    profile_document_create = profile_document_commands.add_parser(
+        "create", help="Create a complete RenderProfile for an SSMD document"
+    )
+    profile_document_create.add_argument("source", type=Path)
+    profile_document_create.add_argument("--engine", required=True)
+    profile_document_create.add_argument("--target", required=True)
+    profile_document_create.add_argument("--language", required=True)
+    profile_document_create.add_argument(
+        "--voice", action="append", default=[], metavar="ROLE=VOICE"
+    )
+    profile_document_create.add_argument(
+        "--same-as", action="append", default=[], metavar="ROLE=ROLE"
+    )
+    profile_document_create.add_argument(
+        "--speaker", action="append", default=[], metavar="ROLE=SPEAKER"
+    )
+    profile_document_create.add_argument(
+        "--option", action="append", default=[], metavar="ROLE:KEY=VALUE"
+    )
+    profile_document_create.add_argument("--default-role")
+    profile_document_create.add_argument("--offline", action="store_true")
+    profile_document_create.add_argument("--refresh", action="store_true")
+    profile_document_create.add_argument("-o", "--output", type=Path, required=True)
+    profile_document_create.add_argument("--force", action="store_true")
+    profile_document_create.add_argument("--json", action="store_true")
     for name, help_text in (
         ("show", "Show a RenderProfile"),
         ("validate", "Validate a RenderProfile"),
@@ -228,6 +266,111 @@ def _assignments(values: Sequence[str]) -> dict[str, str]:
             raise CLIUsageError(f"option must use KEY=VALUE: {value!r}")
         result[key] = content
     return result
+
+
+def _role_assignments(values: Sequence[str], option_name: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for value in values:
+        role, separator, content = value.partition("=")
+        role = role.strip()
+        content = content.strip()
+        if not separator or not role or not content:
+            raise CLIUsageError(f"{option_name} expects ROLE=VALUE: {value!r}")
+        if role in result:
+            raise CLIUsageError(f"{option_name} was supplied more than once for role {role!r}")
+        result[role] = content
+    return result
+
+
+def _role_options(values: Sequence[str]) -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    for value in values:
+        role, separator, assignment = value.partition(":")
+        key, equals, content = assignment.partition("=")
+        role, key, content = role.strip(), key.strip(), content.strip()
+        if not separator or not equals or not role or not key or not content:
+            raise CLIUsageError(f"--option expects ROLE:KEY=VALUE: {value!r}")
+        role_options = result.setdefault(role, {})
+        if key in role_options:
+            raise CLIUsageError(f"--option was supplied more than once for {role!r}:{key}")
+        role_options[key] = content
+    return result
+
+
+def _document_voice_result(requirements: Any) -> dict[str, Any]:
+    return {
+        "source": requirements.source,
+        "roles": [{"role": role.name, "blocks": role.blocks} for role in requirements.roles],
+        "default_role_candidate": requirements.default_role_candidate,
+        "uses_default_role": requirements.uses_default_role,
+        "implicit_blocks": requirements.implicit_blocks,
+    }
+
+
+def _format_document_voice_requirements(requirements: Any) -> str:
+    lines = [
+        f"Document: {requirements.source}",
+        "",
+        "VOICE ROLES",
+        "ROLE       BLOCKS",
+        "---------  ------",
+    ]
+    if requirements.roles:
+        lines.extend(f"{role.name:<10} {role.blocks:>6}" for role in requirements.roles)
+    else:
+        lines.append("(no explicit voice roles)")
+    lines.extend(
+        [
+            "",
+            f"Default role candidate: {requirements.default_role_candidate or 'none'}",
+        ]
+    )
+    if requirements.uses_default_role and not requirements.roles:
+        lines.append(f"Unvoiced blocks using the profile default: {requirements.implicit_blocks}")
+        lines.append("Create a narrator profile with: readio profile create ...")
+        return "\n".join(lines)
+
+    output = requirements.source.with_name(
+        f"{requirements.source.name[: -len('.ssmd.md')]}.renderprofile.toml"
+    )
+    command = [
+        "readio",
+        "profile",
+        "document",
+        "create",
+        str(requirements.source),
+        "--engine",
+        "<ENGINE>",
+        "--target",
+        "<TARGET>",
+        "--language",
+        "<LANGUAGE>",
+    ]
+    for role in requirements.roles:
+        command.extend(("--voice", f"{role.name}=<VOICE>"))
+    command.extend(("-o", str(output)))
+    lines.extend(["", "Create a profile:", f"  {shlex.join(command)}"])
+    return "\n".join(lines)
+
+
+def _format_document_profile_created(result: Mapping[str, Any]) -> str:
+    lines = [
+        f"Created RenderProfile: {result['output']}",
+        f"Source: {result['source']}",
+        f"Default role: {result['default_role']}",
+        "",
+        "Bound roles:",
+        *(f"  {role}" for role in result["bound_roles"]),
+    ]
+    aliases = result["aliases"]
+    if aliases:
+        lines.extend(
+            ["", "Role aliases:", *(f"  {role} = {source}" for role, source in aliases.items())]
+        )
+    profile_id = result.get("profile_id")
+    if profile_id:
+        lines.extend(["", f"Profile ID: {profile_id}"])
+    return "\n".join(lines)
 
 
 def _json_value(value: Any) -> Any:
@@ -545,7 +688,47 @@ def run_control_command(args: argparse.Namespace, api: Any) -> int:
         return _emit(result, as_json=args.json)
 
     if command == "profile":
-        if args.profile_command == "create":
+        if args.profile_command == "document":
+            if args.profile_document_command == "inspect":
+                requirements = api.inspect_document_voice_requirements(args.source)
+                result = _document_voice_result(requirements)
+                if args.json:
+                    return _emit(result, as_json=True)
+                print(_format_document_voice_requirements(requirements))
+                return 0
+            aliases = _role_assignments(args.same_as, "--same-as")
+            requirements = api.inspect_document_voice_requirements(args.source)
+            profile = api.create_document_profile(
+                args.source,
+                engine=args.engine,
+                target=args.target,
+                language=args.language,
+                voices=_role_assignments(args.voice, "--voice"),
+                speakers=_role_assignments(args.speaker, "--speaker"),
+                aliases=aliases,
+                options=_role_options(args.option),
+                default_role=args.default_role,
+                offline=args.offline,
+                refresh=args.refresh,
+                output=args.output,
+                force=args.force,
+            )
+            result = {
+                "source": requirements.source,
+                "output": args.output,
+                "discovered_roles": [
+                    {"role": role.name, "blocks": role.blocks} for role in requirements.roles
+                ],
+                "bound_roles": list(profile.roles),
+                "aliases": aliases,
+                "default_role": profile.default_role,
+                "profile_id": getattr(profile, "profile_id", None),
+            }
+            if args.json:
+                return _emit(result, as_json=True)
+            print(_format_document_profile_created(result))
+            return 0
+        elif args.profile_command == "create":
             result = api.create_profile(
                 engine=args.engine,
                 target=args.target,
