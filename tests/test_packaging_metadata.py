@@ -62,6 +62,7 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
     optional = project["optional-dependencies"]
     assert set(optional) == {
         "spacy",
+        "audioexport",
         "documents",
         "kokoro",
         "piper",

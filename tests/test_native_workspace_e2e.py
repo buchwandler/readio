@@ -8,6 +8,7 @@ import audiocompose
 import pytest
 import voicerender
 from ebooklib import epub
+from renderplan import RenderProfile, RoleProfile
 
 from readio.api import Readio, create_book_intent, create_document_intent
 from readio.api import service as service_module
@@ -50,13 +51,15 @@ def _write_epub(path: Path) -> None:
 
 
 def _write_profile(path: Path) -> None:
-    profile = voicerender.create_render_profile(
-        engine="kokoro",
-        target_id="v1.0",
-        language="en-US",
-        voice="af_heart",
-        offline=True,
-    )
+    profile = RenderProfile(
+        roles={
+            "narrator": RoleProfile(
+                language="en-US",
+                binding={"renderer": "kokoro", "target_id": "v1.0", "voice": "af_heart"},
+            )
+        },
+        default_role="narrator",
+    ).with_identity()
     voicerender.save_render_profile(profile, path)
 
 
@@ -137,6 +140,7 @@ def test_render_intent_orchestrates_book_m4b_and_document_mp3(
         source.write_text("A short document for intent rendering.", encoding="utf-8")
     profile = tmp_path / "narrator.renderprofile.toml"
     _write_profile(profile)
+    monkeypatch.setattr(voicerender, "validate_render_profile", voicerender.load_render_profile)
     output = source.with_suffix(f".{output_format}")
     observed: dict[str, Any] = {}
     projection_variant = "VoiceRender/exact-variant.from-profile"
