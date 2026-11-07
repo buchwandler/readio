@@ -94,7 +94,9 @@ def test_readio_public_api_centers_on_unified_workflows() -> None:
         "StatusRequest",
         "VoiceRenderRequest",
     ):
-        assert not hasattr(api, stage_type), f"stage-oriented type {stage_type} leaked from readio.api"
+        assert not hasattr(api, stage_type), (
+            f"stage-oriented type {stage_type} leaked from readio.api"
+        )
 
     assert callable(api.Readio.speak)
     assert callable(api.Readio.render)
@@ -116,6 +118,7 @@ def test_readio_render_intent_api_is_public() -> None:
         "parse_render_intent",
     ):
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
+
 
 def test_readio_source_aware_profile_api_is_public() -> None:
     from readio import api

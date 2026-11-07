@@ -140,7 +140,9 @@ def _add_intent_create_options(command: Any, *, kind: str) -> None:
     from .intent import ComposeIntent, PlanningIntent, RenderOptionsIntent
 
     command.add_argument("--profile", type=Path, help="VoiceRender RenderProfile")
-    command.add_argument("--bundle", type=Path, help="Persistent bundle workspace; omitted selects temporary mode")
+    command.add_argument(
+        "--bundle", type=Path, help="Persistent bundle workspace; omitted selects temporary mode"
+    )
     command.add_argument("--variant", help="Optional UtterPlan projection label")
     command.add_argument("--language")
     if kind == "book":
@@ -709,6 +711,7 @@ def _add_status_command(commands: Any) -> None:
     status.add_argument("--output", type=Path)
     status.add_argument("--json", action="store_true")
 
+
 def _add_render_command(commands: Any) -> None:
     command = commands.add_parser(
         "render",
@@ -720,7 +723,9 @@ def _add_render_command(commands: Any) -> None:
     command.add_argument(
         "--profile", type=Path, help="Override or supply a VoiceRender RenderProfile"
     )
-    command.add_argument("--bundle", type=Path, help="Use a persistent bundle workspace; omitted means temporary")
+    command.add_argument(
+        "--bundle", type=Path, help="Use a persistent bundle workspace; omitted means temporary"
+    )
     command.add_argument("--variant", help="Override the user-friendly UtterPlan variant label")
     command.add_argument("--chapters", help="Override the book chapter selector")
     command.add_argument("--language", help="Override source/planner language")
@@ -745,8 +750,6 @@ def _add_render_command(commands: Any) -> None:
     command.add_argument("--no-progress", action="store_true")
 
 
-
-
 def _add_speak_command(commands: Any) -> None:
     command = commands.add_parser(
         "speak", help="Speak one-shot text using a RenderProfile or voice"
@@ -765,8 +768,6 @@ def _add_speak_command(commands: Any) -> None:
     command.add_argument("--output", type=Path)
     command.add_argument("--no-play", action="store_true")
     command.add_argument("--json", action="store_true")
-
-
 
 
 def _progress(event: api.WorkflowEvent) -> None:
@@ -804,8 +805,6 @@ def _emit_result(result: Any, *, as_json: bool, human: str | None = None) -> int
     else:
         print(human if human is not None else str(result))
     return 0
-
-
 
 
 def _run_speak(args: argparse.Namespace) -> int:

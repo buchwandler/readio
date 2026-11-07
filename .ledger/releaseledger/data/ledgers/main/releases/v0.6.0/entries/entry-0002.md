@@ -13,8 +13,8 @@ audience: null
 scopes: []
 source_refs: []
 paths:
-- readio/cli.py
-- readio/api/__init__.py
+  - readio/cli.py
+  - readio/api/__init__.py
 issues: []
 prs: []
 sources: []

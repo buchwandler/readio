@@ -44,6 +44,7 @@ readio render novel.epub --bundle novel.ssmd-bundle \
 Book intents default to M4B; document intents default to MP3. Intent TOML is user-owned and separate from the VoiceRender RenderProfile. AudioExport is included in the core installation; Readio checks selected format and tool readiness before conversion.
 
 The complete command catalog is in [CLI reference](references/cli.md). Input handling is covered in [Input formats](references/input-formats.md); specialist ownership and manual workflows are covered in [SSMD](references/ssmd.md).
+
 ## Specialist workflow
 
 For direct stage control, pass UtterPlan's exact variant unchanged:

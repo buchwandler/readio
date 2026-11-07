@@ -13,7 +13,9 @@ from readio.intent import create_document_intent
 
 
 def _configure_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
-    formats = {name: SimpleNamespace(extension=f".{name}") for name in ("mp3", "wav", "flac", "m4b")}
+    formats = {
+        name: SimpleNamespace(extension=f".{name}") for name in ("mp3", "wav", "flac", "m4b")
+    }
     monkeypatch.setattr("readio.intent_resolver.supported_formats", lambda: formats)
     monkeypatch.setattr("readio.intent_resolver.inspect_source_kind", lambda _source: "document")
     monkeypatch.setattr("readio.profiles.validate_profile", lambda _path: object())
@@ -37,7 +39,9 @@ def test_one_off_render_uses_unified_request_and_json(
             captured["request"] = request
             if on_progress is not None:
                 on_progress(
-                    WorkflowEvent(stage="compile", kind="progress", current=1, total=1, message="compiled")
+                    WorkflowEvent(
+                        stage="compile", kind="progress", current=1, total=1, message="compiled"
+                    )
                 )
             return SimpleNamespace(
                 workspace=None,
@@ -194,7 +198,9 @@ def test_render_requires_source_or_config_and_profile_for_one_off(
 def test_cli_removes_stage_runner_and_exposes_workflow_safety_controls() -> None:
     parser = cli.build_parser()
     subparsers = next(
-        action for action in parser._actions if isinstance(action, pytest.importorskip("argparse")._SubParsersAction)
+        action
+        for action in parser._actions
+        if isinstance(action, pytest.importorskip("argparse")._SubParsersAction)
     )
     assert "bundle" not in subparsers.choices
     render = subparsers.choices["render"]

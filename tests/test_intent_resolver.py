@@ -54,6 +54,7 @@ def test_resolver_uses_config_directory_for_intent_paths(
     assert resolved.intent.workspace.mode == "temporary"
     assert resolved.intent.workspace.bundle is None
 
+
 def test_resolver_applies_cli_overrides_to_config_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

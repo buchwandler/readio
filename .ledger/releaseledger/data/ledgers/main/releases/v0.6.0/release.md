@@ -25,4 +25,5 @@ git_head_sha: null
 git_range: null
 git_commit_count: null
 ---
+
 Unreleased 0.6.0 workflow-gateway redesign; no release date or publication has been set.

@@ -242,7 +242,6 @@ def test_validate_intent_rejects_missing_source_and_output_extension(
         validate_render_intent(wrong_extension)
 
 
-
 def test_workspace_v2_requires_explicit_persistent_path_and_keeps_bundle_out_of_input() -> None:
     with pytest.raises(ValueError, match="unknown key.*input"):
         parse_render_intent(
@@ -254,7 +253,11 @@ def test_workspace_v2_requires_explicit_persistent_path_and_keeps_bundle_out_of_
 
     with pytest.raises(ValueError, match="workspace.mode='bundle' requires workspace.bundle"):
         parse_render_intent(
-            {"schema": INTENT_SCHEMA, "input": {"source": "story.md"}, "workspace": {"mode": "bundle"}}
+            {
+                "schema": INTENT_SCHEMA,
+                "input": {"source": "story.md"},
+                "workspace": {"mode": "bundle"},
+            }
         )
 
     with pytest.raises(ValueError, match="temporary workspaces cannot specify"):

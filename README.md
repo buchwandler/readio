@@ -79,7 +79,6 @@ readio render chapter.docx --profile narrator.renderprofile.toml --language en-U
 
 Intent files are visible user-owned configuration, not hidden workspace state. Readio creates no `.readio/` directory. `readio status --config novel.readio.toml` inspects a saved intent, while `readio status novel.ssmd-bundle --profile narrator.renderprofile.toml --chapters 5-17` inspects an existing persistent workspace.
 
-
 ## Manual specialist workflow
 
 Use specialist CLIs for package-specific controls. Preserve UtterPlan's exact variant through every stage:

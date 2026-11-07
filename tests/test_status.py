@@ -194,8 +194,6 @@ def test_inspection_errors_are_stage_local_and_status_does_not_create_files(
     assert result.next_actions[0].requires == ("profile",)
 
 
-
-
 def test_render_not_started_recommends_render_without_composition_inspection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

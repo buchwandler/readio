@@ -131,7 +131,9 @@ def resolve_render_intent(
         else None
     )
     if source_is_bundle:
-        requested_bundle = _absolute_path(bundle, base=cwd) if bundle is not None else configured_bundle
+        requested_bundle = (
+            _absolute_path(bundle, base=cwd) if bundle is not None else configured_bundle
+        )
         if requested_bundle is not None and requested_bundle != source_path:
             raise ValueError("a bundle source cannot be redirected to a different workspace bundle")
         bundle_path = source_path

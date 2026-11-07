@@ -1,389 +1,394 @@
 schema: documentledger.doc_record.v4
 doc_path: docs/cli.md
 linked_sources:
-- readio/cli.py
-- readio/doctor.py
-- readio/speech.py
-- tests/test_dependency_boundaries.py
+  - readio/cli.py
+  - readio/doctor.py
+  - readio/speech.py
+  - tests/test_dependency_boundaries.py
 sections:
-- section_id: md:section:docs/cli.md::cli-reference
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  heading_slug: cli-reference
-  line_span:
-  - 1
-  - 13
-  section_hash: 69fcfef563048e7b50e9a26067f328465acc70917801b7ccf1a46b94cc013c2a
-  summary: CLI reference
-  text: '# CLI reference
+  - section_id: md:section:docs/cli.md::cli-reference
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+    heading_slug: cli-reference
+    line_span:
+      - 1
+      - 13
+    section_hash: 69fcfef563048e7b50e9a26067f328465acc70917801b7ccf1a46b94cc013c2a
+    summary: CLI reference
+    text: "# CLI reference
 
 
-    Readio''s primary workflow surface is centered on `render`, `status`, and `speak`.
-    Specialist CLIs remain available when developers deliberately need direct stage-level
-    control; Readio does not duplicate those stage commands.
+      Readio's primary workflow surface is centered on `render`, `status`, and `speak`.
+      Specialist CLIs remain available when developers deliberately need direct stage-level
+      control; Readio does not duplicate those stage commands.
 
 
-    ```bash
+      ```bash
 
-    readio --help
+      readio --help
 
-    readio intent --help
+      readio intent --help
 
-    readio render --help
+      readio render --help
 
-    readio status --help
+      readio status --help
 
-    readio speak --help
+      readio speak --help
 
-    readio doctor --help
+      readio doctor --help
 
-    ```'
-  links:
-  - source_id: py:function:readio/cli.py::build_parser
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the retained top-level command parser.
-    tracked_hashes:
-      body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
-  - source_id: py:function:readio/cli.py::main
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents retained command dispatch.
-    tracked_hashes:
-      body_hash: b489d88b319f7e8109a440f3a6156396da03c12bf0401588090934be1fc406c6
-- section_id: md:section:docs/cli.md::unified-render-workflow
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Unified render workflow
-  heading_slug: unified-render-workflow
-  line_span:
-  - 14
-  - 37
-  section_hash: 631d8dc55c33509406156d4f59ca76b2306bd9fe46d0c0c2f479fa3051355318
-  summary: Unified render workflow
-  text: "## Unified render workflow\n\nA normal render uses a run-scoped temporary\
-    \ workspace. Supply `--bundle PATH` only when the editable SSMD bundle should\
-    \ persist. Passing an existing `.ssmd-bundle` as `SOURCE` also selects persistent\
-    \ mode. Readio never invents a default persistent bundle path or hidden `.readio/`\
-    \ workspace.\n\n```bash\n# One-shot render; intermediate workspace is temporary\
-    \ and cleaned afterward.\nreadio render article.docx --profile narrator.renderprofile.toml\
-    \ --language en-US\n\n# Persistent editable workspace. Initial conversion materializes\
-    \ the full book.\nreadio render novel.epub --bundle novel.ssmd-bundle \\\n  --profile\
-    \ narrator.renderprofile.toml --language en-US --chapters 5-17\n\n# Inspect the\
-    \ planned work without executing it.\nreadio render --config novel.readio.toml\
-    \ --dry-run\nreadio status novel.ssmd-bundle --profile narrator.renderprofile.toml\
-    \ --chapters 5-17\nreadio status --config novel.readio.toml\n```\n\n`status` and\
-    \ `render --dry-run` use the same read-only workflow inspection. They report workspace\
-    \ mode, selected scope, output, and specialist-backed state/action for each workflow\
-    \ step. Inspection does not create a temporary workspace or mutate artifacts.\n\
-    \n`--rebuild-from STAGE` explicitly rebuilds a stage and downstream derived state;\
-    \ choices are `convert`, `compile`, `render-plan`, `render`, `compose`, and `export`.\
-    \ Rebuilding from `convert` while targeting a persistent bundle is explicit consent\
-    \ to reconvert. `--replace-output` separately allows replacing an existing final\
-    \ output; it is not implied by a rebuild. Unknown or unsafe specialist state fails\
-    \ closed rather than triggering broad deletion.\n\nProgress and diagnostics go\
-    \ to stderr; `--json` keeps the structured result on stdout. `--no-progress` suppresses\
-    \ progress callbacks only. AudioExport is included in the core installation; `--ffmpeg\
-    \ PATH` and `--ffprobe PATH` select tool executables."
-  links: []
-- section_id: md:section:docs/cli.md::render-intents
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Render intents
-  heading_slug: render-intents
-  line_span:
-  - 38
-  - 78
-  section_hash: bd682dffcb46e578ac542e8b9d508e23cd4e9960ca7e1c05a67a98963e101dff
-  summary: Render intents
-  text: "## Render intents\n\nA render intent is reviewable, user-owned TOML. The\
-    \ current schema is `readio.render.v2`; `[input]` describes source content, while\
-    \ workspace mode and persistent bundle path belong under `[workspace]`.\n\n```toml\n\
-    schema = \"readio.render.v2\"\nkind = \"book\"\n\n[input]\nsource = \"novel.epub\"\
-    \nchapters = \"5-17\"\nlanguage = \"en-US\"\n\n[workspace]\nmode = \"bundle\"\n\
-    bundle = \"novel.ssmd-bundle\"\n\n[voice]\nprofile = \"narrator.renderprofile.toml\"\
-    \n```\n\nUse `mode = \"temporary\"` when intermediate state should be discarded\
-    \ after the run. Persistent mode is selected explicitly with a bundle path or\
-    \ by using an existing bundle as the source. On first creation, a persistent book\
-    \ bundle contains the complete source inventory; `input.chapters` scopes downstream\
-    \ planning and rendering, not initial conversion.\n\n```bash\nreadio profile create\
-    \ --engine kokoro --target v1.0 --voice af_heart \\\n  --language en-US -o narrator.renderprofile.toml\n\
-    readio intent document create article.docx \\\n  --profile narrator.renderprofile.toml\
-    \ --language en-US\nreadio intent book create novel.epub \\\n  --profile narrator.renderprofile.toml\
-    \ --language en-US --chapters 5-17 \\\n  --bundle novel.ssmd-bundle\nreadio intent\
-    \ show novel.readio.toml --resolved\nreadio intent validate novel.readio.toml\n\
-    readio render --config novel.readio.toml --dry-run\nreadio render --config novel.readio.toml\n\
-    ```\n\nIntent files default to `<source-stem>.readio.toml`; `--output-config`,\
-    \ `--stdout`, `--minimal`, and `--force` control persistence. `intent show --toml`\
-    \ prints normalized TOML; `--resolved` displays config-relative paths and inferred\
-    \ values; `--json` emits structured output. Book intents default to M4B and accept\
-    \ `--chapters`; document intents default to MP3. A VoiceRender RenderProfile remains\
-    \ a separate, user-owned artifact. CLI values override saved intent values.\n\n\
-    For a one-off render without saving an intent, provide `SOURCE` and `--profile`.\
-    \ Use `--bundle` to retain the editable workspace; omit it for temporary execution.\
-    \ Existing final outputs require `--replace-output` before replacement."
-  links: []
-- section_id: md:section:docs/cli.md::manual-specialist-workflows
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Manual specialist workflows
-  heading_slug: manual-specialist-workflows
-  line_span:
-  - 79
-  - 82
-  section_hash: 4486f190be7a2e0952ed54f5254af1bce7af0a102430bb8cc8ece6b90aa6ff14
-  summary: Manual specialist workflows
-  text: '## Manual specialist workflows
-
-
-    For package-specific stage controls, invoke the specialist CLIs directly. Their
-    APIs own stage schemas, validation, persisted artifacts, and reports. Readio''s
-    workflow remains the recommended user-facing file-to-audio path.'
-  links: []
-- section_id: md:section:docs/cli.md::voice-and-profile-management
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Voice and profile management
-  heading_slug: voice-and-profile-management
-  line_span:
-  - 83
-  - 92
-  section_hash: 7753f3ba556377f130f44a7622610259b8a155f718f366b6605cb8d2e5349940
-  summary: Voice and profile management
-  text: '## Voice and profile management
+      ```"
+    links:
+      - source_id: py:function:readio/cli.py::build_parser
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the retained top-level command parser.
+        tracked_hashes:
+          body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
+      - source_id: py:function:readio/cli.py::main
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents retained command dispatch.
+        tracked_hashes:
+          body_hash: b489d88b319f7e8109a440f3a6156396da03c12bf0401588090934be1fc406c6
+  - section_id: md:section:docs/cli.md::unified-render-workflow
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Unified render workflow
+    heading_slug: unified-render-workflow
+    line_span:
+      - 14
+      - 37
+    section_hash: 631d8dc55c33509406156d4f59ca76b2306bd9fe46d0c0c2f479fa3051355318
+    summary: Unified render workflow
+    text:
+      "## Unified render workflow\n\nA normal render uses a run-scoped temporary\
+      \ workspace. Supply `--bundle PATH` only when the editable SSMD bundle should\
+      \ persist. Passing an existing `.ssmd-bundle` as `SOURCE` also selects persistent\
+      \ mode. Readio never invents a default persistent bundle path or hidden `.readio/`\
+      \ workspace.\n\n```bash\n# One-shot render; intermediate workspace is temporary\
+      \ and cleaned afterward.\nreadio render article.docx --profile narrator.renderprofile.toml\
+      \ --language en-US\n\n# Persistent editable workspace. Initial conversion materializes\
+      \ the full book.\nreadio render novel.epub --bundle novel.ssmd-bundle \\\n  --profile\
+      \ narrator.renderprofile.toml --language en-US --chapters 5-17\n\n# Inspect the\
+      \ planned work without executing it.\nreadio render --config novel.readio.toml\
+      \ --dry-run\nreadio status novel.ssmd-bundle --profile narrator.renderprofile.toml\
+      \ --chapters 5-17\nreadio status --config novel.readio.toml\n```\n\n`status` and\
+      \ `render --dry-run` use the same read-only workflow inspection. They report workspace\
+      \ mode, selected scope, output, and specialist-backed state/action for each workflow\
+      \ step. Inspection does not create a temporary workspace or mutate artifacts.\n\
+      \n`--rebuild-from STAGE` explicitly rebuilds a stage and downstream derived state;\
+      \ choices are `convert`, `compile`, `render-plan`, `render`, `compose`, and `export`.\
+      \ Rebuilding from `convert` while targeting a persistent bundle is explicit consent\
+      \ to reconvert. `--replace-output` separately allows replacing an existing final\
+      \ output; it is not implied by a rebuild. Unknown or unsafe specialist state fails\
+      \ closed rather than triggering broad deletion.\n\nProgress and diagnostics go\
+      \ to stderr; `--json` keeps the structured result on stdout. `--no-progress` suppresses\
+      \ progress callbacks only. AudioExport is included in the core installation; `--ffmpeg\
+      \ PATH` and `--ffprobe PATH` select tool executables."
+    links: []
+  - section_id: md:section:docs/cli.md::render-intents
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Render intents
+    heading_slug: render-intents
+    line_span:
+      - 38
+      - 78
+    section_hash: bd682dffcb46e578ac542e8b9d508e23cd4e9960ca7e1c05a67a98963e101dff
+    summary: Render intents
+    text:
+      "## Render intents\n\nA render intent is reviewable, user-owned TOML. The\
+      \ current schema is `readio.render.v2`; `[input]` describes source content, while\
+      \ workspace mode and persistent bundle path belong under `[workspace]`.\n\n```toml\n\
+      schema = \"readio.render.v2\"\nkind = \"book\"\n\n[input]\nsource = \"novel.epub\"\
+      \nchapters = \"5-17\"\nlanguage = \"en-US\"\n\n[workspace]\nmode = \"bundle\"\n\
+      bundle = \"novel.ssmd-bundle\"\n\n[voice]\nprofile = \"narrator.renderprofile.toml\"\
+      \n```\n\nUse `mode = \"temporary\"` when intermediate state should be discarded\
+      \ after the run. Persistent mode is selected explicitly with a bundle path or\
+      \ by using an existing bundle as the source. On first creation, a persistent book\
+      \ bundle contains the complete source inventory; `input.chapters` scopes downstream\
+      \ planning and rendering, not initial conversion.\n\n```bash\nreadio profile create\
+      \ --engine kokoro --target v1.0 --voice af_heart \\\n  --language en-US -o narrator.renderprofile.toml\n\
+      readio intent document create article.docx \\\n  --profile narrator.renderprofile.toml\
+      \ --language en-US\nreadio intent book create novel.epub \\\n  --profile narrator.renderprofile.toml\
+      \ --language en-US --chapters 5-17 \\\n  --bundle novel.ssmd-bundle\nreadio intent\
+      \ show novel.readio.toml --resolved\nreadio intent validate novel.readio.toml\n\
+      readio render --config novel.readio.toml --dry-run\nreadio render --config novel.readio.toml\n\
+      ```\n\nIntent files default to `<source-stem>.readio.toml`; `--output-config`,\
+      \ `--stdout`, `--minimal`, and `--force` control persistence. `intent show --toml`\
+      \ prints normalized TOML; `--resolved` displays config-relative paths and inferred\
+      \ values; `--json` emits structured output. Book intents default to M4B and accept\
+      \ `--chapters`; document intents default to MP3. A VoiceRender RenderProfile remains\
+      \ a separate, user-owned artifact. CLI values override saved intent values.\n\n\
+      For a one-off render without saving an intent, provide `SOURCE` and `--profile`.\
+      \ Use `--bundle` to retain the editable workspace; omit it for temporary execution.\
+      \ Existing final outputs require `--replace-output` before replacement."
+    links: []
+  - section_id: md:section:docs/cli.md::manual-specialist-workflows
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Manual specialist workflows
+    heading_slug: manual-specialist-workflows
+    line_span:
+      - 79
+      - 82
+    section_hash: 4486f190be7a2e0952ed54f5254af1bce7af0a102430bb8cc8ece6b90aa6ff14
+    summary: Manual specialist workflows
+    text: "## Manual specialist workflows
 
 
-    These command groups delegate to VoiceRender:
+      For package-specific stage controls, invoke the specialist CLIs directly. Their
+      APIs own stage schemas, validation, persisted artifacts, and reports. Readio's
+      workflow remains the recommended user-facing file-to-audio path."
+    links: []
+  - section_id: md:section:docs/cli.md::voice-and-profile-management
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Voice and profile management
+    heading_slug: voice-and-profile-management
+    line_span:
+      - 83
+      - 92
+    section_hash: 7753f3ba556377f130f44a7622610259b8a155f718f366b6605cb8d2e5349940
+    summary: Voice and profile management
+    text: '## Voice and profile management
 
 
-    - `engines` and `models` discover, inspect, install, verify, and remove engine
-    models.
-
-    - `voices` discovers voices; `voice source` creates and inspects voice-source
-    artifacts; `voice clone` creates a specialist RenderProfile.
-
-    - `profile` creates, inspects, validates, refreshes, and manages RenderProfile
-    roles.
+      These command groups delegate to VoiceRender:
 
 
-    Use command-specific help for selectors and options. Install engine backends through
-    VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.'
-  links: []
-- section_id: md:section:docs/cli.md::source-aware-profiles-for-ssmd-documents
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Voice and profile management
-  - Source-aware profiles for SSMD documents
-  heading_slug: source-aware-profiles-for-ssmd-documents
-  line_span:
-  - 93
-  - 131
-  section_hash: 33017f8f2a21e37eda0177256dd54a1c933e04b0156ba213c941002676241a0b
-  summary: Source-aware profiles for SSMD documents
-  text: "### Source-aware profiles for SSMD documents\n\n`profile document` inspects\
-    \ explicit voice-role blocks in an existing `.ssmd.md` source using UtterPlan.\
-    \ Inspection does not infer speakers from prose or download language/engine models.\
-    \ Roles appear in source order, with `narrator` first when present; the block\
-    \ counts are useful for reviewing a cast:\n\n```bash\nreadio profile document\
-    \ inspect SOURCE [--json]\n```\n\nCreate a complete native VoiceRender RenderProfile\
-    \ in one command:\n\n```text\nreadio profile document create SOURCE\n  --engine\
-    \ ENGINE --target TARGET --language LANGUAGE\n  [--voice ROLE=VOICE]...\n  [--same-as\
-    \ ROLE=ROLE]...\n  [--speaker ROLE=SPEAKER]...\n  [--option ROLE:KEY=VALUE]...\n\
-    \  [--default-role ROLE] [--offline] [--refresh]\n  -o OUTPUT [--force] [--json]\n\
-    ```\n\nCommon engine, target, and language values are required; Readio does not\
-    \ guess them. A bare `--voice ROLE=VOICE` inherits the command engine and target.\
-    \ A full VoiceRender selector such as `--voice narrator=kokoro:v1.0/af_heart`\
-    \ supplies that role's engine and target and overrides those defaults. `--speaker`\
-    \ is mutually exclusive with `--voice` for a role. `--option` repeats for role-specific\
-    \ engine options.\n\nEvery discovered role needs a direct voice/speaker binding\
-    \ or an explicit alias. For example, four logical roles can share three physical\
-    \ voices:\n\n```bash\nreadio profile document create meeting.ssmd.md \\\n  --engine\
-    \ kokoro --target v1.0 --language en-US \\\n  --voice narrator=af_heart --voice\
-    \ host=af_sarah \\\n  --voice guest=am_michael --same-as analyst=guest \\\n  --default-role\
-    \ narrator -o meeting.renderprofile.toml\n```\n\n`--same-as analyst=guest` copies\
-    \ the complete `guest` binding while preserving `analyst` as a separate logical\
-    \ role. Missing, duplicate, unknown, conflicting, or cyclic assignments fail before\
-    \ the final profile is written. Existing output is protected unless `--force`\
-    \ is supplied. Profile serialization and validation remain VoiceRender-owned.\n\
-    \nInspect output can be JSON for tools; it includes `source`, `roles` with block\
-    \ counts, and `default_role_candidate`. Create JSON additionally reports `output`,\
-    \ `discovered_roles`, `bound_roles`, `aliases`, `default_role`, and the VoiceRender\
-    \ `profile_id` when available.\n\nKeep the two artifacts separate: review the\
-    \ generated `*.renderprofile.toml`, then create an intent with `readio intent\
-    \ document create SOURCE --profile PROFILE`. Intent creation without `--profile`\
-    \ gives an actionable next command for SSMD sources, but does not choose voices\
-    \ or create either artifact automatically."
-  links: []
-- section_id: md:section:docs/cli.md::direct-speech
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Direct speech
-  heading_slug: direct-speech
-  line_span:
-  - 132
-  - 141
-  section_hash: 16508f1488d0e26ac1adb792c334ed06289a9476df88cd45862426e104ac678a
-  summary: Direct speech
-  text: "## Direct speech\n\n```bash\nreadio speak --voice kokoro:v1.0/af_heart --lang\
-    \ en-US \"Hello.\"\nreadio speak --profile narrator.renderprofile.toml --role\
-    \ narrator \\\n  --output greeting.wav --no-play \"Hello.\"\n```\n\n`speak` synthesizes\
-    \ literal text through VoiceRender and plays by default. `--output` writes WAV\
-    \ and `--no-play` skips local playback. Use `--json` for a machine-readable result."
-  links:
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents direct speech through VoiceRender.
-    tracked_hashes:
-      body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
-- section_id: md:section:docs/cli.md::onnx-runtime-provider-controls
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - ONNX Runtime provider controls
-  heading_slug: onnx-runtime-provider-controls
-  line_span:
-  - 142
-  - 157
-  section_hash: 30ec2aea7fbe75a402c7b69947611448d53762c5477660273af0a3d7f022b896
-  summary: ONNX Runtime provider controls
-  text: '## ONNX Runtime provider controls
+      - `engines` and `models` discover, inspect, install, verify, and remove engine
+      models.
+
+      - `voices` discovers voices; `voice source` creates and inspects voice-source
+      artifacts; `voice clone` creates a specialist RenderProfile.
+
+      - `profile` creates, inspects, validates, refreshes, and manages RenderProfile
+      roles.
 
 
-    ```bash
-
-    readio runtime status
-
-    readio runtime status --json
-
-    readio runtime list
-
-    readio runtime list --json
-
-    readio runtime use cpu
-
-    readio runtime use cuda
-
-    readio runtime use auto
-
-    readio runtime use cuda,cpu
-
-    readio runtime reset
-
-    ```
-
-
-    `runtime status` distinguishes the imported ONNX Runtime distribution/build from
-    its available providers, configured policy, source, and providers resolved for
-    new sessions. `runtime list` lists detected distributions and providers reported
-    by the imported build; its `SELECTED` column is not an active-session report.
-    Provider availability is determined by the imported build. `runtime use` saves
-    a default policy for future compatible sessions and does not install, uninstall,
-    or switch runtime distributions. Environment variables such as `ONNXVOICE_PROVIDER`
-    override saved configuration; `runtime reset` removes the saved preference but
-    does not unset environment variables. An explicit `--engine-option providers=...`
-    or provider set in a RenderProfile overrides the global default. Runtime package/distribution
-    changes are performed outside Readio.'
-  links: []
-- section_id: md:section:docs/cli.md::dependency-diagnostics
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Dependency diagnostics
-  heading_slug: dependency-diagnostics
-  line_span:
-  - 158
-  - 166
-  section_hash: bb3b638590ec19c0b4535bbe701f023ce47369345346e1bf424b3c1bb5a96ab3
-  summary: Dependency diagnostics
-  text: '## Dependency diagnostics
-
-
-    ```bash
-
-    readio doctor
-
-    readio doctor --json
-
-    ```
-
-
-    Doctor reports specialist package versions, VoiceRender engine availability, and
-    compact ONNX Runtime distribution and provider-policy status. A missing or failed
-    runtime is shown with a concise diagnostic instead of crashing the report.'
-  links:
-  - source_id: py:function:readio/doctor.py::doctor_report
-    source_path: readio/doctor.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the package and VoiceRender engine report.
-    tracked_hashes:
-      body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
-- section_id: md:section:docs/cli.md::verbose-diagnostics-and-timing
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Verbose diagnostics and timing
-  heading_slug: verbose-diagnostics-and-timing
-  line_span:
-  - 167
-  - 176
-  section_hash: 8fca4e1a6d542752d129bb82f43c7f97146686d692b59f95e26ffea48adde5ab
-  summary: Verbose diagnostics and timing
-  text: '## Verbose diagnostics and timing
-
-
-    Global `-v`/`--verbose` and `-vv` flags are accepted before or after nested commands.
-    `-v` emits INFO diagnostics and elapsed command/stage timings; `-vv` adds DEBUG
-    dispatch and inspection details plus tracebacks for unexpected errors. Diagnostic
-    output is sent to stderr, leaving normal results and JSON on stdout.
-
-
-    ```bash
-
-    readio -v status novel.ssmd-bundle --profile narrator.renderprofile.toml
-
-    readio -vv render novel.epub --bundle novel.ssmd-bundle --profile narrator.renderprofile.toml
-    --dry-run
-
-    ```
+      Use command-specific help for selectors and options. Install engine backends through
+      VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.'
+    links: []
+  - section_id: md:section:docs/cli.md::source-aware-profiles-for-ssmd-documents
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Voice and profile management
+      - Source-aware profiles for SSMD documents
+    heading_slug: source-aware-profiles-for-ssmd-documents
+    line_span:
+      - 93
+      - 131
+    section_hash: 33017f8f2a21e37eda0177256dd54a1c933e04b0156ba213c941002676241a0b
+    summary: Source-aware profiles for SSMD documents
+    text:
+      "### Source-aware profiles for SSMD documents\n\n`profile document` inspects\
+      \ explicit voice-role blocks in an existing `.ssmd.md` source using UtterPlan.\
+      \ Inspection does not infer speakers from prose or download language/engine models.\
+      \ Roles appear in source order, with `narrator` first when present; the block\
+      \ counts are useful for reviewing a cast:\n\n```bash\nreadio profile document\
+      \ inspect SOURCE [--json]\n```\n\nCreate a complete native VoiceRender RenderProfile\
+      \ in one command:\n\n```text\nreadio profile document create SOURCE\n  --engine\
+      \ ENGINE --target TARGET --language LANGUAGE\n  [--voice ROLE=VOICE]...\n  [--same-as\
+      \ ROLE=ROLE]...\n  [--speaker ROLE=SPEAKER]...\n  [--option ROLE:KEY=VALUE]...\n\
+      \  [--default-role ROLE] [--offline] [--refresh]\n  -o OUTPUT [--force] [--json]\n\
+      ```\n\nCommon engine, target, and language values are required; Readio does not\
+      \ guess them. A bare `--voice ROLE=VOICE` inherits the command engine and target.\
+      \ A full VoiceRender selector such as `--voice narrator=kokoro:v1.0/af_heart`\
+      \ supplies that role's engine and target and overrides those defaults. `--speaker`\
+      \ is mutually exclusive with `--voice` for a role. `--option` repeats for role-specific\
+      \ engine options.\n\nEvery discovered role needs a direct voice/speaker binding\
+      \ or an explicit alias. For example, four logical roles can share three physical\
+      \ voices:\n\n```bash\nreadio profile document create meeting.ssmd.md \\\n  --engine\
+      \ kokoro --target v1.0 --language en-US \\\n  --voice narrator=af_heart --voice\
+      \ host=af_sarah \\\n  --voice guest=am_michael --same-as analyst=guest \\\n  --default-role\
+      \ narrator -o meeting.renderprofile.toml\n```\n\n`--same-as analyst=guest` copies\
+      \ the complete `guest` binding while preserving `analyst` as a separate logical\
+      \ role. Missing, duplicate, unknown, conflicting, or cyclic assignments fail before\
+      \ the final profile is written. Existing output is protected unless `--force`\
+      \ is supplied. Profile serialization and validation remain VoiceRender-owned.\n\
+      \nInspect output can be JSON for tools; it includes `source`, `roles` with block\
+      \ counts, and `default_role_candidate`. Create JSON additionally reports `output`,\
+      \ `discovered_roles`, `bound_roles`, `aliases`, `default_role`, and the VoiceRender\
+      \ `profile_id` when available.\n\nKeep the two artifacts separate: review the\
+      \ generated `*.renderprofile.toml`, then create an intent with `readio intent\
+      \ document create SOURCE --profile PROFILE`. Intent creation without `--profile`\
+      \ gives an actionable next command for SSMD sources, but does not choose voices\
+      \ or create either artifact automatically."
+    links: []
+  - section_id: md:section:docs/cli.md::direct-speech
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Direct speech
+    heading_slug: direct-speech
+    line_span:
+      - 132
+      - 141
+    section_hash: 16508f1488d0e26ac1adb792c334ed06289a9476df88cd45862426e104ac678a
+    summary: Direct speech
+    text:
+      "## Direct speech\n\n```bash\nreadio speak --voice kokoro:v1.0/af_heart --lang\
+      \ en-US \"Hello.\"\nreadio speak --profile narrator.renderprofile.toml --role\
+      \ narrator \\\n  --output greeting.wav --no-play \"Hello.\"\n```\n\n`speak` synthesizes\
+      \ literal text through VoiceRender and plays by default. `--output` writes WAV\
+      \ and `--no-play` skips local playback. Use `--json` for a machine-readable result."
+    links:
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents direct speech through VoiceRender.
+        tracked_hashes:
+          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
+  - section_id: md:section:docs/cli.md::onnx-runtime-provider-controls
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - ONNX Runtime provider controls
+    heading_slug: onnx-runtime-provider-controls
+    line_span:
+      - 142
+      - 157
+    section_hash: 30ec2aea7fbe75a402c7b69947611448d53762c5477660273af0a3d7f022b896
+    summary: ONNX Runtime provider controls
+    text: "## ONNX Runtime provider controls
 
 
-    `--no-progress` suppresses progress callbacks only; verbose diagnostics and timing
-    remain enabled. Timings use a monotonic clock and are not persisted.'
-  links: []
-- section_id: md:section:docs/cli.md::removed-commands
-  doc_path: docs/cli.md
-  heading_path:
-  - CLI reference
-  - Removed commands
-  heading_slug: removed-commands
-  line_span:
-  - 81
-  - 83
-  section_hash: 9dd3be223790ba3ecce56b9c23865aab135674a43ee7270ceb06f4b2f833d067
-  summary: Removed commands
-  links:
-  - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-    source_path: tests/test_dependency_boundaries.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents removed runtime compatibility surfaces.
-    tracked_hashes:
-      body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
+      ```bash
+
+      readio runtime status
+
+      readio runtime status --json
+
+      readio runtime list
+
+      readio runtime list --json
+
+      readio runtime use cpu
+
+      readio runtime use cuda
+
+      readio runtime use auto
+
+      readio runtime use cuda,cpu
+
+      readio runtime reset
+
+      ```
+
+
+      `runtime status` distinguishes the imported ONNX Runtime distribution/build from
+      its available providers, configured policy, source, and providers resolved for
+      new sessions. `runtime list` lists detected distributions and providers reported
+      by the imported build; its `SELECTED` column is not an active-session report.
+      Provider availability is determined by the imported build. `runtime use` saves
+      a default policy for future compatible sessions and does not install, uninstall,
+      or switch runtime distributions. Environment variables such as `ONNXVOICE_PROVIDER`
+      override saved configuration; `runtime reset` removes the saved preference but
+      does not unset environment variables. An explicit `--engine-option providers=...`
+      or provider set in a RenderProfile overrides the global default. Runtime package/distribution
+      changes are performed outside Readio."
+    links: []
+  - section_id: md:section:docs/cli.md::dependency-diagnostics
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Dependency diagnostics
+    heading_slug: dependency-diagnostics
+    line_span:
+      - 158
+      - 166
+    section_hash: bb3b638590ec19c0b4535bbe701f023ce47369345346e1bf424b3c1bb5a96ab3
+    summary: Dependency diagnostics
+    text: "## Dependency diagnostics
+
+
+      ```bash
+
+      readio doctor
+
+      readio doctor --json
+
+      ```
+
+
+      Doctor reports specialist package versions, VoiceRender engine availability, and
+      compact ONNX Runtime distribution and provider-policy status. A missing or failed
+      runtime is shown with a concise diagnostic instead of crashing the report."
+    links:
+      - source_id: py:function:readio/doctor.py::doctor_report
+        source_path: readio/doctor.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the package and VoiceRender engine report.
+        tracked_hashes:
+          body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
+  - section_id: md:section:docs/cli.md::verbose-diagnostics-and-timing
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Verbose diagnostics and timing
+    heading_slug: verbose-diagnostics-and-timing
+    line_span:
+      - 167
+      - 176
+    section_hash: 8fca4e1a6d542752d129bb82f43c7f97146686d692b59f95e26ffea48adde5ab
+    summary: Verbose diagnostics and timing
+    text: "## Verbose diagnostics and timing
+
+
+      Global `-v`/`--verbose` and `-vv` flags are accepted before or after nested commands.
+      `-v` emits INFO diagnostics and elapsed command/stage timings; `-vv` adds DEBUG
+      dispatch and inspection details plus tracebacks for unexpected errors. Diagnostic
+      output is sent to stderr, leaving normal results and JSON on stdout.
+
+
+      ```bash
+
+      readio -v status novel.ssmd-bundle --profile narrator.renderprofile.toml
+
+      readio -vv render novel.epub --bundle novel.ssmd-bundle --profile narrator.renderprofile.toml
+      --dry-run
+
+      ```
+
+
+      `--no-progress` suppresses progress callbacks only; verbose diagnostics and timing
+      remain enabled. Timings use a monotonic clock and are not persisted."
+    links: []
+  - section_id: md:section:docs/cli.md::removed-commands
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Removed commands
+    heading_slug: removed-commands
+    line_span:
+      - 81
+      - 83
+    section_hash: 9dd3be223790ba3ecce56b9c23865aab135674a43ee7270ceb06f4b2f833d067
+    summary: Removed commands
+    links:
+      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
+        source_path: tests/test_dependency_boundaries.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents removed runtime compatibility surfaces.
+        tracked_hashes:
+          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
 last_fresh_scan_version: 18
 last_fresh_hash: a319cc70d89916a7a251ecaeb3793f31bc15bc1e6012f90dc1dc2691e0454de1
-notes: Reviewed affected sections against current Readio public APIs and CLI; strict
+notes:
+  Reviewed affected sections against current Readio public APIs and CLI; strict
   Sphinx build and focused documentation/workspace tests passed.
 coverage_resolution: null
 version: 216

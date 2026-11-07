@@ -115,12 +115,8 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
         raise ValueError("kind must be 'book' or 'document'")
     kind = kind_value
 
-    input_data = _table(
-        data.get("input", {}), "input", {"source", "chapters", "language"}
-    )
-    workspace_data = _table(
-        data.get("workspace", {}), "workspace", {"mode", "bundle"}
-    )
+    input_data = _table(data.get("input", {}), "input", {"source", "chapters", "language"})
+    workspace_data = _table(data.get("workspace", {}), "workspace", {"mode", "bundle"})
     voice_data = _table(data.get("voice", {}), "voice", {"profile", "variant"})
     planning_data = _table(
         data.get("planning", {}),
@@ -280,8 +276,6 @@ def _default_intent_output_path(intent: RenderIntent) -> Path | None:
     if source is None or intent.kind is None:
         return None
     return _default_output_path(source, intent.kind, intent.output.format)
-
-
 
 
 def dump_render_intent(intent: RenderIntent, *, minimal: bool = False) -> str:

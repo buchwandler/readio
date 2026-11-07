@@ -23,6 +23,7 @@ Confirm Readio is installed in the active Python environment and inspect `readio
 ## A render workflow fails
 
 Readio delegates conversion, planning, synthesis, composition, and export to specialist packages. Start with `readio render --dry-run` or `readio status` to inspect specialist-backed workflow state. Use `-v`/`-vv` for diagnostics, then consult the relevant specialist CLI for package-specific details. Preserve UtterPlan's exact projected variant when resuming a manual specialist sequence. Progress is written to stderr, separately from JSON stdout.
+
 ## A bundle cannot be opened
 
 The pipeline requires an editable `.ssmd-bundle` directory that SSMDConvert can validate. Inspect the bundle with SSMDConvert and use its diagnostics to resolve manifest or content problems.

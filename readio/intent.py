@@ -85,6 +85,7 @@ class VoiceIntent:
     profile: Path | None = None
     variant: str | None = None
 
+
 @dataclass(frozen=True, slots=True)
 class PlanningIntent:
     diagnostics: str = "errors"
@@ -158,8 +159,6 @@ def _default_output_path(source: Path, kind: IntentKind, output_format: str) -> 
         selected_format = "m4b" if kind == "book" else "mp3"
     suffix = _FORMAT_EXTENSIONS.get(selected_format.casefold(), selected_format.casefold())
     return source.parent / f"{_default_stem(source)}.{suffix}"
-
-
 
 
 def _metadata(values: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -475,7 +474,11 @@ def validate_intent_shape(intent: RenderIntent) -> None:
         raise ValueError("temporary workspaces cannot specify workspace.bundle")
     if intent.workspace.mode == "temporary" and source_is_bundle:
         raise ValueError("an SSMD bundle source requires workspace.mode='bundle'")
-    if intent.workspace.mode == "bundle" and intent.workspace.bundle is None and not source_is_bundle:
+    if (
+        intent.workspace.mode == "bundle"
+        and intent.workspace.bundle is None
+        and not source_is_bundle
+    ):
         raise ValueError("workspace.mode='bundle' requires workspace.bundle")
     if intent.voice.profile is not None and not isinstance(intent.voice.profile, Path):
         raise TypeError("voice.profile must be a path")

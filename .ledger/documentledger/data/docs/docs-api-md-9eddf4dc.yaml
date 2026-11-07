@@ -1,499 +1,504 @@
 schema: documentledger.doc_record.v4
 doc_path: docs/api.md
 linked_sources:
-- readio/api/service.py
-- readio/api/types.py
-- readio/speech.py
-- readio/workspace.py
-- tests/test_dependency_boundaries.py
+  - readio/api/service.py
+  - readio/api/types.py
+  - readio/speech.py
+  - readio/workspace.py
+  - tests/test_dependency_boundaries.py
 sections:
-- section_id: md:section:docs/api.md::python-api
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  heading_slug: python-api
-  line_span:
-  - 1
-  - 4
-  section_hash: 83a31f5b019afdeb8d501d2b739a7e9423c775b21799cb215ce300319f404e01
-  summary: Python API
-  text: '# Python API
+  - section_id: md:section:docs/api.md::python-api
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+    heading_slug: python-api
+    line_span:
+      - 1
+      - 4
+    section_hash: 83a31f5b019afdeb8d501d2b739a7e9423c775b21799cb215ce300319f404e01
+    summary: Python API
+    text: "# Python API
 
 
-    `readio.api` is the user-facing orchestration gateway. Its primary workflow methods
-    are `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`.
-    Specialist packages own their stage APIs, schemas, validation, artifacts, and
-    reports; Readio normalizes workflow planning and execution without re-exporting
-    stage request types as its primary API.'
-  links:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    tracked_hashes:
-      body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
-  - source_id: py:class:readio/api/types.py::BookExportRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `BookExportRequest`.
-    tracked_hashes:
-      body_hash: a3da6b8855a4e3d9b54707d072ad17cbfc6f9e084c099e9b857e001605a0a3ee
-  - source_id: py:class:readio/api/types.py::ComposeRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `ComposeRequest`.
-    tracked_hashes:
-      body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
-  - source_id: py:class:readio/api/types.py::PlanRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `PlanRequest`.
-    tracked_hashes:
-      body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
-  - source_id: py:class:readio/api/types.py::RenderPlanRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RenderPlanRequest`.
-    tracked_hashes:
-      body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
-  - source_id: py:class:readio/api/types.py::RunRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RunRequest`.
-    tracked_hashes:
-      body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
-  - source_id: py:class:readio/api/types.py::VoiceRenderRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `VoiceRenderRequest`.
-    tracked_hashes:
-      body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
-  - source_id: py:class:readio/speech.py::VoiceSelector
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `VoiceSelector`.
-    tracked_hashes:
-      body_hash: 1b769fafdabd2a52cf57a9011cb012067e69e806a0d56972bc0d05b713365983
-  - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `CreateWorkspaceRequest`.
-    tracked_hashes:
-      body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
-- section_id: md:section:docs/api.md::semantic-speech
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Semantic speech
-  heading_slug: semantic-speech
-  line_span:
-  - 5
-  - 19
-  section_hash: affe9a15587c3302956b3481019b5906b7d9b16cdf75c7987a6916694672050e
-  summary: Semantic speech
-  text: "## Semantic speech\n\n```python\nfrom readio.api import Readio, SpeakRequest\n\
-    \nservice = Readio()\nresult = service.speak(\n    SpeakRequest(text=\"Hello from\
-    \ Readio.\", voice=\"kokoro:v1.0/af_heart\"),\n    play=False,\n)\nprint(result.audio.sample_rate,\
-    \ result.audio.channels, len(result.audio))\n```\n\nSemantic speech returns an\
-    \ `AudioBuffer` in memory. Playback is optional, and this path does not create\
-    \ a bundle or intermediate artifacts. The `readio.api.speak(...)` convenience\
-    \ function is also available."
-  links: []
-- section_id: md:section:docs/api.md::complete-file-to-audio-workflow
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Complete file-to-audio workflow
-  heading_slug: complete-file-to-audio-workflow
-  line_span:
-  - 20
-  - 44
-  section_hash: 12b457b6a85a31390c22de1ab9272ac53a54fc454cbf86a05c4de5038887727d
-  summary: Complete file-to-audio workflow
-  text: "## Complete file-to-audio workflow\n\n```python\nfrom pathlib import Path\n\
-    from readio.api import Readio, RenderRequest\n\nservice = Readio()\nrequest =\
-    \ RenderRequest(\n    source=Path(\"article.docx\"),\n    profile=Path(\"narrator.renderprofile.toml\"\
-    ),\n    bundle=None,  # temporary workspace by default\n)\nplan = service.inspect(request)\n\
-    print([(step.stage, step.action, step.state) for step in plan.steps])\n\nresult\
-    \ = service.render(request)\nprint(result.output, result.workspace_mode, result.variant)\n\
-    ```\n\n`inspect` is read-only: it does not create a temporary directory, convert\
-    \ source material, or mutate specialist artifacts. `render` executes the complete\
-    \ workflow and cleans temporary state on success or failure. To persist an editable\
-    \ SSMD workspace, set `bundle=Path(\"article.ssmd-bundle\")`; passing an existing\
-    \ `.ssmd-bundle` as `source` also selects persistent mode. There is no implicit\
-    \ default bundle path.\n\n`RenderRequest` also accepts chapter selection, language,\
-    \ output format/path, bitrate, sample rate, channels, and specialist-backed option\
-    \ groups (`PlanningOptions`, `VoiceRenderOptions`, `CompositionOptions`, and `ExportOptions`).\
-    \ `rebuild_from` requests an explicit workflow rebuild; `replace_output` separately\
-    \ authorizes replacement of an existing final output. The dry-run form is `service.render(request,\
-    \ dry_run=True)` and returns the same `WorkflowPlan` shape as `inspect`.\n\nThe\
-    \ returned `WorkflowPlan` contains the source, workspace mode/path, selected variant\
-    \ and output, planned steps, and warnings. `RenderResult` reports the final output,\
-    \ workspace mode, exact variant, executed/reused workflow stages, and warnings.\
-    \ Normalized `WorkflowEvent` progress is available through the `on_progress` callback."
-  links: []
-- section_id: md:section:docs/api.md::render-intents
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Render intents
-  heading_slug: render-intents
-  line_span:
-  - 45
-  - 77
-  section_hash: 134105f52dde3098f3be5a338ee121acb7acd5fc21aa1d6d0825f1913c09162e
-  summary: Render intents
-  text: "## Render intents\n\n`RenderIntent` and the TOML helpers represent user-owned\
-    \ desired configuration. The current schema is `readio.render.v2`; input source\
-    \ and scope are separate from workspace policy:\n\n```toml\nschema = \"readio.render.v2\"\
-    \nkind = \"document\"\n\n[input]\nsource = \"article.docx\"\nlanguage = \"en-US\"\
-    \n\n[workspace]\nmode = \"temporary\"\n\n[voice]\nprofile = \"narrator.renderprofile.toml\"\
-    \n```\n\nFor persistence, use `mode = \"bundle\"` and provide `workspace.bundle`.\
-    \ The `create_book_intent` and `create_document_intent` factories apply kind-specific\
-    \ defaults; `load_render_intent`, `save_render_intent`, `parse_render_intent`,\
-    \ and `dump_render_intent` read, validate, and serialize the intent. A VoiceRender\
-    \ RenderProfile remains a separate, user-owned artifact.\n\n```python\nfrom pathlib\
-    \ import Path\nfrom readio.api import create_document_intent, save_render_intent\n\
-    \nintent = create_document_intent(\n    Path(\"article.docx\"),\n    profile=Path(\"\
-    narrator.renderprofile.toml\"),\n    bundle=Path(\"article.ssmd-bundle\"),\n)\n\
-    save_render_intent(intent, Path(\"article.readio.toml\"))\n```"
-  links: []
-- section_id: md:section:docs/api.md::management-delegates
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Management delegates
-  heading_slug: management-delegates
-  line_span:
-  - 78
-  - 93
-  section_hash: 8141a0228a3982e07cb61a4b6c59ceeb94edd564660d32bd3370a5a4d5d531c2
-  summary: Management delegates
-  text: '## Management delegates
+      `readio.api` is the user-facing orchestration gateway. Its primary workflow methods
+      are `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`.
+      Specialist packages own their stage APIs, schemas, validation, artifacts, and
+      reports; Readio normalizes workflow planning and execution without re-exporting
+      stage request types as its primary API."
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:class:readio/api/types.py::BookExportRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `BookExportRequest`.
+        tracked_hashes:
+          body_hash: a3da6b8855a4e3d9b54707d072ad17cbfc6f9e084c099e9b857e001605a0a3ee
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        tracked_hashes:
+          body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
+      - source_id: py:class:readio/api/types.py::PlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PlanRequest`.
+        tracked_hashes:
+          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+      - source_id: py:class:readio/api/types.py::RenderPlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanRequest`.
+        tracked_hashes:
+          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        tracked_hashes:
+          body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
+      - source_id: py:class:readio/api/types.py::VoiceRenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceRenderRequest`.
+        tracked_hashes:
+          body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
+      - source_id: py:class:readio/speech.py::VoiceSelector
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceSelector`.
+        tracked_hashes:
+          body_hash: 1b769fafdabd2a52cf57a9011cb012067e69e806a0d56972bc0d05b713365983
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        tracked_hashes:
+          body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
+  - section_id: md:section:docs/api.md::semantic-speech
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Semantic speech
+    heading_slug: semantic-speech
+    line_span:
+      - 5
+      - 19
+    section_hash: affe9a15587c3302956b3481019b5906b7d9b16cdf75c7987a6916694672050e
+    summary: Semantic speech
+    text:
+      "## Semantic speech\n\n```python\nfrom readio.api import Readio, SpeakRequest\n\
+      \nservice = Readio()\nresult = service.speak(\n    SpeakRequest(text=\"Hello from\
+      \ Readio.\", voice=\"kokoro:v1.0/af_heart\"),\n    play=False,\n)\nprint(result.audio.sample_rate,\
+      \ result.audio.channels, len(result.audio))\n```\n\nSemantic speech returns an\
+      \ `AudioBuffer` in memory. Playback is optional, and this path does not create\
+      \ a bundle or intermediate artifacts. The `readio.api.speak(...)` convenience\
+      \ function is also available."
+    links: []
+  - section_id: md:section:docs/api.md::complete-file-to-audio-workflow
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Complete file-to-audio workflow
+    heading_slug: complete-file-to-audio-workflow
+    line_span:
+      - 20
+      - 44
+    section_hash: 12b457b6a85a31390c22de1ab9272ac53a54fc454cbf86a05c4de5038887727d
+    summary: Complete file-to-audio workflow
+    text:
+      "## Complete file-to-audio workflow\n\n```python\nfrom pathlib import Path\n\
+      from readio.api import Readio, RenderRequest\n\nservice = Readio()\nrequest =\
+      \ RenderRequest(\n    source=Path(\"article.docx\"),\n    profile=Path(\"narrator.renderprofile.toml\"\
+      ),\n    bundle=None,  # temporary workspace by default\n)\nplan = service.inspect(request)\n\
+      print([(step.stage, step.action, step.state) for step in plan.steps])\n\nresult\
+      \ = service.render(request)\nprint(result.output, result.workspace_mode, result.variant)\n\
+      ```\n\n`inspect` is read-only: it does not create a temporary directory, convert\
+      \ source material, or mutate specialist artifacts. `render` executes the complete\
+      \ workflow and cleans temporary state on success or failure. To persist an editable\
+      \ SSMD workspace, set `bundle=Path(\"article.ssmd-bundle\")`; passing an existing\
+      \ `.ssmd-bundle` as `source` also selects persistent mode. There is no implicit\
+      \ default bundle path.\n\n`RenderRequest` also accepts chapter selection, language,\
+      \ output format/path, bitrate, sample rate, channels, and specialist-backed option\
+      \ groups (`PlanningOptions`, `VoiceRenderOptions`, `CompositionOptions`, and `ExportOptions`).\
+      \ `rebuild_from` requests an explicit workflow rebuild; `replace_output` separately\
+      \ authorizes replacement of an existing final output. The dry-run form is `service.render(request,\
+      \ dry_run=True)` and returns the same `WorkflowPlan` shape as `inspect`.\n\nThe\
+      \ returned `WorkflowPlan` contains the source, workspace mode/path, selected variant\
+      \ and output, planned steps, and warnings. `RenderResult` reports the final output,\
+      \ workspace mode, exact variant, executed/reused workflow stages, and warnings.\
+      \ Normalized `WorkflowEvent` progress is available through the `on_progress` callback."
+    links: []
+  - section_id: md:section:docs/api.md::render-intents
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Render intents
+    heading_slug: render-intents
+    line_span:
+      - 45
+      - 77
+    section_hash: 134105f52dde3098f3be5a338ee121acb7acd5fc21aa1d6d0825f1913c09162e
+    summary: Render intents
+    text:
+      "## Render intents\n\n`RenderIntent` and the TOML helpers represent user-owned\
+      \ desired configuration. The current schema is `readio.render.v2`; input source\
+      \ and scope are separate from workspace policy:\n\n```toml\nschema = \"readio.render.v2\"\
+      \nkind = \"document\"\n\n[input]\nsource = \"article.docx\"\nlanguage = \"en-US\"\
+      \n\n[workspace]\nmode = \"temporary\"\n\n[voice]\nprofile = \"narrator.renderprofile.toml\"\
+      \n```\n\nFor persistence, use `mode = \"bundle\"` and provide `workspace.bundle`.\
+      \ The `create_book_intent` and `create_document_intent` factories apply kind-specific\
+      \ defaults; `load_render_intent`, `save_render_intent`, `parse_render_intent`,\
+      \ and `dump_render_intent` read, validate, and serialize the intent. A VoiceRender\
+      \ RenderProfile remains a separate, user-owned artifact.\n\n```python\nfrom pathlib\
+      \ import Path\nfrom readio.api import create_document_intent, save_render_intent\n\
+      \nintent = create_document_intent(\n    Path(\"article.docx\"),\n    profile=Path(\"\
+      narrator.renderprofile.toml\"),\n    bundle=Path(\"article.ssmd-bundle\"),\n)\n\
+      save_render_intent(intent, Path(\"article.readio.toml\"))\n```"
+    links: []
+  - section_id: md:section:docs/api.md::management-delegates
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Management delegates
+    heading_slug: management-delegates
+    line_span:
+      - 78
+      - 93
+    section_hash: 8141a0228a3982e07cb61a4b6c59ceeb94edd564660d32bd3370a5a4d5d531c2
+    summary: Management delegates
+    text: '## Management delegates
 
 
-    `readio.api` also exposes delegates for VoiceRender engine/model discovery, voice
-    discovery and source/clone operations, selector parsing, and RenderProfile creation,
-    validation, refresh, and role management. These calls preserve specialist results
-    and validation behavior.
+      `readio.api` also exposes delegates for VoiceRender engine/model discovery, voice
+      discovery and source/clone operations, selector parsing, and RenderProfile creation,
+      validation, refresh, and role management. These calls preserve specialist results
+      and validation behavior.
 
 
-    ONNX Runtime controls delegate to VoiceRender''s public package-root APIs:
+      ONNX Runtime controls delegate to VoiceRender''s public package-root APIs:
 
 
-    ```python
+      ```python
 
-    from readio.api import reset_runtime_providers, runtime_status, set_runtime_providers
-
-
-    status = runtime_status()
-
-    set_runtime_providers("cuda,cpu")
-
-    status = runtime_status()  # policy and resolution for future sessions
-
-    status = reset_runtime_providers()
-
-    ```
+      from readio.api import reset_runtime_providers, runtime_status, set_runtime_providers
 
 
-    `runtime_status()` describes the imported distribution/build, available providers,
-    configured policy and its source, and resolution for new sessions; it does not
-    report a provider active in an initialized synthesis session. A distribution/package
-    is distinct from an execution provider. Environment variables such as `ONNXVOICE_PROVIDER`
-    override the saved preference, and reset does not unset them. Readio does not
-    install or switch runtime distributions.'
-  links: []
-- section_id: md:section:docs/api.md::book-operations
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Book operations
-  heading_slug: book-operations
-  line_span:
-  - 55
-  - 60
-  section_hash: a8fc99bfea7708d65bc632f72fff9c349d121d7efde199aa377092eb7f02acb7
-  summary: Book operations
-  links:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    tracked_hashes:
-      body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
-  - source_id: py:method:readio/api/service.py::Readio.create_workspace
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.create_workspace`.
-    tracked_hashes:
-      body_hash: 54174e54fd4155a9ee6bf96bb92bc86c1c53293dc398e4034dcb46767586f4e4
-  - source_id: py:class:readio/api/types.py::BookExportRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `BookExportRequest`.
-    tracked_hashes:
-      body_hash: a3da6b8855a4e3d9b54707d072ad17cbfc6f9e084c099e9b857e001605a0a3ee
-  - source_id: py:class:readio/api/types.py::ComposeRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `ComposeRequest`.
-    tracked_hashes:
-      body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
-  - source_id: py:class:readio/api/types.py::PlanRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `PlanRequest`.
-    tracked_hashes:
-      body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
-  - source_id: py:class:readio/api/types.py::RenderPlanRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RenderPlanRequest`.
-    tracked_hashes:
-      body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
-  - source_id: py:class:readio/api/types.py::VoiceRenderRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `VoiceRenderRequest`.
-    tracked_hashes:
-      body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
-  - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `CreateWorkspaceRequest`.
-    tracked_hashes:
-      body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
-- section_id: md:section:docs/api.md::compatibility-policy
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Compatibility policy
-  heading_slug: compatibility-policy
-  line_span:
-  - 69
-  - 71
-  section_hash: be9275d27c390520b07e5e12ff3c7ec960f2b42b94fb34bd50a21e39cf85f6f9
-  summary: Compatibility policy
-  links:
-  - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-    source_path: tests/test_dependency_boundaries.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the clean-break policy covered by the runtime boundary
-      test.
-    tracked_hashes:
-      body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-- section_id: md:section:docs/api.md::direct-speech
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Direct speech
-  heading_slug: direct-speech
-  line_span:
-  - 61
-  - 64
-  section_hash: 2b646941889f28c58b9ec5f8650beb7356599ac9c76ef0234c5649796152f9b4
-  summary: Direct speech
-  links:
-  - source_id: py:function:readio/speech.py::parse_voice_selector
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents neutral selector parsing.
-    tracked_hashes:
-      body_hash: e20e02563ad58428d8b5d5541d653d7b4a22436f9c15454ce3846ae8182fc24e
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the VoiceRender-backed speak operation.
-    tracked_hashes:
-      body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
-- section_id: md:section:docs/api.md::planning-and-pipeline-sequencing
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Planning and pipeline sequencing
-  heading_slug: planning-and-pipeline-sequencing
-  line_span:
-  - 31
-  - 54
-  section_hash: 72afa6cfd9f1256b785e21b7baa3a5d3b5552e403eeed61967799b44a7a04539
-  summary: Planning and pipeline sequencing
-  links:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    tracked_hashes:
-      body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
-  - source_id: py:method:readio/api/service.py::Readio.compose
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.compose`.
-    tracked_hashes:
-      body_hash: 0538d8a47a409f26f44136c9bff13c39fedf8047498847e8f42b0b2452b0066f
-  - source_id: py:method:readio/api/service.py::Readio.export
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.export`.
-    tracked_hashes:
-      body_hash: 10f8e02b97ae83183d318d1400d164da92b3f0cd58c479c3a886575b3b29dfee
-  - source_id: py:method:readio/api/service.py::Readio.plan
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.plan`.
-    tracked_hashes:
-      body_hash: 4d318ce361344d58779f6c37c4539649102108ec57313070bc1505e223f01ece
-  - source_id: py:method:readio/api/service.py::Readio.render
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.render`.
-    tracked_hashes:
-      body_hash: 2972a46614d2939773351821973d07d8cc77c763e283cdeb23f6c17b50a8ba0f
-  - source_id: py:method:readio/api/service.py::Readio.render_plan
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.render_plan`.
-    tracked_hashes:
-      body_hash: d256a6c3a36c90c8114cadd63930000b746cbe8ee89e1705ac0a304da50b2028
-  - source_id: py:method:readio/api/service.py::Readio.run
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.run`.
-    tracked_hashes:
-      body_hash: 8035aa2d1fc0dea75724fda2b0ea47c274679565008e83d08e19deb5248e68cd
-  - source_id: py:class:readio/api/types.py::ComposeRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `ComposeRequest`.
-    tracked_hashes:
-      body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
-  - source_id: py:class:readio/api/types.py::PipelineEvent
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `PipelineEvent`.
-    tracked_hashes:
-      body_hash: 3a4575ef796107ae4f44c06db7dce945a48806898e7873417ebb8423fd15b2d7
-  - source_id: py:class:readio/api/types.py::PipelineResult
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `PipelineResult`.
-    tracked_hashes:
-      body_hash: eb3835e8a9053f3a1b6d1e54a1b83e91049dc85a27c67a44613ca3d2f4de5a32
-  - source_id: py:class:readio/api/types.py::PlanRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `PlanRequest`.
-    tracked_hashes:
-      body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
-  - source_id: py:class:readio/api/types.py::RenderPlanRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RenderPlanRequest`.
-    tracked_hashes:
-      body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
-  - source_id: py:class:readio/api/types.py::RenderPlanResult
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RenderPlanResult`.
-    tracked_hashes:
-      body_hash: 6655a05cbc8f16e5924187201b0e0d22a714ae13af60b21611ca05feb5d8760f
-  - source_id: py:class:readio/api/types.py::RunRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RunRequest`.
-    tracked_hashes:
-      body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
-  - source_id: py:class:readio/api/types.py::VoiceRenderRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `VoiceRenderRequest`.
-    tracked_hashes:
-      body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
-- section_id: md:section:docs/api.md::workspace-lifecycle
-  doc_path: docs/api.md
-  heading_path:
-  - Python API
-  - Workspace lifecycle
-  heading_slug: workspace-lifecycle
-  line_span:
-  - 19
-  - 30
-  section_hash: d107c303338646d5e2f5ac2a3d632318d6f7b5a02919f66752e42d52208d9147
-  summary: Workspace lifecycle
-  links:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    tracked_hashes:
-      body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
-  - source_id: py:method:readio/api/service.py::Readio.create_workspace
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.create_workspace`.
-    tracked_hashes:
-      body_hash: 54174e54fd4155a9ee6bf96bb92bc86c1c53293dc398e4034dcb46767586f4e4
-  - source_id: py:method:readio/api/service.py::Readio.resolve_workspace
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.resolve_workspace`.
-    tracked_hashes:
-      body_hash: 792a8b22178dcd53ff571615374ba52d699c8c12ba6cd191b75910ecbad1ff88
-  - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `CreateWorkspaceRequest`.
-    tracked_hashes:
-      body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
-  - source_id: py:class:readio/workspace.py::WorkspaceRef
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `WorkspaceRef`.
-    tracked_hashes:
-      body_hash: f58ec8d3488a2ef4ad41eb3a88a619507640ba066806ca059d4facacf7b89702
+      status = runtime_status()
+
+      set_runtime_providers("cuda,cpu")
+
+      status = runtime_status()  # policy and resolution for future sessions
+
+      status = reset_runtime_providers()
+
+      ```
+
+
+      `runtime_status()` describes the imported distribution/build, available providers,
+      configured policy and its source, and resolution for new sessions; it does not
+      report a provider active in an initialized synthesis session. A distribution/package
+      is distinct from an execution provider. Environment variables such as `ONNXVOICE_PROVIDER`
+      override the saved preference, and reset does not unset them. Readio does not
+      install or switch runtime distributions.'
+    links: []
+  - section_id: md:section:docs/api.md::book-operations
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Book operations
+    heading_slug: book-operations
+    line_span:
+      - 55
+      - 60
+    section_hash: a8fc99bfea7708d65bc632f72fff9c349d121d7efde199aa377092eb7f02acb7
+    summary: Book operations
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:method:readio/api/service.py::Readio.create_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.create_workspace`.
+        tracked_hashes:
+          body_hash: 54174e54fd4155a9ee6bf96bb92bc86c1c53293dc398e4034dcb46767586f4e4
+      - source_id: py:class:readio/api/types.py::BookExportRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `BookExportRequest`.
+        tracked_hashes:
+          body_hash: a3da6b8855a4e3d9b54707d072ad17cbfc6f9e084c099e9b857e001605a0a3ee
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        tracked_hashes:
+          body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
+      - source_id: py:class:readio/api/types.py::PlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PlanRequest`.
+        tracked_hashes:
+          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+      - source_id: py:class:readio/api/types.py::RenderPlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanRequest`.
+        tracked_hashes:
+          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+      - source_id: py:class:readio/api/types.py::VoiceRenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceRenderRequest`.
+        tracked_hashes:
+          body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        tracked_hashes:
+          body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
+  - section_id: md:section:docs/api.md::compatibility-policy
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Compatibility policy
+    heading_slug: compatibility-policy
+    line_span:
+      - 69
+      - 71
+    section_hash: be9275d27c390520b07e5e12ff3c7ec960f2b42b94fb34bd50a21e39cf85f6f9
+    summary: Compatibility policy
+    links:
+      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
+        source_path: tests/test_dependency_boundaries.py
+        coverage: implementation-note
+        impact: unknown
+        reason:
+          This section documents the clean-break policy covered by the runtime boundary
+          test.
+        tracked_hashes:
+          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
+  - section_id: md:section:docs/api.md::direct-speech
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Direct speech
+    heading_slug: direct-speech
+    line_span:
+      - 61
+      - 64
+    section_hash: 2b646941889f28c58b9ec5f8650beb7356599ac9c76ef0234c5649796152f9b4
+    summary: Direct speech
+    links:
+      - source_id: py:function:readio/speech.py::parse_voice_selector
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents neutral selector parsing.
+        tracked_hashes:
+          body_hash: e20e02563ad58428d8b5d5541d653d7b4a22436f9c15454ce3846ae8182fc24e
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the VoiceRender-backed speak operation.
+        tracked_hashes:
+          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
+  - section_id: md:section:docs/api.md::planning-and-pipeline-sequencing
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Planning and pipeline sequencing
+    heading_slug: planning-and-pipeline-sequencing
+    line_span:
+      - 31
+      - 54
+    section_hash: 72afa6cfd9f1256b785e21b7baa3a5d3b5552e403eeed61967799b44a7a04539
+    summary: Planning and pipeline sequencing
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:method:readio/api/service.py::Readio.compose
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.compose`.
+        tracked_hashes:
+          body_hash: 0538d8a47a409f26f44136c9bff13c39fedf8047498847e8f42b0b2452b0066f
+      - source_id: py:method:readio/api/service.py::Readio.export
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.export`.
+        tracked_hashes:
+          body_hash: 10f8e02b97ae83183d318d1400d164da92b3f0cd58c479c3a886575b3b29dfee
+      - source_id: py:method:readio/api/service.py::Readio.plan
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.plan`.
+        tracked_hashes:
+          body_hash: 4d318ce361344d58779f6c37c4539649102108ec57313070bc1505e223f01ece
+      - source_id: py:method:readio/api/service.py::Readio.render
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render`.
+        tracked_hashes:
+          body_hash: 2972a46614d2939773351821973d07d8cc77c763e283cdeb23f6c17b50a8ba0f
+      - source_id: py:method:readio/api/service.py::Readio.render_plan
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render_plan`.
+        tracked_hashes:
+          body_hash: d256a6c3a36c90c8114cadd63930000b746cbe8ee89e1705ac0a304da50b2028
+      - source_id: py:method:readio/api/service.py::Readio.run
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.run`.
+        tracked_hashes:
+          body_hash: 8035aa2d1fc0dea75724fda2b0ea47c274679565008e83d08e19deb5248e68cd
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        tracked_hashes:
+          body_hash: c185cbab0a2b496542f8f0393a1b42a101948796f9b45b47d84cad2893d184ee
+      - source_id: py:class:readio/api/types.py::PipelineEvent
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PipelineEvent`.
+        tracked_hashes:
+          body_hash: 3a4575ef796107ae4f44c06db7dce945a48806898e7873417ebb8423fd15b2d7
+      - source_id: py:class:readio/api/types.py::PipelineResult
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PipelineResult`.
+        tracked_hashes:
+          body_hash: eb3835e8a9053f3a1b6d1e54a1b83e91049dc85a27c67a44613ca3d2f4de5a32
+      - source_id: py:class:readio/api/types.py::PlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `PlanRequest`.
+        tracked_hashes:
+          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+      - source_id: py:class:readio/api/types.py::RenderPlanRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanRequest`.
+        tracked_hashes:
+          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+      - source_id: py:class:readio/api/types.py::RenderPlanResult
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderPlanResult`.
+        tracked_hashes:
+          body_hash: 6655a05cbc8f16e5924187201b0e0d22a714ae13af60b21611ca05feb5d8760f
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        tracked_hashes:
+          body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
+      - source_id: py:class:readio/api/types.py::VoiceRenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `VoiceRenderRequest`.
+        tracked_hashes:
+          body_hash: 14a8a1a5eae120fa9b36030a33f89db31cf1dd9f337544e18610eeb62d1f3f80
+  - section_id: md:section:docs/api.md::workspace-lifecycle
+    doc_path: docs/api.md
+    heading_path:
+      - Python API
+      - Workspace lifecycle
+    heading_slug: workspace-lifecycle
+    line_span:
+      - 19
+      - 30
+    section_hash: d107c303338646d5e2f5ac2a3d632318d6f7b5a02919f66752e42d52208d9147
+    summary: Workspace lifecycle
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+      - source_id: py:method:readio/api/service.py::Readio.create_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.create_workspace`.
+        tracked_hashes:
+          body_hash: 54174e54fd4155a9ee6bf96bb92bc86c1c53293dc398e4034dcb46767586f4e4
+      - source_id: py:method:readio/api/service.py::Readio.resolve_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.resolve_workspace`.
+        tracked_hashes:
+          body_hash: 792a8b22178dcd53ff571615374ba52d699c8c12ba6cd191b75910ecbad1ff88
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        tracked_hashes:
+          body_hash: 2d8e38b5b328939c4de6fd5f9f8c3533b932af5150bcbe9348ea5d2770ef1fe3
+      - source_id: py:class:readio/workspace.py::WorkspaceRef
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkspaceRef`.
+        tracked_hashes:
+          body_hash: f58ec8d3488a2ef4ad41eb3a88a619507640ba066806ca059d4facacf7b89702
 last_fresh_scan_version: 18
 last_fresh_hash: ed11081c32fb2d5877b843378af331714cac69cb24008cbf46779e82d8a27ce8
-notes: Reviewed affected sections against current Readio public APIs and CLI; strict
+notes:
+  Reviewed affected sections against current Readio public APIs and CLI; strict
   Sphinx build and focused documentation/workspace tests passed.
 coverage_resolution: null
 version: 216

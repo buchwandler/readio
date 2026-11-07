@@ -83,757 +83,757 @@ doc_hashes:
   docs/cli.md: fe8f9328d2059657630ad2d5879e0bce9b3e96a59043ac2ba88cd37314dffffa
   docs/index.md: e00aafa90c8f7ad7e11c2f70edd47368e5ef35f955c2288276a913804eb7725c
 changed_sources:
-- readio/integrations/status.py
-- tests/test_status.py
+  - readio/integrations/status.py
+  - tests/test_status.py
 deleted_sources: []
 changed_units:
-- source_id: py:function:readio/integrations/status.py::inspect_export
-  path: readio/integrations/status.py
-  kind: function
-  qualname: inspect_export
-  change_type: modified
-  changed_hashes:
-  - content_hash
-  - docstring_hash
-  - public_contract_hash
-  old_line_span:
-  - 67
-  - 77
-  new_line_span:
-  - 67
-  - 77
-- source_id: py:module:tests/test_status.py
-  path: tests/test_status.py
-  kind: module
-  qualname: tests/test_status.py
-  change_type: modified
-  changed_hashes:
-  - body_hash
-  - content_hash
-  - public_contract_hash
-  - signature_hash
-  old_line_span:
-  - 1
-  - 352
-  new_line_span:
-  - 1
-  - 352
+  - source_id: py:function:readio/integrations/status.py::inspect_export
+    path: readio/integrations/status.py
+    kind: function
+    qualname: inspect_export
+    change_type: modified
+    changed_hashes:
+      - content_hash
+      - docstring_hash
+      - public_contract_hash
+    old_line_span:
+      - 67
+      - 77
+    new_line_span:
+      - 67
+      - 77
+  - source_id: py:module:tests/test_status.py
+    path: tests/test_status.py
+    kind: module
+    qualname: tests/test_status.py
+    change_type: modified
+    changed_hashes:
+      - body_hash
+      - content_hash
+      - public_contract_hash
+      - signature_hash
+    old_line_span:
+      - 1
+      - 352
+    new_line_span:
+      - 1
+      - 352
 added_units:
-- source_id: py:function:tests/test_status.py::test_compose_complete_recommends_export_with_required_output
-  path: tests/test_status.py
-  kind: function
-  qualname: test_compose_complete_recommends_export_with_required_output
-  change_type: added
-  changed_hashes:
-  - body_hash
-  - content_hash
-  - decorator_hash
-  - docstring_hash
-  - public_contract_hash
-  - signature_hash
-  old_line_span:
-  - 0
-  - 0
-  new_line_span:
-  - 132
-  - 165
+  - source_id: py:function:tests/test_status.py::test_compose_complete_recommends_export_with_required_output
+    path: tests/test_status.py
+    kind: function
+    qualname: test_compose_complete_recommends_export_with_required_output
+    change_type: added
+    changed_hashes:
+      - body_hash
+      - content_hash
+      - decorator_hash
+      - docstring_hash
+      - public_contract_hash
+      - signature_hash
+    old_line_span:
+      - 0
+      - 0
+    new_line_span:
+      - 132
+      - 165
 deleted_units:
-- source_id: py:function:tests/test_status.py::test_compose_complete_recommends_optional_export_with_required_output
-  path: tests/test_status.py
-  kind: function
-  qualname: test_compose_complete_recommends_optional_export_with_required_output
-  change_type: deleted
-  changed_hashes:
-  - body_hash
-  - content_hash
-  - decorator_hash
-  - docstring_hash
-  - public_contract_hash
-  - signature_hash
-  old_line_span:
-  - 132
-  - 165
-  new_line_span:
-  - 0
-  - 0
+  - source_id: py:function:tests/test_status.py::test_compose_complete_recommends_optional_export_with_required_output
+    path: tests/test_status.py
+    kind: function
+    qualname: test_compose_complete_recommends_optional_export_with_required_output
+    change_type: deleted
+    changed_hashes:
+      - body_hash
+      - content_hash
+      - decorator_hash
+      - docstring_hash
+      - public_contract_hash
+      - signature_hash
+    old_line_span:
+      - 132
+      - 165
+    new_line_span:
+      - 0
+      - 0
 affected_sections:
-- doc_path: README.md
-  section_id: md:section:README.md::direct-speech
-  heading_path:
-  - Readio
-  - Direct speech
-  heading_slug: direct-speech
-  line_span:
-  - 101
-  - 108
-  section_hash: e0f46c9f1405b62234006a61663a4276d2abade45202455190cecbf1c9c73fba
-  summary: Direct speech
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the VoiceRender-backed literal-text speak helper.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+  - doc_path: README.md
+    section_id: md:section:README.md::direct-speech
+    heading_path:
+      - Readio
+      - Direct speech
+    heading_slug: direct-speech
     line_span:
-    - 481
-    - 538
-- doc_path: README.md
-  section_id: md:section:README.md::python-api
-  heading_path:
-  - Readio
-  - Python API
-  heading_slug: python-api
-  line_span:
-  - 125
-  - 143
-  section_hash: 2a8dd681512c82213f3471abaab5f296e66ebf59c656a0590158177dd53a7057
-  summary: Python API
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 101
+      - 108
+    section_hash: e0f46c9f1405b62234006a61663a4276d2abade45202455190cecbf1c9c73fba
+    summary: Direct speech
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the VoiceRender-backed literal-text speak helper.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 481
+          - 538
+  - doc_path: README.md
+    section_id: md:section:README.md::python-api
+    heading_path:
+      - Readio
+      - Python API
+    heading_slug: python-api
     line_span:
-    - 55
-    - 348
-  - source_id: py:method:readio/api/service.py::Readio.run
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.run`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 125
+      - 143
+    section_hash: 2a8dd681512c82213f3471abaab5f296e66ebf59c656a0590158177dd53a7057
+    summary: Python API
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 55
+          - 348
+      - source_id: py:method:readio/api/service.py::Readio.run
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.run`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 285
+          - 299
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 160
+          - 166
+  - doc_path: README.md
+    section_id: md:section:README.md::readio
+    heading_path:
+      - Readio
+    heading_slug: readio
     line_span:
-    - 285
-    - 299
-  - source_id: py:class:readio/api/types.py::RunRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RunRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 1
+      - 6
+    section_hash: f8e5b584476793a194450f20cc805061fa1f51ecd32f5510b5380211aab9e31f
+    summary: Readio
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The introduction describes Readio as a public facade over specialist packages.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 185
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::book-operations
+    heading_path:
+      - Python API
+      - Book operations
+    heading_slug: book-operations
     line_span:
-    - 160
-    - 166
-- doc_path: README.md
-  section_id: md:section:README.md::readio
-  heading_path:
-  - Readio
-  heading_slug: readio
-  line_span:
-  - 1
-  - 6
-  section_hash: f8e5b584476793a194450f20cc805061fa1f51ecd32f5510b5380211aab9e31f
-  summary: Readio
-  action: rewrite-section
-  changed_units:
-  - source_id: py:file:readio/api/__init__.py
-    source_path: readio/api/__init__.py
-    coverage: implementation-note
-    impact: unknown
-    reason: The introduction describes Readio as a public facade over specialist packages.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 55
+      - 60
+    section_hash: a8fc99bfea7708d65bc632f72fff9c349d121d7efde199aa377092eb7f02acb7
+    summary: Book operations
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 55
+          - 348
+      - source_id: py:method:readio/api/service.py::Readio.create_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.create_workspace`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 61
+          - 73
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 123
+          - 136
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 51
+          - 58
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::direct-speech
+    heading_path:
+      - Python API
+      - Direct speech
+    heading_slug: direct-speech
     line_span:
-    - 1
-    - 185
-- doc_path: docs/api.md
-  section_id: md:section:docs/api.md::book-operations
-  heading_path:
-  - Python API
-  - Book operations
-  heading_slug: book-operations
-  line_span:
-  - 55
-  - 60
-  section_hash: a8fc99bfea7708d65bc632f72fff9c349d121d7efde199aa377092eb7f02acb7
-  summary: Book operations
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 61
+      - 64
+    section_hash: 2b646941889f28c58b9ec5f8650beb7356599ac9c76ef0234c5649796152f9b4
+    summary: Direct speech
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the VoiceRender-backed speak operation.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 481
+          - 538
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::planning-and-pipeline-sequencing
+    heading_path:
+      - Python API
+      - Planning and pipeline sequencing
+    heading_slug: planning-and-pipeline-sequencing
     line_span:
-    - 55
-    - 348
-  - source_id: py:method:readio/api/service.py::Readio.create_workspace
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.create_workspace`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 31
+      - 54
+    section_hash: 72afa6cfd9f1256b785e21b7baa3a5d3b5552e403eeed61967799b44a7a04539
+    summary: Planning and pipeline sequencing
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 55
+          - 348
+      - source_id: py:method:readio/api/service.py::Readio.compose
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.compose`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 194
+          - 210
+      - source_id: py:method:readio/api/service.py::Readio.export
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.export`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 212
+          - 226
+      - source_id: py:method:readio/api/service.py::Readio.plan
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.plan`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 106
+          - 126
+      - source_id: py:method:readio/api/service.py::Readio.render
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 158
+          - 192
+      - source_id: py:method:readio/api/service.py::Readio.render_plan
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render_plan`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 128
+          - 150
+      - source_id: py:method:readio/api/service.py::Readio.run
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.run`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 285
+          - 299
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 123
+          - 136
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 160
+          - 166
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::python-api
+    heading_path:
+      - Python API
+    heading_slug: python-api
     line_span:
-    - 61
-    - 73
-  - source_id: py:class:readio/api/types.py::ComposeRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `ComposeRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 1
+      - 4
+    section_hash: 83a31f5b019afdeb8d501d2b739a7e9423c775b21799cb215ce300319f404e01
+    summary: Python API
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 55
+          - 348
+      - source_id: py:class:readio/api/types.py::ComposeRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `ComposeRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 123
+          - 136
+      - source_id: py:class:readio/api/types.py::RunRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RunRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 160
+          - 166
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 51
+          - 58
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::workspace-lifecycle
+    heading_path:
+      - Python API
+      - Workspace lifecycle
+    heading_slug: workspace-lifecycle
     line_span:
-    - 123
-    - 136
-  - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `CreateWorkspaceRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 19
+      - 30
+    section_hash: d107c303338646d5e2f5ac2a3d632318d6f7b5a02919f66752e42d52208d9147
+    summary: Workspace lifecycle
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 55
+          - 348
+      - source_id: py:method:readio/api/service.py::Readio.create_workspace
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.create_workspace`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 61
+          - 73
+      - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `CreateWorkspaceRequest`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 51
+          - 58
+      - source_id: py:class:readio/workspace.py::WorkspaceRef
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkspaceRef`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 32
+          - 36
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::persistent-state-and-compatibility
+    heading_path:
+      - Readio architecture
+      - Persistent state and compatibility
+    heading_slug: persistent-state-and-compatibility
     line_span:
-    - 51
-    - 58
-- doc_path: docs/api.md
-  section_id: md:section:docs/api.md::direct-speech
-  heading_path:
-  - Python API
-  - Direct speech
-  heading_slug: direct-speech
-  line_span:
-  - 61
-  - 64
-  section_hash: 2b646941889f28c58b9ec5f8650beb7356599ac9c76ef0234c5649796152f9b4
-  summary: Direct speech
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the VoiceRender-backed speak operation.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 65
+      - 70
+    section_hash: c601274d34f30876352be68bce783e42b5d5d3c9426e3c5c6aeb04716e4e8682
+    summary: Persistent state and compatibility
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/workspace.py::WorkspaceRef
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkspaceRef`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 32
+          - 36
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::readio-architecture
+    heading_path:
+      - Readio architecture
+    heading_slug: readio-architecture
     line_span:
-    - 481
-    - 538
-- doc_path: docs/api.md
-  section_id: md:section:docs/api.md::planning-and-pipeline-sequencing
-  heading_path:
-  - Python API
-  - Planning and pipeline sequencing
-  heading_slug: planning-and-pipeline-sequencing
-  line_span:
-  - 31
-  - 54
-  section_hash: 72afa6cfd9f1256b785e21b7baa3a5d3b5552e403eeed61967799b44a7a04539
-  summary: Planning and pipeline sequencing
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 1
+      - 4
+    section_hash: 4ad800609619d24ccc45c47115a3e0a51dc450ea868df0506fafb7f04c735f97
+    summary: Readio architecture
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the compact public facade.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 185
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::readio-orchestration
+    heading_path:
+      - Readio architecture
+      - Readio orchestration
+    heading_slug: readio-orchestration
     line_span:
-    - 55
-    - 348
-  - source_id: py:method:readio/api/service.py::Readio.compose
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.compose`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 5
+      - 6
+    section_hash: 1d8866c5fb16ff8a0355ec0985f34390598f9ef4ee38ce00b6b28a7b29ece68b
+    summary: Readio orchestration
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the separate VoiceRender speech path.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 481
+          - 538
+  - doc_path: docs/cli.md
+    section_id: md:section:docs/cli.md::cli-reference
+    heading_path:
+      - CLI reference
+    heading_slug: cli-reference
     line_span:
-    - 194
-    - 210
-  - source_id: py:method:readio/api/service.py::Readio.export
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.export`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 1
+      - 13
+    section_hash: 69fcfef563048e7b50e9a26067f328465acc70917801b7ccf1a46b94cc013c2a
+    summary: CLI reference
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/cli.py::build_parser
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the retained top-level command parser.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 79
+          - 101
+      - source_id: py:function:readio/cli.py::main
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents retained command dispatch.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 857
+          - 897
+  - doc_path: docs/cli.md
+    section_id: md:section:docs/cli.md::dependency-diagnostics
+    heading_path:
+      - CLI reference
+      - Dependency diagnostics
+    heading_slug: dependency-diagnostics
     line_span:
-    - 212
-    - 226
-  - source_id: py:method:readio/api/service.py::Readio.plan
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.plan`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 158
+      - 166
+    section_hash: bb3b638590ec19c0b4535bbe701f023ce47369345346e1bf424b3c1bb5a96ab3
+    summary: Dependency diagnostics
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/doctor.py::doctor_report
+        source_path: readio/doctor.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents the package and VoiceRender engine report.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 85
+          - 113
+  - doc_path: docs/cli.md
+    section_id: md:section:docs/cli.md::direct-speech
+    heading_path:
+      - CLI reference
+      - Direct speech
+    heading_slug: direct-speech
     line_span:
-    - 106
-    - 126
-  - source_id: py:method:readio/api/service.py::Readio.render
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.render`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 132
+      - 141
+    section_hash: 16508f1488d0e26ac1adb792c334ed06289a9476df88cd45862426e104ac678a
+    summary: Direct speech
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section documents direct speech through VoiceRender.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 481
+          - 538
+  - doc_path: docs/index.md
+    section_id: md:section:docs/index.md::readio-commands
+    heading_path:
+      - Readio documentation
+      - Readio commands
+    heading_slug: readio-commands
     line_span:
-    - 158
-    - 192
-  - source_id: py:method:readio/api/service.py::Readio.render_plan
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.render_plan`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
+      - 28
+      - 41
+    section_hash: d664bcceebd1d8bf3f43eb7f5f52136f87d6a5fd68de3aaa1e7ef1e47ab445e4
+    summary: Readio commands
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/cli.py::build_parser
+        source_path: readio/cli.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section lists the retained Readio CLI commands.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 79
+          - 101
+      - source_id: py:function:readio/doctor.py::doctor_report
+        source_path: readio/doctor.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section introduces dependency diagnostics.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 85
+          - 113
+      - source_id: py:function:readio/speech.py::speak
+        source_path: readio/speech.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section introduces literal-text speech.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 481
+          - 538
+  - doc_path: docs/index.md
+    section_id: md:section:docs/index.md::readio-documentation
+    heading_path:
+      - Readio documentation
+    heading_slug: readio-documentation
     line_span:
-    - 128
-    - 150
-  - source_id: py:method:readio/api/service.py::Readio.run
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.run`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 285
-    - 299
-  - source_id: py:class:readio/api/types.py::ComposeRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `ComposeRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 123
-    - 136
-  - source_id: py:class:readio/api/types.py::RunRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RunRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 160
-    - 166
-- doc_path: docs/api.md
-  section_id: md:section:docs/api.md::python-api
-  heading_path:
-  - Python API
-  heading_slug: python-api
-  line_span:
-  - 1
-  - 4
-  section_hash: 83a31f5b019afdeb8d501d2b739a7e9423c775b21799cb215ce300319f404e01
-  summary: Python API
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 55
-    - 348
-  - source_id: py:class:readio/api/types.py::ComposeRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `ComposeRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 123
-    - 136
-  - source_id: py:class:readio/api/types.py::RunRequest
-    source_path: readio/api/types.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `RunRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 160
-    - 166
-  - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `CreateWorkspaceRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 51
-    - 58
-- doc_path: docs/api.md
-  section_id: md:section:docs/api.md::workspace-lifecycle
-  heading_path:
-  - Python API
-  - Workspace lifecycle
-  heading_slug: workspace-lifecycle
-  line_span:
-  - 19
-  - 30
-  section_hash: d107c303338646d5e2f5ac2a3d632318d6f7b5a02919f66752e42d52208d9147
-  summary: Workspace lifecycle
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/api/service.py::Readio
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `Readio`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 55
-    - 348
-  - source_id: py:method:readio/api/service.py::Readio.create_workspace
-    source_path: readio/api/service.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains exact qualified symbol `Readio.create_workspace`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 61
-    - 73
-  - source_id: py:class:readio/workspace.py::CreateWorkspaceRequest
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `CreateWorkspaceRequest`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 51
-    - 58
-  - source_id: py:class:readio/workspace.py::WorkspaceRef
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `WorkspaceRef`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 32
-    - 36
-- doc_path: docs/architecture.md
-  section_id: md:section:docs/architecture.md::persistent-state-and-compatibility
-  heading_path:
-  - Readio architecture
-  - Persistent state and compatibility
-  heading_slug: persistent-state-and-compatibility
-  line_span:
-  - 65
-  - 70
-  section_hash: c601274d34f30876352be68bce783e42b5d5d3c9426e3c5c6aeb04716e4e8682
-  summary: Persistent state and compatibility
-  action: rewrite-section
-  changed_units:
-  - source_id: py:class:readio/workspace.py::WorkspaceRef
-    source_path: readio/workspace.py
-    coverage: implementation-note
-    impact: unknown
-    reason: Code contains public class `WorkspaceRef`.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 32
-    - 36
-- doc_path: docs/architecture.md
-  section_id: md:section:docs/architecture.md::readio-architecture
-  heading_path:
-  - Readio architecture
-  heading_slug: readio-architecture
-  line_span:
-  - 1
-  - 4
-  section_hash: 4ad800609619d24ccc45c47115a3e0a51dc450ea868df0506fafb7f04c735f97
-  summary: Readio architecture
-  action: rewrite-section
-  changed_units:
-  - source_id: py:file:readio/api/__init__.py
-    source_path: readio/api/__init__.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section describes the compact public facade.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 185
-- doc_path: docs/architecture.md
-  section_id: md:section:docs/architecture.md::readio-orchestration
-  heading_path:
-  - Readio architecture
-  - Readio orchestration
-  heading_slug: readio-orchestration
-  line_span:
-  - 5
-  - 6
-  section_hash: 1d8866c5fb16ff8a0355ec0985f34390598f9ef4ee38ce00b6b28a7b29ece68b
-  summary: Readio orchestration
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section describes the separate VoiceRender speech path.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 481
-    - 538
-- doc_path: docs/cli.md
-  section_id: md:section:docs/cli.md::cli-reference
-  heading_path:
-  - CLI reference
-  heading_slug: cli-reference
-  line_span:
-  - 1
-  - 13
-  section_hash: 69fcfef563048e7b50e9a26067f328465acc70917801b7ccf1a46b94cc013c2a
-  summary: CLI reference
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/cli.py::build_parser
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the retained top-level command parser.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 79
-    - 101
-  - source_id: py:function:readio/cli.py::main
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents retained command dispatch.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 857
-    - 897
-- doc_path: docs/cli.md
-  section_id: md:section:docs/cli.md::dependency-diagnostics
-  heading_path:
-  - CLI reference
-  - Dependency diagnostics
-  heading_slug: dependency-diagnostics
-  line_span:
-  - 158
-  - 166
-  section_hash: bb3b638590ec19c0b4535bbe701f023ce47369345346e1bf424b3c1bb5a96ab3
-  summary: Dependency diagnostics
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/doctor.py::doctor_report
-    source_path: readio/doctor.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents the package and VoiceRender engine report.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 85
-    - 113
-- doc_path: docs/cli.md
-  section_id: md:section:docs/cli.md::direct-speech
-  heading_path:
-  - CLI reference
-  - Direct speech
-  heading_slug: direct-speech
-  line_span:
-  - 132
-  - 141
-  section_hash: 16508f1488d0e26ac1adb792c334ed06289a9476df88cd45862426e104ac678a
-  summary: Direct speech
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section documents direct speech through VoiceRender.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 481
-    - 538
-- doc_path: docs/index.md
-  section_id: md:section:docs/index.md::readio-commands
-  heading_path:
-  - Readio documentation
-  - Readio commands
-  heading_slug: readio-commands
-  line_span:
-  - 28
-  - 41
-  section_hash: d664bcceebd1d8bf3f43eb7f5f52136f87d6a5fd68de3aaa1e7ef1e47ab445e4
-  summary: Readio commands
-  action: rewrite-section
-  changed_units:
-  - source_id: py:function:readio/cli.py::build_parser
-    source_path: readio/cli.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section lists the retained Readio CLI commands.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 79
-    - 101
-  - source_id: py:function:readio/doctor.py::doctor_report
-    source_path: readio/doctor.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section introduces dependency diagnostics.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 85
-    - 113
-  - source_id: py:function:readio/speech.py::speak
-    source_path: readio/speech.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This section introduces literal-text speech.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 481
-    - 538
-- doc_path: docs/index.md
-  section_id: md:section:docs/index.md::readio-documentation
-  heading_path:
-  - Readio documentation
-  heading_slug: readio-documentation
-  line_span:
-  - 1
-  - 13
-  section_hash: 68c5d2b4c992521ee8b1515440d50c93b264ed46fb535ade2aa7a90bdf6454a8
-  summary: Readio documentation
-  action: rewrite-section
-  changed_units:
-  - source_id: py:file:readio/api/__init__.py
-    source_path: readio/api/__init__.py
-    coverage: implementation-note
-    impact: unknown
-    reason: This overview describes the current public API surface.
-    change_type: modified
-    changed_hashes:
-    - body_hash
-    line_span:
-    - 1
-    - 185
+      - 1
+      - 13
+    section_hash: 68c5d2b4c992521ee8b1515440d50c93b264ed46fb535ade2aa7a90bdf6454a8
+    summary: Readio documentation
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This overview describes the current public API surface.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 185
 stale_docs:
-- README.md
-- docs/api.md
-- docs/architecture.md
-- docs/cli.md
-- docs/index.md
+  - README.md
+  - docs/api.md
+  - docs/architecture.md
+  - docs/cli.md
+  - docs/index.md
 unlinked_changed_sources:
-- readio/integrations/status.py
-- tests/test_status.py
+  - readio/integrations/status.py
+  - tests/test_status.py
 unmapped_changed_units:
-- source_id: py:function:readio/integrations/status.py::inspect_export
-  path: readio/integrations/status.py
-  kind: function
-  qualname: inspect_export
-  change_type: modified
-  changed_hashes:
-  - content_hash
-  - docstring_hash
-  - public_contract_hash
-  old_line_span:
-  - 67
-  - 77
-  new_line_span:
-  - 67
-  - 77
-- source_id: py:module:tests/test_status.py
-  path: tests/test_status.py
-  kind: module
-  qualname: tests/test_status.py
-  change_type: modified
-  changed_hashes:
-  - body_hash
-  - content_hash
-  - public_contract_hash
-  - signature_hash
-  old_line_span:
-  - 1
-  - 352
-  new_line_span:
-  - 1
-  - 352
-- source_id: py:function:tests/test_status.py::test_compose_complete_recommends_export_with_required_output
-  path: tests/test_status.py
-  kind: function
-  qualname: test_compose_complete_recommends_export_with_required_output
-  change_type: added
-  changed_hashes:
-  - body_hash
-  - content_hash
-  - decorator_hash
-  - docstring_hash
-  - public_contract_hash
-  - signature_hash
-  old_line_span:
-  - 0
-  - 0
-  new_line_span:
-  - 132
-  - 165
+  - source_id: py:function:readio/integrations/status.py::inspect_export
+    path: readio/integrations/status.py
+    kind: function
+    qualname: inspect_export
+    change_type: modified
+    changed_hashes:
+      - content_hash
+      - docstring_hash
+      - public_contract_hash
+    old_line_span:
+      - 67
+      - 77
+    new_line_span:
+      - 67
+      - 77
+  - source_id: py:module:tests/test_status.py
+    path: tests/test_status.py
+    kind: module
+    qualname: tests/test_status.py
+    change_type: modified
+    changed_hashes:
+      - body_hash
+      - content_hash
+      - public_contract_hash
+      - signature_hash
+    old_line_span:
+      - 1
+      - 352
+    new_line_span:
+      - 1
+      - 352
+  - source_id: py:function:tests/test_status.py::test_compose_complete_recommends_export_with_required_output
+    path: tests/test_status.py
+    kind: function
+    qualname: test_compose_complete_recommends_export_with_required_output
+    change_type: added
+    changed_hashes:
+      - body_hash
+      - content_hash
+      - decorator_hash
+      - docstring_hash
+      - public_contract_hash
+      - signature_hash
+    old_line_span:
+      - 0
+      - 0
+    new_line_span:
+      - 132
+      - 165

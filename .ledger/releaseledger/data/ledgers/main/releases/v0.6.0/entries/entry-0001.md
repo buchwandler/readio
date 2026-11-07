@@ -13,9 +13,9 @@ audience: null
 scopes: []
 source_refs: []
 paths:
-- readio/api/__init__.py
-- readio/workflow.py
-- readio/render_workflow.py
+  - readio/api/__init__.py
+  - readio/workflow.py
+  - readio/render_workflow.py
 issues: []
 prs: []
 sources: []

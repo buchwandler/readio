@@ -7,15 +7,16 @@ versioning:
 entry_id: entry-0005
 release_version: v0.6.0
 kind: added
-summary: Added persistent book rendering that converts all source chapters and reuses
+summary:
+  Added persistent book rendering that converts all source chapters and reuses
   valid selected work
 status: accepted
 audience: null
 scopes: []
 source_refs: []
 paths:
-- readio/render_workflow.py
-- tests/test_render_workflow_persistent.py
+  - readio/render_workflow.py
+  - tests/test_render_workflow_persistent.py
 issues: []
 prs: []
 sources: []

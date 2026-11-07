@@ -1,7 +1,7 @@
 # Readio 0.6 Gateway Rework — Implementation Brief
 
-**Target repository:** `readio`  
-**Target release:** **Readio 0.6.0**  
+**Target repository:** `readio`
+**Target release:** **Readio 0.6.0**
 **Version floor:** the current reconstructed Readio release history reaches **0.5.0**. Do not downgrade, reset, or reuse an older version number. This redesign is intentionally a breaking 0.x release and should land as **0.6.0**.
 
 ## 1. Executive directive
@@ -62,15 +62,15 @@ The supplied Codecrate snapshots were reconstructed with their generated unpacke
 
 Observed latest recorded releases:
 
-| Package | Latest recorded release in supplied snapshot | Role |
-|---|---:|---|
-| Readio | **0.5.0** | orchestration/gateway |
-| ssmdconvert | **0.2.4** | source -> SSMD bundle |
-| utterplan | **0.6.17** | SSMD -> FlowPlan and FlowPlan -> RenderPlan |
-| voicerender | **0.2.8** | RenderPlan -> rendered speech |
-| audiocompose | **0.3.5** | rendered speech + timing semantics -> composed audio |
-| audioexport | **0.1.5** | composed audio -> final formats |
-| renderplan | **0.2.1** | shared planning/render contract |
+| Package      | Latest recorded release in supplied snapshot | Role                                                 |
+| ------------ | -------------------------------------------: | ---------------------------------------------------- |
+| Readio       |                                    **0.5.0** | orchestration/gateway                                |
+| ssmdconvert  |                                    **0.2.4** | source -> SSMD bundle                                |
+| utterplan    |                                   **0.6.17** | SSMD -> FlowPlan and FlowPlan -> RenderPlan          |
+| voicerender  |                                    **0.2.8** | RenderPlan -> rendered speech                        |
+| audiocompose |                                    **0.3.5** | rendered speech + timing semantics -> composed audio |
+| audioexport  |                                    **0.1.5** | composed audio -> final formats                      |
+| renderplan   |                                    **0.2.1** | shared planning/render contract                      |
 
 The current Readio dependency declarations are older than several supplied package snapshots:
 
@@ -2491,18 +2491,18 @@ Static or runtime test:
 
 At minimum:
 
-| Scenario | Workspace | Selection | Expected |
-|---|---|---|---|
-| plain text speak | memory | n/a | audio buffer, no artifacts |
-| document render | temp | all | output, no persistent bundle |
-| book render first | persistent | chapter 1 | full source bundle, chapter 1 derived |
-| book render later | persistent | chapter 2 | chapter 1 reused untouched |
-| book render combined | persistent | 1-2 | derived state reused |
-| changed source item | persistent | chapter 2 | only dependent item rebuilt |
-| changed profile | persistent | chapter 2 | new profile variant |
-| stale renderer artifact | persistent | chapter 2 | specialist-safe rebuild |
-| corrupt unknown artifact | persistent | chapter 2 | fail closed |
-| output collision | either | any | fail unless explicit replacement |
+| Scenario                 | Workspace  | Selection | Expected                              |
+| ------------------------ | ---------- | --------- | ------------------------------------- |
+| plain text speak         | memory     | n/a       | audio buffer, no artifacts            |
+| document render          | temp       | all       | output, no persistent bundle          |
+| book render first        | persistent | chapter 1 | full source bundle, chapter 1 derived |
+| book render later        | persistent | chapter 2 | chapter 1 reused untouched            |
+| book render combined     | persistent | 1-2       | derived state reused                  |
+| changed source item      | persistent | chapter 2 | only dependent item rebuilt           |
+| changed profile          | persistent | chapter 2 | new profile variant                   |
+| stale renderer artifact  | persistent | chapter 2 | specialist-safe rebuild               |
+| corrupt unknown artifact | persistent | chapter 2 | fail closed                           |
+| output collision         | either     | any       | fail unless explicit replacement      |
 
 ---
 
@@ -2573,10 +2573,10 @@ Suggested entry:
 ## 0.6.0
 
 ### Breaking
+
 - Reworked Readio as a workflow gateway over SSMDConvert, UtterPlan,
   VoiceRender, AudioCompose, and AudioExport.
-- Removed Readio's stage-oriented `bundle convert/compile/render-plan/
-  render/compose/export/run` CLI.
+- Removed Readio's stage-oriented `bundle convert/compile/render-plan/ render/compose/export/run` CLI.
 - `render` now uses temporary intermediate storage unless a bundle is
   explicitly supplied or SOURCE is already an SSMD bundle.
 - `speak` now uses the UtterPlan -> RenderPlan -> VoiceRender ->
@@ -2585,6 +2585,7 @@ Suggested entry:
 - Intent schema updated for explicit temporary/persistent workspace semantics.
 
 ### Added
+
 - Unified `Readio.speak`, `Readio.render`, and `Readio.inspect`.
 - Persistent incremental book rendering across chapter selections.
 - Workflow dry-run/convergence plans.
@@ -2592,6 +2593,7 @@ Suggested entry:
 - AudioExport as a core render dependency.
 
 ### Changed
+
 - Persistent book bundle creation materializes the complete source inventory;
   chapter selection scopes only downstream derived work.
 - Rebuild controls are workflow-oriented rather than manual stage commands.
