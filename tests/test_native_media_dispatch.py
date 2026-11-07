@@ -169,7 +169,7 @@ def test_export_forwards_the_unified_request_to_lazy_package_root(
     }
 
 
-def test_missing_optional_audioexport_reports_extra_install_hint(
+def test_missing_required_audioexport_reports_dependency_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def missing_package(name: str) -> Any:
@@ -177,5 +177,5 @@ def test_missing_optional_audioexport_reports_extra_install_hint(
 
     monkeypatch.setattr(audioexport_integration, "import_module", missing_package)
 
-    with pytest.raises(ReadioStageError, match="install Readio with the 'audioexport' extra"):
+    with pytest.raises(ReadioStageError, match="AudioExport is a required Readio dependency"):
         export(_workspace(tmp_path, "document"), ExportRequest(variant="v"))

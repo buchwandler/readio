@@ -120,16 +120,16 @@ def test_default_diagnostics_are_quiet(capsys: pytest.CaptureFixture[str]) -> No
 def test_service_stage_and_status_operations_emit_timing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    from readio.api import (
+    from readio.api import service as service_module
+    from readio.api.types import (
         ComposeRequest,
         PlanRequest,
         RenderPlanRequest,
         RunRequest,
         StatusRequest,
         VoiceRenderRequest,
-        WorkspaceRef,
     )
-    from readio.api import service as service_module
+    from readio.workspace import WorkspaceRef
 
     diagnostics.configure_diagnostics(1)
     monkeypatch.setattr(service_module, "plan", lambda *_args, **_kwargs: "compiled")

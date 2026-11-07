@@ -44,14 +44,15 @@ def test_resolver_uses_config_directory_for_intent_paths(
 
     assert resolved.config_path == (config_dir / "story.readio.toml").resolve()
     assert resolved.source == source.resolve()
-    assert resolved.bundle == (config_dir / "story.ssmd-bundle").resolve()
+    assert resolved.bundle is None
+    assert resolved.workspace_mode == "temporary"
     assert resolved.profile == profile.resolve()
     assert resolved.kind == "document"
     assert resolved.output_format == "mp3"
     assert resolved.output == (config_dir / "story.mp3").resolve()
     assert resolved.intent.input.source == resolved.source
-    assert resolved.intent.input.bundle == resolved.bundle
-
+    assert resolved.intent.workspace.mode == "temporary"
+    assert resolved.intent.workspace.bundle is None
 
 def test_resolver_applies_cli_overrides_to_config_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -87,6 +88,7 @@ def test_resolver_applies_cli_overrides_to_config_values(
 
     assert resolved.source == (tmp_path / "override.md").resolve()
     assert resolved.bundle == (tmp_path / "override.ssmd-bundle").resolve()
+    assert resolved.workspace_mode == "bundle"
     assert resolved.profile == (tmp_path / "override.renderprofile.toml").resolve()
     assert resolved.language == "fr-FR"
     assert resolved.output_format == "wav"
@@ -113,6 +115,7 @@ def test_resolver_reuses_existing_bundle_and_checks_declared_kind(
     intent = create_book_intent(bundle, profile=profile)
     resolved = resolve_render_intent(intent, check_output_collision=False)
     assert resolved.bundle == bundle.resolve()
+    assert resolved.workspace_mode == "bundle"
     assert resolved.kind == "book"
     assert resolved.output_format == "m4b"
     assert resolved.output == (tmp_path / "story.m4b").resolve()

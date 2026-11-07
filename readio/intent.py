@@ -10,10 +10,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-from readio.workspace import default_bundle_workspace_path
-
 IntentKind = Literal["book", "document"]
-INTENT_SCHEMA = "readio.render.v1"
+INTENT_SCHEMA = "readio.render.v2"
 
 DIAGNOSTICS_MODES = ("errors", "warnings", "all", "none")
 TEXT_PREPARATIONS = ("auto", "ssmd", "spokenform", "identity")
@@ -72,16 +70,20 @@ def _positive_int(value: int | None, field_name: str) -> int | None:
 @dataclass(frozen=True, slots=True)
 class InputIntent:
     source: Path | None = None
-    bundle: Path | None = None
     chapters: str | None = None
     language: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceIntent:
+    mode: Literal["temporary", "bundle"] = "temporary"
+    bundle: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class VoiceIntent:
     profile: Path | None = None
     variant: str | None = None
-
 
 @dataclass(frozen=True, slots=True)
 class PlanningIntent:
@@ -132,6 +134,7 @@ class RenderIntent:
 
     kind: IntentKind | None = None
     input: InputIntent = field(default_factory=InputIntent)
+    workspace: WorkspaceIntent = field(default_factory=WorkspaceIntent)
     voice: VoiceIntent = field(default_factory=VoiceIntent)
     planning: PlanningIntent = field(default_factory=PlanningIntent)
     render: RenderOptionsIntent = field(default_factory=RenderOptionsIntent)
@@ -157,10 +160,6 @@ def _default_output_path(source: Path, kind: IntentKind, output_format: str) -> 
     return source.parent / f"{_default_stem(source)}.{suffix}"
 
 
-def _default_bundle_path(source: Path) -> Path:
-    if source.name.casefold().endswith(".ssmd-bundle"):
-        return source
-    return default_bundle_workspace_path(source)
 
 
 def _metadata(values: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -210,9 +209,20 @@ def _create_intent(
     source_path = _path(source, "input.source")
     profile_path = _path(profile, "voice.profile")
     assert source_path is not None
+    bundle_path = _path(bundle, "workspace.bundle")
+    source_is_bundle = source_path.name.casefold().endswith(".ssmd-bundle")
+    if source_is_bundle:
+        if bundle_path is not None and bundle_path.resolve(strict=False) != source_path.resolve(
+            strict=False
+        ):
+            raise ValueError("a bundle source cannot be redirected to a different workspace bundle")
+        bundle_path = source_path
+    workspace_intent = WorkspaceIntent(
+        mode="bundle" if bundle_path is not None else "temporary",
+        bundle=bundle_path,
+    )
     input_intent = InputIntent(
         source=source_path,
-        bundle=_path(bundle, "input.bundle") or _default_bundle_path(source_path),
         chapters=chapters,
         language=_nonempty(language, "input.language"),
     )
@@ -286,6 +296,7 @@ def _create_intent(
     intent = RenderIntent(
         kind=kind,
         input=input_intent,
+        workspace=workspace_intent,
         voice=voice_intent,
         planning=planning,
         render=RenderOptionsIntent(speech=speech, emphasis_policy=emphasis_policy),
@@ -450,8 +461,22 @@ def validate_intent_shape(intent: RenderIntent) -> None:
         raise ValueError("kind must be 'book' or 'document'")
     if intent.input.source is not None and not isinstance(intent.input.source, Path):
         raise TypeError("input.source must be a path")
-    if intent.input.bundle is not None and not isinstance(intent.input.bundle, Path):
-        raise TypeError("input.bundle must be a path")
+    if not isinstance(intent.workspace, WorkspaceIntent):
+        raise TypeError("workspace must be a WorkspaceIntent")
+    if intent.workspace.mode not in {"temporary", "bundle"}:
+        raise ValueError("workspace.mode must be 'temporary' or 'bundle'")
+    if intent.workspace.bundle is not None and not isinstance(intent.workspace.bundle, Path):
+        raise TypeError("workspace.bundle must be a path")
+    source_is_bundle = (
+        intent.input.source is not None
+        and intent.input.source.name.casefold().endswith(".ssmd-bundle")
+    )
+    if intent.workspace.mode == "temporary" and intent.workspace.bundle is not None:
+        raise ValueError("temporary workspaces cannot specify workspace.bundle")
+    if intent.workspace.mode == "temporary" and source_is_bundle:
+        raise ValueError("an SSMD bundle source requires workspace.mode='bundle'")
+    if intent.workspace.mode == "bundle" and intent.workspace.bundle is None and not source_is_bundle:
+        raise ValueError("workspace.mode='bundle' requires workspace.bundle")
     if intent.voice.profile is not None and not isinstance(intent.voice.profile, Path):
         raise TypeError("voice.profile must be a path")
     if intent.input.chapters is not None:
@@ -526,9 +551,9 @@ def validate_render_intent(
     def resolve(path: Path) -> Path:
         return path if path.is_absolute() else (base / path).resolve()
 
-    source = intent.input.source or intent.input.bundle
+    source = intent.input.source or intent.workspace.bundle
     if source is None:
-        raise ValueError("an input.source or input.bundle is required")
+        raise ValueError("an input.source or workspace.bundle is required")
     source_path = resolve(source)
     if not source_path.exists():
         raise FileNotFoundError(f"render source does not exist: {source_path}")
@@ -571,6 +596,7 @@ __all__ = [
     "RenderIntent",
     "RenderOptionsIntent",
     "VoiceIntent",
+    "WorkspaceIntent",
     "create_book_intent",
     "create_document_intent",
     "validate_intent_shape",

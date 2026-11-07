@@ -1,10 +1,10 @@
 # Readio architecture
 
-Readio is an intent-first orchestration layer over specialist public APIs. A visible, user-owned TOML render intent describes a complete request; the separate VoiceRender RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces, whose manifest determines whether content is a book or document. UtterPlan, VoiceRender, AudioCompose, and optional AudioExport own their stage contracts and perform kind-sensitive dispatch.
+Readio is a workflow gateway over specialist public APIs. A visible, user-owned `readio.render.v2` intent describes a complete request; the separate VoiceRender RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces, whose manifest determines whether content is a book or document. UtterPlan, VoiceRender, AudioCompose, and AudioExport own their stage contracts and perform kind-sensitive dispatch. File renders use temporary storage by default; a persistent bundle is always explicit.
 
 ## Intent-driven bundle workflow
 
-The intent and profile live at user-selected paths, typically outside the bundle. Readio resolves paths, validates configuration, and checks selected AudioExport/FFmpeg/FFprobe readiness before launching conversion; it does not add workflow state to the workspace.
+The intent and profile live at user-selected paths, typically outside a persistent bundle. Readio resolves paths, validates configuration, and inspects specialist state before execution; temporary runs use a unique system temp directory and clean it on success or failure. Readio does not add workflow state to a workspace.
 
 ```text
 source material
@@ -18,7 +18,7 @@ source material
   → AudioExport bundle export (optional)
 ```
 
-`readio render` resolves the saved intent (or one-off source options), then sequences these stages; `readio bundle run` remains available for lower-level control. The RenderPlan result supplies the exact variant sent unchanged to VoiceRender, AudioCompose, and optional AudioExport. Explicit force/restart controls protect existing artifacts, and AudioExport preflight runs before conversion. Readio does not normalize or reconstruct the variant.
+`readio render` owns the complete workflow. With no explicit bundle it converts and processes inside temporary storage; `--bundle PATH` selects persistent storage, and a bundle supplied as `SOURCE` is reused as persistent input. Persistent book creation converts the full source inventory while the selected chapter scope controls downstream work. Readio preserves UtterPlan's exact projected variant through VoiceRender, AudioCompose, and AudioExport. `--rebuild-from` and `--replace-output` are separate explicit safety controls. Specialist CLIs remain available for deliberate stage-level debugging; Readio does not provide a parallel stage-runner command tree.
 
 A book bundle may contain multiple chapter items; a document bundle represents a single document item. This is a content distinction recorded by the manifest, not a second workspace format or Readio routing policy.
 
@@ -64,11 +64,11 @@ Consult each specialist package for complete package-specific options.
 
 ## Persistent state
 
-The editable bundle and all stage artifacts remain specialist-owned. Readio may read or create a user-selected `*.readio.toml` intent file, but never stores it as hidden project state. Readio writes no `.readio/` workspace directory, parallel manifest, stage status, RenderPlan, render manifest, composition job, export format, or status database. Its `WorkspaceRef`, progress events, pipeline results, and status view are in-memory routing/adaptation values; status is derived read-only from specialist APIs.
+The editable bundle and all stage artifacts remain specialist-owned. Readio may read or create a user-selected `*.readio.toml` intent file, but never stores it as hidden project state. Readio writes no `.readio/` workspace directory, parallel manifest, stage status, RenderPlan, render manifest, composition job, export format, or status database. Its workflow plans, results, and progress events are in-memory orchestration values; inspection derives state read-only from specialist APIs.
 
 ## Dependency boundary
 
-Readio imports specialist package-root public APIs only: SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and optional AudioExport. It does not import specialist private submodules or backend SDKs. Playback and audio I/O helpers unrelated to bundle stages remain in Readio.
+Readio imports specialist package-root public APIs only: SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and AudioExport. It does not import specialist private submodules or backend SDKs. Playback and audio I/O helpers unrelated to bundle stages remain in Readio.
 
 ## Machine-level runtime policy
 

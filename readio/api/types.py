@@ -8,7 +8,14 @@ from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any, Literal
 
-from readio.workspace import CreateWorkspaceRequest, WorkspaceKind, WorkspaceRef
+import numpy as np
+
+from readio.workspace import (
+    CreateWorkspaceRequest,
+    WorkspaceKind,
+    WorkspaceMode,
+    WorkspaceRef,
+)
 
 DiagnosticsMode = Literal["errors", "warnings", "all", "none"]
 PipelineStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
@@ -217,3 +224,167 @@ class RenderIntentResult:
 
 
 Metadata = Mapping[str, str]
+
+
+WorkflowStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
+WorkflowAction = Literal["reuse", "execute", "replace", "blocked"]
+WorkflowState = Literal["not_started", "partial", "complete", "stale", "blocked", "error"]
+WorkflowInspectionState = WorkflowState | Literal["unknown"]
+RebuildStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
+
+
+@dataclass(frozen=True)
+class PlanningOptions:
+    planner_config: Any | None = None
+    diagnostics: DiagnosticsMode = "errors"
+    force: bool = False
+
+
+@dataclass(frozen=True)
+class VoiceRenderOptions:
+    speech: str = "all"
+    cache_dir: Path | None = None
+    emphasis_policy: str = "reject"
+    fail_fast: bool = False
+
+
+@dataclass(frozen=True)
+class CompositionOptions:
+    pause_policy: Any | None = None
+    output_policy: Any | None = None
+    options: Any | None = None
+    renderplan_root: Path | None = None
+    voicerender_root: Path | None = None
+    output_root: Path | None = None
+    media_root: Path | None = None
+    save_audiojobs: Path | None = None
+    emphasis_policy: str = "segment_fallback"
+    fail_fast: bool = False
+
+
+@dataclass(frozen=True)
+class ExportOptions:
+    metadata: Mapping[str, str] | None = None
+    cover: Path | None = None
+    timeline: Path | None = None
+    audiocompose_root: Path | None = None
+    output_root: Path | None = None
+    ffmpeg: Path | None = None
+    ffprobe: Path | None = None
+
+
+@dataclass(frozen=True)
+class SpeakRequest:
+    text: str
+    profile: Path | None = None
+    role: str | None = None
+    voice: str | None = None
+    engine: str | None = None
+    target: str | None = None
+    language: str | None = None
+    speaker: str | int | None = None
+    engine_options: Mapping[str, Any] = dataclass_field(default_factory=dict)
+    offline: bool = False
+    refresh: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AudioBuffer:
+    """Stable audio payload returned by semantic in-memory speech."""
+
+    audio: np.ndarray
+    sample_rate: int
+
+    @property
+    def channels(self) -> int:
+        if self.audio.ndim == 1:
+            return 1
+        if self.audio.ndim == 2 and self.audio.shape[1] > 0:
+            return int(self.audio.shape[1])
+        raise ValueError("audio must be a non-empty one- or two-dimensional array")
+
+    def __len__(self) -> int:
+        return int(self.audio.shape[0]) if self.audio.ndim in {1, 2} else 0
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakResult:
+    """Semantic speech result independent of VoiceRender's renderer data types."""
+
+    audio: AudioBuffer
+    profile_id: str
+    warnings: tuple[str, ...] = ()
+    elapsed_seconds: float | None = None
+
+    @property
+    def sample_rate(self) -> int:
+        """Compatibility shortcut for callers that only need basic playback metadata."""
+        return self.audio.sample_rate
+
+
+@dataclass(frozen=True)
+class RenderRequest:
+    source: Path
+    profile: Path
+    chapters: str = "all"
+    language: str | None = None
+    bundle: Path | None = None
+    variant: str | None = None
+    output: Path | None = None
+    format: str | None = None
+    bitrate: str | int | None = None
+    sample_rate: int | None = None
+    channels: int | None = None
+    rebuild_from: RebuildStage | None = None
+    replace_output: bool = False
+    planning: PlanningOptions = dataclass_field(default_factory=PlanningOptions)
+    voice_render: VoiceRenderOptions = dataclass_field(default_factory=VoiceRenderOptions)
+    composition: CompositionOptions = dataclass_field(default_factory=CompositionOptions)
+    export: ExportOptions = dataclass_field(default_factory=ExportOptions)
+
+
+@dataclass(frozen=True)
+class WorkflowStep:
+    stage: WorkflowStage
+    package: str
+    action: WorkflowAction
+    selector: str | None
+    reason: str
+    force: bool = False
+    state: WorkflowInspectionState = "unknown"
+    details: Mapping[str, object] = dataclass_field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class WorkflowPlan:
+    source: Path
+    workspace: Path | None
+    workspace_mode: WorkspaceMode
+    variant: str | None
+    output: Path | None
+    steps: tuple[WorkflowStep, ...]
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RenderResult:
+    output: Path
+    workspace: Path | None
+    workspace_mode: WorkspaceMode
+    variant: str
+    executed_stages: tuple[str, ...]
+    reused_stages: tuple[str, ...]
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkflowEvent:
+    stage: WorkflowStage
+    kind: str
+    package: str | None = None
+    selector: str | None = None
+    current: int | None = None
+    total: int | None = None
+    message: str | None = None
+    elapsed_seconds: float | None = None
+    details: Mapping[str, object] = dataclass_field(default_factory=dict)

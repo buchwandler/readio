@@ -18,7 +18,7 @@ _LOGGER = logger_for("status")
 
 
 def audioexport_installed() -> bool:
-    """Return whether the optional AudioExport package is importable."""
+    """Return whether the required AudioExport package is importable."""
     return importlib.util.find_spec("audioexport") is not None
 
 
@@ -65,7 +65,7 @@ def inspect_compose(workspace: WorkspaceRef, variant: str, chapters: str) -> Any
 
 
 def inspect_export(workspace: WorkspaceRef, variant: str, chapters: str) -> Any:
-    """Inspect optional AudioExport state without importing its private modules."""
+    """Inspect AudioExport state without importing its private modules."""
     operation = "inspect_bundle_export"
     with timed_span(_LOGGER, "status.inspect", package="audioexport", operation=operation):
         if importlib.util.find_spec("audioexport") is None:

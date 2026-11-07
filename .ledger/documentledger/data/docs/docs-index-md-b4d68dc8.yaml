@@ -1,181 +1,188 @@
 schema: documentledger.doc_record.v4
 doc_path: docs/index.md
 linked_sources:
-  - readio/api/__init__.py
-  - readio/cli.py
-  - readio/doctor.py
-  - readio/speech.py
-  - tests/test_dependency_boundaries.py
+- readio/api/__init__.py
+- readio/cli.py
+- readio/doctor.py
+- readio/speech.py
+- tests/test_dependency_boundaries.py
 sections:
-  - section_id: md:section:docs/index.md::readio-documentation
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-    heading_slug: readio-documentation
-    line_span:
-      - 1
-      - 13
-    section_hash: 0e5228589c18dd3f5f8c6952ad2ebe9d73cbf72e44d92517ffa814d12ff4e611
-    summary: Readio documentation
-    text: "# Readio documentation
+- section_id: md:section:docs/index.md::readio-documentation
+  doc_path: docs/index.md
+  heading_path:
+  - Readio documentation
+  heading_slug: readio-documentation
+  line_span:
+  - 1
+  - 13
+  section_hash: 68c5d2b4c992521ee8b1515440d50c93b264ed46fb535ade2aa7a90bdf6454a8
+  summary: Readio documentation
+  text: '# Readio documentation
 
 
-      Readio orchestrates native SSMDConvert `.ssmdoc` and `.ssmdbook` workspaces through
-      specialist speech packages. Specialist APIs own the stage schemas, persisted artifacts,
-      and detailed diagnostics; Readio provides workflow sequencing, a CLI, and direct
-      literal-text speech.
+    Readio''s workflow gateway uses a visible, user-owned `readio.render.v2` intent
+    and a separate VoiceRender RenderProfile to orchestrate specialist speech packages.
+    SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind;
+    specialist APIs own stage schemas, validation, persisted artifacts, and detailed
+    diagnostics. Readio provides unified workflow sequencing and direct semantic speech
+    without hidden workspace state.
 
 
-      ```{toctree}
+    ```{toctree}
 
-      :maxdepth: 1
-
-
-      architecture
-
-      cli
-
-      api
-
-      changelog
-
-      ```"
-    links:
-      - source_id: py:file:readio/api/__init__.py
-        source_path: readio/api/__init__.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This overview describes the current public API surface.
-        tracked_hashes:
-          body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
-  - section_id: md:section:docs/index.md::specialist-workflow
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Specialist workflow
-    heading_slug: specialist-workflow
-    line_span:
-      - 14
-      - 23
-    section_hash: 7f5ca3726bed03872ea8e1a6d4fa620473dcf99e6ed2b972fd811fe39569a534
-    summary: Specialist workflow
-    text: "## Specialist workflow
+    :maxdepth: 1
 
 
-      The package-owned stages are:
+    architecture
+
+    cli
+
+    api
+
+    changelog
+
+    ```'
+  links:
+  - source_id: py:file:readio/api/__init__.py
+    source_path: readio/api/__init__.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This overview describes the current public API surface.
+    tracked_hashes:
+      body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
+- section_id: md:section:docs/index.md::specialist-workflow
+  doc_path: docs/index.md
+  heading_path:
+  - Readio documentation
+  - Specialist workflow
+  heading_slug: specialist-workflow
+  line_span:
+  - 14
+  - 23
+  section_hash: 7f5ca3726bed03872ea8e1a6d4fa620473dcf99e6ed2b972fd811fe39569a534
+  summary: Specialist workflow
+  text: '## Specialist workflow
 
 
-      ```text
-
-      SSMDConvert → UtterPlan / RenderPlan → VoiceRender → AudioCompose → AudioExport
-
-      ```
+    The package-owned stages are:
 
 
-      Start with the [architecture guide](architecture.md), use the [CLI reference](cli.md)
-      for Readio commands, and see the [Python API guide](api.md) for service calls.
-      Consult each specialist package for complete package-specific options."
-    links: []
-  - section_id: md:section:docs/index.md::installation
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Installation
-    heading_slug: installation
-    line_span:
-      - 24
-      - 27
-    section_hash: da5545f29d83cddad66ee185d12db639a1b7e6fb157356f072c18453fdf0e3d0
-    summary: Installation
-    text: '## Installation
+    ```text
+
+    SSMDConvert → UtterPlan / RenderPlan → VoiceRender → AudioCompose → AudioExport
+
+    ```
 
 
-      Readio requires Python 3.10 or newer. Install it with `python -m pip install readio`,
-      then install a speech engine through VoiceRender, for example `python -m pip install
-      "readio[kokoro]"`. The optional `readio[documents]`, `readio[spacy]`, and `readio[audioexport]`
-      extras enable document formats, UtterPlan spaCy support, and AudioExport respectively.'
-    links: []
-  - section_id: md:section:docs/index.md::readio-commands
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - Readio commands
-    heading_slug: readio-commands
-    line_span:
-      - 28
-      - 38
-    section_hash: b3f38db57dcf4ae9952b0a22261a45abe87e4c9e768a3b6e1a5307e6d1d73ed1
-    summary: Readio commands
-    text: '## Readio commands
+    Start with the [architecture guide](architecture.md), use the [CLI reference](cli.md)
+    for Readio commands, and see the [Python API guide](api.md) for service calls.
+    Consult each specialist package for complete package-specific options.'
+  links: []
+- section_id: md:section:docs/index.md::installation
+  doc_path: docs/index.md
+  heading_path:
+  - Readio documentation
+  - Installation
+  heading_slug: installation
+  line_span:
+  - 24
+  - 27
+  section_hash: b069d5bd2c80d121c080853f6e2e66c6d7afad9d4920510328495e7447c5bbf1
+  summary: Installation
+  text: '## Installation
 
 
-      ```bash
-
-      readio init story.txt -o story.ssmdoc
-
-      readio run story.ssmdoc --profile narrator.renderprofile.toml --language en-US
-
-      readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
-
-      readio doctor --json
-
-      ```
-
-
-      The pipeline commands operate on `.ssmdoc` and `.ssmdbook` bundles. Readio writes
-      no parallel project state; stage outputs remain owned by the specialist packages.'
-    links:
-      - source_id: py:function:readio/cli.py::build_parser
-        source_path: readio/cli.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section lists the retained Readio CLI commands.
-        tracked_hashes:
-          body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
-      - source_id: py:function:readio/doctor.py::doctor_report
-        source_path: readio/doctor.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section introduces dependency diagnostics.
-        tracked_hashes:
-          body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
-      - source_id: py:function:readio/speech.py::speak
-        source_path: readio/speech.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section introduces literal-text speech.
-        tracked_hashes:
-          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
-  - section_id: md:section:docs/index.md::no-legacy-migration
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - No legacy migration
-    heading_slug: no-legacy-migration
-    line_span:
-      - 39
-      - 41
-    section_hash: 305c09e02d8d192ed59982d9274d0d3f7c732437f4170975e3093074dde81247
-    summary: No legacy migration
-    text: "## No legacy migration
+    Readio requires Python 3.10 or newer. Install it with `python -m pip install readio`,
+    then install a speech engine through VoiceRender, for example `python -m pip install
+    "readio[kokoro]"`. Optional `readio[documents]` and `readio[spacy]` extras enable
+    document formats and UtterPlan spaCy support; AudioExport is included in the core
+    installation.'
+  links: []
+- section_id: md:section:docs/index.md::readio-commands
+  doc_path: docs/index.md
+  heading_path:
+  - Readio documentation
+  - Readio commands
+  heading_slug: readio-commands
+  line_span:
+  - 28
+  - 41
+  section_hash: d664bcceebd1d8bf3f43eb7f5f52136f87d6a5fd68de3aaa1e7ef1e47ab445e4
+  summary: Readio commands
+  text: '## Readio commands
 
 
-      Version 0.5 deliberately removes Readio-owned projects, settings, plans, manifests,
-      and stage records. There is no migration command or compatibility layer. Recreate
-      work from source material with `readio init`, or continue with the specialist
-      packages directly."
-    links:
-      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-        source_path: tests/test_dependency_boundaries.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section documents the explicit no-migration policy enforced by tests.
-        tracked_hashes:
-          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
+    ```bash
+
+    readio profile create --engine kokoro --target v1.0 --voice af_heart --language
+    en-US -o narrator.renderprofile.toml
+
+    readio intent document create story.txt --profile narrator.renderprofile.toml
+    --language en-US
+
+    readio render --config story.readio.toml --dry-run
+
+    readio render --config story.readio.toml
+
+    readio render story.txt --profile narrator.renderprofile.toml --bundle story.ssmd-bundle
+
+    readio status story.ssmd-bundle --profile narrator.renderprofile.toml
+
+    readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
+
+    readio doctor --json
+
+    ```
+
+
+    `readio render` uses temporary intermediate storage unless a persistent bundle
+    is explicitly selected or supplied as the source. Specialist CLIs remain available
+    for deliberate stage-level control; Readio does not provide a duplicate stage-runner
+    namespace.'
+  links:
+  - source_id: py:function:readio/cli.py::build_parser
+    source_path: readio/cli.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This section lists the retained Readio CLI commands.
+    tracked_hashes:
+      body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
+  - source_id: py:function:readio/doctor.py::doctor_report
+    source_path: readio/doctor.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This section introduces dependency diagnostics.
+    tracked_hashes:
+      body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
+  - source_id: py:function:readio/speech.py::speak
+    source_path: readio/speech.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This section introduces literal-text speech.
+    tracked_hashes:
+      body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
+- section_id: md:section:docs/index.md::no-legacy-migration
+  doc_path: docs/index.md
+  heading_path:
+  - Readio documentation
+  - No legacy migration
+  heading_slug: no-legacy-migration
+  line_span:
+  - 39
+  - 41
+  section_hash: 305c09e02d8d192ed59982d9274d0d3f7c732437f4170975e3093074dde81247
+  summary: No legacy migration
+  links:
+  - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
+    source_path: tests/test_dependency_boundaries.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This section documents the explicit no-migration policy enforced by tests.
+    tracked_hashes:
+      body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
 last_fresh_scan_version: 18
 last_fresh_hash: 4fac904b61ab7f66374a8fb0520c0cf48c447b7e48a821a6f54ebbc3fdb5c8eb
-notes:
-  Reviewed affected sections against current Readio public APIs and CLI; strict
+notes: Reviewed affected sections against current Readio public APIs and CLI; strict
   Sphinx build and focused documentation/workspace tests passed.
 coverage_resolution: null
-version: 214
+version: 216

@@ -5,20 +5,19 @@ from typing import Literal
 
 import pytest
 
-from readio.api import (
+from readio.api import Readio, create_document_intent
+from readio.api import service as service_module
+from readio.api.types import (
     ComposeRequest,
     ExportRequest,
     PlanRequest,
-    Readio,
     RenderExecutionOptions,
     RenderPlanRequest,
     RenderPlanResult,
     RunRequest,
     VoiceRenderRequest,
-    WorkspaceRef,
-    create_document_intent,
 )
-from readio.api import service as service_module
+from readio.workspace import WorkspaceRef
 
 
 @pytest.mark.parametrize("kind", ["document", "book"])

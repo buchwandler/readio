@@ -7,7 +7,12 @@ import pytest
 import ssmdconvert
 from ebooklib import epub
 
-from readio.workspace import CreateWorkspaceRequest, create_workspace, resolve_workspace
+from readio.workspace import (
+    CreateWorkspaceRequest,
+    create_workspace,
+    resolve_workspace,
+    resolve_workspace_policy,
+)
 
 
 def _make_epub(path: Path) -> None:
@@ -161,3 +166,56 @@ def test_loader_exception_is_propagated_unchanged(
         resolve_workspace(root)
 
     assert caught.value is failure
+
+
+def test_temporary_workspace_policy_has_no_conversion_side_effect(tmp_path: Path) -> None:
+    source = tmp_path / "story.txt"
+    source.write_text("A short story.", encoding="utf-8")
+
+    policy = resolve_workspace_policy(source)
+
+    assert policy.mode == "temporary"
+    assert policy.root.name.endswith(".ssmd-bundle")
+    assert not policy.root.exists()
+    assert policy.cleanup is True
+    assert policy.newly_created is True
+    assert not (tmp_path / "story.ssmd-bundle").exists()
+
+
+def test_explicit_persistent_workspace_policy_does_not_create_bundle(tmp_path: Path) -> None:
+    source = tmp_path / "story.txt"
+    source.write_text("A short story.", encoding="utf-8")
+    bundle = tmp_path / "chosen.ssmd-bundle"
+
+    policy = resolve_workspace_policy(source, bundle=bundle)
+
+    assert policy.mode == "persistent"
+    assert policy.root == bundle.resolve()
+    assert policy.source_is_bundle is False
+    assert policy.newly_created is True
+    assert policy.cleanup is False
+    assert not bundle.exists()
+
+
+def test_workspace_policy_resolves_existing_bundle_and_rejects_symlink(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "story.txt"
+    source.write_text("A short story.", encoding="utf-8")
+    workspace = create_workspace(source)
+    policy = resolve_workspace_policy(workspace.root)
+    explicit_policy = resolve_workspace_policy(source, bundle=workspace.root)
+
+    assert policy.mode == "persistent"
+    assert policy.root == workspace.root
+    assert policy.source_is_bundle is True
+    assert policy.newly_created is False
+    assert explicit_policy.root == workspace.root
+    assert explicit_policy.newly_created is False
+
+    target = tmp_path / "target.ssmd-bundle"
+    target.mkdir()
+    alias = tmp_path / "alias.ssmd-bundle"
+    alias.symlink_to(target, target_is_directory=True)
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        resolve_workspace_policy(source, bundle=alias)

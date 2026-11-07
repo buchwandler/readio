@@ -19,14 +19,20 @@ from readio.api.types import (
     RenderIntentPlan,
     RenderIntentResult,
     RenderPlanRequest,
+    RenderRequest,
     RunRequest,
+    SpeakRequest,
+    SpeakResult,
     StatusRequest,
     VoiceRenderRequest,
+    WorkflowEvent,
+    WorkflowPlan,
 )
 from readio.diagnostics import log_event, logger_for, timed_span
 from readio.intent import RenderIntent
 from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
 from readio.pipeline import compose, export, plan, render, render_plan
+from readio.playback import play_audio
 from readio.progress import normalize_progress
 from readio.render_service import (
     plan_render_intent as _plan_render_intent,
@@ -34,6 +40,7 @@ from readio.render_service import (
 from readio.render_service import (
     render_intent as _render_intent,
 )
+from readio.speech import speak_request as _speak_request
 from readio.status import inspect_status
 from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
 from readio.workspace import create_workspace as _create_workspace
@@ -46,7 +53,7 @@ _LOGGER = logger_for("service")
 
 
 class Readio:
-    """Convenience service for creating, resolving, and running native workspaces."""
+    """Convenience gateway for unified and specialist-backed Readio workflows."""
 
     def resolve_workspace(self, path: str | Path) -> WorkspaceRef:
         return _resolve_workspace(path)
@@ -73,6 +80,28 @@ class Readio:
         on_progress: ProgressHandler = None,
     ) -> WorkspaceRef:
         return self.create_workspace(source, request, on_progress=on_progress)
+
+    def speak(
+        self,
+        request: SpeakRequest,
+        *,
+        play: bool = True,
+        on_progress: Callable[[WorkflowEvent], None] | None = None,
+    ) -> SpeakResult:
+        """Synthesize semantic text entirely in memory and optionally play the result."""
+        with timed_span(
+            _LOGGER,
+            "stage",
+            stage="speak",
+            profile=str(request.profile) if request.profile is not None else None,
+            role=request.role,
+            engine=request.engine,
+            target=request.target,
+        ):
+            result = _speak_request(request, on_progress=on_progress)
+        if play:
+            play_audio(result.audio.audio, result.audio.sample_rate)
+        return result
 
     def plan(
         self,
@@ -120,13 +149,37 @@ class Readio:
                 on_progress=on_progress,
             )
 
+    def inspect(self, request: RenderRequest) -> WorkflowPlan:
+        """Inspect a complete file-to-audio workflow without making changes."""
+        from readio.render_workflow import inspect_render_workflow
+
+        return inspect_render_workflow(request)
+
     def render(
         self,
-        workspace: WorkspaceRef | str | Path,
-        request: VoiceRenderRequest,
+        workspace: WorkspaceRef | str | Path | RenderRequest,
+        request: VoiceRenderRequest | None = None,
         *,
-        on_progress: ProgressHandler = None,
+        dry_run: bool = False,
+        on_progress: Callable[[Any], None] | None = None,
     ) -> Any:
+        """Execute a complete RenderRequest, or the legacy VoiceRender stage adapter."""
+        if isinstance(workspace, RenderRequest):
+            if request is not None:
+                raise TypeError("a RenderRequest cannot be combined with a stage request")
+            from readio.render_workflow import render_workflow
+
+            with timed_span(
+                _LOGGER,
+                "workflow.render",
+                source=str(workspace.source),
+                dry_run=dry_run,
+            ):
+                return render_workflow(self, workspace, dry_run=dry_run, on_progress=on_progress)
+        if request is None:
+            raise TypeError("the VoiceRender stage API requires a VoiceRenderRequest")
+        if dry_run:
+            raise TypeError("dry_run is only supported with a file-to-audio RenderRequest")
         with timed_span(
             _LOGGER,
             "stage",

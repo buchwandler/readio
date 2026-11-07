@@ -1,4 +1,4 @@
-"""Optional AudioExport public API adapter for SSMD bundle workspaces."""
+"""AudioExport public API adapter for SSMD bundle workspaces."""
 
 from __future__ import annotations
 
@@ -37,6 +37,34 @@ def export_bundle(workspace: WorkspaceRef, request: ExportRequest) -> Any:
     )
 
 
+def inspect_bundle_export(workspace: WorkspaceRef, request: ExportRequest) -> Any:
+    """Inspect requested export identity through AudioExport's public bundle API."""
+    api = _audioexport_api()
+    inspector = getattr(api, "inspect_bundle_export", None)
+    if not callable(inspector):
+        raise ReadioError(
+            "This AudioExport version does not expose read-only bundle inspection; upgrade AudioExport."
+        )
+    return inspector(
+        workspace.root,
+        variant=request.variant,
+        chapters=request.chapters,
+        output=request.output,
+        format=request.format,
+        profile=request.profile,
+        bitrate=request.bitrate,
+        sample_rate=request.sample_rate,
+        channels=request.channels,
+        metadata=request.metadata,
+        cover=request.cover,
+        timeline=request.timeline,
+        audiocompose_root=request.audiocompose_root,
+        output_root=request.output_root,
+        ffmpeg=request.ffmpeg,
+        ffprobe=request.ffprobe,
+    )
+
+
 def _audioexport_api() -> Any:
     try:
         return import_module("audioexport")
@@ -44,7 +72,7 @@ def _audioexport_api() -> Any:
         if exc.name != "audioexport":
             raise
         raise ReadioError(
-            "AudioExport support is optional; install Readio with the 'audioexport' extra."
+            "AudioExport is a required Readio dependency; reinstall Readio with its dependencies."
         ) from exc
 
 

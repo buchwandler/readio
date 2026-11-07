@@ -1,286 +1,347 @@
 schema: documentledger.doc_record.v4
 doc_path: README.md
 linked_sources:
-  - readio/api/__init__.py
-  - readio/api/service.py
-  - readio/api/types.py
-  - readio/speech.py
-  - tests/test_dependency_boundaries.py
+- readio/api/__init__.py
+- readio/api/service.py
+- readio/api/types.py
+- readio/speech.py
+- tests/test_dependency_boundaries.py
 sections:
-  - section_id: md:section:README.md::readio
-    doc_path: README.md
-    heading_path:
-      - Readio
-    heading_slug: readio
-    line_span:
-      - 1
-      - 6
-    section_hash: 09344b056380c31009739f9358488ef688eddbb2e7ba85cc89cbe21ef72d316b
-    summary: Readio
-    text: "# Readio
+- section_id: md:section:README.md::readio
+  doc_path: README.md
+  heading_path:
+  - Readio
+  heading_slug: readio
+  line_span:
+  - 1
+  - 6
+  section_hash: f8e5b584476793a194450f20cc805061fa1f51ecd32f5510b5380211aab9e31f
+  summary: Readio
+  text: '# Readio
 
 
-      Readio is a thin orchestrator over specialist speech packages and native SSMDConvert
-      workspaces. It creates and resolves `.ssmdoc` and `.ssmdbook` bundles, then delegates
-      planning, RenderPlan projection, synthesis, composition, and export to the package
-      that owns each stage. One-shot literal speech and local playback remain available.
+    Readio is a workflow gateway over specialist speech packages. It orchestrates
+    complete text-to-audio and file-to-audio workflows, using a run-scoped temporary
+    workspace by default or an explicitly requested persistent SSMDConvert `.ssmd-bundle`.
+    User-owned render intents describe the requested workflow without duplicating
+    specialist schemas or creating hidden `.readio/` state.
 
 
-      Readio does not maintain a second project directory, settings file, stage manifest,
-      RenderPlan, or audio-job format. Specialist workspaces, artifacts, reports, and
-      stage decisions are authoritative."
-    links:
-      - source_id: py:file:readio/api/__init__.py
-        source_path: readio/api/__init__.py
-        coverage: implementation-note
-        impact: unknown
-        reason: The introduction describes Readio as a public facade over specialist packages.
-        tracked_hashes:
-          body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
-  - section_id: md:section:README.md::install
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Install
-    heading_slug: install
-    line_span:
-      - 7
-      - 16
-    section_hash: 2c3995e7b9b83bc43d3db29d5d6ac2e8fab791d009290035b1278ebc3f596186
-    summary: Install
-    text: '## Install
+    Specialist packages own validation, schemas, persisted artifacts, reports, and
+    kind-sensitive dispatch. Readio coordinates conversion, planning, RenderPlan projection,
+    rendering, composition, and optional export. One-shot literal speech and local
+    playback remain available.'
+  links:
+  - source_id: py:file:readio/api/__init__.py
+    source_path: readio/api/__init__.py
+    coverage: implementation-note
+    impact: unknown
+    reason: The introduction describes Readio as a public facade over specialist packages.
+    tracked_hashes:
+      body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
+- section_id: md:section:README.md::install
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Install
+  heading_slug: install
+  line_span:
+  - 7
+  - 15
+  section_hash: 2baf3358ef7526630b1cd2af44e6c9363818391690de0bfa89ccffb1830612a1
+  summary: Install
+  text: '## Install
 
 
-      ```bash
+    ```bash
 
-      python -m pip install readio
+    python -m pip install readio
 
-      python -m pip install "readio[kokoro]"  # or another supported VoiceRender engine
-      extra
+    python -m pip install "readio[kokoro]"  # or another supported VoiceRender engine
+    extra
 
-      python -m pip install "readio[audioexport]"  # optional export stage
-
-      ```
+    ```
 
 
-      `readio[documents]` enables SSMDConvert''s optional PDF and DOCX support; `readio[spacy]`
-      enables UtterPlan''s optional spaCy support. Backend engines are provided by VoiceRender
-      extras. Readio requires Python 3.10 or newer.'
-    links: []
-  - section_id: md:section:README.md::quick-start
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Quick start
-    heading_slug: quick-start
-    line_span:
-      - 17
-      - 39
-    section_hash: 23489e499c6f32d8949057dd0711925948ef8fa0345cf32e5ab12d3817391135
-    summary: Quick start
-    text:
-      "## Quick start\n\nCreate a native document workspace, create a VoiceRender\
-      \ profile, and run the pipeline:\n\n```bash\nreadio init chapter.docx -o chapter.ssmdoc\n\
-      readio profile create --engine kokoro --target v1.0 --voice af_heart \\\n  --language\
-      \ en-US -o narrator.renderprofile.toml\nreadio run chapter.ssmdoc --profile narrator.renderprofile.toml\
-      \ --language en-US\n```\n\nFor a book, convert the EPUB first. Keeping its RenderProfile\
-      \ in the workspace also makes its provenance available to UtterPlan:\n\n```bash\n\
-      readio init novel.epub -o novel.ssmdbook\nreadio profile create --engine kokoro\
-      \ --target v1.0 --voice af_heart \\\n  --language en-US -o novel.ssmdbook/narrator.renderprofile.toml\n\
-      readio run novel.ssmdbook --profile novel.ssmdbook/narrator.renderprofile.toml\
-      \ \\\n  --chapters 5-17 --language en-US --export --output novel.m4b\n```\n\n\
-      `run` compiles, projects the RenderPlan, renders, and composes in order. If export\
-      \ is selected, Readio also runs AudioExport. It forwards UtterPlan's exact projected\
-      \ variant unchanged to every downstream stage. To operate one stage at a time\
-      \ or inspect the available options, see the [CLI reference](docs/cli.md)."
-    links: []
-  - section_id: md:section:README.md::manual-specialist-workflow
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Manual specialist workflow
-    heading_slug: manual-specialist-workflow
-    line_span:
-      - 40
-      - 57
-    section_hash: c5564a1b8616c9dd63f68536c195105554f83a78f22f0d3e00157d2d848d80ff
-    summary: Manual specialist workflow
-    text:
-      "## Manual specialist workflow\n\nUse the specialist CLIs when you need package-specific\
-      \ controls. Preserve UtterPlan's exact variant through every stage:\n\n```bash\n\
-      ssmdconvert book convert novel.epub -o novel.ssmdbook\nutterplan compile-book\
-      \ novel.ssmdbook\nvoicerender profile create --engine kokoro --target v1.0 --voice\
-      \ af_heart \\\n  --language en-US -o novel.ssmdbook/narrator.renderprofile.toml\n\
-      utterplan render-book novel.ssmdbook \\\n  --profile novel.ssmdbook/narrator.renderprofile.toml\n\
-      \nVARIANT=\"<exact variant returned by utterplan render-book>\"\nvoicerender render-book\
-      \ novel.ssmdbook --variant \"$VARIANT\"\naudiocompose compose-book novel.ssmdbook\
-      \ --variant \"$VARIANT\"\naudioexport export-book novel.ssmdbook --variant \"\
-      $VARIANT\" --output novel.m4b\n```"
-    links: []
-  - section_id: md:section:README.md::readio-shorthand
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Readio shorthand
-    heading_slug: readio-shorthand
-    line_span:
-      - 58
-      - 58
-    section_hash: 12bcfe7a67f0751490e3b489d405e153338d3b7c214fd30ce9ca2d76063ca3cb
-    summary: Readio shorthand
-    text: "## Readio shorthand"
-    links: []
-  - section_id: md:section:README.md::direct-speech
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Readio shorthand
-      - Direct speech
-    heading_slug: direct-speech
-    line_span:
-      - 59
-      - 66
-    section_hash: c170b457d69e05cadaa5b5d3cf4bfee7e5692499b8bf5f29cfe31befd723ce8b
-    summary: Direct speech
-    text: '### Direct speech
+    `readio[documents]` enables SSMDConvert''s optional PDF and DOCX support; `readio[spacy]`
+    enables UtterPlan''s optional spaCy support. Readio requires Python 3.10 or newer.'
+  links: []
+- section_id: md:section:README.md::quick-start
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Quick start
+  heading_slug: quick-start
+  line_span:
+  - 16
+  - 39
+  section_hash: 5a5dd9c996b1515c1a67c0d8f7aed5fa625f830acd89d4454ac20e8730b7766e
+  summary: Quick start
+  text: "## Quick start\n\nCreate a VoiceRender RenderProfile, then create and review\
+    \ a user-owned Readio render intent. The two TOML files have separate responsibilities:\
+    \ the RenderProfile defines voice roles; the intent describes the requested conversion,\
+    \ planning, composition, and output.\n\n```bash\nreadio profile create --engine\
+    \ kokoro --target v1.0 --voice af_heart \\\n  --language en-US -o narrator.renderprofile.toml\n\
+    readio intent document create chapter.docx \\\n  --profile narrator.renderprofile.toml\
+    \ --language en-US\nreadio intent show chapter.readio.toml --resolved\nreadio\
+    \ intent validate chapter.readio.toml\nreadio render --config chapter.readio.toml\
+    \ --dry-run\nreadio render --config chapter.readio.toml\n```\n\nBook intents default\
+    \ to M4B and support chapter selection; document intents default to MP3. Without\
+    \ an explicit bundle, renders use temporary intermediate storage. Specify `--bundle\
+    \ PATH` in the intent or render command to persist an editable workspace; an existing\
+    \ bundle supplied as the source is also persistent. UtterPlan's exact projected\
+    \ variant is preserved through VoiceRender, AudioCompose, and AudioExport.\n\n\
+    ```bash\nreadio intent book create novel.epub \\\n  --profile narrator.renderprofile.toml\
+    \ --language en-US --chapters 5-17 \\\n  --bundle novel.ssmd-bundle\nreadio render\
+    \ --config novel.readio.toml\n```"
+  links: []
+- section_id: md:section:README.md::create-profiles-from-ssmd-voice-roles
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Quick start
+  - Create profiles from SSMD voice roles
+  heading_slug: create-profiles-from-ssmd-voice-roles
+  line_span:
+  - 40
+  - 82
+  section_hash: aff432c32dd98791d1d04c49561daa9f7fe2e4ae50d9cd5e0d51d04bb8f2b51b
+  summary: Create profiles from SSMD voice roles
+  text: "### Create profiles from SSMD voice roles\n\nFor an SSMD document with one\
+    \ explicit `narrator` role, inspect and create its profile directly:\n\n```bash\n\
+    readio profile document inspect chapter.ssmd.md\nreadio profile document create\
+    \ chapter.ssmd.md \\\n  --engine kokoro --target v1.0 --language en-US \\\n  --voice\
+    \ narrator=af_heart \\\n  -o chapter.renderprofile.toml\n```\n\nFor a multi-speaker\
+    \ source, assign each logical role in one command. Logical roles stay distinct\
+    \ even when they intentionally share one physical TTS voice:\n\n```bash\nreadio\
+    \ profile document inspect meeting.ssmd.md\nreadio profile document create meeting.ssmd.md\
+    \ \\\n  --engine kokoro --target v1.0 --language en-US \\\n  --voice narrator=af_heart\
+    \ \\\n  --voice host=af_sarah \\\n  --voice guest=am_michael \\\n  --same-as analyst=guest\
+    \ \\\n  --default-role narrator \\\n  -o meeting.renderprofile.toml\n\nreadio\
+    \ intent document create meeting.ssmd.md \\\n  --profile meeting.renderprofile.toml\
+    \ --language en-US\nreadio intent show meeting.readio.toml --resolved\n```\n\n\
+    Here four logical roles use three physical voices: `analyst` receives a copy of\
+    \ `guest`'s complete binding. The reviewable VoiceRender RenderProfile remains\
+    \ separate from the Readio intent; Readio does not choose voices or create a profile\
+    \ automatically.\n\nFor a one-off render without saving a Readio intent, provide\
+    \ the source and separate RenderProfile directly:\n\n```bash\nreadio render chapter.docx\
+    \ --profile narrator.renderprofile.toml --language en-US\n```\n\n`readio render\
+    \ --dry-run` and `readio status` share a read-only workflow inspection; neither\
+    \ creates a temporary workspace or mutates artifacts. Use `--rebuild-from STAGE`\
+    \ for explicit downstream rebuilds and `--replace-output` separately to authorize\
+    \ replacing an existing final output. AudioExport is included in the core installation;\
+    \ `--ffmpeg` and `--ffprobe` select tool executables.\n\nIntent files are visible\
+    \ user-owned configuration, not hidden workspace state. Readio creates no `.readio/`\
+    \ directory. `readio status --config novel.readio.toml` inspects a saved intent,\
+    \ while `readio status novel.ssmd-bundle --profile narrator.renderprofile.toml\
+    \ --chapters 5-17` inspects an existing persistent workspace."
+  links: []
+- section_id: md:section:README.md::manual-specialist-workflow
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Manual specialist workflow
+  heading_slug: manual-specialist-workflow
+  line_span:
+  - 83
+  - 100
+  section_hash: 0293e40d73de6bba3d5d279a599cfa018403c4f40217aaa1c26a3b60f570922e
+  summary: Manual specialist workflow
+  text: "## Manual specialist workflow\n\nUse specialist CLIs for package-specific\
+    \ controls. Preserve UtterPlan's exact variant through every stage:\n\n```bash\n\
+    ssmdconvert bundle convert novel.epub -o novel.ssmd-bundle\nutterplan bundle compile\
+    \ novel.ssmd-bundle\nvoicerender profile create --engine kokoro --target v1.0\
+    \ --voice af_heart \\\n  --language en-US -o novel.ssmd-bundle/narrator.renderprofile.toml\n\
+    utterplan bundle render novel.ssmd-bundle \\\n  --profile novel.ssmd-bundle/narrator.renderprofile.toml\n\
+    \nVARIANT=\"<exact variant returned by utterplan bundle render>\"\nvoicerender\
+    \ bundle render novel.ssmd-bundle --variant \"$VARIANT\"\naudiocompose bundle\
+    \ compose novel.ssmd-bundle --variant \"$VARIANT\"\naudioexport bundle export\
+    \ novel.ssmd-bundle --variant \"$VARIANT\" --output novel.m4b\n```"
+  links: []
+- section_id: md:section:README.md::direct-speech
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Direct speech
+  heading_slug: direct-speech
+  line_span:
+  - 101
+  - 108
+  section_hash: e0f46c9f1405b62234006a61663a4276d2abade45202455190cecbf1c9c73fba
+  summary: Direct speech
+  text: '## Direct speech
 
 
-      ```bash
+    ```bash
 
-      readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
+    readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello from Readio."
 
-      ```
-
-
-      `speak` sends literal text through VoiceRender and plays the returned audio locally
-      by default. Use `--output FILE.wav --no-play` to save without playback. Readio
-      also retains playback and audio I/O helpers for Python callers.'
-    links:
-      - source_id: py:function:readio/speech.py::speak
-        source_path: readio/speech.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section documents the VoiceRender-backed literal-text speak helper.
-        tracked_hashes:
-          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
-  - section_id: md:section:README.md::python-api
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Python API
-    heading_slug: python-api
-    line_span:
-      - 67
-      - 84
-    section_hash: 713755162b45287d4018c0a71eb09f3d9d1bee15bd77ac60ed2c26fc7b050ba2
-    summary: Python API
-    text:
-      "## Python API\n\n```python\nfrom pathlib import Path\nfrom readio.api import\
-      \ PlanRequest, Readio, RenderPlanRequest\n\nservice = Readio()\nworkspace = service.create_workspace(\"\
-      chapter.txt\")  # writes chapter.ssmdoc\ncompiled = service.plan(workspace, PlanRequest(language=\"\
-      en-US\"))\nprojection = service.render_plan(\n    workspace,\n    RenderPlanRequest(profile=Path(\"\
-      narrator.renderprofile.toml\")),\n)\nprint(workspace.root, projection.variant)\n\
-      ```\n\nUse `Readio.run()` and `RunRequest` for complete sequencing. The service\
-      \ returns specialist results and preserves the exact UtterPlan-projected variant.\
-      \ See the [Python API guide](docs/api.md)."
-    links:
-      - source_id: py:class:readio/api/service.py::Readio
-        source_path: readio/api/service.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains public class `Readio`.
-        tracked_hashes:
-          body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
-      - source_id: py:method:readio/api/service.py::Readio.run
-        source_path: readio/api/service.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains exact qualified symbol `Readio.run`.
-        tracked_hashes:
-          body_hash: 8035aa2d1fc0dea75724fda2b0ea47c274679565008e83d08e19deb5248e68cd
-      - source_id: py:class:readio/api/types.py::PlanRequest
-        source_path: readio/api/types.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains public class `PlanRequest`.
-        tracked_hashes:
-          body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
-      - source_id: py:class:readio/api/types.py::RenderPlanRequest
-        source_path: readio/api/types.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains public class `RenderPlanRequest`.
-        tracked_hashes:
-          body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
-      - source_id: py:class:readio/api/types.py::RunRequest
-        source_path: readio/api/types.py
-        coverage: implementation-note
-        impact: unknown
-        reason: Code contains public class `RunRequest`.
-        tracked_hashes:
-          body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
-  - section_id: md:section:README.md::breaking-change-in-v0-5-0
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Breaking change in v0.5.0
-    heading_slug: breaking-change-in-v0-5-0
-    line_span:
-      - 85
-      - 90
-    section_hash: 9ce16c4738b91c5a030efc12c73519bfddff1a068b32ae6bd61524dd663381ee
-    summary: Breaking change in v0.5.0
-    text: "## Breaking change in v0.5.0
+    ```
 
 
-      SSMDConvert owns conversion and workspace bundles; UtterPlan owns semantic plans
-      and variants; RenderPlan and VoiceRender own their public contracts, profiles,
-      and synthesis; AudioCompose owns composition; AudioExport owns encoding. Readio
-      coordinates these public APIs and does not reproduce their schemas or validations.
+    `speak` sends literal text through VoiceRender and plays the returned audio locally
+    by default. Use `--output FILE.wav --no-play` to save without playback. Readio
+    also retains playback and audio I/O helpers for Python callers.'
+  links:
+  - source_id: py:function:readio/speech.py::speak
+    source_path: readio/speech.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This section documents the VoiceRender-backed literal-text speak helper.
+    tracked_hashes:
+      body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
+- section_id: md:section:README.md::onnx-runtime-controls
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - ONNX Runtime controls
+  heading_slug: onnx-runtime-controls
+  line_span:
+  - 109
+  - 124
+  section_hash: 2f83c97f05f8473d51033ff41770067abf3a7c95e6b86d6a4eb552ab00e6fe96
+  summary: ONNX Runtime controls
+  text: '## ONNX Runtime controls
 
 
-      Version 0.5 is a deliberate clean break. Existing Readio project directories,
-      settings, plans, manifests, and stage records are unsupported; there is no migration
-      command or compatibility layer. Start from source material and create a native
-      workspace with `readio init`, or use the specialist packages directly."
-    links:
-      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-        source_path: tests/test_dependency_boundaries.py
-        coverage: implementation-note
-        impact: unknown
-        reason:
-          This regression test verifies that legacy persistence identifiers are
-          absent from runtime behavior.
-        tracked_hashes:
-          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-  - section_id: md:section:README.md::documentation
-    doc_path: README.md
-    heading_path:
-      - Readio
-      - Documentation
-    heading_slug: documentation
-    line_span:
-      - 91
-      - 97
-    section_hash: fdb561f2640a1df3d5ed5f6f1920c8adba3f30155f92aa36981f329bd2f6e505
-    summary: Documentation
-    text: "## Documentation
+    Inspect the ONNX Runtime distribution/build and provider policy, or choose providers
+    for future compatible sessions:
 
 
-      - [Architecture and ownership](docs/architecture.md)
+    ```bash
 
-      - [CLI reference](docs/cli.md)
+    readio runtime status
 
-      - [Python API](docs/api.md)
+    readio runtime list
 
-      - [Changelog](docs/changelog.md)
+    readio runtime use cpu
 
-      - [Examples](examples/README.md)"
-    links: []
+    readio runtime use cuda
+
+    readio runtime use auto
+
+    readio runtime use cuda,cpu
+
+    readio runtime reset
+
+    ```
+
+
+    An installed ONNX Runtime distribution/build is distinct from its execution providers.
+    `runtime status` reports the imported build and its available providers; `runtime
+    list` shows detected distributions and providers reported by that build. A selected/resolved
+    provider policy is for new sessions, not proof of an active inference session.
+    Readio does not install, uninstall, or switch ONNX Runtime distributions; package
+    changes are managed outside Readio. Environment variables such as `ONNXVOICE_PROVIDER`
+    override the saved preference, and `runtime reset` does not unset environment
+    variables. Explicit `--engine-option providers=...` or a provider configured in
+    a RenderProfile remains an intentional override of the global default.'
+  links: []
+- section_id: md:section:README.md::python-api
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Python API
+  heading_slug: python-api
+  line_span:
+  - 125
+  - 143
+  section_hash: 2a8dd681512c82213f3471abaab5f296e66ebf59c656a0590158177dd53a7057
+  summary: Python API
+  text: "## Python API\n\n```python\nfrom pathlib import Path\nfrom readio.api import\
+    \ Readio, RenderRequest\n\nservice = Readio()\nrequest = RenderRequest(\n    source=Path(\"\
+    chapter.docx\"),\n    profile=Path(\"narrator.renderprofile.toml\"),\n    bundle=None,\
+    \  # temporary by default; pass a path to persist the SSMD bundle\n)\nplan = service.inspect(request)\
+    \  # read-only WorkflowPlan\nresult = service.render(request)\nprint(plan.steps,\
+    \ result.output, result.workspace_mode)\n```\n\nThe primary gateway API is `Readio.speak()`,\
+    \ `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `speak`\
+    \ synthesizes semantic text in memory; `inspect` reports specialist-backed workflow\
+    \ state without writing; `render` executes the complete file-to-audio workflow.\
+    \ Specialist CLIs remain available for deliberate package-level debugging. See\
+    \ the [Python API guide](docs/api.md)."
+  links:
+  - source_id: py:class:readio/api/service.py::Readio
+    source_path: readio/api/service.py
+    coverage: implementation-note
+    impact: unknown
+    reason: Code contains public class `Readio`.
+    tracked_hashes:
+      body_hash: 8e053e417f5a89417c8720a9f77309284769b8bb8fa56fd135e034985d4458b8
+  - source_id: py:method:readio/api/service.py::Readio.run
+    source_path: readio/api/service.py
+    coverage: implementation-note
+    impact: unknown
+    reason: Code contains exact qualified symbol `Readio.run`.
+    tracked_hashes:
+      body_hash: 8035aa2d1fc0dea75724fda2b0ea47c274679565008e83d08e19deb5248e68cd
+  - source_id: py:class:readio/api/types.py::PlanRequest
+    source_path: readio/api/types.py
+    coverage: implementation-note
+    impact: unknown
+    reason: Code contains public class `PlanRequest`.
+    tracked_hashes:
+      body_hash: 40c52f561041bec7efb6d22d9c802e0bd5f831956b8c4b0cdac98aa16eb1a3a0
+  - source_id: py:class:readio/api/types.py::RenderPlanRequest
+    source_path: readio/api/types.py
+    coverage: implementation-note
+    impact: unknown
+    reason: Code contains public class `RenderPlanRequest`.
+    tracked_hashes:
+      body_hash: c23e118706b0f19779850edf94bc16afd0b917afaf203a3222bb4b4840aa674d
+  - source_id: py:class:readio/api/types.py::RunRequest
+    source_path: readio/api/types.py
+    coverage: implementation-note
+    impact: unknown
+    reason: Code contains public class `RunRequest`.
+    tracked_hashes:
+      body_hash: 278017ddc273a0ffb3e0c112a0ecd758dc0e4f550e5966a4d80e9963cf36ec56
+- section_id: md:section:README.md::documentation
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Documentation
+  heading_slug: documentation
+  line_span:
+  - 144
+  - 150
+  section_hash: 801a81c500435e3c6d55e491d498410a7bd3a6b48b8f88c6295b134ddc5690f6
+  summary: Documentation
+  text: '## Documentation
+
+
+    - [Architecture and ownership](docs/architecture.md)
+
+    - [CLI reference](docs/cli.md)
+
+    - [Python API](docs/api.md)
+
+    - [Examples](examples/README.md)
+
+    - [Changelog](docs/changelog.md)'
+  links: []
+- section_id: md:section:README.md::breaking-change-in-v0-5-0
+  doc_path: README.md
+  heading_path:
+  - Readio
+  - Breaking change in v0.5.0
+  heading_slug: breaking-change-in-v0-5-0
+  line_span:
+  - 85
+  - 90
+  section_hash: 9ce16c4738b91c5a030efc12c73519bfddff1a068b32ae6bd61524dd663381ee
+  summary: Breaking change in v0.5.0
+  links:
+  - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
+    source_path: tests/test_dependency_boundaries.py
+    coverage: implementation-note
+    impact: unknown
+    reason: This regression test verifies that legacy persistence identifiers are
+      absent from runtime behavior.
+    tracked_hashes:
+      body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
 last_fresh_scan_version: 18
 last_fresh_hash: e9e6752df80ad6c1cc32c060f35ee1b59afc40956d981c2d8bd74918266b8300
-notes:
-  Reviewed affected sections against current Readio public APIs and CLI; strict
+notes: Reviewed affected sections against current Readio public APIs and CLI; strict
   Sphinx build and focused documentation/workspace tests passed.
 coverage_resolution: null
-version: 214
+version: 216

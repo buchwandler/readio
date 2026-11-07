@@ -24,7 +24,8 @@ def test_intent_creators_apply_book_and_document_defaults() -> None:
 
     assert book.kind == "book"
     assert book.input.source == Path("novel.epub")
-    assert book.input.bundle == Path("novel.ssmd-bundle")
+    assert book.workspace.mode == "temporary"
+    assert book.workspace.bundle is None
     assert book.input.chapters == "all"
     assert book.voice.profile == Path("cast.renderprofile.toml")
     assert book.output.format == "m4b"
@@ -35,7 +36,8 @@ def test_intent_creators_apply_book_and_document_defaults() -> None:
     assert book.compose.sample_rate == 24000
 
     assert document.kind == "document"
-    assert document.input.bundle == Path("article.ssmd-bundle")
+    assert document.workspace.mode == "temporary"
+    assert document.workspace.bundle is None
     assert document.input.chapters is None
     assert document.output.format == "mp3"
     assert document.output.path == Path("article.mp3")
@@ -84,7 +86,7 @@ def test_full_intent_toml_round_trips_all_stable_values(tmp_path: Path) -> None:
     decoded = load_render_intent(path)
 
     assert decoded == intent
-    assert 'schema = "readio.render.v1"' in rendered
+    assert 'schema = "readio.render.v2"' in rendered
     assert 'kind = "book"' in rendered
     assert "[output.metadata]" in rendered
     assert '"title" = "A \\"Novel\\""' in rendered
@@ -94,10 +96,12 @@ def test_minimal_intent_omits_effective_defaults() -> None:
     intent = create_book_intent("novel.epub", profile="cast.renderprofile.toml")
     rendered = dump_render_intent(intent, minimal=True)
 
-    assert 'schema = "readio.render.v1"' in rendered
+    assert 'schema = "readio.render.v2"' in rendered
     assert 'kind = "book"' in rendered
     assert "[input]" in rendered
     assert 'source = "novel.epub"' in rendered
+    assert "[workspace]" in rendered
+    assert 'mode = "temporary"' in rendered
     assert "[voice]" in rendered
     assert 'profile = "cast.renderprofile.toml"' in rendered
     assert "novel.ssmd-bundle" not in rendered
@@ -124,7 +128,7 @@ def test_minimal_toml_omissions_load_as_schema_defaults(tmp_path: Path) -> None:
 
 def test_parse_rejects_unknown_schema_and_unknown_keys() -> None:
     with pytest.raises(ValueError, match="unsupported schema"):
-        parse_render_intent({"schema": "readio.render.v2"})
+        parse_render_intent({"schema": "readio.render.v1"})
 
     with pytest.raises(ValueError, match="unknown top-level"):
         parse_render_intent({"schema": INTENT_SCHEMA, "rendering": {}})
@@ -236,3 +240,34 @@ def test_validate_intent_rejects_missing_source_and_output_extension(
     wrong_extension = create_book_intent(source, profile=profile, output="book.mp3")
     with pytest.raises(ValueError, match="extension must match"):
         validate_render_intent(wrong_extension)
+
+
+
+def test_workspace_v2_requires_explicit_persistent_path_and_keeps_bundle_out_of_input() -> None:
+    with pytest.raises(ValueError, match="unknown key.*input"):
+        parse_render_intent(
+            {
+                "schema": INTENT_SCHEMA,
+                "input": {"source": "story.md", "bundle": "story.ssmd-bundle"},
+            }
+        )
+
+    with pytest.raises(ValueError, match="workspace.mode='bundle' requires workspace.bundle"):
+        parse_render_intent(
+            {"schema": INTENT_SCHEMA, "input": {"source": "story.md"}, "workspace": {"mode": "bundle"}}
+        )
+
+    with pytest.raises(ValueError, match="temporary workspaces cannot specify"):
+        parse_render_intent(
+            {
+                "schema": INTENT_SCHEMA,
+                "input": {"source": "story.md"},
+                "workspace": {"mode": "temporary", "bundle": "story.ssmd-bundle"},
+            }
+        )
+
+    persistent = create_document_intent(
+        "story.md", profile="profile.toml", bundle="story.ssmd-bundle"
+    )
+    assert persistent.workspace.mode == "bundle"
+    assert persistent.workspace.bundle == Path("story.ssmd-bundle")

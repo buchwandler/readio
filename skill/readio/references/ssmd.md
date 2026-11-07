@@ -4,11 +4,12 @@ Readio does not provide a general-purpose Markdown/SSMD reader, standalone SSMD 
 
 VoiceRender owns RenderProfiles, logical role bindings, voice resolution, and synthesis. AudioCompose and AudioExport own their respective later stages. Readio exposes thin delegated engine, model, voice, and profile controls; it does not own catalogs or role-binding schemas.
 
+The user-facing file-to-audio path is the unified Readio workflow. Temporary workspaces are the default; use `--bundle PATH` only when an editable bundle should persist:
+
 ```bash
-readio bundle convert chapter.docx -o chapter.ssmd-bundle
-readio bundle compile chapter.ssmd-bundle --language en-US
-readio bundle render-plan chapter.ssmd-bundle --profile narrator.renderprofile.toml
-readio bundle run chapter.ssmd-bundle --profile narrator.renderprofile.toml --language en-US
+readio render novel.epub --bundle novel.ssmd-bundle \
+  --profile narrator.renderprofile.toml --language en-US --chapters 5-17
+readio status novel.ssmd-bundle --profile narrator.renderprofile.toml --chapters 5-17
 ```
 
 For direct specialist stage control, preserve UtterPlan's exact variant:

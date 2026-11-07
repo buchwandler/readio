@@ -67,3 +67,44 @@ def compose_bundle(
         options=options,
         on_progress=on_progress,
     )
+
+
+def inspect_bundle_composition(
+    workspace: WorkspaceRef,
+    *,
+    variant: str,
+    chapters: str = "all",
+    renderplan_root: Any = None,
+    voicerender_root: Any = None,
+    output_root: Any = None,
+) -> Any:
+    """Inspect composition readiness through AudioCompose's public API."""
+    return audiocompose.inspect_bundle_composition(
+        workspace.root,
+        variant=variant,
+        chapters=chapters,
+        renderplan_root=renderplan_root,
+        voicerender_root=voicerender_root,
+        output_root=output_root,
+    )
+
+
+def compose_renderplan_memory(plan: Any, rendered: Any, **options: Any) -> Any:
+    """Compose in-memory rendered buffers through AudioCompose's canonical pipeline."""
+    return audiocompose.compose_renderplan_memory(plan, rendered, **options)
+
+
+def rendered_audio_buffer(
+    audio: Any,
+    sample_rate: int,
+    *,
+    word_timings: Any = (),
+    metadata: Any = None,
+) -> Any:
+    """Adapt a VoiceRender occurrence to AudioCompose's public buffer type."""
+    return audiocompose.RenderedAudioBuffer(
+        audio=audio,
+        sample_rate=sample_rate,
+        word_timings=word_timings,
+        metadata=metadata or {},
+    )

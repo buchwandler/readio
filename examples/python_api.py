@@ -1,11 +1,11 @@
-"""Convert and plan an SSMD bundle through Readio's Python API."""
+"""Inspect a complete Readio file-to-audio workflow without executing it."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from readio.api import PlanRequest, Readio, RenderPlanRequest
+from readio.api import Readio, RenderRequest
 
 
 def main() -> None:
@@ -14,25 +14,20 @@ def main() -> None:
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--language", default="en-US")
     parser.add_argument("--chapters", default="all")
+    parser.add_argument("--bundle", type=Path)
     args = parser.parse_args()
 
-    service = Readio()
-    workspace = service.create_workspace(args.source)
-    compiled = service.plan(
-        workspace,
-        PlanRequest(language=args.language, chapters=args.chapters),
+    request = RenderRequest(
+        source=args.source,
+        profile=args.profile,
+        language=args.language,
+        chapters=args.chapters,
+        bundle=args.bundle,
     )
-    projection = service.render_plan(
-        workspace,
-        RenderPlanRequest(
-            profile=args.profile,
-            chapters=args.chapters,
-        ),
-    )
-    print(
-        f"Bundle: {workspace.root} (kind: {workspace.kind}); "
-        f"compiled: {compiled.output_dir}; variant: {projection.variant}"
-    )
+    plan = Readio().inspect(request)
+    print(f"Workspace mode: {plan.workspace_mode}")
+    for step in plan.steps:
+        print(f"{step.stage}: {step.action} ({step.state}) — {step.reason}")
 
 
 if __name__ == "__main__":

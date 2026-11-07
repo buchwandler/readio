@@ -9,18 +9,16 @@ import pytest
 import voicerender
 from ebooklib import epub
 
-from readio.api import (
+from readio.api import Readio, create_book_intent, create_document_intent
+from readio.api import service as service_module
+from readio.api.types import (
     ComposeRequest,
     PlanRequest,
-    Readio,
     RenderExecutionOptions,
     RenderPlanRequest,
     RunRequest,
     VoiceRenderRequest,
-    create_book_intent,
-    create_document_intent,
 )
-from readio.api import service as service_module
 
 
 def _write_epub(path: Path) -> None:
@@ -177,9 +175,13 @@ def test_render_intent_orchestrates_book_m4b_and_document_mp3(
     )
 
     intent = (
-        create_book_intent(source, profile=profile, language="en-US")
+        create_book_intent(
+            source, profile=profile, language="en-US", bundle=tmp_path / "story.ssmd-bundle"
+        )
         if kind == "book"
-        else create_document_intent(source, profile=profile, language="en-US")
+        else create_document_intent(
+            source, profile=profile, language="en-US", bundle=tmp_path / "story.ssmd-bundle"
+        )
     )
     result = Readio().render_intent(intent, RenderExecutionOptions())
 

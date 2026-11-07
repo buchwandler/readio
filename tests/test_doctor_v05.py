@@ -63,7 +63,7 @@ def test_doctor_recommends_voice_render_extra_for_missing_engine(monkeypatch) ->
     assert 'pip install "voicerender[pocket]"' in text
 
 
-def test_doctor_reports_missing_optional_audioexport(monkeypatch) -> None:
+def test_doctor_reports_missing_required_audioexport(monkeypatch) -> None:
     def version(package: str) -> str:
         if package == "audioexport":
             raise doctor.metadata.PackageNotFoundError(package)

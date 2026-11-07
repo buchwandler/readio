@@ -1,83 +1,79 @@
 # CLI reference
 
-The intent-first complete workflow uses `readio intent` to create/review user-owned TOML and `readio render` to execute. `readio bundle` remains the advanced stage-by-stage interface. Readio delegates domain behavior and persisted artifacts to SSMDConvert, UtterPlan, VoiceRender, AudioCompose, and optional AudioExport.
-
-## Intent-first render
-
-Create a separate VoiceRender profile, then create and review a kind-specific Readio intent. The default config is `<source-stem>.readio.toml`:
+Readio exposes unified `render`, `status`, `speak`, and management commands. Specialist CLIs remain available for package-specific stage controls; Readio does not duplicate their stage-runner commands.
 
 ```bash
-readio profile create --engine kokoro --target v1.0 --voice af_heart \
-  --language en-US -o narrator.renderprofile.toml
-readio intent document create article.docx --profile narrator.renderprofile.toml --language en-US
-readio intent book create novel.epub --profile narrator.renderprofile.toml --chapters 5-17
-readio intent show novel.readio.toml --resolved
-readio intent validate novel.readio.toml
+readio --help
+readio intent --help
+readio render --help
+readio status --help
+readio speak --help
+readio doctor --help
 ```
 
-Book output defaults to M4B and documents to MP3. Intent options include `--output-config`, `--stdout`, `--minimal`, and safe overwrite with `--force`; see kind-specific `create --help` for planning, composition, metadata, and export options. VoiceRender RenderProfile remains a separate configuration, not a Readio cast schema.
+## Workspace policy and rendering
+
+A render uses a run-scoped temporary workspace by default. Supply `--bundle PATH` to keep an editable persistent SSMD bundle, or use an existing `.ssmd-bundle` as the source. Readio never infers persistence from a default filename or creates hidden `.readio/` state.
 
 ```bash
-readio render --config novel.readio.toml --dry-run
-readio render --config novel.readio.toml
 readio render article.docx --profile narrator.renderprofile.toml --language en-US
+readio render novel.epub --bundle novel.ssmd-bundle \
+  --profile narrator.renderprofile.toml --language en-US --chapters 5-17
+readio render --config novel.readio.toml --dry-run
+readio status novel.ssmd-bundle --profile narrator.renderprofile.toml --chapters 5-17
 readio status --config novel.readio.toml
 ```
 
-`--dry-run` resolves configuration and inspects existing specialist status without executing stages. Existing bundles are reused. Use repeated `--force-stage STAGE` or `--restart-from STAGE` for explicit reruns; existing output requires forcing `export`. `--reconvert` forces conversion, and `--reset-stale-output` is separate. AudioExport is optional (`readio[audioexport]`); selected format, FFmpeg, and FFprobe are preflighted before conversion. `--ffmpeg PATH` and `--ffprobe PATH` select tool overrides. Progress/diagnostics use stderr; `--json` results use stdout. Readio writes no `.readio/` workspace state.
+`--dry-run` and `status` use the same read-only workflow inspection. Neither creates temporary state or mutates artifacts. `--rebuild-from STAGE` explicitly rebuilds a workflow stage and downstream derived state; `--replace-output` separately authorizes replacing an existing final output. Progress and diagnostics use stderr; JSON results use stdout. `--no-progress` disables only progress callbacks. AudioExport is included in the core installation; `--ffmpeg PATH` and `--ffprobe PATH` select tool executables.
 
-## Advanced bundle lifecycle
+## Render intents
 
-```bash
-readio bundle convert chapter.docx -o chapter.ssmd-bundle
-readio bundle compile chapter.ssmd-bundle --language en-US
-readio bundle render-plan chapter.ssmd-bundle --profile narrator.renderprofile.toml
-readio bundle run chapter.ssmd-bundle --profile narrator.renderprofile.toml --language en-US
+The current schema is `readio.render.v2`. Source and selection belong under `[input]`; workspace mode and bundle path belong under `[workspace]`:
+
+```toml
+schema = "readio.render.v2"
+kind = "book"
+
+[input]
+source = "novel.epub"
+chapters = "5-17"
+language = "en-US"
+
+[workspace]
+mode = "bundle"
+bundle = "novel.ssmd-bundle"
+
+[voice]
+profile = "narrator.renderprofile.toml"
 ```
 
-All SSMD lifecycle operations use editable `.ssmd-bundle` directories. `convert` delegates source handling and bundle creation to SSMDConvert. `compile` delegates to UtterPlan. `render-plan` projects a profile-specific RenderPlan; when continuing manually, pass its exact variant unchanged:
-
-### Read-only status
-
-Run `readio bundle status BUNDLE` before manually resuming an interrupted workflow. It reports specialist-owned state and the first safe next action, if known, without writing files. An incomplete workflow is a successful status result; unavailable inspection is shown as `unknown` rather than guessed.
+Use `mode = "temporary"` for disposable intermediate state. On first creation of a persistent book bundle, Readio materializes the full source inventory; `input.chapters` limits downstream planning and rendering. CLI values override saved intent values.
 
 ```bash
-readio bundle status novel.ssmd-bundle --chapters 5-17
-readio bundle status novel.ssmd-bundle --variant 'exact-variant' --json
+readio intent document create article.docx --profile narrator.renderprofile.toml
+readio intent book create novel.epub --profile narrator.renderprofile.toml \
+  --chapters 5-17 --bundle novel.ssmd-bundle
+readio intent show novel.readio.toml --resolved
+readio intent validate novel.readio.toml
+readio render --config novel.readio.toml
 ```
 
-```bash
-VARIANT="<exact variant returned by render-plan>"
-readio bundle render chapter.ssmd-bundle --variant "$VARIANT"
-readio bundle compose chapter.ssmd-bundle --variant "$VARIANT" --save-audiojobs jobs.json
-readio bundle export chapter.ssmd-bundle --variant "$VARIANT" --output chapter.m4a
-```
+Intent files default to `<source-stem>.readio.toml`. `intent show --toml` prints normalized TOML; `--resolved` displays config-relative paths. `--stdout`, `--minimal`, `--output-config`, and `--force` control intent-file persistence. Book intents default to M4B; document intents default to MP3.
 
-`run` sequences conversion or bundle resolution, planning, projection, synthesis, and composition. `--export` opts into AudioExport; install it with `readio[audioexport]`. Progress uses stderr and `--json` keeps machine-readable results on stdout. Use `--no-progress` where supported.
+## Specialist workflows
 
-## Voice and profile controls
+For manual stage execution, call the specialist CLIs directly. SSMDConvert owns source conversion and bundle paths, UtterPlan owns planning and projected variants, VoiceRender owns rendering, AudioCompose owns composition, and AudioExport owns encoding. See the individual specialist documentation for their commands and options.
 
-- `engines` and `models` delegate discovery and model management to VoiceRender.
-- `voices` discovers voices; `voice source` and `voice clone` create or inspect specialist artifacts.
-- `profile` creates, validates, refreshes, and manages RenderProfile logical roles.
+## Voice, profile, and runtime management
 
-Install backends through VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`. Use each command's help for selectors and options.
+`engines`, `models`, `voices`, `voice`, and `profile` commands delegate to VoiceRender. `profile document` can inspect SSMD roles and create a native RenderProfile. Runtime controls (`readio runtime status|list|use|reset`) delegate ONNX Runtime provider policy to VoiceRender. `readio doctor` reports dependency and engine health.
 
-## Direct speech and diagnostics
+## Diagnostics
+
+Global `-v`/`--verbose` and `-vv` flags are accepted before or after commands. Diagnostics and progress go to stderr, preserving JSON stdout.
 
 ```bash
-readio speak --voice kokoro:v1.0/af_heart --lang en-US "Hello."
-readio speak --profile narrator.renderprofile.toml --role narrator \
-  --output greeting.wav --no-play "Hello."
-readio doctor --json
-```
-
-`speak` synthesizes literal text through VoiceRender and plays by default. `--output` writes WAV; `--no-play` skips playback. Doctor reports specialist versions and VoiceRender engine availability.
-
-Global `-v`/`--verbose` and `-vv` flags work before or after nested commands. Diagnostics and monotonic timing go to stderr; JSON and normal results stay on stdout. `--no-progress` suppresses progress callbacks, not verbose diagnostics:
-
-```bash
-readio -v bundle status novel.ssmd-bundle
-readio bundle status novel.ssmd-bundle -vv --json
-readio -vv bundle run novel.ssmd-bundle --profile narrator.renderprofile.toml --no-progress
+readio -v status novel.ssmd-bundle --profile narrator.renderprofile.toml
+readio -vv render novel.epub --bundle novel.ssmd-bundle \
+  --profile narrator.renderprofile.toml --dry-run
 ```

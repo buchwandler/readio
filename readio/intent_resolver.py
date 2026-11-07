@@ -5,21 +5,18 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from readio.errors import ReadioError
 from readio.integrations.audioexport import supported_formats
 from readio.intent import (
     RenderIntent,
+    WorkspaceIntent,
     _default_output_path,
     validate_intent_shape,
     validate_render_intent,
 )
-from readio.workspace import (
-    WorkspaceKind,
-    default_bundle_workspace_path,
-    inspect_source_kind,
-    resolve_workspace,
-)
+from readio.workspace import WorkspaceKind, inspect_source_kind, resolve_workspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +26,8 @@ class ResolvedRenderIntent:
     intent: RenderIntent
     config_path: Path | None
     source: Path
-    bundle: Path
+    bundle: Path | None
+    workspace_mode: Literal["temporary", "bundle"]
     profile: Path
     kind: WorkspaceKind
     chapters: str
@@ -73,10 +71,10 @@ def _require_writable_parent(path: Path, label: str) -> None:
         raise PermissionError(f"{label} parent is not writable: {parent}")
 
 
-def _resolved_kind(source: Path, bundle: Path) -> WorkspaceKind:
+def _resolved_kind(source: Path, bundle: Path | None) -> WorkspaceKind:
     if _is_bundle_path(source):
         return resolve_workspace(source).kind
-    if bundle.exists():
+    if bundle is not None and bundle.exists():
         return resolve_workspace(bundle).kind
     kind = inspect_source_kind(source)
     if kind not in {"book", "document"}:
@@ -117,28 +115,40 @@ def resolve_render_intent(
     cwd = Path.cwd().resolve()
 
     source_override = source is not None
-    source_value = source if source_override else intent.input.source or intent.input.bundle
+    source_value = source if source_override else intent.input.source or intent.workspace.bundle
     if source_value is None:
         raise ValueError(
-            "an input.source or input.bundle is required (or pass SOURCE on the command line)"
+            "an input.source or workspace.bundle is required (or pass SOURCE on the command line)"
         )
     source_path = _absolute_path(source_value, base=cwd if source_override else config_dir)
     if not source_path.exists():
         raise FileNotFoundError(f"render source does not exist: {source_path}")
 
     source_is_bundle = _is_bundle_path(source_path)
+    configured_bundle = (
+        _absolute_path(intent.workspace.bundle, base=config_dir)
+        if intent.workspace.bundle is not None
+        else None
+    )
     if source_is_bundle:
-        if bundle is not None and _absolute_path(bundle, base=cwd) != source_path:
-            raise ValueError("a bundle source cannot be redirected to a different bundle path")
+        requested_bundle = _absolute_path(bundle, base=cwd) if bundle is not None else configured_bundle
+        if requested_bundle is not None and requested_bundle != source_path:
+            raise ValueError("a bundle source cannot be redirected to a different workspace bundle")
         bundle_path = source_path
+        workspace_mode = "bundle"
     elif bundle is not None:
         bundle_path = _absolute_path(bundle, base=cwd)
-    elif intent.input.bundle is not None:
-        bundle_path = _absolute_path(intent.input.bundle, base=config_dir)
+        workspace_mode = "bundle"
+    elif intent.workspace.mode == "bundle":
+        if configured_bundle is None:
+            raise ValueError("workspace.mode='bundle' requires workspace.bundle")
+        bundle_path = configured_bundle
+        workspace_mode = "bundle"
     else:
-        bundle_path = default_bundle_workspace_path(source_path).resolve()
-    _validate_bundle_path(bundle_path)
-
+        bundle_path = None
+        workspace_mode = "temporary"
+    if bundle_path is not None:
+        _validate_bundle_path(bundle_path)
     profile_override = profile is not None
     profile_value = profile if profile_override else intent.voice.profile
     if profile_value is None:
@@ -157,7 +167,7 @@ def resolve_render_intent(
     if intent.kind is not None and intent.kind != actual_kind:
         raise ValueError(
             f"declared intent kind {intent.kind!r} does not match SSMDConvert kind "
-            f"{actual_kind!r} for {bundle_path}"
+            f"{actual_kind!r} for {bundle_path or source_path}"
         )
 
     if actual_kind == "document" and (chapters is not None or intent.input.chapters is not None):
@@ -205,16 +215,15 @@ def resolve_render_intent(
                 f"output already exists: {output_path}; use the explicit export force option to replace it"
             )
     _require_writable_parent(output_path, "output")
-    if not bundle_path.exists():
+    if bundle_path is not None and not bundle_path.exists():
         _require_writable_parent(bundle_path, "bundle")
-
     effective_intent = replace(
         intent,
         kind=actual_kind,
+        workspace=WorkspaceIntent(mode=workspace_mode, bundle=bundle_path),
         input=replace(
             intent.input,
             source=source_path,
-            bundle=bundle_path,
             chapters=chapters_value if actual_kind == "book" else None,
             language=language_value,
         ),
@@ -248,6 +257,7 @@ def resolve_render_intent(
         config_path=config,
         source=source_path,
         bundle=bundle_path,
+        workspace_mode=workspace_mode,
         profile=profile_path,
         kind=actual_kind,
         chapters=chapters_value,

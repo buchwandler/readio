@@ -34,7 +34,7 @@ def test_book_create_stdout_is_reviewable_toml_without_service_or_rendering(
 
     assert status == 0
     content = capsys.readouterr().out
-    assert 'schema = "readio.render.v1"' in content
+    assert 'schema = "readio.render.v2"' in content
     assert 'kind = "book"' in content
     assert 'source = "novel.epub"' in content
     assert 'chapters = "all"' in content
@@ -83,7 +83,8 @@ def test_document_create_uses_authoritative_formats_and_default_intent_path(
     assert config.is_file()
     intent = cli.api.load_render_intent(config)
     assert intent.kind == "document"
-    assert intent.input.bundle == Path("article.ssmd-bundle")
+    assert intent.workspace.mode == "temporary"
+    assert intent.workspace.bundle is None
     assert intent.input.chapters is None
     assert intent.output.format == "flac"
     assert intent.output.path == Path("article.flac")
@@ -195,6 +196,8 @@ def test_show_supports_human_normalized_toml_and_json(
 
     assert cli.main(["intent", "show", str(path)]) == 0
     human = capsys.readouterr().out
+    assert "Workspace" in human
+    assert "mode         temporary" in human
     assert "Intent: " in human
     assert "chapters     5-7" in human
     assert "variant      <automatic>" in human
@@ -208,6 +211,7 @@ def test_show_supports_human_normalized_toml_and_json(
     assert payload["ok"] is True
     assert payload["result"]["voice"]["profile"] == "profile.toml"
     assert payload["result"]["output"]["metadata"] == {}
+    assert payload["result"]["workspace"] == {"mode": "temporary", "bundle": None}
 
 
 def test_validate_resolves_without_rendering_and_emits_json(

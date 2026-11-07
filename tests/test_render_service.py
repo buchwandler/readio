@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from readio.api import RenderExecutionOptions
+from readio.api.types import RenderExecutionOptions
 from readio.errors import ReadioStageError
 from readio.intent import create_book_intent, create_document_intent
 from readio.intent_resolver import ResolvedRenderIntent
@@ -26,15 +26,16 @@ def _resolved(
     bundle_path = bundle or tmp_path / "story.ssmd-bundle"
     output_format = "m4b" if kind == "book" else "mp3"
     intent = (
-        create_book_intent(source, profile=profile)
+        create_book_intent(source, profile=profile, bundle=bundle_path)
         if kind == "book"
-        else create_document_intent(source, profile=profile)
+        else create_document_intent(source, profile=profile, bundle=bundle_path)
     )
     return ResolvedRenderIntent(
         intent=intent,
         config_path=None,
         source=source,
         bundle=bundle_path,
+        workspace_mode="bundle",
         profile=profile,
         kind=kind,  # type: ignore[arg-type]
         chapters="all",
@@ -239,4 +240,4 @@ def test_stage_errors_include_package_profile_variant_and_action(
     assert f"Profile: {resolved.profile}" in message
     assert f"Variant: {VARIANT}" in message
     assert "voice.failed" in message
-    assert "--reset-stale-output" in message
+    assert "--rebuild-from render" in message

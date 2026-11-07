@@ -23,7 +23,7 @@ from readio.intent import (
     RenderIntent,
     RenderOptionsIntent,
     VoiceIntent,
-    _default_bundle_path,
+    WorkspaceIntent,
     _default_output_path,
     validate_intent_shape,
 )
@@ -88,10 +88,20 @@ def _path(value: object, name: str) -> Path | None:
 
 
 def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
-    """Parse a mapping into a validated immutable ``readio.render.v1`` value."""
+    """Parse a mapping into a validated immutable ``readio.render.v2`` value."""
     if not isinstance(data, Mapping):
         raise TypeError("render intent must be a TOML table")
-    allowed_root = {"schema", "kind", "input", "voice", "planning", "render", "compose", "output"}
+    allowed_root = {
+        "schema",
+        "kind",
+        "input",
+        "workspace",
+        "voice",
+        "planning",
+        "render",
+        "compose",
+        "output",
+    }
     unknown_root = sorted(set(data) - allowed_root)
     if unknown_root:
         raise ValueError(f"unknown top-level key(s): {', '.join(str(key) for key in unknown_root)}")
@@ -106,7 +116,10 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
     kind = kind_value
 
     input_data = _table(
-        data.get("input", {}), "input", {"source", "bundle", "chapters", "language"}
+        data.get("input", {}), "input", {"source", "chapters", "language"}
+    )
+    workspace_data = _table(
+        data.get("workspace", {}), "workspace", {"mode", "bundle"}
     )
     voice_data = _table(data.get("voice", {}), "voice", {"profile", "variant"})
     planning_data = _table(
@@ -158,9 +171,12 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
 
     input_intent = InputIntent(
         source=_path(input_data.get("source"), "input.source"),
-        bundle=_path(input_data.get("bundle"), "input.bundle"),
         chapters=_string(input_data.get("chapters"), "input.chapters", optional=True),
         language=_string(input_data.get("language"), "input.language", optional=True),
+    )
+    workspace = WorkspaceIntent(
+        mode=_string(workspace_data.get("mode", "temporary"), "workspace.mode"),
+        bundle=_path(workspace_data.get("bundle"), "workspace.bundle"),
     )
     voice_intent = VoiceIntent(
         profile=_path(voice_data.get("profile"), "voice.profile"),
@@ -216,6 +232,7 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
     intent = RenderIntent(
         kind=kind,
         input=input_intent,
+        workspace=workspace,
         voice=voice_intent,
         planning=planning,
         render=render,
@@ -259,16 +276,12 @@ def _table_lines(name: str, values: list[tuple[str, object]]) -> list[str]:
 
 
 def _default_intent_output_path(intent: RenderIntent) -> Path | None:
-    source = intent.input.source or intent.input.bundle
+    source = intent.input.source or intent.workspace.bundle
     if source is None or intent.kind is None:
         return None
     return _default_output_path(source, intent.kind, intent.output.format)
 
 
-def _is_default_bundle(intent: RenderIntent) -> bool:
-    source = intent.input.source
-    bundle = intent.input.bundle
-    return source is not None and bundle is not None and bundle == _default_bundle_path(source)
 
 
 def dump_render_intent(intent: RenderIntent, *, minimal: bool = False) -> str:
@@ -281,14 +294,16 @@ def dump_render_intent(intent: RenderIntent, *, minimal: bool = False) -> str:
     input_values: list[tuple[str, object]] = []
     if intent.input.source is not None:
         input_values.append(("source", intent.input.source))
-    if intent.input.bundle is not None and not (minimal and _is_default_bundle(intent)):
-        input_values.append(("bundle", intent.input.bundle))
     if intent.input.chapters is not None and not (minimal and intent.input.chapters == "all"):
         input_values.append(("chapters", intent.input.chapters))
     if intent.input.language is not None:
         input_values.append(("language", intent.input.language))
     lines.extend(_table_lines("input", input_values))
 
+    workspace_values: list[tuple[str, object]] = [("mode", intent.workspace.mode)]
+    if intent.workspace.bundle is not None:
+        workspace_values.append(("bundle", intent.workspace.bundle))
+    lines.extend(_table_lines("workspace", workspace_values))
     voice_values: list[tuple[str, object]] = []
     if intent.voice.profile is not None:
         voice_values.append(("profile", intent.voice.profile))

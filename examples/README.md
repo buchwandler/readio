@@ -1,22 +1,20 @@
 # Readio examples
 
-These examples use Readio's `.ssmd-bundle` lifecycle and specialist package APIs.
+These examples use Readio's unified workflow API and specialist package APIs. File renders use temporary intermediate storage unless a persistent bundle is explicitly requested.
 
-## Readio pipeline
+## Readio workflow
 
-Convert and run a source through Readio's bundle group:
+Render a source directly, or explicitly retain the editable bundle. A persistent book bundle contains the complete source inventory on first creation; chapter selection limits downstream work.
 
 ```bash
-readio bundle convert novel.epub -o novel.ssmd-bundle
 readio profile create --engine kokoro --target v1.0 --voice af_heart \
-  --language en-US -o novel.ssmd-bundle/narrator.renderprofile.toml
-readio bundle run novel.ssmd-bundle \
-  --profile novel.ssmd-bundle/narrator.renderprofile.toml \
-  --language en-US --export --output novel.m4b
+  --language en-US -o narrator.renderprofile.toml
+readio render novel.epub --bundle novel.ssmd-bundle \
+  --profile narrator.renderprofile.toml --language en-US --chapters 5-17
+readio status novel.ssmd-bundle --profile narrator.renderprofile.toml --chapters 5-17
 ```
 
-AudioExport is optional and requires `python -m pip install "readio[audioexport]"`.
-
+AudioExport is included in the core installation; FFmpeg and FFprobe must be available for export.
 ## Specialist workflow
 
 For detailed stage controls, use the specialist CLIs directly and preserve the exact variant returned by UtterPlan:
@@ -37,7 +35,7 @@ audioexport bundle export novel.ssmd-bundle --variant "$VARIANT" -o novel.m4b
 
 ## Python API
 
-[`python_api.py`](python_api.py) demonstrates source conversion, UtterPlan compilation, and profile-specific RenderPlan projection through `readio.api`. It prints the resulting bundle kind and exact variant; it does not require a speech engine to run these planning stages.
+[`python_api.py`](python_api.py) demonstrates read-only inspection of a complete `RenderRequest` through `Readio.inspect()`. It prints the workflow mode and planned steps without synthesis.
 
 ```bash
 python examples/python_api.py SOURCE --profile narrator.renderprofile.toml --language en-US

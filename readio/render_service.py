@@ -62,12 +62,12 @@ _STAGE_PACKAGES = {
     "export": "audioexport",
 }
 _STAGE_ACTIONS = {
-    "convert": "check the source and bundle path; use --force-stage convert only to replace an existing bundle",
-    "compile": "review the selected content and UtterPlan diagnostics; use --restart-from compile to rerun deliberately",
+    "convert": "check the source and bundle path; use --rebuild-from convert only to replace an existing bundle",
+    "compile": "review the selected content and UtterPlan diagnostics; use --rebuild-from compile to rerun deliberately",
     "render_plan": "check RenderProfile role coverage and review the selected RenderProfile",
-    "render": "review VoiceRender's partial artifacts; use --reset-stale-output only when a reset is intended",
-    "compose": "inspect rendered artifacts; use --restart-from compose to rebuild deliberately",
-    "export": "check AudioExport, FFmpeg, FFprobe, and the final path; use --restart-from export to re-export deliberately",
+    "render": "review VoiceRender's partial artifacts; use --rebuild-from render only when a reset is intended",
+    "compose": "inspect rendered artifacts; use --rebuild-from compose to rebuild deliberately",
+    "export": "check AudioExport, FFmpeg, FFprobe, and the final path; use --rebuild-from export to re-export deliberately",
 }
 
 
@@ -225,7 +225,7 @@ def plan_render_intent(
     )
     source_is_bundle = _is_bundle_source(resolved.source)
     if source_is_bundle and "convert" in forced:
-        raise ValueError("--force-stage convert cannot be used when SOURCE is already a bundle")
+        raise ValueError("--rebuild-from convert cannot be used when SOURCE is already a bundle")
     if "convert" in forced and inspect_source_kind(resolved.source) != resolved.kind:
         raise ValueError("source kind does not match the intent; refusing to reconvert it")
     preflight_export(resolved.output_format, ffmpeg=controls.ffmpeg, ffprobe=controls.ffprobe)
@@ -272,7 +272,7 @@ def render_intent(
     )
     source_is_bundle = _is_bundle_source(resolved.source)
     if source_is_bundle and "convert" in forced:
-        raise ValueError("--force-stage convert cannot be used when SOURCE is already a bundle")
+        raise ValueError("--rebuild-from convert cannot be used when SOURCE is already a bundle")
     if "convert" in forced and inspect_source_kind(resolved.source) != resolved.kind:
         raise ValueError("source kind does not match the intent; refusing to reconvert it")
     preflight_export(resolved.output_format, ffmpeg=controls.ffmpeg, ffprobe=controls.ffprobe)

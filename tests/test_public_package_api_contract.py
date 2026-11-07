@@ -54,48 +54,68 @@ def test_core_specialist_public_apis_are_importable(package: str, symbols: tuple
     assert not missing, f"{package} is missing public root APIs: {', '.join(missing)}"
 
 
-def test_optional_audioexport_public_api_is_importable() -> None:
-    module = pytest.importorskip("audioexport")
+def test_audioexport_core_public_api_is_importable() -> None:
+    import audioexport as module
 
     assert callable(getattr(module, "export_bundle", None))
 
 
-def test_readio_status_api_is_public() -> None:
+def test_readio_public_api_centers_on_unified_workflows() -> None:
     from readio import api
 
     for symbol in (
-        "BundleStatus",
-        "NextAction",
-        "StageStatus",
-        "StatusRequest",
-        "VariantStatus",
+        "WorkflowPlan",
+        "WorkflowStep",
+        "WorkflowEvent",
+        "WorkflowState",
+        "WorkspaceIntent",
         "runtime_status",
         "set_runtime_providers",
         "reset_runtime_providers",
     ):
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
-    assert callable(api.Readio.status)
+
+    for stage_type in (
+        "BundleStatus",
+        "ComposeRequest",
+        "CreateWorkspaceRequest",
+        "ExportRequest",
+        "PlanRequest",
+        "PipelineEvent",
+        "PipelineResult",
+        "PipelineStage",
+        "RenderExecutionOptions",
+        "RenderIntentPlan",
+        "RenderIntentResult",
+        "RenderPlanRequest",
+        "RenderPlanResult",
+        "ResolvedRenderIntent",
+        "RunRequest",
+        "StatusRequest",
+        "VoiceRenderRequest",
+    ):
+        assert not hasattr(api, stage_type), f"stage-oriented type {stage_type} leaked from readio.api"
+
+    assert callable(api.Readio.speak)
+    assert callable(api.Readio.render)
+    assert callable(api.Readio.inspect)
 
 
 def test_readio_render_intent_api_is_public() -> None:
     from readio import api
 
     for symbol in (
-        "RenderExecutionOptions",
-        "RenderIntentPlan",
-        "RenderIntentResult",
-        "PipelineStage",
-        "ResolvedRenderIntent",
+        "INTENT_SCHEMA",
+        "InputIntent",
+        "WorkspaceIntent",
+        "RenderIntent",
         "create_book_intent",
         "create_document_intent",
         "load_render_intent",
         "save_render_intent",
+        "parse_render_intent",
     ):
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
-    assert callable(api.Readio.resolve_intent)
-    assert callable(api.Readio.plan_render_intent)
-    assert callable(api.Readio.render_intent)
-
 
 def test_readio_source_aware_profile_api_is_public() -> None:
     from readio import api
@@ -111,3 +131,35 @@ def test_readio_source_aware_profile_api_is_public() -> None:
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
     assert callable(api.create_document_profile)
     assert callable(api.inspect_document_voice_requirements)
+
+
+def test_readio_workflow_foundation_types_are_public() -> None:
+    from readio import api
+
+    for symbol in (
+        "WorkspaceMode",
+        "WorkspacePolicy",
+        "PlanningOptions",
+        "VoiceRenderOptions",
+        "CompositionOptions",
+        "ExportOptions",
+        "SpeakRequest",
+        "ReadioError",
+        "ReadioStageError",
+        "RenderRequest",
+        "RenderResult",
+        "OutputCollisionError",
+        "WorkflowAction",
+        "WorkflowError",
+        "WorkflowReplanError",
+        "WorkflowResolutionError",
+        "WorkflowStageError",
+        "WorkflowStateError",
+        "WorkflowEvent",
+        "WorkflowInspectionState",
+        "WorkflowPlan",
+        "WorkflowStage",
+        "WorkflowState",
+        "WorkflowStep",
+    ):
+        assert hasattr(api, symbol), f"readio.api is missing {symbol}"

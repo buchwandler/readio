@@ -1,22 +1,13 @@
 from __future__ import annotations
 
-import json
-import shlex
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from readio import cli
 from readio import status as status_module
-from readio.api import (
-    BundleStatus,
-    NextAction,
-    StageStatus,
-    StatusRequest,
-    WorkspaceRef,
-)
+from readio.api.types import StatusRequest
 
 
 def _install_provider_fakes(monkeypatch: pytest.MonkeyPatch, variants: tuple[Any, ...]) -> None:
@@ -138,7 +129,7 @@ def test_exact_variant_filter_and_partial_render_next_action(
     assert result.next_actions[0].argv[5] == exact
 
 
-def test_compose_complete_recommends_optional_export_with_required_output(
+def test_compose_complete_recommends_export_with_required_output(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     variant = SimpleNamespace(
@@ -203,80 +194,6 @@ def test_inspection_errors_are_stage_local_and_status_does_not_create_files(
     assert result.next_actions[0].requires == ("profile",)
 
 
-def _cli_status_result(root: Path) -> BundleStatus:
-    action = NextAction(
-        stage="compile",
-        reason="No compile output exists.",
-        argv=("readio", "bundle", "compile", str(root), "--chapters", "5-17"),
-    )
-    return BundleStatus(
-        workspace=WorkspaceRef(root, "book"),
-        compile=StageStatus("compile", "not_started", "No compile output exists."),
-        variants=(),
-        next_actions=(action,),
-    )
-
-
-def test_status_cli_json_preserves_request_and_argv(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    root = tmp_path / "story.ssmd-bundle"
-    exact_variant = "Narrator / test--v.2"
-    captured: dict[str, Any] = {}
-    result = _cli_status_result(root)
-
-    class FakeReadio:
-        def status(self, workspace: Path, request: StatusRequest) -> BundleStatus:
-            captured["workspace"] = workspace
-            captured["request"] = request
-            return result
-
-    monkeypatch.setattr(cli.api, "Readio", FakeReadio)
-    exit_code = cli.main(
-        [
-            "bundle",
-            "status",
-            str(root),
-            "--profile",
-            "narrator.renderprofile.toml",
-            "--variant",
-            exact_variant,
-            "--chapters",
-            "5-17",
-            "-vv",
-            "--json",
-        ]
-    )
-
-    output = capsys.readouterr()
-    payload = json.loads(output.out)
-    assert exit_code == 0
-    assert payload["ok"] is True
-    assert payload["result"]["compile"]["state"] == "not_started"
-    assert payload["result"]["next_actions"][0]["argv"][-1] == "5-17"
-    assert captured["request"].variant == exact_variant
-    assert captured["request"].chapters == "5-17"
-    assert captured["request"].profile == Path("narrator.renderprofile.toml")
-    assert "command.end" in output.err
-    assert "elapsed_ms=" in output.err
-
-
-def test_status_cli_human_output_shell_quotes_next_command(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    root = tmp_path / "story title.ssmd-bundle"
-    result = _cli_status_result(root)
-
-    class FakeReadio:
-        def status(self, workspace: Path, request: StatusRequest) -> BundleStatus:
-            return result
-
-    monkeypatch.setattr(cli.api, "Readio", FakeReadio)
-    assert cli.main(["bundle", "status", str(root), "--chapters", "5-17", "-v"]) == 0
-    output = capsys.readouterr()
-    assert "Kind: book" in output.out
-    assert shlex.join(result.next_actions[0].argv) in output.out
-    assert "elapsed_ms=" in output.err
 
 
 def test_render_not_started_recommends_render_without_composition_inspection(

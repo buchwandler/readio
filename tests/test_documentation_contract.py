@@ -29,8 +29,8 @@ def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.Argument
 
 def test_documented_readio_commands_exist_in_the_current_cli() -> None:
     commands = _subcommands(build_parser())
-    bundle_commands = _subcommands(commands["bundle"])
-    assert "status" in bundle_commands
+    assert "bundle" not in commands
+    assert {"intent", "render", "status", "speak"} <= set(commands)
 
     for relative_path in CURRENT_DOCS:
         text = (ROOT / relative_path).read_text(encoding="utf-8")
@@ -45,11 +45,7 @@ def test_documented_readio_commands_exist_in_the_current_cli() -> None:
             if command.startswith("-"):
                 continue
             assert command in commands, f"{relative_path} documents unknown command: {command}"
-            if command == "bundle" and len(parts) >= 3 and not parts[2].startswith("-"):
-                assert parts[2] in bundle_commands, (
-                    f"{relative_path} documents unknown bundle command: {parts[2]}"
-                )
-
+            assert command != "bundle", f"{relative_path} documents removed Readio bundle stage commands"
 
 def test_workflow_docs_use_one_bundle_contract() -> None:
     selected_docs = (
