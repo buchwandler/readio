@@ -105,6 +105,8 @@ def create_workspace(
         force=options.force,
         on_progress=on_progress,
     )
+    if result.output is None:
+        raise RuntimeError("SSMDConvert did not return an output bundle")
     return resolve_workspace(result.output)
 
 

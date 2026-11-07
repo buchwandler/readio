@@ -71,6 +71,15 @@ def _require_writable_parent(path: Path, label: str) -> None:
         raise PermissionError(f"{label} parent is not writable: {parent}")
 
 
+def _resolve_output_asset(value: Path | None, label: str, *, base: Path) -> Path | None:
+    if value is None:
+        return None
+    resolved = _absolute_path(value, base=base)
+    if not resolved.is_file():
+        raise FileNotFoundError(f"output.{label} file does not exist: {resolved}")
+    return resolved
+
+
 def _resolved_kind(source: Path, bundle: Path | None) -> WorkspaceKind:
     if _is_bundle_path(source):
         return resolve_workspace(source).kind
@@ -130,6 +139,7 @@ def resolve_render_intent(
         if intent.workspace.bundle is not None
         else None
     )
+    workspace_mode: Literal["temporary", "bundle"]
     if source_is_bundle:
         requested_bundle = (
             _absolute_path(bundle, base=cwd) if bundle is not None else configured_bundle
@@ -160,11 +170,7 @@ def resolve_render_intent(
     chapters_value = chapters if chapters is not None else intent.input.chapters
     if chapters_value is None:
         chapters_value = "all"
-    if language is not None:
-        language_value = language
-    else:
-        language_value = intent.input.language
-
+    language_value: str | None = language if language is not None else intent.input.language
     actual_kind = _resolved_kind(source_path, bundle_path)
     if intent.kind is not None and intent.kind != actual_kind:
         raise ValueError(
@@ -238,22 +244,16 @@ def resolve_render_intent(
     )
     validate_render_intent(effective_intent)
 
-    for label, path in (
-        ("cover", effective_intent.output.cover),
-        ("timeline", effective_intent.output.timeline),
-    ):
-        if path is not None:
-            resolved_path = _absolute_path(path, base=config_dir)
-            if not resolved_path.is_file():
-                raise FileNotFoundError(f"output.{label} file does not exist: {resolved_path}")
-            effective_intent = replace(
-                effective_intent,
-                output=replace(
-                    effective_intent.output,
-                    **{label: resolved_path},
-                ),
-            )
-
+    effective_intent = replace(
+        effective_intent,
+        output=replace(
+            effective_intent.output,
+            cover=_resolve_output_asset(effective_intent.output.cover, "cover", base=config_dir),
+            timeline=_resolve_output_asset(
+                effective_intent.output.timeline, "timeline", base=config_dir
+            ),
+        ),
+    )
     return ResolvedRenderIntent(
         intent=effective_intent,
         config_path=config,

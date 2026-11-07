@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import audiocompose  # type: ignore[import-not-found]
 import utterplan  # type: ignore[import-not-found]
@@ -79,7 +79,7 @@ class IntentStageError(ReadioError):
         stage: str,
         *,
         package: str,
-        workspace: Path,
+        workspace: Path | None,
         profile: Path,
         variant: str | None,
         detail: str,
@@ -89,7 +89,7 @@ class IntentStageError(ReadioError):
         fields = [
             f"Stage: {label}",
             f"Package: {package}",
-            f"Bundle: {workspace}",
+            f"Bundle: {workspace if workspace is not None else '<temporary>'}",
             f"Profile: {profile}",
         ]
         if variant is not None:
@@ -147,14 +147,16 @@ def _planner_config(resolved: ResolvedRenderIntent) -> Any | None:
     linguistics = utterplan.LinguisticsConfig(
         use_spacy=use_spacy,
         spacy_model=planning.spacy_model,
-        spacy_model_size=planning.spacy_model_size,
+        spacy_model_size=cast(Literal["sm", "md", "lg", "trf"] | None, planning.spacy_model_size),
         require_spacy=planning.require_spacy,
     )
     return utterplan.PlannerConfig(
         language=resolved.language,
-        text_preparation=planning.text_preparation,
-        overlap_mode=planning.overlap_mode,
-        renderability_mode=planning.renderability_mode,
+        text_preparation=cast(
+            Literal["auto", "ssmd", "spokenform", "identity"], planning.text_preparation
+        ),
+        overlap_mode=cast(Literal["snap", "strict"], planning.overlap_mode),
+        renderability_mode=cast(Literal["strict", "repair"], planning.renderability_mode),
         linguistics=linguistics,
     )
 
@@ -163,10 +165,10 @@ def _compose_options(resolved: ResolvedRenderIntent) -> Any:
     compose = resolved.intent.compose
     return audiocompose.BundleComposeOptions(
         sample_rate=compose.sample_rate,
-        clip_policy=compose.clip_policy,
+        clip_policy=cast(Literal["clamp", "warn", "error"] | None, compose.clip_policy),
         target_lufs=compose.target_lufs,
         true_peak_ceiling_dbtp=compose.true_peak_ceiling_dbtp,
-        peak_policy=compose.peak_policy,
+        peak_policy=cast(Literal["reduce_gain", "error"] | None, compose.peak_policy),
     )
 
 
@@ -232,11 +234,12 @@ def plan_render_intent(
     _planner_config(resolved)
     _compose_options(resolved)
 
-    bundle_exists = resolved.bundle.exists()
+    bundle_path = resolved.bundle
+    bundle_exists = bundle_path is not None and bundle_path.exists()
     status = None
-    if bundle_exists:
+    if bundle_path is not None and bundle_exists:
         status = service.status(
-            resolved.bundle,
+            bundle_path,
             StatusRequest(
                 chapters=resolved.chapters,
                 profile=resolved.profile,
@@ -283,7 +286,7 @@ def render_intent(
     if source_is_bundle:
         workspace = service.resolve_workspace(resolved.source)
         _notify_reuse(on_progress, workspace)
-    elif resolved.bundle.exists() and "convert" not in forced:
+    elif resolved.bundle is not None and resolved.bundle.exists() and "convert" not in forced:
         workspace = service.resolve_workspace(resolved.bundle)
         _notify_reuse(on_progress, workspace)
     else:

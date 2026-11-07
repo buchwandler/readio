@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import utterplan  # type: ignore[import-not-found]
 
@@ -102,7 +102,7 @@ def planner_config(language: str) -> Any:
 def compile_document(
     text: str,
     *,
-    input_format: str,
+    input_format: Literal["ssmd", "plain"],
     config: Any,
     on_progress: ProgressCallback = None,
 ) -> Any:

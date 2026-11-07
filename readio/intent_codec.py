@@ -8,7 +8,7 @@ import tempfile
 from collections.abc import Mapping
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, Literal, cast, overload
 
 try:
     tomllib = import_module("tomllib")
@@ -18,6 +18,7 @@ from readio.intent import (
     INTENT_SCHEMA,
     ComposeIntent,
     InputIntent,
+    IntentKind,
     OutputIntent,
     PlanningIntent,
     RenderIntent,
@@ -113,7 +114,7 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
         not isinstance(kind_value, str) or kind_value not in ("book", "document")
     ):
         raise ValueError("kind must be 'book' or 'document'")
-    kind = kind_value
+    kind = cast(IntentKind | None, kind_value)
 
     input_data = _table(data.get("input", {}), "input", {"source", "chapters", "language"})
     workspace_data = _table(data.get("workspace", {}), "workspace", {"mode", "bundle"})
@@ -171,7 +172,10 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
         language=_string(input_data.get("language"), "input.language", optional=True),
     )
     workspace = WorkspaceIntent(
-        mode=_string(workspace_data.get("mode", "temporary"), "workspace.mode"),
+        mode=cast(
+            Literal["temporary", "bundle"],
+            _string(workspace_data.get("mode", "temporary"), "workspace.mode"),
+        ),
         bundle=_path(workspace_data.get("bundle"), "workspace.bundle"),
     )
     voice_intent = VoiceIntent(
@@ -357,7 +361,9 @@ def dump_render_intent(intent: RenderIntent, *, minimal: bool = False) -> str:
     ]
     lines.extend(_table_lines("compose", compose_values))
 
-    default_format = {"book": "m4b", "document": "mp3"}.get(intent.kind)
+    default_format = (
+        {"book": "m4b", "document": "mp3"}.get(intent.kind) if intent.kind is not None else None
+    )
     default_output = _default_intent_output_path(intent)
     output_values: list[tuple[str, object]] = []
     if not (minimal and (intent.output.format == "auto" or intent.output.format == default_format)):

@@ -214,7 +214,11 @@ def _plan_step(
     explicit_rebuild: bool | None = None,
 ) -> Any:
     if explicit_rebuild is None:
-        start = _STAGE_INDEX.get(request.rebuild_from, len(_STAGE_ORDER))
+        start = (
+            _STAGE_INDEX[request.rebuild_from]
+            if request.rebuild_from is not None
+            else len(_STAGE_ORDER)
+        )
         explicit_rebuild = _STAGE_INDEX[stage] >= start
     safe = _replacement_safe(inspection) if replacement_safe is None else replacement_safe
     return plan_workflow_step(

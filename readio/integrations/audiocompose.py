@@ -27,6 +27,7 @@ def compose_bundle(
     *,
     on_progress: ProgressCallback = None,
 ) -> Any:
+    options: Any | None = None
     if request.output_policy is not None and request.options is not None:
         raise ValueError("pass either output_policy or options, not both")
 

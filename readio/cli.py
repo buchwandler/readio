@@ -12,7 +12,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from readio.api.types import DiagnosticsMode
 
 from . import __version__, api
 from .cli_control import CLIUsageError, add_control_commands, run_control_command
@@ -630,7 +632,7 @@ def _render_request(args: argparse.Namespace, service: api.Readio) -> api.Render
         replace_output=bool(getattr(args, "replace_output", False)),
         planning=api.PlanningOptions(
             planner_config=_planner_config(resolved),
-            diagnostics=resolved.intent.planning.diagnostics,
+            diagnostics=cast(DiagnosticsMode, resolved.intent.planning.diagnostics),
         ),
         voice_render=api.VoiceRenderOptions(
             speech=resolved.intent.render.speech,

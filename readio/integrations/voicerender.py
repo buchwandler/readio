@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal, cast
 
 import voicerender  # type: ignore[import-not-found]
 
@@ -11,6 +11,12 @@ from readio.api.types import VoiceRenderRequest
 from readio.workspace import WorkspaceRef
 
 EventCallback = Callable[[Any], None] | None
+
+
+def _emphasis_policy(value: str) -> Literal["reject", "defer-to-compose"]:
+    if value not in ("reject", "defer-to-compose"):
+        raise ValueError("emphasis_policy must be 'reject' or 'defer-to-compose'")
+    return cast(Literal["reject", "defer-to-compose"], value)
 
 
 def render_bundle(
@@ -30,7 +36,7 @@ def render_bundle(
         force=request.force,
         reset_stale=request.reset_stale_output,
         fail_fast=request.fail_fast,
-        emphasis_policy=request.emphasis_policy,
+        emphasis_policy=_emphasis_policy(request.emphasis_policy),
         on_progress=on_event,
     )
 

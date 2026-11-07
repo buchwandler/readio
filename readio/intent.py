@@ -253,8 +253,7 @@ def _create_intent(
         raise ValueError("input.chapters must be 'all' or a comma-separated chapter selector")
     if not isinstance(speech, str) or not speech.strip():
         raise ValueError("render.speech must be a non-empty string")
-    if not isinstance(emphasis_policy, str) or not emphasis_policy.strip():
-        raise ValueError("render.emphasis_policy must be a non-empty string")
+    _choice(emphasis_policy, ("reject", "defer-to-compose"), "render.emphasis_policy")
     if not isinstance(output_format, str) or not output_format.strip():
         raise ValueError("output.format must be a non-empty string")
     if kind == "book" and output_format.casefold() not in {"auto", "m4b"}:
@@ -502,7 +501,7 @@ def validate_intent_shape(intent: RenderIntent) -> None:
     if type(intent.planning.require_spacy) is not bool:
         raise TypeError("planning.require_spacy must be a boolean")
     _nonempty(intent.render.speech, "render.speech")
-    _nonempty(intent.render.emphasis_policy, "render.emphasis_policy")
+    _choice(intent.render.emphasis_policy, ("reject", "defer-to-compose"), "render.emphasis_policy")
     _choice(intent.compose.emphasis_policy, COMPOSE_EMPHASIS_POLICIES, "compose.emphasis_policy")
     _positive_int(intent.compose.sample_rate, "compose.sample_rate")
     for name, value in (
@@ -535,8 +534,8 @@ def validate_intent_shape(intent: RenderIntent) -> None:
             raise ValueError("output.bitrate must not be empty")
         if isinstance(intent.output.bitrate, int) and intent.output.bitrate <= 0:
             raise ValueError("output.bitrate must be positive")
-    for key, value in intent.output.metadata.items():
-        if not isinstance(key, str) or not key.strip() or not isinstance(value, str):
+    for key, metadata_value in intent.output.metadata.items():
+        if not isinstance(key, str) or not key.strip() or not isinstance(metadata_value, str):
             raise ValueError("output.metadata must map non-empty strings to strings")
 
 

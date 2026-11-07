@@ -143,6 +143,9 @@ def test_parse_rejects_invalid_field_types_and_values() -> None:
     with pytest.raises(ValueError, match="planning.diagnostics"):
         parse_render_intent({"schema": INTENT_SCHEMA, "planning": {"diagnostics": "quiet"}})
 
+    with pytest.raises(ValueError, match="render.emphasis_policy"):
+        parse_render_intent({"schema": INTENT_SCHEMA, "render": {"emphasis_policy": "invalid"}})
+
     with pytest.raises(ValueError, match="chapters"):
         parse_render_intent(
             {
