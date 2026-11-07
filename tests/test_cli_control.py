@@ -149,8 +149,8 @@ def test_profile_document_create_translates_assignments_and_emits_json(
     }
     payload = cast(dict[str, Any], json.loads(capsys.readouterr().out))
     result = cast(dict[str, Any], payload["result"])
-    assert result["source"] == str(source)
-    assert result["output"] == str(output)
+    assert result["source"] == source.as_posix()
+    assert result["output"] == output.as_posix()
     assert result["bound_roles"] == ["narrator", "host"]
     assert result["aliases"] == {"analyst": "narrator"}
     assert result["profile_id"] == "profile-1"
