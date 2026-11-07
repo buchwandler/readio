@@ -786,7 +786,7 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, Path):
-        return str(value)
+        return value.as_posix()
     if is_dataclass(value) and not isinstance(value, type):
         return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, Mapping):
