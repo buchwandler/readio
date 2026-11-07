@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -473,7 +474,6 @@ def test_runtime_speech_has_no_readio_engine_import() -> None:
 
 
 def test_play_audio_uses_generic_mono_output_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    import sounddevice
 
     captured: dict[str, Any] = {}
 
@@ -503,7 +503,7 @@ def test_play_audio_uses_generic_mono_output_stream(monkeypatch: pytest.MonkeyPa
         def close(self) -> None:
             captured["closed"] = True
 
-    monkeypatch.setattr(sounddevice, "OutputStream", OutputStream)
+    monkeypatch.setitem(sys.modules, "sounddevice", SimpleNamespace(OutputStream=OutputStream))
     audio = np.array([0.25, -0.5], dtype=np.float32)
     speech.play_audio(audio, 22050)
 
