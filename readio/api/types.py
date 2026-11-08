@@ -12,7 +12,6 @@ import numpy as np
 
 from readio.workspace import (
     CreateWorkspaceRequest,
-    WorkspaceKind,
     WorkspaceMode,
     WorkspaceRef,
 )
@@ -197,32 +196,6 @@ class RenderExecutionOptions:
     ffprobe: Path | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class RenderIntentPlan:
-    """Read-only status and execution outline for a resolved intent."""
-
-    resolved: Any
-    status: BundleStatus | None
-    stages: tuple[str, ...]
-    convert_required: bool
-    output_exists: bool
-
-
-@dataclass(frozen=True, slots=True)
-class RenderIntentResult:
-    """Final output and specialist stage results for an intent-driven render."""
-
-    workspace: WorkspaceRef
-    kind: WorkspaceKind
-    source: Path
-    profile: Path
-    variant: str
-    output: Path
-    pipeline: PipelineResult
-    converted: bool
-    elapsed_seconds: float
-
-
 Metadata = Mapping[str, str]
 
 
@@ -320,6 +293,24 @@ class SpeakResult:
     def sample_rate(self) -> int:
         """Compatibility shortcut for callers that only need basic playback metadata."""
         return self.audio.sample_rate
+
+
+@dataclass(frozen=True, slots=True)
+class SourceChapter:
+    number: int
+    title: str
+    source_id: str | None = None
+    parent_id: str | None = None
+    level: int | None = None
+    char_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceInspection:
+    source: Path
+    kind: Literal["document", "book"]
+    metadata: Mapping[str, object] = dataclass_field(default_factory=dict)
+    chapters: tuple[SourceChapter, ...] = ()
 
 
 @dataclass(frozen=True)

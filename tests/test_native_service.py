@@ -11,7 +11,6 @@ from readio.api.types import (
     ComposeRequest,
     ExportRequest,
     PlanRequest,
-    RenderExecutionOptions,
     RenderPlanRequest,
     RenderPlanResult,
     RunRequest,
@@ -91,44 +90,40 @@ def test_run_propagates_exact_projection_variant_through_one_pipeline(
     assert calls["export"] == projected_variant
 
 
-def test_public_render_intent_api_delegates_options_and_overrides(
+def test_public_render_intent_uses_the_canonical_request_workflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     intent = create_document_intent("article.md", profile="article.renderprofile.toml")
-    options = RenderExecutionOptions(force_stages=("render",))
     progress = print
+    request = object()
     marker = object()
     calls: dict[str, object] = {}
+    service = Readio()
 
-    def execute(
-        service: Readio,
-        received_intent: object,
-        received_options: RenderExecutionOptions | None,
-        *,
-        on_progress: object,
-        **overrides: object,
-    ) -> object:
-        calls.update(
-            service=service,
-            intent=received_intent,
-            options=received_options,
-            on_progress=on_progress,
-            overrides=overrides,
-        )
+    def build(received_intent: object, **overrides: object) -> object:
+        calls.update(intent=received_intent, overrides=overrides)
+        return request
+
+    def render(received_request: object, *, dry_run: bool, on_progress: object) -> object:
+        calls.update(request=received_request, dry_run=dry_run, on_progress=on_progress)
         return marker
 
-    monkeypatch.setattr(service_module, "_render_intent", execute)
-    service = Readio()
+    monkeypatch.setattr(service, "request_from_intent", build)
+    monkeypatch.setattr(service, "render", render)
+    output = tmp_path / "article.mp3"
+
     result = service.render_intent(
         intent,
-        options,
+        dry_run=True,
         on_progress=progress,
-        output=tmp_path / "article.mp3",
+        output=output,
     )
 
     assert result is marker
-    assert calls["service"] is service
-    assert calls["intent"] is intent
-    assert calls["options"] is options
-    assert calls["on_progress"] is progress
-    assert calls["overrides"] == {"output": tmp_path / "article.mp3"}
+    assert calls == {
+        "intent": intent,
+        "overrides": {"output": output},
+        "request": request,
+        "dry_run": True,
+        "on_progress": progress,
+    }

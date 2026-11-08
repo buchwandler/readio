@@ -2,6 +2,22 @@
 
 `readio.api` is the user-facing orchestration gateway. Its primary workflow methods are `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. Specialist packages own their stage APIs, schemas, validation, artifacts, and reports; Readio normalizes workflow planning and execution without re-exporting stage request types as its primary API.
 
+## Source inspection
+
+`inspect_source()` and `Readio.inspect_source()` expose SSMDConvert's normalized, read-only source inspection. They return a `SourceInspection` with the resolved source path, kind, metadata, and (for books) a tuple of `SourceChapter` records. This does not create a bundle or render workspace.
+
+```python
+from pathlib import Path
+from readio.api import Readio
+
+inspection = Readio().inspect_source(Path("novel.epub"))
+print(inspection.kind, inspection.metadata)
+for chapter in inspection.chapters:
+    print(chapter.number, chapter.title, chapter.source_id)
+```
+
+Use `inspect_source()` when a caller needs source metadata or chapter inventory before deciding which workflow to request. Use `Readio.inspect(RenderRequest)` to inspect specialist workflow state; it remains read-only as well.
+
 ## Semantic speech
 
 ```python
@@ -74,6 +90,25 @@ intent = create_document_intent(
 )
 save_render_intent(intent, Path("article.readio.toml"))
 ```
+
+## Converting and running saved intents
+
+`render_request_from_intent()` resolves a saved `RenderIntent` and maps its values to the canonical `RenderRequest`. Paths in the intent are resolved relative to its config file when `config_path` is provided. The bridge does not execute specialist stages.
+
+```python
+from pathlib import Path
+from readio.api import Readio, load_render_intent, render_request_from_intent
+
+intent_path = Path("article.readio.toml")
+intent = load_render_intent(intent_path)
+request = render_request_from_intent(intent, config_path=intent_path)
+service = Readio()
+
+plan = service.inspect(request)
+result = service.render(request)
+```
+
+`service.request_from_intent()` is the instance equivalent. `service.inspect_intent()` and `service.render_intent()` are convenience wrappers over the same request bridge and canonical workflows. For example, `service.render_intent(intent, dry_run=True)` returns a `WorkflowPlan`; it does not run conversion or rendering. Persistent book requests convert the full source inventory, while chapter selection limits downstream processing.
 
 ## Management delegates
 

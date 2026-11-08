@@ -2,6 +2,10 @@
 
 Readio is a workflow gateway over specialist public APIs. A visible, user-owned `readio.render.v2` intent describes a complete request; the separate VoiceRender RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces, whose manifest determines whether content is a book or document. UtterPlan, VoiceRender, AudioCompose, and AudioExport own their stage contracts and perform kind-sensitive dispatch. File renders use temporary storage by default; a persistent bundle is always explicit.
 
+## Public workflow API
+
+`readio.api` is the public gateway for source and render workflows. `inspect_source()` returns normalized source metadata and chapter inventory without creating a workspace. `render_request_from_intent()` translates persisted user configuration into the canonical `RenderRequest`; it does not orchestrate stages itself. `Readio.inspect(RenderRequest)` and `Readio.render(RenderRequest)` are the shared read-only inspection and execution workflows. The `inspect_intent()` and `render_intent()` convenience methods delegate through that same request mapping and workflow rather than maintaining a second stage runner. Specialist stage request schemas remain owned by their packages.
+
 ## Intent-driven bundle workflow
 
 The intent and profile live at user-selected paths, typically outside a persistent bundle. Readio resolves paths, validates configuration, and inspects specialist state before execution; temporary runs use a unique system temp directory and clean it on success or failure. Readio does not add workflow state to a workspace.

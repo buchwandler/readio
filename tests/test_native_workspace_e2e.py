@@ -10,12 +10,10 @@ import voicerender
 from ebooklib import epub
 from renderplan import RenderProfile, RoleProfile
 
-from readio.api import Readio, create_book_intent, create_document_intent
-from readio.api import service as service_module
+from readio.api import Readio
 from readio.api.types import (
     ComposeRequest,
     PlanRequest,
-    RenderExecutionOptions,
     RenderPlanRequest,
     RunRequest,
     VoiceRenderRequest,
@@ -121,83 +119,3 @@ def test_bundle_kinds_use_the_same_model_free_full_run_api(
     assert workspace.root.name.endswith(".ssmd-bundle")
     assert not (workspace.root / ".readio").exists()
     assert not (workspace.root / "project.json").exists()
-
-
-@pytest.mark.parametrize(
-    ("kind", "output_format"),
-    [("book", "m4b"), ("document", "mp3")],
-)
-def test_render_intent_orchestrates_book_m4b_and_document_mp3(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    kind: Literal["book", "document"],
-    output_format: Literal["m4b", "mp3"],
-) -> None:
-    source = tmp_path / ("story.epub" if kind == "book" else "story.txt")
-    if kind == "book":
-        _write_epub(source)
-    else:
-        source.write_text("A short document for intent rendering.", encoding="utf-8")
-    profile = tmp_path / "narrator.renderprofile.toml"
-    _write_profile(profile)
-    monkeypatch.setattr(voicerender, "validate_render_profile", voicerender.load_render_profile)
-    output = source.with_suffix(f".{output_format}")
-    observed: dict[str, Any] = {}
-    projection_variant = "VoiceRender/exact-variant.from-profile"
-
-    def render_bundle(_path: Path, **kwargs: Any) -> object:
-        observed["render_variant"] = kwargs["variant"]
-        return SimpleNamespace(rendered=True)
-
-    def compose_bundle(_path: Path, **kwargs: Any) -> object:
-        observed["compose_variant"] = kwargs["variant"]
-        return SimpleNamespace(composed=True)
-
-    def export_bundle(_workspace: Any, request: Any) -> object:
-        observed["export_variant"] = request.variant
-        observed["format"] = request.format
-        request.output.write_bytes(b"test audio")
-        return SimpleNamespace(output=request.output, exported=True)
-
-    monkeypatch.setattr(
-        "readio.intent_resolver.supported_formats",
-        lambda: {
-            "m4b": SimpleNamespace(extension=".m4b"),
-            "mp3": SimpleNamespace(extension=".mp3"),
-        },
-    )
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(voicerender, "render_bundle", render_bundle)
-    monkeypatch.setattr(audiocompose, "compose_bundle", compose_bundle)
-    monkeypatch.setattr(service_module, "export", export_bundle)
-    monkeypatch.setattr(
-        service_module,
-        "render_plan",
-        lambda _workspace, _request, **_kwargs: SimpleNamespace(
-            native="projected", variant=projection_variant
-        ),
-    )
-
-    intent = (
-        create_book_intent(
-            source, profile=profile, language="en-US", bundle=tmp_path / "story.ssmd-bundle"
-        )
-        if kind == "book"
-        else create_document_intent(
-            source, profile=profile, language="en-US", bundle=tmp_path / "story.ssmd-bundle"
-        )
-    )
-    result = Readio().render_intent(intent, RenderExecutionOptions())
-
-    assert result.kind == kind
-    assert result.variant == projection_variant
-    assert result.output == output
-    assert output.read_bytes() == b"test audio"
-    assert result.pipeline.export.exported is True
-    assert observed == {
-        "render_variant": projection_variant,
-        "compose_variant": projection_variant,
-        "export_variant": projection_variant,
-        "format": output_format,
-    }
-    assert not (result.workspace.root / ".readio").exists()

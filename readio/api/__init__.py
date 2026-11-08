@@ -77,7 +77,7 @@ from readio.voices import (
 )
 from readio.workspace import WorkspaceMode, WorkspacePolicy, WorkspaceRef
 
-from .service import Readio
+from .service import Readio, inspect_source, render_request_from_intent
 from .types import (
     AudioBuffer,
     CompositionOptions,
@@ -86,6 +86,8 @@ from .types import (
     RebuildStage,
     RenderRequest,
     RenderResult,
+    SourceChapter,
+    SourceInspection,
     SpeakRequest,
     SpeakResult,
     VoiceRenderOptions,
@@ -122,6 +124,8 @@ __all__ = [
     "RenderResult",
     "RoleAlias",
     "RoleVoiceBinding",
+    "SourceChapter",
+    "SourceInspection",
     "SpeakRequest",
     "SpeakResult",
     "VoiceCloneRequest",
@@ -155,6 +159,7 @@ __all__ = [
     "inspect_document_voice_requirements",
     "inspect_engine",
     "inspect_engine_model",
+    "inspect_source",
     "inspect_voice",
     "install_engine_model",
     "list_engine_models",
@@ -169,6 +174,7 @@ __all__ = [
     "refresh_profile",
     "remove_engine_model",
     "remove_profile_role",
+    "render_request_from_intent",
     "reset_runtime_providers",
     "runtime_status",
     "save_render_intent",

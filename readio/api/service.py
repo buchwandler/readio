@@ -3,43 +3,48 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, cast
 
 from readio.api.types import (
     BundleStatus,
     ComposeRequest,
+    CompositionOptions,
+    DiagnosticsMode,
+    ExportOptions,
     ExportRequest,
     PipelineEvent,
     PipelineResult,
+    PlanningOptions,
     PlanRequest,
+    RebuildStage,
     RenderExecutionOptions,
-    RenderIntentPlan,
-    RenderIntentResult,
     RenderPlanRequest,
     RenderRequest,
+    RenderResult,
     RunRequest,
+    SourceChapter,
+    SourceInspection,
     SpeakRequest,
     SpeakResult,
     StatusRequest,
+    VoiceRenderOptions,
     VoiceRenderRequest,
     WorkflowEvent,
     WorkflowPlan,
 )
 from readio.diagnostics import log_event, logger_for, timed_span
+from readio.errors import ReadioError
+from readio.integrations.ssmdconvert import inspect_source as _inspect_source_with_ssmdconvert
 from readio.intent import RenderIntent
 from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
 from readio.pipeline import compose, export, plan, render, render_plan
 from readio.playback import play_audio
 from readio.progress import normalize_progress
-from readio.render_service import (
-    plan_render_intent as _plan_render_intent,
-)
-from readio.render_service import (
-    render_intent as _render_intent,
-)
+from readio.render_service import _compose_options, _planner_config
 from readio.speech import speak_request as _speak_request
 from readio.status import inspect_status
 from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
@@ -52,8 +57,163 @@ ProgressHandler = Callable[[PipelineEvent], None] | None
 _LOGGER = logger_for("service")
 
 
+def inspect_source(source: str | Path) -> SourceInspection:
+    """Inspect a source or bundle without creating a render workspace."""
+    try:
+        source_path = Path(source).expanduser().resolve(strict=True)
+    except FileNotFoundError:
+        raise ReadioError(f"Source not found: {source}") from None
+    except Exception as error:  # noqa: BLE001 - normalize source path errors at the public API boundary
+        raise ReadioError(f"Cannot resolve source {source}: {error}") from None
+
+    try:
+        inspection = _inspect_source_with_ssmdconvert(source_path)
+        kind = inspection.kind
+        if kind not in {"document", "book"}:
+            raise ReadioError(f"Unsupported source kind: {kind!r}")
+        value = inspection.value
+        metadata = getattr(value, "metadata", {})
+        if not isinstance(metadata, Mapping):
+            raise ReadioError("Source inspection returned invalid metadata.")
+        chapters = ()
+        if kind == "book":
+            chapters = tuple(
+                SourceChapter(
+                    number=getattr(chapter, "source_number", index),
+                    title=str(getattr(chapter, "title", None) or f"Chapter {index}"),
+                    source_id=getattr(chapter, "source_id", None) or getattr(chapter, "id", None),
+                    parent_id=getattr(chapter, "source_parent_id", None)
+                    or getattr(chapter, "parent_id", None),
+                    level=getattr(chapter, "level", None),
+                    char_count=getattr(chapter, "char_count", None),
+                )
+                for index, chapter in enumerate(getattr(value, "chapters", ()), start=1)
+            )
+        return SourceInspection(
+            source=source_path,
+            kind=kind,
+            metadata=MappingProxyType(dict(metadata)),
+            chapters=chapters,
+        )
+    except ReadioError:
+        raise
+    except Exception as error:  # noqa: BLE001 - hide specialist traceback behind a Readio error
+        raise ReadioError(f"Cannot inspect source {source_path}: {error}") from None
+
+
+def render_request_from_intent(
+    intent: RenderIntent,
+    *,
+    config_path: str | Path | None = None,
+    source: str | Path | None = None,
+    bundle: str | Path | None = None,
+    profile: str | Path | None = None,
+    variant: str | None = None,
+    chapters: str | None = None,
+    language: str | None = None,
+    output_format: str | None = None,
+    output: str | Path | None = None,
+    rebuild_from: RebuildStage | None = None,
+    replace_output: bool = False,
+    ffmpeg: Path | None = None,
+    ffprobe: Path | None = None,
+) -> RenderRequest:
+    """Resolve a persisted intent into the canonical file-to-audio request."""
+    resolved = resolve_render_intent(
+        intent,
+        config_path=config_path,
+        source=source,
+        bundle=bundle,
+        profile=profile,
+        variant=variant,
+        chapters=chapters,
+        language=language,
+        output_format=output_format,
+        output=output,
+        check_output_collision=False,
+    )
+    return RenderRequest(
+        source=resolved.source,
+        profile=resolved.profile,
+        chapters=resolved.chapters,
+        language=resolved.language,
+        bundle=resolved.bundle,
+        variant=resolved.intent.voice.variant,
+        output=resolved.output,
+        format=resolved.output_format,
+        bitrate=resolved.intent.output.bitrate,
+        sample_rate=resolved.intent.output.sample_rate,
+        channels=resolved.intent.output.channels,
+        rebuild_from=rebuild_from,
+        replace_output=replace_output,
+        planning=PlanningOptions(
+            planner_config=_planner_config(resolved),
+            diagnostics=cast(DiagnosticsMode, resolved.intent.planning.diagnostics),
+        ),
+        voice_render=VoiceRenderOptions(
+            speech=resolved.intent.render.speech,
+            emphasis_policy=resolved.intent.render.emphasis_policy,
+        ),
+        composition=CompositionOptions(
+            options=_compose_options(resolved),
+            emphasis_policy=resolved.intent.compose.emphasis_policy,
+        ),
+        export=ExportOptions(
+            metadata=resolved.intent.output.metadata,
+            cover=resolved.intent.output.cover,
+            timeline=resolved.intent.output.timeline,
+            ffmpeg=ffmpeg,
+            ffprobe=ffprobe,
+        ),
+    )
+
+
+_INTENT_STAGE_ORDER: tuple[RebuildStage, ...] = (
+    "convert",
+    "compile",
+    "render_plan",
+    "render",
+    "compose",
+    "export",
+)
+
+
+def _with_execution_options(
+    request: RenderRequest,
+    options: RenderExecutionOptions | None,
+) -> RenderRequest:
+    if options is None:
+        return request
+
+    selected = set(options.force_stages)
+    if options.restart_from is not None:
+        selected.add(options.restart_from)
+    if options.reset_stale_output:
+        selected.add("render")
+    invalid = selected - set(_INTENT_STAGE_ORDER)
+    if invalid:
+        raise ValueError(f"unknown forced stage(s): {', '.join(sorted(invalid))}")
+
+    starts = selected | ({request.rebuild_from} if request.rebuild_from is not None else set())
+    rebuild_from = min(starts, key=_INTENT_STAGE_ORDER.index) if starts else None
+    return replace(
+        request,
+        rebuild_from=rebuild_from,
+        replace_output=request.replace_output or bool(selected),
+        export=replace(
+            request.export,
+            ffmpeg=options.ffmpeg or request.export.ffmpeg,
+            ffprobe=options.ffprobe or request.export.ffprobe,
+        ),
+    )
+
+
 class Readio:
     """Convenience gateway for unified and specialist-backed Readio workflows."""
+
+    def inspect_source(self, source: str | Path) -> SourceInspection:
+        """Return normalized, read-only source metadata and chapter inventory."""
+        return inspect_source(source)
 
     def resolve_workspace(self, path: str | Path) -> WorkspaceRef:
         return _resolve_workspace(path)
@@ -256,30 +416,52 @@ class Readio:
         """Resolve a render intent and apply explicit path/value overrides."""
         return resolve_render_intent(intent, **overrides)
 
+    def request_from_intent(
+        self,
+        intent: RenderIntent,
+        *,
+        config_path: str | Path | None = None,
+        **overrides: Any,
+    ) -> RenderRequest:
+        """Resolve a saved render intent into a canonical RenderRequest."""
+        return render_request_from_intent(intent, config_path=config_path, **overrides)
+
+    def inspect_intent(
+        self,
+        intent: RenderIntent,
+        *,
+        config_path: str | Path | None = None,
+        **overrides: Any,
+    ) -> WorkflowPlan:
+        """Inspect a persisted intent through the canonical RenderRequest workflow."""
+        request = self.request_from_intent(intent, config_path=config_path, **overrides)
+        return self.inspect(request)
+
     def plan_render_intent(
         self,
         intent: RenderIntent,
         options: RenderExecutionOptions | None = None,
         **overrides: Any,
-    ) -> RenderIntentPlan:
-        """Resolve an intent and inspect current state without running stages."""
-        return _plan_render_intent(self, intent, options, **overrides)
+    ) -> WorkflowPlan:
+        """Compatibility alias for inspecting an intent-derived workflow request."""
+        request = self.request_from_intent(intent, **overrides)
+        return self.inspect(_with_execution_options(request, options))
 
     def render_intent(
         self,
         intent: RenderIntent,
         options: RenderExecutionOptions | None = None,
         *,
-        on_progress: ProgressHandler = None,
+        dry_run: bool = False,
+        on_progress: Callable[[Any], None] | None = None,
         **overrides: Any,
-    ) -> RenderIntentResult:
-        """Execute a complete intent through the existing specialist stage APIs."""
-        return _render_intent(
-            self,
-            intent,
-            options,
+    ) -> RenderResult | WorkflowPlan:
+        """Render an intent through the canonical RenderRequest workflow."""
+        request = self.request_from_intent(intent, **overrides)
+        return self.render(
+            _with_execution_options(request, options),
+            dry_run=dry_run,
             on_progress=on_progress,
-            **overrides,
         )
 
     def run(

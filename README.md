@@ -140,6 +140,22 @@ print(plan.steps, result.output, result.workspace_mode)
 
 The primary gateway API is `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `speak` synthesizes semantic text in memory; `inspect` reports specialist-backed workflow state without writing; `render` executes the complete file-to-audio workflow. Specialist CLIs remain available for deliberate package-level debugging. See the [Python API guide](docs/api.md).
 
+Source inventory and saved intents use the same gateway:
+
+```python
+from pathlib import Path
+from readio.api import Readio, load_render_intent, render_request_from_intent
+
+service = Readio()
+source = service.inspect_source(Path("novel.epub"))
+intent_path = Path("novel.readio.toml")
+intent = load_render_intent(intent_path)
+request = render_request_from_intent(intent, config_path=intent_path)
+plan = service.inspect(request)
+```
+
+`inspect_source()` is read-only and does not create a workspace. `inspect_intent()` and `render_intent()` are convenience methods over the same `RenderRequest` mapping and canonical inspect/render workflow. Use `service.render_intent(intent, dry_run=True)` for a read-only workflow plan.
+
 ## Documentation
 
 - [Architecture and ownership](docs/architecture.md)

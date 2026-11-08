@@ -1,243 +1,122 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from readio.api.types import RenderExecutionOptions
-from readio.errors import ReadioStageError
-from readio.intent import create_book_intent, create_document_intent
-from readio.intent_resolver import ResolvedRenderIntent
-from readio.render_service import IntentStageError, plan_render_intent, render_intent
-from readio.workspace import WorkspaceRef
-
-VARIANT = "utterplan/exact-variant-id"
+from readio.api import Readio, create_document_intent
+from readio.api.types import RenderExecutionOptions, RenderRequest
 
 
-def _resolved(
-    tmp_path: Path, *, kind: str = "book", bundle: Path | None = None
-) -> ResolvedRenderIntent:
-    source = tmp_path / ("story.epub" if kind == "book" else "story.md")
-    source.write_text("source", encoding="utf-8")
-    profile = tmp_path / "cast.renderprofile.toml"
-    profile.write_text("profile", encoding="utf-8")
-    bundle_path = bundle or tmp_path / "story.ssmd-bundle"
-    output_format = "m4b" if kind == "book" else "mp3"
-    intent = (
-        create_book_intent(source, profile=profile, bundle=bundle_path)
-        if kind == "book"
-        else create_document_intent(source, profile=profile, bundle=bundle_path)
-    )
-    return ResolvedRenderIntent(
-        intent=intent,
-        config_path=None,
-        source=source,
-        bundle=bundle_path,
-        workspace_mode="bundle",
-        profile=profile,
-        kind=kind,  # type: ignore[arg-type]
-        chapters="all",
-        language=None,
-        output_format=output_format,
-        output=tmp_path / f"story.{output_format}",
+def _request(tmp_path: Path) -> RenderRequest:
+    return RenderRequest(
+        source=tmp_path / "article.md",
+        profile=tmp_path / "profile.toml",
+        output=tmp_path / "article.mp3",
+        format="mp3",
     )
 
 
-class _FakeService:
-    def __init__(self, resolved: ResolvedRenderIntent) -> None:
-        self.resolved = resolved
-        self.workspace = WorkspaceRef(resolved.bundle, resolved.kind)
-        self.calls: list[tuple[str, Any]] = []
-        self.resolve_options: dict[str, Any] = {}
-        self.status_result = SimpleNamespace(compile=SimpleNamespace(state="complete"), variants=())
-        self.failure: tuple[str, Exception] | None = None
-
-    def resolve_intent(self, _intent: Any, **overrides: Any) -> ResolvedRenderIntent:
-        self.resolve_options = overrides
-        return self.resolved
-
-    def resolve_workspace(self, _path: Any) -> WorkspaceRef:
-        self.calls.append(("resolve", _path))
-        return self.workspace
-
-    def create_workspace(
-        self, source: Any, request: Any, *, on_progress: Any = None
-    ) -> WorkspaceRef:
-        self.calls.append(("convert", request))
-        return self.workspace
-
-    def status(self, _workspace: Any, request: Any) -> Any:
-        self.calls.append(("status", request))
-        return self.status_result
-
-    def plan(self, _workspace: Any, request: Any, *, on_progress: Any = None) -> Any:
-        self.calls.append(("compile", request))
-        return "compile-result"
-
-    def render_plan(self, _workspace: Any, request: Any, *, on_progress: Any = None) -> Any:
-        self.calls.append(("render-plan", request))
-        return SimpleNamespace(native="projection", variant=VARIANT)
-
-    def render(self, _workspace: Any, request: Any, *, on_progress: Any = None) -> Any:
-        self.calls.append(("render", request))
-        if self.failure is not None and self.failure[0] == "render":
-            raise self.failure[1]
-        return "render-result"
-
-    def compose(self, _workspace: Any, request: Any, *, on_progress: Any = None) -> Any:
-        self.calls.append(("compose", request))
-        return "compose-result"
-
-    def export(self, _workspace: Any, request: Any) -> Any:
-        self.calls.append(("export", request))
-        return "export-result"
-
-
-def test_render_intent_orders_stages_and_preserves_exact_variant(
+def test_inspect_intent_uses_request_bridge_and_canonical_inspection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    resolved = _resolved(tmp_path)
-    service = _FakeService(resolved)
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
+    intent = create_document_intent("article.md", profile="profile.toml")
+    request = _request(tmp_path)
+    plan = object()
+    config_path = tmp_path / "settings.readio.toml"
+    overrides = {"source": tmp_path / "override.md"}
+    calls: dict[str, Any] = {}
+    service = Readio()
 
-    result = render_intent(service, resolved.intent)
+    def build(received_intent: object, **received_overrides: Any) -> RenderRequest:
+        calls["build"] = (received_intent, received_overrides)
+        return request
 
-    assert [name for name, _ in service.calls] == [
-        "convert",
-        "compile",
-        "render-plan",
-        "render",
-        "compose",
-        "export",
-    ]
-    assert result.variant == VARIANT
-    assert result.output == resolved.output
-    assert result.converted is True
-    assert result.pipeline.variant == VARIANT
-    assert service.calls[3][1].variant == VARIANT
-    assert service.calls[4][1].variant == VARIANT
-    assert service.calls[5][1].variant == VARIANT
-    assert service.calls[5][1].output == resolved.output
+    def inspect(received_request: RenderRequest) -> object:
+        calls["inspect"] = received_request
+        return plan
+
+    monkeypatch.setattr(service, "request_from_intent", build)
+    monkeypatch.setattr(service, "inspect", inspect)
+
+    assert service.inspect_intent(intent, config_path=config_path, **overrides) is plan
+    assert calls == {
+        "build": (intent, {"config_path": config_path, **overrides}),
+        "inspect": request,
+    }
 
 
-def test_render_intent_only_forces_explicit_stages_and_restarts_downstream(
+def test_plan_render_intent_maps_legacy_controls_to_canonical_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    resolved = _resolved(tmp_path)
-    service = _FakeService(resolved)
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
-
-    render_intent(
-        service,
-        resolved.intent,
-        RenderExecutionOptions(force_stages=("compile",), restart_from="render_plan"),
+    intent = create_document_intent("article.md", profile="profile.toml")
+    request = _request(tmp_path)
+    plan = object()
+    ffmpeg = tmp_path / "ffmpeg"
+    ffprobe = tmp_path / "ffprobe"
+    options = RenderExecutionOptions(
+        force_stages=("render",),
+        restart_from="compile",
+        reset_stale_output=True,
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
     )
+    service = Readio()
+    inspected_requests: list[RenderRequest] = []
 
-    calls = dict(service.calls)
-    assert calls["convert"].force is False
-    assert calls["compile"].force is True
-    assert calls["render-plan"].force is True
-    assert calls["render"].force is True
-    assert calls["compose"].force is True
-    assert calls["export"].force is True
-    assert service.resolve_options["force_output"] is True
+    def inspect(inspected: RenderRequest) -> object:
+        inspected_requests.append(inspected)
+        return plan
+
+    monkeypatch.setattr(service, "request_from_intent", lambda *_args, **_kwargs: request)
+    monkeypatch.setattr(service, "inspect", inspect)
+
+    assert service.plan_render_intent(intent, options) is plan
+    assert len(inspected_requests) == 1
+    inspected = inspected_requests[0]
+    assert inspected.rebuild_from == "compile"
+    assert inspected.replace_output is True
+    assert inspected.export.ffmpeg == ffmpeg
+    assert inspected.export.ffprobe == ffprobe
+    assert request.rebuild_from is None
+    assert request.replace_output is False
 
 
-def test_existing_bundle_is_reused_and_conversion_force_is_explicit(
+def test_render_intent_delegates_to_render_with_dry_run_and_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bundle = tmp_path / "story.ssmd-bundle"
-    bundle.mkdir()
-    resolved = _resolved(tmp_path, bundle=bundle)
-    service = _FakeService(resolved)
-    events: list[Any] = []
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
+    intent = create_document_intent("article.md", profile="profile.toml")
+    request = _request(tmp_path)
+    result = object()
+    progress = print
+    calls: dict[str, Any] = {}
+    service = Readio()
 
-    result = render_intent(service, resolved.intent, on_progress=events.append)
-    assert result.converted is False
-    assert [name for name, _ in service.calls] == [
-        "resolve",
-        "compile",
-        "render-plan",
-        "render",
-        "compose",
-        "export",
-    ]
-    assert events[0].stage == "convert"
-    assert "reused validated bundle" in events[0].message
+    def build(_intent: object, **_overrides: Any) -> RenderRequest:
+        return request
 
-    forced_service = _FakeService(resolved)
-    monkeypatch.setattr("readio.render_service.inspect_source_kind", lambda _source: "book")
-    forced = render_intent(
-        forced_service,
-        resolved.intent,
-        RenderExecutionOptions(force_stages=("convert",)),
-    )
-    assert forced.converted is True
-    assert dict(forced_service.calls)["convert"].force is True
+    def render(received_request: RenderRequest, *, dry_run: bool, on_progress: object) -> object:
+        calls.update(request=received_request, dry_run=dry_run, on_progress=on_progress)
+        return result
+
+    monkeypatch.setattr(service, "request_from_intent", build)
+    monkeypatch.setattr(service, "render", render)
+
+    assert service.render_intent(intent, dry_run=True, on_progress=progress) is result
+    assert calls == {"request": request, "dry_run": True, "on_progress": progress}
 
 
-def test_forced_conversion_rejects_bundle_of_another_kind(
+def test_intent_execution_options_reject_unknown_stages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bundle = tmp_path / "story.ssmd-bundle"
-    bundle.mkdir()
-    resolved = _resolved(tmp_path, bundle=bundle)
-    service = _FakeService(resolved)
-    monkeypatch.setattr("readio.render_service.inspect_source_kind", lambda _source: "document")
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
+    intent = create_document_intent("article.md", profile="profile.toml")
+    request = _request(tmp_path)
+    service = Readio()
+    monkeypatch.setattr(service, "request_from_intent", lambda *_args, **_kwargs: request)
 
-    with pytest.raises(ValueError, match="source kind does not match the intent"):
-        render_intent(
-            service,
-            resolved.intent,
-            RenderExecutionOptions(force_stages=("convert",)),
+    with pytest.raises(ValueError, match="unknown forced stage"):
+        service.plan_render_intent(
+            intent,
+            RenderExecutionOptions(force_stages=("unknown",)),  # type: ignore[arg-type]
         )
-    assert not service.calls
-
-
-def test_plan_render_intent_reports_status_without_running_stages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    bundle = tmp_path / "story.ssmd-bundle"
-    bundle.mkdir()
-    resolved = _resolved(tmp_path, bundle=bundle)
-    service = _FakeService(resolved)
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
-
-    plan = plan_render_intent(service, resolved.intent)
-
-    assert plan.convert_required is False
-    assert plan.output_exists is False
-    assert plan.stages == ("convert", "compile", "render-plan", "render", "compose", "export")
-    assert [name for name, _ in service.calls] == ["status"]
-    assert service.calls[0][1].profile == resolved.profile
-
-
-def test_stage_errors_include_package_profile_variant_and_action(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    resolved = _resolved(tmp_path)
-    service = _FakeService(resolved)
-    service.failure = (
-        "render",
-        ReadioStageError(
-            "render",
-            "voice engine failed",
-            workspace=resolved.bundle,
-            code="voice.failed",
-            cause=RuntimeError("engine failure"),
-        ),
-    )
-    monkeypatch.setattr("readio.render_service.preflight_export", lambda *_args, **_kwargs: {})
-
-    with pytest.raises(IntentStageError) as captured:
-        render_intent(service, resolved.intent)
-    message = str(captured.value)
-    assert "Package: voicerender" in message
-    assert f"Profile: {resolved.profile}" in message
-    assert f"Variant: {VARIANT}" in message
-    assert "voice.failed" in message
-    assert "--rebuild-from render" in message

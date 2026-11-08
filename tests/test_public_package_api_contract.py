@@ -101,6 +101,15 @@ def test_readio_public_api_centers_on_unified_workflows() -> None:
     assert callable(api.Readio.speak)
     assert callable(api.Readio.render)
     assert callable(api.Readio.inspect)
+    assert callable(api.Readio.inspect_source)
+    assert callable(api.Readio.inspect_intent)
+    assert callable(api.Readio.request_from_intent)
+    assert callable(api.Readio.plan_render_intent)
+    assert callable(api.Readio.render_intent)
+    assert callable(api.Readio.request_from_intent)
+    assert callable(api.render_request_from_intent)
+
+    assert callable(api.inspect_source)
 
 
 def test_readio_render_intent_api_is_public() -> None:
@@ -114,6 +123,7 @@ def test_readio_render_intent_api_is_public() -> None:
         "create_book_intent",
         "create_document_intent",
         "load_render_intent",
+        "render_request_from_intent",
         "save_render_intent",
         "parse_render_intent",
     ):
@@ -147,6 +157,8 @@ def test_readio_workflow_foundation_types_are_public() -> None:
         "CompositionOptions",
         "ExportOptions",
         "SpeakRequest",
+        "SourceChapter",
+        "SourceInspection",
         "ReadioError",
         "ReadioStageError",
         "RenderRequest",

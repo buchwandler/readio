@@ -12,9 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
-
-from readio.api.types import DiagnosticsMode
+from typing import Any
 
 from . import __version__, api
 from .cli_control import CLIUsageError, add_control_commands, run_control_command
@@ -34,7 +32,6 @@ from .intent import (
     _default_stem,
 )
 from .intent_resolver import resolve_render_intent
-from .render_service import _compose_options, _planner_config
 from .workspace import inspect_source_kind
 
 
@@ -589,7 +586,10 @@ def _render_request(args: argparse.Namespace, service: api.Readio) -> api.Render
         if getattr(args, "config", None) is not None
         else _one_off_render_intent(args, service)
     )
-    resolved = resolve_render_intent(
+    rebuild_from = getattr(args, "rebuild_from", None)
+    if rebuild_from is not None:
+        rebuild_from = rebuild_from.replace("-", "_")
+    return api.render_request_from_intent(
         intent,
         config_path=getattr(args, "config", None),
         source=getattr(args, "source", None),
@@ -600,46 +600,10 @@ def _render_request(args: argparse.Namespace, service: api.Readio) -> api.Render
         language=getattr(args, "language", None),
         output_format=getattr(args, "output_format", None),
         output=getattr(args, "output", None),
-        check_output_collision=False,
-    )
-    rebuild_from = getattr(args, "rebuild_from", None)
-    if rebuild_from is not None:
-        rebuild_from = rebuild_from.replace("-", "_")
-    composition = api.CompositionOptions(
-        options=_compose_options(resolved),
-        emphasis_policy=resolved.intent.compose.emphasis_policy,
-    )
-    export = api.ExportOptions(
-        metadata=resolved.intent.output.metadata,
-        cover=resolved.intent.output.cover,
-        timeline=resolved.intent.output.timeline,
-        ffmpeg=getattr(args, "ffmpeg", None),
-        ffprobe=getattr(args, "ffprobe", None),
-    )
-    return api.RenderRequest(
-        source=resolved.source,
-        profile=resolved.profile,
-        chapters=resolved.chapters,
-        language=resolved.language,
-        bundle=resolved.bundle,
-        variant=resolved.intent.voice.variant,
-        output=resolved.output,
-        format=resolved.output_format,
-        bitrate=resolved.intent.output.bitrate,
-        sample_rate=resolved.intent.output.sample_rate,
-        channels=resolved.intent.output.channels,
         rebuild_from=rebuild_from,
         replace_output=bool(getattr(args, "replace_output", False)),
-        planning=api.PlanningOptions(
-            planner_config=_planner_config(resolved),
-            diagnostics=cast(DiagnosticsMode, resolved.intent.planning.diagnostics),
-        ),
-        voice_render=api.VoiceRenderOptions(
-            speech=resolved.intent.render.speech,
-            emphasis_policy=resolved.intent.render.emphasis_policy,
-        ),
-        composition=composition,
-        export=export,
+        ffmpeg=getattr(args, "ffmpeg", None),
+        ffprobe=getattr(args, "ffprobe", None),
     )
 
 

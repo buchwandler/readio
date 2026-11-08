@@ -50,6 +50,21 @@ def test_documented_readio_commands_exist_in_the_current_cli() -> None:
             )
 
 
+def test_public_api_docs_cover_source_and_saved_intent_workflows() -> None:
+    api_terms = (
+        "Readio.inspect(RenderRequest)",
+        "Readio.render(RenderRequest)",
+        "inspect_source",
+        "render_request_from_intent",
+        "inspect_intent",
+        "render_intent",
+    )
+    for relative_path in ("README.md", "docs/api.md", "docs/architecture.md"):
+        content = (ROOT / relative_path).read_text(encoding="utf-8")
+        for term in api_terms:
+            assert term in content, f"{relative_path} does not document {term}"
+
+
 def test_workflow_docs_use_one_bundle_contract() -> None:
     selected_docs = (
         "README.md",
