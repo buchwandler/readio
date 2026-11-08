@@ -75,7 +75,7 @@ def inspect_source(source: str | Path) -> SourceInspection:
         metadata = getattr(value, "metadata", {})
         if not isinstance(metadata, Mapping):
             raise ReadioError("Source inspection returned invalid metadata.")
-        chapters = ()
+        chapters: tuple[SourceChapter, ...] = ()
         if kind == "book":
             chapters = tuple(
                 SourceChapter(
