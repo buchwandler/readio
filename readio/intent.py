@@ -557,11 +557,11 @@ def validate_intent_shape(intent: RenderIntent) -> None:
     _choice(intent.render.emphasis_policy, ("reject", "defer-to-compose"), "render.emphasis_policy")
     _choice(intent.compose.emphasis_policy, COMPOSE_EMPHASIS_POLICIES, "compose.emphasis_policy")
     _positive_int(intent.compose.sample_rate, "compose.sample_rate")
-    for name, value in (
+    for name, number in (
         ("compose.target_lufs", intent.compose.target_lufs),
         ("compose.true_peak_ceiling_dbtp", intent.compose.true_peak_ceiling_dbtp),
     ):
-        if value is not None and (type(value) not in (int, float) or not math.isfinite(value)):
+        if number is not None and (type(number) not in (int, float) or not math.isfinite(number)):
             raise ValueError(f"{name} must be a finite number")
     if intent.compose.clip_policy is not None:
         _choice(intent.compose.clip_policy, CLIP_POLICIES, "compose.clip_policy")

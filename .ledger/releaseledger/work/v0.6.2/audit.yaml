@@ -1,0 +1,55 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 1
+release_version: v0.6.2
+git_base_ref: v0.6.1
+git_base_sha: 71dc2e2269bba59567a960a2dec1c231837a85f5
+git_head_ref: HEAD
+git_head_sha: 1edab537d2112716deeeaecfe13911a344acdaa3
+git_range: 71dc2e2269bba59567a960a2dec1c231837a85f5..1edab537d2112716deeeaecfe13911a344acdaa3
+commit_count: 1
+rows:
+  - sha: 1edab537d2112716deeeaecfe13911a344acdaa3
+    source_ref: git:1edab537d2112716deeeaecfe13911a344acdaa3
+    short_sha: 1edab53
+    changed_paths:
+      - .github/workflows/tests.yml
+      - README.md
+      - docs/api.md
+      - pyproject.toml
+      - readio/api/__init__.py
+      - readio/api/service.py
+      - readio/api/types.py
+      - readio/integrations/utterplan.py
+      - readio/intent.py
+      - readio/intent_codec.py
+      - readio/intent_resolver.py
+      - readio/render_service.py
+      - readio/render_workflow.py
+      - readio/spacy_resources.py
+      - readio/workspace.py
+      - tests/test_dependency_boundaries.py
+      - tests/test_intent.py
+      - tests/test_intent_cli.py
+      - tests/test_intent_request_bridge.py
+      - tests/test_native_inspection_dispatch.py
+      - tests/test_native_utterplan_dispatch.py
+      - tests/test_native_workspace.py
+      - tests/test_native_workspace_e2e.py
+      - tests/test_packaging_metadata.py
+      - tests/test_public_package_api_contract.py
+      - tests/test_render_workflow.py
+      - tests/test_spacy_resources.py
+    stats:
+      files_changed: 27
+      insertions: 994
+      deletions: 34
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "feat: increase render api to v3"

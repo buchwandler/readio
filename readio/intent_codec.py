@@ -219,16 +219,24 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
             raise TypeError("preparation.pronunciations must map strings to strings")
         pronunciations[key] = value
     preparation = PreparationIntent(
-        speech_semantics=_string(
-            preparation_data.get("speech_semantics", "freeze"), "preparation.speech_semantics"
+        speech_semantics=cast(
+            Literal["freeze", "preserve"],
+            _string(
+                preparation_data.get("speech_semantics", "freeze"),
+                "preparation.speech_semantics",
+            ),
         ),
-        spacy=_string(preparation_data.get("spacy"), "preparation.spacy", optional=True),
+        spacy=cast(
+            Literal["off", "auto", "sm", "md", "lg", "trf"] | None,
+            _string(preparation_data.get("spacy"), "preparation.spacy", optional=True),
+        ),
         speech_profile=_path(preparation_data.get("speech_profile"), "preparation.speech_profile"),
         pronunciations=pronunciations,
     )
     projection = ProjectionIntent(
-        pause_timing=_string(
-            projection_data.get("pause_timing", "fixed"), "projection.pause_timing"
+        pause_timing=cast(
+            Literal["fixed", "natural", "engaging"],
+            _string(projection_data.get("pause_timing", "fixed"), "projection.pause_timing"),
         )
     )
     render = RenderOptionsIntent(

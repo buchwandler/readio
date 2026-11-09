@@ -1,0 +1,1832 @@
+ .github/workflows/tests.yml               |   2 +-
+ README.md                                 |   2 +
+ docs/api.md                               |  53 ++++++++-
+ pyproject.toml                            |   4 +-
+ readio/api/__init__.py                    |  20 +++-
+ readio/api/service.py                     |  16 ++-
+ readio/api/types.py                       |  21 ++++
+ readio/integrations/utterplan.py          |   7 +-
+ readio/intent.py                          |  66 ++++++++++-
+ readio/intent_codec.py                    |  56 ++++++++-
+ readio/intent_resolver.py                 |   8 ++
+ readio/render_service.py                  |  27 +++++
+ readio/render_workflow.py                 |  18 ++-
+ readio/spacy_resources.py                 |  83 ++++++++++++++
+ readio/workspace.py                       |  42 ++++++-
+ tests/test_dependency_boundaries.py       |   5 +-
+ tests/test_intent.py                      |  40 ++++++-
+ tests/test_intent_cli.py                  |   2 +-
+ tests/test_intent_request_bridge.py       |  73 +++++++++++-
+ tests/test_native_inspection_dispatch.py  |   7 +-
+ tests/test_native_utterplan_dispatch.py   |  13 ++-
+ tests/test_native_workspace.py            |  74 ++++++++++++
+ tests/test_native_workspace_e2e.py        |  55 +++++++++
+ tests/test_packaging_metadata.py          |   6 +-
+ tests/test_public_package_api_contract.py |  18 +++
+ tests/test_render_workflow.py             | 182 +++++++++++++++++++++++++++++-
+ tests/test_spacy_resources.py             | 128 +++++++++++++++++++++
+ 27 files changed, 994 insertions(+), 34 deletions(-)
+
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index 7871639..e5522f9 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -50,7 +50,7 @@ jobs:
+           python -m pip install --upgrade pip
+           python -m pip install \
+             "ssmdconvert[pdf,docx]==0.2.5" \
+-            "utterplan[spacy]==0.6.18" \
++            "utterplan[spacy]==0.6.19" \
+             "renderplan==0.2.1" \
+             "voicerender==0.2.9" \
+             "audiocompose==0.3.8" \
+diff --git a/README.md b/README.md
+index 0d3a7c2..660bfff 100644
+--- a/README.md
++++ b/README.md
+@@ -13,6 +13,8 @@ python -m pip install "readio[kokoro]"  # or another supported VoiceRender engin
+
+ `readio[documents]` enables SSMDConvert's optional PDF and DOCX support; `readio[spacy]` enables UtterPlan's optional spaCy support. Readio requires Python 3.10 or newer.
+
++Use `readio.api.inspect_spacy_model(language, tier)` to check a local model and `readio.api.ensure_spacy_model(language, tier)` to explicitly provision one. Readio conversion and UtterPlan stages do not download models. `PreparationOptions` controls conversion speech semantics, spaCy tier, and explicit speech profiles; `ProjectionOptions` controls RenderPlan pause timing separately from AudioCompose pause policy.
++
+ ## Quick start
+
+ Create a VoiceRender RenderProfile, then create and review a user-owned Readio render intent. The two TOML files have separate responsibilities: the RenderProfile defines voice roles; the intent describes the requested conversion, planning, composition, and output.
+diff --git a/docs/api.md b/docs/api.md
+index b1d8f5d..51de727 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -54,16 +54,39 @@ print(result.output, result.workspace_mode, result.variant)
+
+ `inspect` is read-only: it does not create a temporary directory, convert source material, or mutate specialist artifacts. `render` executes the complete workflow and cleans temporary state on success or failure. To persist an editable SSMD workspace, set `bundle=Path("article.ssmd-bundle")`; passing an existing `.ssmd-bundle` as `source` also selects persistent mode. There is no implicit default bundle path.
+
+-`RenderRequest` also accepts chapter selection, language, output format/path, bitrate, sample rate, channels, and specialist-backed option groups (`PlanningOptions`, `VoiceRenderOptions`, `CompositionOptions`, and `ExportOptions`). `rebuild_from` requests an explicit workflow rebuild; `replace_output` separately authorizes replacement of an existing final output. The dry-run form is `service.render(request, dry_run=True)` and returns the same `WorkflowPlan` shape as `inspect`.
++`RenderRequest` also accepts chapter selection, language, output format/path, bitrate, sample rate, channels, Readio-owned preparation/projection options, and specialist-backed option groups (`PlanningOptions`, `VoiceRenderOptions`, `CompositionOptions`, and `ExportOptions`). `rebuild_from` requests an explicit workflow rebuild; `replace_output` separately authorizes replacement of an existing final output. The dry-run form is `service.render(request, dry_run=True)` and returns the same `WorkflowPlan` shape as `inspect`.
+
+ The returned `WorkflowPlan` contains the source, workspace mode/path, selected variant and output, planned steps, and warnings. `RenderResult` reports the final output, workspace mode, exact variant, executed/reused workflow stages, and warnings. Normalized `WorkflowEvent` progress is available through the `on_progress` callback.
+
++## Source preparation, projection, and spaCy resources
++
++`PreparationOptions` configures SSMDConvert conversion. Select a speech profile explicitly; SSMDConvert loads and validates it and applies its own replacement precedence. A concrete preparation spaCy tier is also applied to UtterPlan planning. `ProjectionOptions.pause_timing` selects `fixed`, `natural`, or `engaging` RenderPlan projection timing. It does not configure AudioCompose pause policy.
++
++```python
++from pathlib import Path
++from readio.api import PreparationOptions, ProjectionOptions, RenderRequest
++
++request = RenderRequest(
++    source=Path("article.docx"),
++    profile=Path("narrator.renderprofile.toml"),
++    preparation=PreparationOptions(
++        speech_semantics="preserve",
++        spacy="md",
++        speech_profile=Path("reader.speech.toml"),
++        pronunciations={"Readio": "ree-dee-oh"},
++    ),
++    projection=ProjectionOptions(pause_timing="engaging"),
++)
++```
++
++Use `inspect_spacy_model(language, tier)` to inspect installed resources. Pass `offline=True` to `ensure_spacy_model(language, tier)` to fail rather than provision when the model is missing. Provisioning occurs only when `ensure_spacy_model()` is explicitly called. Source conversion, compilation, and projection do not download models. Install the optional `readio[spacy]` extra to enable spaCy support.
++
+ ## Render intents
+
+-`RenderIntent` and the TOML helpers represent user-owned desired configuration. The current schema is `readio.render.v2`; input source and scope are separate from workspace policy:
++`RenderIntent` and the TOML helpers represent user-owned desired configuration. The current schema is `readio.render.v3`; input source and scope are separate from workspace policy:
+
+ ```toml
+-schema = "readio.render.v2"
++schema = "readio.render.v3"
+ kind = "document"
+
+ [input]
+@@ -75,18 +98,38 @@ mode = "temporary"
+
+ [voice]
+ profile = "narrator.renderprofile.toml"
++[preparation]
++speech_semantics = "freeze"
++spacy = "md"
++speech_profile = "reader.speech.toml"
++
++[preparation.pronunciations]
++"Readio" = "ree-dee-oh"
++
++[projection]
++pause_timing = "engaging"
+ ```
+
+-For persistence, use `mode = "bundle"` and provide `workspace.bundle`. The `create_book_intent` and `create_document_intent` factories apply kind-specific defaults; `load_render_intent`, `save_render_intent`, `parse_render_intent`, and `dump_render_intent` read, validate, and serialize the intent. A VoiceRender RenderProfile remains a separate, user-owned artifact.
++For persistence, use `mode = "bundle"` and provide `workspace.bundle`. `PreparationIntent` and `ProjectionIntent` carry source-preparation and RenderPlan timing choices; omitted preparation spaCy retains legacy planning settings. The `create_book_intent` and `create_document_intent` factories apply kind-specific defaults; `load_render_intent`, `save_render_intent`, `parse_render_intent`, and `dump_render_intent` read, validate, and serialize the intent. Version 2 files remain readable with no speech profile and fixed pause timing, and inspection does not rewrite them. Paths are resolved relative to the intent file when `config_path` is supplied. A VoiceRender RenderProfile remains a separate, user-owned artifact.
+
+ ```python
+ from pathlib import Path
+-from readio.api import create_document_intent, save_render_intent
++from readio.api import (
++    PreparationIntent,
++    ProjectionIntent,
++    create_document_intent,
++    save_render_intent,
++)
+
+ intent = create_document_intent(
+     Path("article.docx"),
+     profile=Path("narrator.renderprofile.toml"),
+     bundle=Path("article.ssmd-bundle"),
++    preparation=PreparationIntent(
++        spacy="md",
++        speech_profile=Path("reader.speech.toml"),
++    ),
++    projection=ProjectionIntent(pause_timing="engaging"),
+ )
+ save_render_intent(intent, Path("article.readio.toml"))
+ ```
+diff --git a/pyproject.toml b/pyproject.toml
+index b99b84e..2c64d01 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,7 +11,7 @@ requires-python = ">=3.10"
+ license = {text = "Apache-2.0"}
+ dependencies = [
+   "numpy>=1.23",
+-  "utterplan>=0.6.18,<0.7",
++  "utterplan>=0.6.19,<0.7",
+   "voicerender>=0.2.9,<0.3",
+   "audiocompose>=0.3.8,<0.4",
+   "ssmdconvert>=0.2.5,<0.3",
+@@ -19,7 +19,7 @@ dependencies = [
+   "tomli>=2.0; python_version < '3.11'",
+ ]
+ [project.optional-dependencies]
+-spacy = ["utterplan[spacy]>=0.6.18,<0.7"]
++spacy = ["utterplan[spacy]>=0.6.19,<0.7"]
+ documents = ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
+ audioexport = ["audioexport>=0.1.7,<0.2"]
+ kokoro = ["voicerender[kokoro]>=0.2.9,<0.3"]
+diff --git a/readio/api/__init__.py b/readio/api/__init__.py
+index 2db67ee..a3816de 100644
+--- a/readio/api/__init__.py
++++ b/readio/api/__init__.py
+@@ -32,6 +32,8 @@ from readio.intent import (
+     IntentKind,
+     OutputIntent,
+     PlanningIntent,
++    PreparationIntent,
++    ProjectionIntent,
+     RenderIntent,
+     RenderOptionsIntent,
+     VoiceIntent,
+@@ -66,6 +68,7 @@ from readio.profiles import (
+     validate_profile,
+ )
+ from readio.runtime import reset_runtime_providers, runtime_status, set_runtime_providers
++from readio.spacy_resources import SpacyModelInfo, ensure_spacy_model, inspect_spacy_model
+ from readio.speech import VoiceSelector, parse_voice_selector, speak
+ from readio.voices import (
+     clone_voice,
+@@ -75,14 +78,21 @@ from readio.voices import (
+     show_voice_source,
+     verify_voice_source,
+ )
+-from readio.workspace import WorkspaceMode, WorkspacePolicy, WorkspaceRef
++from readio.workspace import (
++    PreparationOptions,
++    WorkspaceMode,
++    WorkspacePolicy,
++    WorkspaceRef,
++)
+
+ from .service import Readio, inspect_source, render_request_from_intent
+ from .types import (
+     AudioBuffer,
+     CompositionOptions,
+     ExportOptions,
++    PauseTiming,
+     PlanningOptions,
++    ProjectionOptions,
+     RebuildStage,
+     RenderRequest,
+     RenderResult,
+@@ -112,8 +122,13 @@ __all__ = [
+     "IntentKind",
+     "OutputCollisionError",
+     "OutputIntent",
++    "PauseTiming",
+     "PlanningIntent",
+     "PlanningOptions",
++    "PreparationIntent",
++    "PreparationOptions",
++    "ProjectionIntent",
++    "ProjectionOptions",
+     "Readio",
+     "ReadioError",
+     "ReadioStageError",
+@@ -126,6 +141,7 @@ __all__ = [
+     "RoleVoiceBinding",
+     "SourceChapter",
+     "SourceInspection",
++    "SpacyModelInfo",
+     "SpeakRequest",
+     "SpeakResult",
+     "VoiceCloneRequest",
+@@ -156,10 +172,12 @@ __all__ = [
+     "create_voice_source",
+     "discover_engine_targets",
+     "dump_render_intent",
++    "ensure_spacy_model",
+     "inspect_document_voice_requirements",
+     "inspect_engine",
+     "inspect_engine_model",
+     "inspect_source",
++    "inspect_spacy_model",
+     "inspect_voice",
+     "install_engine_model",
+     "list_engine_models",
+diff --git a/readio/api/service.py b/readio/api/service.py
+index e261a7e..3793e2d 100644
+--- a/readio/api/service.py
++++ b/readio/api/service.py
+@@ -20,6 +20,7 @@ from readio.api.types import (
+     PipelineResult,
+     PlanningOptions,
+     PlanRequest,
++    ProjectionOptions,
+     RebuildStage,
+     RenderExecutionOptions,
+     RenderPlanRequest,
+@@ -47,7 +48,11 @@ from readio.progress import normalize_progress
+ from readio.render_service import _compose_options, _planner_config
+ from readio.speech import speak_request as _speak_request
+ from readio.status import inspect_status
+-from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
++from readio.workspace import (
++    CreateWorkspaceRequest,
++    PreparationOptions,
++    WorkspaceRef,
++)
+ from readio.workspace import create_workspace as _create_workspace
+ from readio.workspace import resolve_workspace as _resolve_workspace
+
+@@ -150,6 +155,15 @@ def render_request_from_intent(
+             planner_config=_planner_config(resolved),
+             diagnostics=cast(DiagnosticsMode, resolved.intent.planning.diagnostics),
+         ),
++        projection=ProjectionOptions(
++            pause_timing=resolved.intent.projection.pause_timing,
++        ),
++        preparation=PreparationOptions(
++            speech_semantics=resolved.intent.preparation.speech_semantics,
++            spacy=resolved.intent.preparation.spacy or "off",
++            speech_profile=resolved.intent.preparation.speech_profile,
++            pronunciations=resolved.intent.preparation.pronunciations,
++        ),
+         voice_render=VoiceRenderOptions(
+             speech=resolved.intent.render.speech,
+             emphasis_policy=resolved.intent.render.emphasis_policy,
+diff --git a/readio/api/types.py b/readio/api/types.py
+index 762eb74..759f405 100644
+--- a/readio/api/types.py
++++ b/readio/api/types.py
+@@ -12,6 +12,7 @@ import numpy as np
+
+ from readio.workspace import (
+     CreateWorkspaceRequest,
++    PreparationOptions,
+     WorkspaceMode,
+     WorkspaceRef,
+ )
+@@ -110,6 +111,10 @@ class RenderPlanRequest:
+     utterplan_root: Path | None = None
+     output_root: Path | None = None
+     force: bool = False
++    pause_timing: PauseTiming = "fixed"
++
++    def __post_init__(self) -> None:
++        _validate_pause_timing(self.pause_timing)
+
+
+ @dataclass(frozen=True, slots=True)
+@@ -204,6 +209,20 @@ WorkflowAction = Literal["reuse", "execute", "replace", "blocked"]
+ WorkflowState = Literal["not_started", "partial", "complete", "stale", "blocked", "error"]
+ WorkflowInspectionState = WorkflowState | Literal["unknown"]
+ RebuildStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
++PauseTiming = Literal["fixed", "natural", "engaging"]
++
++
++def _validate_pause_timing(value: str) -> None:
++    if value not in {"fixed", "natural", "engaging"}:
++        raise ValueError("pause_timing must be one of: fixed, natural, engaging")
++
++
++@dataclass(frozen=True, slots=True)
++class ProjectionOptions:
++    pause_timing: PauseTiming = "fixed"
++
++    def __post_init__(self) -> None:
++        _validate_pause_timing(self.pause_timing)
+
+
+ @dataclass(frozen=True)
+@@ -330,6 +349,8 @@ class RenderRequest:
+     replace_output: bool = False
+     planning: PlanningOptions = dataclass_field(default_factory=PlanningOptions)
+     voice_render: VoiceRenderOptions = dataclass_field(default_factory=VoiceRenderOptions)
++    projection: ProjectionOptions = dataclass_field(default_factory=ProjectionOptions)
++    preparation: PreparationOptions = dataclass_field(default_factory=PreparationOptions)
+     composition: CompositionOptions = dataclass_field(default_factory=CompositionOptions)
+     export: ExportOptions = dataclass_field(default_factory=ExportOptions)
+
+diff --git a/readio/integrations/utterplan.py b/readio/integrations/utterplan.py
+index aca582e..73f89e7 100644
+--- a/readio/integrations/utterplan.py
++++ b/readio/integrations/utterplan.py
+@@ -8,7 +8,7 @@ from typing import Any, Literal
+
+ import utterplan  # type: ignore[import-not-found]
+
+-from readio.api.types import PlanRequest, RenderPlanRequest
++from readio.api.types import PauseTiming, PlanRequest, RenderPlanRequest
+ from readio.workspace import WorkspaceRef
+
+ ProgressCallback = Callable[[Any], None] | None
+@@ -46,6 +46,7 @@ def render_bundle_plan(
+         profile=request.profile,
+         variant=request.variant,
+         chapters=request.chapters,
++        pause_timing=utterplan.PauseTimingConfig(request.pause_timing),
+         utterplan_dir=request.utterplan_root,
+         output_root=request.output_root,
+         force=request.force,
+@@ -78,7 +79,7 @@ def inspect_bundle_projection(
+     profile: str | Path,
+     chapters: str = "all",
+     variant: str | None = None,
+-    pause_timing: Any | None = None,
++    pause_timing: PauseTiming = "fixed",
+     utterplan_dir: str | Path | None = None,
+     output_root: str | Path | None = None,
+ ) -> Any:
+@@ -88,7 +89,7 @@ def inspect_bundle_projection(
+         profile=profile,
+         chapters=chapters,
+         variant=variant,
+-        pause_timing=pause_timing,
++        pause_timing=utterplan.PauseTimingConfig(pause_timing),
+         utterplan_dir=utterplan_dir,
+         output_root=output_root,
+     )
+diff --git a/readio/intent.py b/readio/intent.py
+index 645aa92..5668344 100644
+--- a/readio/intent.py
++++ b/readio/intent.py
+@@ -11,7 +11,7 @@ from types import MappingProxyType
+ from typing import Literal
+
+ IntentKind = Literal["book", "document"]
+-INTENT_SCHEMA = "readio.render.v2"
++INTENT_SCHEMA = "readio.render.v3"
+
+ DIAGNOSTICS_MODES = ("errors", "warnings", "all", "none")
+ TEXT_PREPARATIONS = ("auto", "ssmd", "spokenform", "identity")
+@@ -20,6 +20,10 @@ RENDERABILITY_MODES = ("repair", "strict")
+ SPACY_MODES = ("auto", "on", "off")
+ SPACY_MODEL_SIZES = ("sm", "md", "lg", "trf")
+ COMPOSE_EMPHASIS_POLICIES = ("segment_fallback", "strict")
++
++PREPARATION_SPEECH_SEMANTICS = ("freeze", "preserve")
++PROJECTION_PAUSE_TIMINGS = ("fixed", "natural", "engaging")
++PREPARATION_SPACY_MODES = ("off", "auto", *SPACY_MODEL_SIZES)
+ CLIP_POLICIES = ("clamp", "warn", "error")
+ PEAK_POLICIES = ("reduce_gain", "error")
+
+@@ -86,6 +90,22 @@ class VoiceIntent:
+     variant: str | None = None
+
+
++@dataclass(frozen=True, slots=True)
++class PreparationIntent:
++    speech_semantics: Literal["freeze", "preserve"] = "freeze"
++    spacy: Literal["off", "auto", "sm", "md", "lg", "trf"] | None = None
++    speech_profile: Path | None = None
++    pronunciations: Mapping[str, str] = field(default_factory=dict)
++
++    def __post_init__(self) -> None:
++        object.__setattr__(self, "pronunciations", MappingProxyType(dict(self.pronunciations)))
++
++
++@dataclass(frozen=True, slots=True)
++class ProjectionIntent:
++    pause_timing: Literal["fixed", "natural", "engaging"] = "fixed"
++
++
+ @dataclass(frozen=True, slots=True)
+ class PlanningIntent:
+     diagnostics: str = "errors"
+@@ -137,6 +157,8 @@ class RenderIntent:
+     input: InputIntent = field(default_factory=InputIntent)
+     workspace: WorkspaceIntent = field(default_factory=WorkspaceIntent)
+     voice: VoiceIntent = field(default_factory=VoiceIntent)
++    preparation: PreparationIntent = field(default_factory=PreparationIntent)
++    projection: ProjectionIntent = field(default_factory=ProjectionIntent)
+     planning: PlanningIntent = field(default_factory=PlanningIntent)
+     render: RenderOptionsIntent = field(default_factory=RenderOptionsIntent)
+     compose: ComposeIntent = field(default_factory=ComposeIntent)
+@@ -204,6 +226,8 @@ def _create_intent(
+     cover: str | Path | None,
+     timeline: str | Path | None,
+     metadata: Mapping[str, str] | None,
++    preparation: PreparationIntent | None,
++    projection: ProjectionIntent | None,
+ ) -> RenderIntent:
+     source_path = _path(source, "input.source")
+     profile_path = _path(profile, "voice.profile")
+@@ -296,6 +320,8 @@ def _create_intent(
+         input=input_intent,
+         workspace=workspace_intent,
+         voice=voice_intent,
++        preparation=(preparation if preparation is not None else PreparationIntent()),
++        projection=(projection if projection is not None else ProjectionIntent()),
+         planning=planning,
+         render=RenderOptionsIntent(speech=speech, emphasis_policy=emphasis_policy),
+         compose=compose,
+@@ -346,6 +372,8 @@ def create_book_intent(
+     cover: str | Path | None = None,
+     timeline: str | Path | None = None,
+     metadata: Mapping[str, str] | None = None,
++    preparation: PreparationIntent | None = None,
++    projection: ProjectionIntent | None = None,
+ ) -> RenderIntent:
+     """Build book intent values without converting, rendering, or writing files."""
+     return _create_intent(
+@@ -380,6 +408,8 @@ def create_book_intent(
+         cover=cover,
+         timeline=timeline,
+         metadata=metadata,
++        preparation=preparation,
++        projection=projection,
+     )
+
+
+@@ -414,6 +444,8 @@ def create_document_intent(
+     cover: str | Path | None = None,
+     timeline: str | Path | None = None,
+     metadata: Mapping[str, str] | None = None,
++    preparation: PreparationIntent | None = None,
++    projection: ProjectionIntent | None = None,
+ ) -> RenderIntent:
+     """Build document intent values without converting, rendering, or writing files."""
+     return _create_intent(
+@@ -448,6 +480,8 @@ def create_document_intent(
+         cover=cover,
+         timeline=timeline,
+         metadata=metadata,
++        preparation=preparation,
++        projection=projection,
+     )
+
+
+@@ -481,6 +515,25 @@ def validate_intent_shape(intent: RenderIntent) -> None:
+         raise ValueError("workspace.mode='bundle' requires workspace.bundle")
+     if intent.voice.profile is not None and not isinstance(intent.voice.profile, Path):
+         raise TypeError("voice.profile must be a path")
++    if not isinstance(intent.preparation, PreparationIntent):
++        raise TypeError("preparation must be a PreparationIntent")
++    _choice(
++        intent.preparation.speech_semantics,
++        PREPARATION_SPEECH_SEMANTICS,
++        "preparation.speech_semantics",
++    )
++    if intent.preparation.spacy is not None:
++        _choice(intent.preparation.spacy, PREPARATION_SPACY_MODES, "preparation.spacy")
++    if intent.preparation.speech_profile is not None and not isinstance(
++        intent.preparation.speech_profile, Path
++    ):
++        raise TypeError("preparation.speech_profile must be a path")
++    for key, value in intent.preparation.pronunciations.items():
++        if not isinstance(key, str) or not isinstance(value, str):
++            raise TypeError("preparation.pronunciations must map strings to strings")
++    if not isinstance(intent.projection, ProjectionIntent):
++        raise TypeError("projection must be a ProjectionIntent")
++    _choice(intent.projection.pause_timing, PROJECTION_PAUSE_TIMINGS, "projection.pause_timing")
+     if intent.input.chapters is not None:
+         if intent.kind == "document":
+             raise ValueError("input.chapters is not valid for document intents")
+@@ -561,6 +614,12 @@ def validate_render_intent(
+         raise FileNotFoundError(f"render source does not exist: {source_path}")
+     if intent.voice.profile is None:
+         raise ValueError("voice.profile is required")
++    if intent.preparation.speech_profile is not None:
++        speech_profile_path = resolve(intent.preparation.speech_profile)
++        if not speech_profile_path.is_file():
++            raise FileNotFoundError(
++                f"preparation.speech_profile does not exist: {speech_profile_path}"
++            )
+     profile_path = resolve(intent.voice.profile)
+     if not profile_path.is_file():
+         raise FileNotFoundError(f"VoiceRender RenderProfile does not exist: {profile_path}")
+@@ -586,6 +645,9 @@ __all__ = [
+     "INTENT_SCHEMA",
+     "OVERLAP_MODES",
+     "PEAK_POLICIES",
++    "PREPARATION_SPACY_MODES",
++    "PREPARATION_SPEECH_SEMANTICS",
++    "PROJECTION_PAUSE_TIMINGS",
+     "RENDERABILITY_MODES",
+     "SPACY_MODEL_SIZES",
+     "SPACY_MODES",
+@@ -595,6 +657,8 @@ __all__ = [
+     "IntentKind",
+     "OutputIntent",
+     "PlanningIntent",
++    "PreparationIntent",
++    "ProjectionIntent",
+     "RenderIntent",
+     "RenderOptionsIntent",
+     "VoiceIntent",
+diff --git a/readio/intent_codec.py b/readio/intent_codec.py
+index 5c9a0bc..1ce2c54 100644
+--- a/readio/intent_codec.py
++++ b/readio/intent_codec.py
+@@ -21,6 +21,8 @@ from readio.intent import (
+     IntentKind,
+     OutputIntent,
+     PlanningIntent,
++    PreparationIntent,
++    ProjectionIntent,
+     RenderIntent,
+     RenderOptionsIntent,
+     VoiceIntent,
+@@ -89,7 +91,7 @@ def _path(value: object, name: str) -> Path | None:
+
+
+ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
+-    """Parse a mapping into a validated immutable ``readio.render.v2`` value."""
++    """Parse a mapping into a validated immutable ``readio.render.v3`` value."""
+     if not isinstance(data, Mapping):
+         raise TypeError("render intent must be a TOML table")
+     allowed_root = {
+@@ -101,13 +103,15 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
+         "planning",
+         "render",
+         "compose",
++        "preparation",
++        "projection",
+         "output",
+     }
+     unknown_root = sorted(set(data) - allowed_root)
+     if unknown_root:
+         raise ValueError(f"unknown top-level key(s): {', '.join(str(key) for key in unknown_root)}")
+     schema = _string(data.get("schema"), "schema")
+-    if schema != INTENT_SCHEMA:
++    if schema not in {INTENT_SCHEMA, "readio.render.v2"}:
+         raise ValueError(f"unsupported schema {schema!r}; expected {INTENT_SCHEMA!r}")
+     kind_value = data.get("kind")
+     if kind_value is not None and (
+@@ -133,6 +137,12 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
+             "require_spacy",
+         },
+     )
++    preparation_data = _table(
++        data.get("preparation", {}),
++        "preparation",
++        {"speech_semantics", "spacy", "speech_profile", "pronunciations"},
++    )
++    projection_data = _table(data.get("projection", {}), "projection", {"pause_timing"})
+     render_data = _table(data.get("render", {}), "render", {"speech", "emphasis_policy"})
+     compose_data = _table(
+         data.get("compose", {}),
+@@ -200,6 +210,27 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
+         ),
+         require_spacy=_bool(planning_data.get("require_spacy", False), "planning.require_spacy"),
+     )
++    pronunciation_value = preparation_data.get("pronunciations", {})
++    if not isinstance(pronunciation_value, Mapping):
++        raise TypeError("preparation.pronunciations must be a TOML table")
++    pronunciations: dict[str, str] = {}
++    for key, value in pronunciation_value.items():
++        if not isinstance(key, str) or not isinstance(value, str):
++            raise TypeError("preparation.pronunciations must map strings to strings")
++        pronunciations[key] = value
++    preparation = PreparationIntent(
++        speech_semantics=_string(
++            preparation_data.get("speech_semantics", "freeze"), "preparation.speech_semantics"
++        ),
++        spacy=_string(preparation_data.get("spacy"), "preparation.spacy", optional=True),
++        speech_profile=_path(preparation_data.get("speech_profile"), "preparation.speech_profile"),
++        pronunciations=pronunciations,
++    )
++    projection = ProjectionIntent(
++        pause_timing=_string(
++            projection_data.get("pause_timing", "fixed"), "projection.pause_timing"
++        )
++    )
+     render = RenderOptionsIntent(
+         speech=_string(render_data.get("speech", "all"), "render.speech"),
+         emphasis_policy=_string(
+@@ -235,10 +266,12 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
+         workspace=workspace,
+         voice=voice_intent,
+         planning=planning,
++        preparation=preparation,
++        projection=projection,
+         render=render,
+         compose=compose,
+         output=output,
+-        schema=schema,
++        schema=INTENT_SCHEMA,
+     )
+     validate_intent_shape(intent)
+     return intent
+@@ -308,6 +341,23 @@ def dump_render_intent(intent: RenderIntent, *, minimal: bool = False) -> str:
+     if intent.voice.variant is not None:
+         voice_values.append(("variant", intent.voice.variant))
+     lines.extend(_table_lines("voice", voice_values))
++    preparation_values: list[tuple[str, object]] = []
++    if not (minimal and intent.preparation.speech_semantics == "freeze"):
++        preparation_values.append(("speech_semantics", intent.preparation.speech_semantics))
++    if intent.preparation.spacy is not None:
++        preparation_values.append(("spacy", intent.preparation.spacy))
++    if intent.preparation.speech_profile is not None:
++        preparation_values.append(("speech_profile", intent.preparation.speech_profile))
++    lines.extend(_table_lines("preparation", preparation_values))
++    if intent.preparation.pronunciations:
++        lines.append("[preparation.pronunciations]")
++        lines.extend(
++            f"{json.dumps(key, ensure_ascii=False)} = {_toml_value(value)}"
++            for key, value in sorted(intent.preparation.pronunciations.items())
++        )
++
++    if not (minimal and intent.projection.pause_timing == "fixed"):
++        lines.extend(_table_lines("projection", [("pause_timing", intent.projection.pause_timing)]))
+
+     planning_defaults = {
+         "diagnostics": "errors",
+diff --git a/readio/intent_resolver.py b/readio/intent_resolver.py
+index 7efbfa7..f5b21ff 100644
+--- a/readio/intent_resolver.py
++++ b/readio/intent_resolver.py
+@@ -240,6 +240,14 @@ def resolve_render_intent(
+             profile=profile_path,
+             variant=variant if variant is not None else intent.voice.variant,
+         ),
++        preparation=replace(
++            intent.preparation,
++            speech_profile=(
++                _absolute_path(intent.preparation.speech_profile, base=config_dir)
++                if intent.preparation.speech_profile is not None
++                else None
++            ),
++        ),
+         output=replace(intent.output, format=format_value, path=output_path),
+     )
+     validate_render_intent(effective_intent)
+diff --git a/readio/render_service.py b/readio/render_service.py
+index 46f5299..f5b4bf7 100644
+--- a/readio/render_service.py
++++ b/readio/render_service.py
+@@ -2,6 +2,7 @@
+
+ from __future__ import annotations
+
++from dataclasses import replace
+ from typing import Any, Literal, cast
+
+ import audiocompose  # type: ignore[import-not-found]
+@@ -12,6 +13,32 @@ from readio.intent_resolver import ResolvedRenderIntent
+
+ def _planner_config(resolved: ResolvedRenderIntent) -> Any | None:
+     planning = resolved.intent.planning
++    if resolved.intent.preparation.spacy is not None:
++        preparation_spacy = resolved.intent.preparation.spacy
++        if preparation_spacy == "off":
++            planning = replace(
++                planning,
++                spacy="off",
++                spacy_model=None,
++                spacy_model_size=None,
++                require_spacy=False,
++            )
++        elif preparation_spacy == "auto":
++            planning = replace(
++                planning,
++                spacy="auto",
++                spacy_model=None,
++                spacy_model_size=None,
++                require_spacy=False,
++            )
++        else:
++            planning = replace(
++                planning,
++                spacy="on",
++                spacy_model=None,
++                spacy_model_size=preparation_spacy,
++                require_spacy=True,
++            )
+     if resolved.language is None:
+         custom = (
+             planning.text_preparation != "auto"
+diff --git a/readio/render_workflow.py b/readio/render_workflow.py
+index 939cbe5..a105177 100644
+--- a/readio/render_workflow.py
++++ b/readio/render_workflow.py
+@@ -360,6 +360,7 @@ def _inspect_with_policy(
+             profile=resolved.profile,
+             chapters=request.chapters,
+             variant=request.variant,
++            pause_timing=request.projection.pause_timing,
+             output_root=request.composition.renderplan_root,
+         )
+         if (
+@@ -382,7 +383,20 @@ def _inspect_with_policy(
+         )
+     variant = _value(projection_report, "variant", variant)
+     projection_step = _plan_step(
+-        request, "render_plan", projection_report, selector=request.chapters
++        request,
++        "render_plan",
++        projection_report,
++        selector=request.chapters,
++        explicit_rebuild=(
++            (
++                request.rebuild_from is not None
++                and _STAGE_INDEX["render_plan"] >= _STAGE_INDEX[request.rebuild_from]
++            )
++            or (
++                normalize_inspection_state(projection_report) == "stale"
++                and _replacement_safe(projection_report)
++            )
++        ),
+     )
+     steps.append(projection_step)
+     projection_pending = projection_step.action in {"execute", "replace"}
+@@ -575,6 +589,7 @@ def _invoke_stage(
+                 output=policy.root,
+                 language=request.language,
+                 chapters=chapters,
++                preparation=request.preparation,
+                 force=step.force,
+             ),
+         )
+@@ -598,6 +613,7 @@ def _invoke_stage(
+                 variant=request.variant,
+                 chapters=selector,
+                 output_root=request.composition.renderplan_root,
++                pause_timing=request.projection.pause_timing,
+                 force=step.force,
+             ),
+         )
+diff --git a/readio/spacy_resources.py b/readio/spacy_resources.py
+new file mode 100644
+index 0000000..ef49774
+--- /dev/null
++++ b/readio/spacy_resources.py
+@@ -0,0 +1,83 @@
++"""Readio-owned inspection and explicit provisioning of local spaCy models."""
++
++from __future__ import annotations
++
++import subprocess
++import sys
++from dataclasses import dataclass
++from importlib import import_module
++from importlib.metadata import PackageNotFoundError, version
++from typing import Literal
++
++from utterplan.spacy_models import resolve_spacy_model
++
++SpacyTier = Literal["sm", "md", "lg", "trf"]
++
++
++@dataclass(frozen=True, slots=True)
++class SpacyModelInfo:
++    language: str
++    tier: SpacyTier
++    model: str
++    installed: bool
++    spacy_version: str | None
++    model_version: str | None
++
++
++def _distribution_version(package: str) -> str | None:
++    try:
++        return version(package)
++    except PackageNotFoundError:
++        return None
++
++
++def _load_model(model: str) -> None:
++    spacy = import_module("spacy")
++    spacy.load(model)
++
++
++def inspect_spacy_model(language: str, tier: SpacyTier) -> SpacyModelInfo:
++    """Inspect whether the resolved local model is installed and loadable."""
++    model = resolve_spacy_model(language, tier)
++    spacy_version = _distribution_version("spacy")
++    model_version = _distribution_version(model)
++    installed = spacy_version is not None and model_version is not None
++    if installed:
++        _load_model(model)
++    return SpacyModelInfo(
++        language=language,
++        tier=tier,
++        model=model,
++        installed=installed,
++        spacy_version=spacy_version,
++        model_version=model_version if installed else None,
++    )
++
++
++def ensure_spacy_model(
++    language: str,
++    tier: SpacyTier,
++    *,
++    offline: bool = False,
++) -> SpacyModelInfo:
++    """Return a loadable model, explicitly downloading it when allowed."""
++    info = inspect_spacy_model(language, tier)
++    if info.installed:
++        return info
++    if offline:
++        raise RuntimeError(
++            f"spaCy model {info.model!r} is not installed and offline mode is enabled"
++        )
++    if info.spacy_version is None:
++        raise RuntimeError('spaCy is not installed; install Readio with the "spacy" extra first')
++
++    subprocess.run([sys.executable, "-m", "spacy", "download", info.model], check=True)
++    verified = inspect_spacy_model(language, tier)
++    if not verified.installed:
++        raise RuntimeError(
++            f"spaCy model {verified.model!r} is still unavailable after provisioning"
++        )
++    return verified
++
++
++__all__ = ["SpacyModelInfo", "ensure_spacy_model", "inspect_spacy_model"]
+diff --git a/readio/workspace.py b/readio/workspace.py
+index e24aa53..1bddc14 100644
+--- a/readio/workspace.py
++++ b/readio/workspace.py
+@@ -3,9 +3,10 @@
+ from __future__ import annotations
+
+ import tempfile
+-from collections.abc import Callable
+-from dataclasses import dataclass
++from collections.abc import Callable, Mapping
++from dataclasses import dataclass, field
+ from pathlib import Path
++from types import MappingProxyType
+ from typing import Any, Literal, cast
+ from uuid import uuid4
+
+@@ -15,6 +16,33 @@ WorkspaceKind = Literal["document", "book"]
+ WorkspaceMode = Literal["temporary", "persistent"]
+
+
++PreparationSpacy = Literal["off", "auto", "sm", "md", "lg", "trf"]
++
++
++@dataclass(frozen=True, slots=True)
++class PreparationOptions:
++    """Readio-owned source speech preparation controls."""
++
++    speech_semantics: Literal["freeze", "preserve"] = "freeze"
++    spacy: PreparationSpacy = "off"
++    speech_profile: Path | None = None
++    pronunciations: Mapping[str, str] = field(default_factory=dict)
++
++    def __post_init__(self) -> None:
++        if self.speech_semantics not in {"freeze", "preserve"}:
++            raise ValueError("speech_semantics must be 'freeze' or 'preserve'")
++        if self.spacy not in {"off", "auto", "sm", "md", "lg", "trf"}:
++            raise ValueError("spacy must be one of: off, auto, sm, md, lg, trf")
++        if self.speech_profile is not None and not isinstance(self.speech_profile, Path):
++            raise TypeError("speech_profile must be a Path or None")
++        pronunciations = dict(self.pronunciations)
++        if not all(
++            isinstance(key, str) and isinstance(value, str) for key, value in pronunciations.items()
++        ):
++            raise TypeError("pronunciations must map strings to strings")
++        object.__setattr__(self, "pronunciations", MappingProxyType(pronunciations))
++
++
+ def default_bundle_workspace_path(source: str | Path) -> Path:
+     """Return the canonical bundle destination chosen by SSMDConvert."""
+     return Path(ssmdconvert.default_bundle_workspace_path(Path(source).expanduser()))
+@@ -55,6 +83,7 @@ class CreateWorkspaceRequest:
+     output: Path | None = None
+     language: str | None = None
+     chapters: str = "all"
++    preparation: PreparationOptions = field(default_factory=PreparationOptions)
+     force: bool = False
+
+
+@@ -97,11 +126,20 @@ def create_workspace(
+     if source_path.name.casefold().endswith((".ssmd-bundle", ".ssmd-bundle.zip")):
+         return resolve_workspace(source_path)
+
++    preparation = options.preparation
++    pronunciations: dict[str, str] = {}
++    if preparation.speech_profile is not None:
++        speech_profile = ssmdconvert.load_speech_profile(preparation.speech_profile)
++        pronunciations.update(ssmdconvert.effective_replacements(speech_profile))
++    pronunciations.update(preparation.pronunciations)
+     result = ssmdconvert.convert_bundle(
+         source_path,
+         output=options.output,
+         chapters=options.chapters,
+         language=options.language,
++        speech_semantics=preparation.speech_semantics,
++        spacy=preparation.spacy,
++        pronunciations=pronunciations or None,
+         force=options.force,
+         on_progress=on_progress,
+     )
+diff --git a/tests/test_dependency_boundaries.py b/tests/test_dependency_boundaries.py
+index 9c9d697..8ceeff8 100644
+--- a/tests/test_dependency_boundaries.py
++++ b/tests/test_dependency_boundaries.py
+@@ -22,6 +22,7 @@ BACKEND_ROOTS = frozenset(
+ SPECIALIST_ROOTS = frozenset(
+     {"ssmdconvert", "utterplan", "voicerender", "audiocompose", "audioexport"}
+ )
++PUBLIC_SPECIALIST_MODULES = frozenset({"utterplan.spacy_models"})
+ PRIVATE_IMPORT_PREFIXES = (
+     "voicerender.engines",
+     "audiocompose.integrations",
+@@ -76,11 +77,11 @@ def test_runtime_facade_imports_only_voicerender_from_the_synthesis_stack() -> N
+     assert not imported & {"onnxvoice", "onnxruntime"}
+
+
+-def test_specialist_imports_use_only_public_roots() -> None:
++def test_specialist_imports_use_public_apis() -> None:
+     specialist_imports = {
+         module for module in _runtime_imports() if module.split(".", 1)[0] in SPECIALIST_ROOTS
+     }
+-    assert specialist_imports <= SPECIALIST_ROOTS
++    assert specialist_imports <= SPECIALIST_ROOTS | PUBLIC_SPECIALIST_MODULES
+
+
+ def test_source_profile_adapter_uses_public_specialist_root_imports() -> None:
+diff --git a/tests/test_intent.py b/tests/test_intent.py
+index 08b0404..f9031bc 100644
+--- a/tests/test_intent.py
++++ b/tests/test_intent.py
+@@ -6,6 +6,8 @@ import pytest
+
+ from readio.intent import (
+     INTENT_SCHEMA,
++    PreparationIntent,
++    ProjectionIntent,
+     create_book_intent,
+     create_document_intent,
+     validate_render_intent,
+@@ -78,6 +80,13 @@ def test_full_intent_toml_round_trips_all_stable_values(tmp_path: Path) -> None:
+         cover="cover.jpg",
+         timeline="timeline.json",
+         metadata={"title": 'A "Novel"', "author": "Author"},
++        preparation=PreparationIntent(
++            speech_semantics="preserve",
++            spacy="md",
++            speech_profile=Path("speech-profile.toml"),
++            pronunciations={"Readio": "ree-dee-oh"},
++        ),
++        projection=ProjectionIntent(pause_timing="engaging"),
+     )
+
+     rendered = dump_render_intent(intent)
+@@ -86,7 +95,7 @@ def test_full_intent_toml_round_trips_all_stable_values(tmp_path: Path) -> None:
+     decoded = load_render_intent(path)
+
+     assert decoded == intent
+-    assert 'schema = "readio.render.v2"' in rendered
++    assert 'schema = "readio.render.v3"' in rendered
+     assert 'kind = "book"' in rendered
+     assert "[output.metadata]" in rendered
+     assert '"title" = "A \\"Novel\\""' in rendered
+@@ -96,7 +105,7 @@ def test_minimal_intent_omits_effective_defaults() -> None:
+     intent = create_book_intent("novel.epub", profile="cast.renderprofile.toml")
+     rendered = dump_render_intent(intent, minimal=True)
+
+-    assert 'schema = "readio.render.v2"' in rendered
++    assert 'schema = "readio.render.v3"' in rendered
+     assert 'kind = "book"' in rendered
+     assert "[input]" in rendered
+     assert 'source = "novel.epub"' in rendered
+@@ -104,6 +113,8 @@ def test_minimal_intent_omits_effective_defaults() -> None:
+     assert 'mode = "temporary"' in rendered
+     assert "[voice]" in rendered
+     assert 'profile = "cast.renderprofile.toml"' in rendered
++    assert "[preparation]" not in rendered
++    assert "[projection]" not in rendered
+     assert "novel.ssmd-bundle" not in rendered
+     assert "chapters" not in rendered
+     assert "[planning]" not in rendered
+@@ -112,6 +123,31 @@ def test_minimal_intent_omits_effective_defaults() -> None:
+     assert "[output]" not in rendered
+
+
++def test_legacy_v2_intent_defaults_without_mutating_config(tmp_path: Path) -> None:
++    legacy = create_document_intent(
++        "article.md",
++        profile="voice.renderprofile.toml",
++        spacy="on",
++        spacy_model_size="sm",
++    )
++    contents = dump_render_intent(legacy, minimal=True).replace(
++        "readio.render.v3", "readio.render.v2"
++    )
++    path = tmp_path / "legacy.readio.toml"
++    path.write_text(contents, encoding="utf-8")
++    original = path.read_bytes()
++
++    decoded = load_render_intent(path)
++
++    assert decoded.schema == INTENT_SCHEMA
++    assert decoded.planning.spacy == "on"
++    assert decoded.planning.spacy_model_size == "sm"
++    assert decoded.preparation.spacy is None
++    assert decoded.preparation.speech_profile is None
++    assert decoded.projection.pause_timing == "fixed"
++    assert path.read_bytes() == original
++
++
+ def test_minimal_toml_omissions_load_as_schema_defaults(tmp_path: Path) -> None:
+     intent = create_book_intent("novel.epub", profile="cast.renderprofile.toml")
+     path = tmp_path / "minimal.readio.toml"
+diff --git a/tests/test_intent_cli.py b/tests/test_intent_cli.py
+index 2bcf0ec..2be75dd 100644
+--- a/tests/test_intent_cli.py
++++ b/tests/test_intent_cli.py
+@@ -34,7 +34,7 @@ def test_book_create_stdout_is_reviewable_toml_without_service_or_rendering(
+
+     assert status == 0
+     content = capsys.readouterr().out
+-    assert 'schema = "readio.render.v2"' in content
++    assert 'schema = "readio.render.v3"' in content
+     assert 'kind = "book"' in content
+     assert 'source = "novel.epub"' in content
+     assert 'chapters = "all"' in content
+diff --git a/tests/test_intent_request_bridge.py b/tests/test_intent_request_bridge.py
+index c773b20..1643638 100644
+--- a/tests/test_intent_request_bridge.py
++++ b/tests/test_intent_request_bridge.py
+@@ -6,7 +6,13 @@ from types import SimpleNamespace
+ import pytest
+
+ from readio.api import Readio, RenderRequest, render_request_from_intent
+-from readio.intent import create_book_intent, create_document_intent
++from readio.intent import (
++    PreparationIntent,
++    ProjectionIntent,
++    create_book_intent,
++    create_document_intent,
++)
++from readio.intent_codec import dump_render_intent, load_render_intent
+
+
+ def _configure_resolver(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+@@ -133,3 +139,68 @@ def test_intent_bridge_defaults_to_temporary_workspace_and_public_function(
+     assert request.bundle is None
+     assert request.output == (config_dir / "article.mp3").resolve()
+     assert request.format == "mp3"
++
++
++def test_intent_bridge_maps_persisted_preparation_and_projection(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    config_dir = tmp_path / "config"
++    config_dir.mkdir()
++    source = config_dir / "article.md"
++    source.write_text("A short article.", encoding="utf-8")
++    (config_dir / "profile.renderprofile.toml").write_text("profile", encoding="utf-8")
++    (config_dir / "speech-profile.toml").write_text("profile", encoding="utf-8")
++    _configure_resolver(monkeypatch, "document")
++    intent = create_document_intent(
++        "article.md",
++        profile="profile.renderprofile.toml",
++        language="en",
++        preparation=PreparationIntent(
++            speech_semantics="preserve",
++            spacy="md",
++            speech_profile=Path("speech-profile.toml"),
++            pronunciations={"Readio": "ree-dee-oh"},
++        ),
++        projection=ProjectionIntent(pause_timing="engaging"),
++    )
++
++    request = render_request_from_intent(
++        intent,
++        config_path=config_dir / "article.readio.toml",
++    )
++
++    assert intent.preparation.speech_profile == Path("speech-profile.toml")
++    assert request.preparation.speech_semantics == "preserve"
++    assert request.preparation.spacy == "md"
++    assert request.preparation.speech_profile == (config_dir / "speech-profile.toml").resolve()
++    assert request.preparation.pronunciations == {"Readio": "ree-dee-oh"}
++    assert request.projection.pause_timing == "engaging"
++    assert request.planning.planner_config.linguistics.use_spacy is True
++    assert request.planning.planner_config.linguistics.spacy_model_size == "md"
++    assert request.planning.planner_config.linguistics.require_spacy is True
++
++
++def test_inspecting_legacy_intent_does_not_rewrite_config(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    config_dir = tmp_path / "config"
++    config_dir.mkdir()
++    (config_dir / "article.md").write_text("A short article.", encoding="utf-8")
++    (config_dir / "profile.renderprofile.toml").write_text("profile", encoding="utf-8")
++    _configure_resolver(monkeypatch, "document")
++    intent = create_document_intent("article.md", profile="profile.renderprofile.toml")
++    contents = dump_render_intent(intent, minimal=True).replace(
++        "readio.render.v3", "readio.render.v2"
++    )
++    config_path = config_dir / "article.readio.toml"
++    config_path.write_text(contents, encoding="utf-8")
++    original = config_path.read_bytes()
++    monkeypatch.setattr(Readio, "inspect", lambda _self, request: request)
++
++    request = Readio().inspect_intent(load_render_intent(config_path), config_path=config_path)
++
++    assert isinstance(request, RenderRequest)
++    assert request.source == (config_dir / "article.md").resolve()
++    assert config_path.read_bytes() == original
+diff --git a/tests/test_native_inspection_dispatch.py b/tests/test_native_inspection_dispatch.py
+index 9876a20..451fe10 100644
+--- a/tests/test_native_inspection_dispatch.py
++++ b/tests/test_native_inspection_dispatch.py
+@@ -5,6 +5,7 @@ from types import SimpleNamespace
+ from typing import Any
+
+ import audiocompose
++import pytest
+ import utterplan
+ import voicerender
+
+@@ -16,8 +17,9 @@ from readio.integrations import voicerender as voicerender_integration
+ from readio.workspace import WorkspaceRef
+
+
++@pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
+ def test_utterplan_inspection_adapters_forward_specialist_options(
+-    tmp_path: Path, monkeypatch: Any
++    tmp_path: Path, monkeypatch: Any, pause_timing: str
+ ) -> None:
+     workspace = WorkspaceRef(tmp_path / "book.ssmd-bundle", "book")
+     config = object()
+@@ -49,6 +51,7 @@ def test_utterplan_inspection_adapters_forward_specialist_options(
+             profile=profile,
+             chapters="3-5",
+             variant="narration",
++            pause_timing=pause_timing,
+             output_root=tmp_path / "renderplans",
+         )
+         is projection_result
+@@ -66,7 +69,7 @@ def test_utterplan_inspection_adapters_forward_specialist_options(
+                 "profile": profile,
+                 "chapters": "3-5",
+                 "variant": "narration",
+-                "pause_timing": None,
++                "pause_timing": utterplan.PauseTimingConfig(pause_timing),
+                 "utterplan_dir": None,
+                 "output_root": tmp_path / "renderplans",
+             },
+diff --git a/tests/test_native_utterplan_dispatch.py b/tests/test_native_utterplan_dispatch.py
+index 9453e3f..a7323f6 100644
+--- a/tests/test_native_utterplan_dispatch.py
++++ b/tests/test_native_utterplan_dispatch.py
+@@ -22,6 +22,10 @@ def test_compile_forwards_bundle_to_public_api_for_both_kinds(
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: Literal["document", "book"]
+ ) -> None:
+     workspace = _workspace(tmp_path, kind)
++    monkeypatch.setattr(
++        "readio.spacy_resources.ensure_spacy_model",
++        lambda *_args, **_kwargs: pytest.fail("UtterPlan compilation must not provision spaCy"),
++    )
+     planner_config = object()
+     start_source = SimpleNamespace(phase="bundle.start")
+     progress_source = SimpleNamespace(completed=2, total=4, message="compiled")
+@@ -63,10 +67,15 @@ def test_compile_forwards_bundle_to_public_api_for_both_kinds(
+     assert events[1].message == "compiled"
+
+
++@pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
+ def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
+-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pause_timing: str
+ ) -> None:
+     workspace = _workspace(tmp_path, "document")
++    monkeypatch.setattr(
++        "readio.spacy_resources.ensure_spacy_model",
++        lambda *_args, **_kwargs: pytest.fail("RenderPlan projection must not provision spaCy"),
++    )
+     profile = tmp_path / "narration.renderprofile.toml"
+     result = SimpleNamespace(variant="narration--exact-projection")
+     start_source = object()
+@@ -89,6 +98,7 @@ def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
+             chapters="2-4",
+             utterplan_root=tmp_path / "utterplan-override",
+             output_root=tmp_path / "projection-override",
++            pause_timing=pause_timing,
+             force=True,
+         ),
+         on_start=events.append,
+@@ -104,6 +114,7 @@ def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
+     assert captured["utterplan_dir"] == tmp_path / "utterplan-override"
+     assert captured["output_root"] == tmp_path / "projection-override"
+     assert captured["force"] is True
++    assert captured["pause_timing"] == utterplan.PauseTimingConfig(pause_timing)
+     assert events[0].stage == events[1].stage == "render_plan"
+     assert events[0].source is start_source
+     assert events[1].current == 3
+diff --git a/tests/test_native_workspace.py b/tests/test_native_workspace.py
+index ba37689..5e07fcf 100644
+--- a/tests/test_native_workspace.py
++++ b/tests/test_native_workspace.py
+@@ -7,14 +7,22 @@ import pytest
+ import ssmdconvert
+ from ebooklib import epub
+
++from readio.api import (
++    PreparationOptions as PublicPreparationOptions,
++)
+ from readio.workspace import (
+     CreateWorkspaceRequest,
++    PreparationOptions,
+     create_workspace,
+     resolve_workspace,
+     resolve_workspace_policy,
+ )
+
+
++def test_preparation_options_are_public_from_api() -> None:
++    assert PublicPreparationOptions is PreparationOptions
++
++
+ def _make_epub(path: Path) -> None:
+     book = epub.EpubBook()
+     book.set_identifier("workspace-test")
+@@ -92,6 +100,10 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
+         return SimpleNamespace(output=output)
+
+     monkeypatch.setattr(ssmdconvert, "convert_bundle", convert_bundle)
++    monkeypatch.setattr(
++        "readio.spacy_resources.ensure_spacy_model",
++        lambda *_args, **_kwargs: pytest.fail("workspace conversion must not provision spaCy"),
++    )
+     monkeypatch.setattr(
+         ssmdconvert, "load_bundle_workspace", lambda _root: SimpleNamespace(kind="document")
+     )
+@@ -100,6 +112,11 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
+         output=output,
+         language="en-US",
+         chapters="2-4",
++        preparation=PreparationOptions(
++            speech_semantics="preserve",
++            spacy="sm",
++            pronunciations={"example": "pronunciation"},
++        ),
+         force=True,
+     )
+
+@@ -111,11 +128,68 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
+         "output": output,
+         "chapters": "2-4",
+         "language": "en-US",
++        "speech_semantics": "preserve",
++        "spacy": "sm",
++        "pronunciations": {"example": "pronunciation"},
+         "force": True,
+         "on_progress": progress,
+     }
+
+
++def test_speech_profile_replacements_are_bridged_through_ssmdconvert(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    source = tmp_path / "story.txt"
++    source.write_text("A short story.", encoding="utf-8")
++    output = tmp_path / "exact.ssmd-bundle"
++    output.mkdir()
++    profile_path = tmp_path / "reader.speech.toml"
++    loaded_profile = object()
++    loaded_paths: list[Path] = []
++    captured: dict[str, object] = {}
++
++    def load_speech_profile(path: Path) -> object:
++        loaded_paths.append(path)
++        return loaded_profile
++
++    def convert_bundle(source_arg: Path, **kwargs: object) -> object:
++        captured.update(kwargs)
++        return SimpleNamespace(output=output)
++
++    monkeypatch.setattr(ssmdconvert, "load_speech_profile", load_speech_profile)
++    monkeypatch.setattr(
++        ssmdconvert,
++        "effective_replacements",
++        lambda profile: (
++            {"shared": "profile", "profile-only": "spoken"} if profile is loaded_profile else {}
++        ),
++    )
++    monkeypatch.setattr(ssmdconvert, "convert_bundle", convert_bundle)
++    monkeypatch.setattr(
++        ssmdconvert, "load_bundle_workspace", lambda _root: SimpleNamespace(kind="document")
++    )
++
++    create_workspace(
++        source,
++        CreateWorkspaceRequest(
++            source=source,
++            output=output,
++            preparation=PreparationOptions(
++                speech_profile=profile_path,
++                pronunciations={"shared": "python", "python-only": "custom"},
++            ),
++        ),
++    )
++
++    assert loaded_paths == [profile_path]
++    assert captured["pronunciations"] == {
++        "shared": "python",
++        "profile-only": "spoken",
++        "python-only": "custom",
++    }
++    assert "speech_profile" not in captured
++
++
+ def test_existing_bundle_is_resolved_without_reconversion(
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+diff --git a/tests/test_native_workspace_e2e.py b/tests/test_native_workspace_e2e.py
+index 1cf8d7e..4a43fe1 100644
+--- a/tests/test_native_workspace_e2e.py
++++ b/tests/test_native_workspace_e2e.py
+@@ -18,6 +18,7 @@ from readio.api.types import (
+     RunRequest,
+     VoiceRenderRequest,
+ )
++from readio.workspace import CreateWorkspaceRequest
+
+
+ def _write_epub(path: Path) -> None:
+@@ -119,3 +120,57 @@ def test_bundle_kinds_use_the_same_model_free_full_run_api(
+     assert workspace.root.name.endswith(".ssmd-bundle")
+     assert not (workspace.root / ".readio").exists()
+     assert not (workspace.root / "project.json").exists()
++
++
++def test_book_workflow_uses_sibling_render_profile(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    project = tmp_path / "PROJECT"
++    project.mkdir()
++    source = project / "book.epub"
++    _write_epub(source)
++    bundle = project / "book.ssmd-bundle"
++    service = Readio()
++    workspace = service.create_workspace(
++        source,
++        CreateWorkspaceRequest(source=source, output=bundle),
++    )
++    profile = project / "narrator.renderprofile.toml"
++    _write_profile(profile)
++
++    observed: dict[str, Any] = {}
++
++    def render_bundle(path: Path, **kwargs: Any) -> object:
++        observed["render_path"] = path
++        observed["render_variant"] = kwargs["variant"]
++        return SimpleNamespace(rendered=True)
++
++    def compose_bundle(path: Path, **kwargs: Any) -> object:
++        observed["compose_path"] = path
++        observed["compose_variant"] = kwargs["variant"]
++        return SimpleNamespace(composed=True)
++
++    monkeypatch.setattr(voicerender, "render_bundle", render_bundle)
++    monkeypatch.setattr(audiocompose, "compose_bundle", compose_bundle)
++
++    result = service.run(
++        workspace.root,
++        RunRequest(
++            plan=PlanRequest(language="en-US", diagnostics="none"),
++            render_plan=RenderPlanRequest(profile=profile),
++            render=VoiceRenderRequest(variant="placeholder"),
++            compose=ComposeRequest(variant="placeholder"),
++        ),
++    )
++
++    assert profile.parent == workspace.root.parent
++    assert result.workspace == workspace
++    assert result.compile.output_dir.is_dir()
++    assert result.render_plan.variant == result.variant
++    assert result.render.rendered is True
++    assert result.compose.composed is True
++    assert observed["render_path"] == workspace.root
++    assert observed["compose_path"] == workspace.root
++    assert observed["render_variant"] == result.variant
++    assert observed["compose_variant"] == result.variant
+diff --git a/tests/test_packaging_metadata.py b/tests/test_packaging_metadata.py
+index 39cde6b..6a63d34 100644
+--- a/tests/test_packaging_metadata.py
++++ b/tests/test_packaging_metadata.py
+@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+ ROOT = Path(__file__).resolve().parents[1]
+ EXPECTED_DEPENDENCIES = {
+     "numpy>=1.23",
+-    "utterplan>=0.6.18,<0.7",
++    "utterplan>=0.6.19,<0.7",
+     "voicerender>=0.2.9,<0.3",
+     "audiocompose>=0.3.8,<0.4",
+     "ssmdconvert>=0.2.5,<0.3",
+@@ -72,7 +72,7 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
+         "inflect",
+         "dev",
+     }
+-    assert optional["spacy"] == ["utterplan[spacy]>=0.6.18,<0.7"]
++    assert optional["spacy"] == ["utterplan[spacy]>=0.6.19,<0.7"]
+     assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
+     assert optional["audioexport"] == ["audioexport>=0.1.7,<0.2"]
+     for extra in ("kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"):
+@@ -84,7 +84,7 @@ def test_minimum_stack_ci_targets_requested_releases() -> None:
+     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+     for requirement in (
+         '"ssmdconvert[pdf,docx]==0.2.5"',
+-        '"utterplan[spacy]==0.6.18"',
++        '"utterplan[spacy]==0.6.19"',
+         '"renderplan==0.2.1"',
+         '"voicerender==0.2.9"',
+         '"audiocompose==0.3.8"',
+diff --git a/tests/test_public_package_api_contract.py b/tests/test_public_package_api_contract.py
+index 6939bd9..6cd791f 100644
+--- a/tests/test_public_package_api_contract.py
++++ b/tests/test_public_package_api_contract.py
+@@ -120,6 +120,8 @@ def test_readio_render_intent_api_is_public() -> None:
+         "InputIntent",
+         "WorkspaceIntent",
+         "RenderIntent",
++        "PreparationIntent",
++        "ProjectionIntent",
+         "create_book_intent",
+         "create_document_intent",
+         "load_render_intent",
+@@ -178,3 +180,19 @@ def test_readio_workflow_foundation_types_are_public() -> None:
+         "WorkflowStep",
+     ):
+         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
++
++
++def test_readio_api_control_types_do_not_leak_specialist_implementations() -> None:
++    from readio import api
++
++    assert api.PreparationOptions.__module__ == "readio.workspace"
++    assert api.ProjectionOptions.__module__ == "readio.api.types"
++    assert api.PreparationIntent.__module__ == "readio.intent"
++    assert api.ProjectionIntent.__module__ == "readio.intent"
++    for specialist_type in (
++        "LinguisticsConfig",
++        "PauseTimingConfig",
++        "SpeechProfile",
++        "SpacyLanguageModel",
++    ):
++        assert not hasattr(api, specialist_type), f"specialist type leaked: {specialist_type}"
+diff --git a/tests/test_render_workflow.py b/tests/test_render_workflow.py
+index 7541baf..53eff44 100644
+--- a/tests/test_render_workflow.py
++++ b/tests/test_render_workflow.py
+@@ -8,9 +8,15 @@ import pytest
+
+ from readio import render_workflow as workflow
+ from readio.api.service import Readio
+-from readio.api.types import RenderRequest, WorkflowPlan, WorkflowStep
++from readio.api.types import (
++    ProjectionOptions,
++    RenderPlanRequest,
++    RenderRequest,
++    WorkflowPlan,
++    WorkflowStep,
++)
+ from readio.errors import OutputCollisionError, WorkflowStageError
+-from readio.workspace import WorkspacePolicy, WorkspaceRef
++from readio.workspace import PreparationOptions, WorkspacePolicy, WorkspaceRef
+
+ _FORMATS = {
+     "mp3": SimpleNamespace(extension=".mp3"),
+@@ -282,3 +288,175 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
+     assert executed == list(workflow._STAGE_ORDER)
+     assert workspace_paths and not workspace_paths[0].parent.exists()
+     assert (tmp_path / "result.mp3").read_bytes() == b"audio"
++
++
++@pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
++def test_projection_options_and_render_plan_request_validate_pause_timing(
++    pause_timing: str,
++) -> None:
++    assert ProjectionOptions(pause_timing=pause_timing).pause_timing == pause_timing
++    assert (
++        RenderPlanRequest(
++            profile=Path("voice.renderprofile.toml"), pause_timing=pause_timing
++        ).pause_timing
++        == pause_timing
++    )
++
++
++def test_projection_options_reject_invalid_pause_timing() -> None:
++    with pytest.raises(ValueError, match="pause_timing must be one of"):
++        ProjectionOptions(pause_timing="silent")  # type: ignore[arg-type]
++
++    with pytest.raises(ValueError, match="pause_timing must be one of"):
++        RenderPlanRequest(
++            profile=Path("voice.renderprofile.toml"),
++            pause_timing="silent",  # type: ignore[arg-type]
++        )
++
++
++def test_workflow_inspection_and_execution_share_pause_timing(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    request = replace(
++        _request(tmp_path, output=tmp_path / "result.mp3"),
++        projection=ProjectionOptions(pause_timing="engaging"),
++    )
++    bundle = tmp_path / "existing.ssmd-bundle"
++    bundle.mkdir()
++    policy = WorkspacePolicy(
++        mode="persistent",
++        root=bundle,
++        source_is_bundle=False,
++        newly_created=False,
++        cleanup=False,
++    )
++    workspace = WorkspaceRef(root=bundle, kind="document")
++    resolved = workflow._ResolvedRender(
++        source=request.source,
++        profile=request.profile,
++        policy=policy,
++        source_kind="document",
++        format="mp3",
++        output=request.output,
++        expected_extension=".mp3",
++        warnings=(),
++    )
++    projection_calls: list[dict[str, object]] = []
++    monkeypatch.setattr(
++        workflow,
++        "inspect_source_provenance",
++        lambda *_args: SimpleNamespace(state="complete", replacement_safe=True),
++    )
++    monkeypatch.setattr(workflow, "resolve_workspace", lambda _root: workspace)
++    monkeypatch.setattr(
++        workflow,
++        "inspect_bundle_compile",
++        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
++    )
++
++    def inspect_projection(_workspace: WorkspaceRef, **kwargs: object) -> object:
++        projection_calls.append(kwargs)
++        state = "stale" if kwargs["pause_timing"] == "engaging" else "complete"
++        variant = "voice--engaging" if state == "stale" else "voice--fixed"
++        return SimpleNamespace(state=state, variant=variant, replacement_safe=True)
++
++    monkeypatch.setattr(workflow, "inspect_bundle_projection", inspect_projection)
++    monkeypatch.setattr(
++        workflow,
++        "inspect_bundle_render",
++        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
++    )
++    monkeypatch.setattr(
++        workflow,
++        "inspect_bundle_composition",
++        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
++    )
++    monkeypatch.setattr(
++        workflow,
++        "inspect_bundle_export",
++        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
++    )
++
++    plan = workflow._inspect_with_policy(resolved, request, policy)
++    execution_requests: list[RenderPlanRequest] = []
++
++    class FakeService:
++        def render_plan(
++            self, received_workspace: WorkspaceRef, render_request: RenderPlanRequest
++        ) -> object:
++            assert received_workspace == workspace
++            execution_requests.append(render_request)
++            return SimpleNamespace(variant="voice--engaging")
++
++    result = workflow._invoke_stage(
++        FakeService(),
++        request,
++        resolved,
++        policy,
++        SimpleNamespace(stage="render_plan", selector="all", force=False),
++        variant=None,
++    )
++
++    assert plan.variant == "voice--engaging"
++    assert plan.steps[0].stage == "convert" and plan.steps[0].action == "reuse"
++    assert plan.steps[1].stage == "compile" and plan.steps[1].action == "reuse"
++    assert plan.steps[2].stage == "render_plan" and plan.steps[2].action == "replace"
++    assert projection_calls[0]["pause_timing"] == "engaging"
++    assert result.variant == plan.variant
++    assert execution_requests[0].pause_timing == projection_calls[0]["pause_timing"]
++
++
++def test_preparation_change_rebuilds_from_conversion_and_forwards_options(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    preparation = PreparationOptions(
++        spacy="md",
++        speech_profile=tmp_path / "speech-profile.toml",
++        pronunciations={"Readio": "ree-dee-oh"},
++    )
++    request = replace(
++        _request(tmp_path, output=tmp_path / "result.mp3"),
++        rebuild_from="convert",
++        preparation=preparation,
++    )
++    bundle = tmp_path / "existing.ssmd-bundle"
++    bundle.mkdir()
++    policy = WorkspacePolicy(
++        mode="persistent",
++        root=bundle,
++        source_is_bundle=False,
++        newly_created=False,
++        cleanup=False,
++    )
++    resolved = workflow._ResolvedRender(
++        source=request.source,
++        profile=request.profile,
++        policy=policy,
++        source_kind="document",
++        format="mp3",
++        output=request.output,
++        expected_extension=".mp3",
++        warnings=(),
++    )
++    completed = {"state": "complete", "replacement_safe": True}
++
++    assert workflow._plan_step(request, "convert", completed).action == "replace"
++    assert workflow._plan_step(request, "compile", completed).action == "replace"
++
++    captured: list[object] = []
++
++    class FakeService:
++        def create_workspace(self, _source: Path, create_request: object) -> object:
++            captured.append(create_request)
++            return object()
++
++    workflow._invoke_stage(
++        FakeService(),
++        request,
++        resolved,
++        policy,
++        SimpleNamespace(stage="convert", selector="all", force=True),
++        variant=None,
++    )
++
++    assert captured[0].preparation == preparation  # type: ignore[attr-defined]
+diff --git a/tests/test_spacy_resources.py b/tests/test_spacy_resources.py
+new file mode 100644
+index 0000000..be8049c
+--- /dev/null
++++ b/tests/test_spacy_resources.py
+@@ -0,0 +1,128 @@
++from __future__ import annotations
++
++import sys
++from collections import deque
++from typing import Any
++
++import pytest
++
++from readio import spacy_resources
++from readio.api import SpacyModelInfo, ensure_spacy_model, inspect_spacy_model
++
++
++def _info(
++    *,
++    installed: bool,
++    spacy_version: str | None = "3.8.0",
++    model_version: str | None = None,
++) -> SpacyModelInfo:
++    return SpacyModelInfo(
++        language="en-US",
++        tier="sm",
++        model="en_core_web_sm",
++        installed=installed,
++        spacy_version=spacy_version,
++        model_version=model_version,
++    )
++
++
++def test_public_api_exposes_stable_model_resource_functions() -> None:
++    assert inspect_spacy_model is spacy_resources.inspect_spacy_model
++    assert ensure_spacy_model is spacy_resources.ensure_spacy_model
++
++
++def test_inspect_reports_installed_model_and_versions(monkeypatch: pytest.MonkeyPatch) -> None:
++    versions = {"spacy": "3.8.0", "en_core_web_sm": "3.8.1"}
++    loaded: list[str] = []
++    monkeypatch.setattr(spacy_resources, "_distribution_version", versions.get)
++    monkeypatch.setattr(spacy_resources, "_load_model", loaded.append)
++
++    info = inspect_spacy_model("en-US", "sm")
++
++    assert info == _info(installed=True, model_version="3.8.1")
++    assert info.model == "en_core_web_sm"
++    assert loaded == ["en_core_web_sm"]
++
++
++def test_offline_ensure_fails_without_attempting_provisioning(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setattr(
++        spacy_resources,
++        "_distribution_version",
++        lambda package: "3.8.0" if package == "spacy" else None,
++    )
++    monkeypatch.setattr(
++        spacy_resources.subprocess,
++        "run",
++        lambda *_args, **_kwargs: pytest.fail("offline ensure must not provision"),
++    )
++
++    with pytest.raises(RuntimeError, match="offline mode is enabled"):
++        ensure_spacy_model("en-US", "sm", offline=True)
++
++
++def test_ensure_reuses_an_installed_model(monkeypatch: pytest.MonkeyPatch) -> None:
++    info = _info(installed=True, model_version="3.8.1")
++    monkeypatch.setattr(spacy_resources, "inspect_spacy_model", lambda *_args: info)
++    monkeypatch.setattr(
++        spacy_resources.subprocess,
++        "run",
++        lambda *_args, **_kwargs: pytest.fail("installed model must be reused"),
++    )
++
++    assert ensure_spacy_model("en-US", "sm") is info
++
++
++def test_ensure_provisions_missing_model_once_and_verifies_it(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    reports = deque(
++        [
++            _info(installed=False),
++            _info(installed=True, model_version="3.8.1"),
++        ]
++    )
++    commands: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
++    monkeypatch.setattr(spacy_resources, "inspect_spacy_model", lambda *_args: reports.popleft())
++    monkeypatch.setattr(
++        spacy_resources.subprocess,
++        "run",
++        lambda *args, **kwargs: commands.append((args, kwargs)),
++    )
++
++    info = ensure_spacy_model("en-US", "sm")
++
++    assert info.installed is True
++    assert info.model_version == "3.8.1"
++    assert commands == [
++        (([sys.executable, "-m", "spacy", "download", "en_core_web_sm"],), {"check": True})
++    ]
++    assert not reports
++
++
++def test_ensure_does_not_install_spacy_itself(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setattr(
++        spacy_resources,
++        "inspect_spacy_model",
++        lambda *_args: _info(installed=False, spacy_version=None),
++    )
++    monkeypatch.setattr(
++        spacy_resources.subprocess,
++        "run",
++        lambda *_args, **_kwargs: pytest.fail("spaCy itself must not be installed implicitly"),
++    )
++
++    with pytest.raises(RuntimeError, match='install Readio with the "spacy" extra'):
++        ensure_spacy_model("en-US", "sm")
++
++
++def test_ensure_fails_when_provisioned_model_does_not_load(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    reports = deque([_info(installed=False), _info(installed=False)])
++    monkeypatch.setattr(spacy_resources, "inspect_spacy_model", lambda *_args: reports.popleft())
++    monkeypatch.setattr(spacy_resources.subprocess, "run", lambda *_args, **_kwargs: None)
++
++    with pytest.raises(RuntimeError, match="still unavailable after provisioning"):
++        ensure_spacy_model("en-US", "sm")

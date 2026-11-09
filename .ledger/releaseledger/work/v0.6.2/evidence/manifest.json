@@ -1,0 +1,51 @@
+{
+  "candidate_count": 1,
+  "candidates": [
+    {
+      "additions": 994,
+      "deletions": 34,
+      "patch_file": "1edab53.patch",
+      "patch_sha256": "c08bb0e6c4e413dcf9757ff619bab7f781303f314be25c314bb09e9b1fbff74a",
+      "paths": [
+        ".github/workflows/tests.yml",
+        "README.md",
+        "docs/api.md",
+        "pyproject.toml",
+        "readio/api/__init__.py",
+        "readio/api/service.py",
+        "readio/api/types.py",
+        "readio/integrations/utterplan.py",
+        "readio/intent.py",
+        "readio/intent_codec.py",
+        "readio/intent_resolver.py",
+        "readio/render_service.py",
+        "readio/render_workflow.py",
+        "readio/spacy_resources.py",
+        "readio/workspace.py",
+        "tests/test_dependency_boundaries.py",
+        "tests/test_intent.py",
+        "tests/test_intent_cli.py",
+        "tests/test_intent_request_bridge.py",
+        "tests/test_native_inspection_dispatch.py",
+        "tests/test_native_utterplan_dispatch.py",
+        "tests/test_native_workspace.py",
+        "tests/test_native_workspace_e2e.py",
+        "tests/test_packaging_metadata.py",
+        "tests/test_public_package_api_contract.py",
+        "tests/test_render_workflow.py",
+        "tests/test_spacy_resources.py"
+      ],
+      "sha": "1edab537d2112716deeeaecfe13911a344acdaa3",
+      "short_sha": "1edab53",
+      "source_ref": "git:1edab537d2112716deeeaecfe13911a344acdaa3"
+    }
+  ],
+  "git_base_ref": "71dc2e2269bba59567a960a2dec1c231837a85f5",
+  "git_base_sha": "71dc2e2269bba59567a960a2dec1c231837a85f5",
+  "git_head_ref": "1edab537d2112716deeeaecfe13911a344acdaa3",
+  "git_head_sha": "1edab537d2112716deeeaecfe13911a344acdaa3",
+  "include_merges": "nontrivial",
+  "object_type": "git_evidence_manifest",
+  "release_version": "v0.6.2",
+  "schema_version": 1
+}

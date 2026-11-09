@@ -173,3 +173,10 @@
 {"data":{"kind":"added","status":"accepted"},"entry_id":"entry-0001","event":"entry.added","event_id":"event-0173","record_revisions":{"entry:v0.6.1/entry-0001":1,"release:v0.6.1":2},"release_version":"v0.6.1","schema_version":2}
 {"data":{"kind":"changed","status":"accepted"},"entry_id":"entry-0002","event":"entry.added","event_id":"event-0174","record_revisions":{"entry:v0.6.1/entry-0002":1,"release:v0.6.1":3},"release_version":"v0.6.1","schema_version":2}
 {"data":{"kind":"docs","status":"accepted"},"entry_id":"entry-0003","event":"entry.added","event_id":"event-0175","record_revisions":{"entry:v0.6.1/entry-0003":1,"release:v0.6.1":4},"release_version":"v0.6.1","schema_version":2}
+{"data":{"released_at":"2026-11-08"},"event":"release.finalized","event_id":"event-0176","record_revisions":{"release:v0.6.1":5},"release_version":"v0.6.1","schema_version":2}
+{"data":{"status":"planned"},"event":"release.created","event_id":"event-0177","record_revisions":{"release:v0.6.2":1},"release_version":"v0.6.2","schema_version":2}
+{"data":{"fields":["git_base_ref","git_base_sha","git_commit_count","git_head_ref","git_head_sha","git_range"]},"event":"release.updated","event_id":"event-0178","record_revisions":{"release:v0.6.2":2},"release_version":"v0.6.2","schema_version":2}
+{"data":{"row_count":1},"event":"audit.created","event_id":"event-0179","record_revisions":{"commit_audit_sheet":1},"release_version":"v0.6.2","schema_version":2}
+{"data":{"updated_rows":1},"event":"audit.updated","event_id":"event-0180","record_revisions":{"commit_audit_sheet":2},"release_version":"v0.6.2","schema_version":2}
+{"data":{"entry_ids":["entry-0001"],"synced_audit_rows":1},"event":"entry.batch_added","event_id":"event-0181","record_revisions":{"commit_audit_sheet":3,"entry:v0.6.2/entry-0001":1,"release:v0.6.2":3},"release_version":"v0.6.2","schema_version":2}
+{"data":{"released_at":"2026-11-09"},"event":"release.finalized","event_id":"event-0182","record_revisions":{"release:v0.6.2":4},"release_version":"v0.6.2","schema_version":2}

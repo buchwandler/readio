@@ -1,0 +1,38 @@
+rows:
+  - sha: 1edab537d2112716deeeaecfe13911a344acdaa3
+    inspected: true
+    inspected_paths:
+      - .github/workflows/tests.yml
+      - README.md
+      - docs/api.md
+      - pyproject.toml
+      - readio/api/__init__.py
+      - readio/api/service.py
+      - readio/api/types.py
+      - readio/integrations/utterplan.py
+      - readio/intent.py
+      - readio/intent_codec.py
+      - readio/intent_resolver.py
+      - readio/render_service.py
+      - readio/render_workflow.py
+      - readio/spacy_resources.py
+      - readio/workspace.py
+      - tests/test_dependency_boundaries.py
+      - tests/test_intent.py
+      - tests/test_intent_cli.py
+      - tests/test_intent_request_bridge.py
+      - tests/test_native_inspection_dispatch.py
+      - tests/test_native_utterplan_dispatch.py
+      - tests/test_native_workspace.py
+      - tests/test_native_workspace_e2e.py
+      - tests/test_packaging_metadata.py
+      - tests/test_public_package_api_contract.py
+      - tests/test_render_workflow.py
+      - tests/test_spacy_resources.py
+    observed_behavior: "Adds configurable source speech preparation and RenderPlan pause timing, introduces v3 render intents while preserving v2 compatibility, and exposes explicit spaCy model inspection and provisioning APIs. Tests cover public API behavior, legacy intents, workflow dispatch, and model provisioning boundaries."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
