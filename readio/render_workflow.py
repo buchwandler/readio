@@ -360,6 +360,7 @@ def _inspect_with_policy(
             profile=resolved.profile,
             chapters=request.chapters,
             variant=request.variant,
+            pause_timing=request.projection.pause_timing,
             output_root=request.composition.renderplan_root,
         )
         if (
@@ -382,7 +383,20 @@ def _inspect_with_policy(
         )
     variant = _value(projection_report, "variant", variant)
     projection_step = _plan_step(
-        request, "render_plan", projection_report, selector=request.chapters
+        request,
+        "render_plan",
+        projection_report,
+        selector=request.chapters,
+        explicit_rebuild=(
+            (
+                request.rebuild_from is not None
+                and _STAGE_INDEX["render_plan"] >= _STAGE_INDEX[request.rebuild_from]
+            )
+            or (
+                normalize_inspection_state(projection_report) == "stale"
+                and _replacement_safe(projection_report)
+            )
+        ),
     )
     steps.append(projection_step)
     projection_pending = projection_step.action in {"execute", "replace"}
@@ -575,6 +589,7 @@ def _invoke_stage(
                 output=policy.root,
                 language=request.language,
                 chapters=chapters,
+                preparation=request.preparation,
                 force=step.force,
             ),
         )
@@ -598,6 +613,7 @@ def _invoke_stage(
                 variant=request.variant,
                 chapters=selector,
                 output_root=request.composition.renderplan_root,
+                pause_timing=request.projection.pause_timing,
                 force=step.force,
             ),
         )

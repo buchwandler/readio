@@ -32,6 +32,8 @@ from readio.intent import (
     IntentKind,
     OutputIntent,
     PlanningIntent,
+    PreparationIntent,
+    ProjectionIntent,
     RenderIntent,
     RenderOptionsIntent,
     VoiceIntent,
@@ -66,6 +68,7 @@ from readio.profiles import (
     validate_profile,
 )
 from readio.runtime import reset_runtime_providers, runtime_status, set_runtime_providers
+from readio.spacy_resources import SpacyModelInfo, ensure_spacy_model, inspect_spacy_model
 from readio.speech import VoiceSelector, parse_voice_selector, speak
 from readio.voices import (
     clone_voice,
@@ -75,14 +78,21 @@ from readio.voices import (
     show_voice_source,
     verify_voice_source,
 )
-from readio.workspace import WorkspaceMode, WorkspacePolicy, WorkspaceRef
+from readio.workspace import (
+    PreparationOptions,
+    WorkspaceMode,
+    WorkspacePolicy,
+    WorkspaceRef,
+)
 
 from .service import Readio, inspect_source, render_request_from_intent
 from .types import (
     AudioBuffer,
     CompositionOptions,
     ExportOptions,
+    PauseTiming,
     PlanningOptions,
+    ProjectionOptions,
     RebuildStage,
     RenderRequest,
     RenderResult,
@@ -112,8 +122,13 @@ __all__ = [
     "IntentKind",
     "OutputCollisionError",
     "OutputIntent",
+    "PauseTiming",
     "PlanningIntent",
     "PlanningOptions",
+    "PreparationIntent",
+    "PreparationOptions",
+    "ProjectionIntent",
+    "ProjectionOptions",
     "Readio",
     "ReadioError",
     "ReadioStageError",
@@ -126,6 +141,7 @@ __all__ = [
     "RoleVoiceBinding",
     "SourceChapter",
     "SourceInspection",
+    "SpacyModelInfo",
     "SpeakRequest",
     "SpeakResult",
     "VoiceCloneRequest",
@@ -156,10 +172,12 @@ __all__ = [
     "create_voice_source",
     "discover_engine_targets",
     "dump_render_intent",
+    "ensure_spacy_model",
     "inspect_document_voice_requirements",
     "inspect_engine",
     "inspect_engine_model",
     "inspect_source",
+    "inspect_spacy_model",
     "inspect_voice",
     "install_engine_model",
     "list_engine_models",

@@ -13,6 +13,8 @@ python -m pip install "readio[kokoro]"  # or another supported VoiceRender engin
 
 `readio[documents]` enables SSMDConvert's optional PDF and DOCX support; `readio[spacy]` enables UtterPlan's optional spaCy support. Readio requires Python 3.10 or newer.
 
+Use `readio.api.inspect_spacy_model(language, tier)` to check a local model and `readio.api.ensure_spacy_model(language, tier)` to explicitly provision one. Readio conversion and UtterPlan stages do not download models. `PreparationOptions` controls conversion speech semantics, spaCy tier, and explicit speech profiles; `ProjectionOptions` controls RenderPlan pause timing separately from AudioCompose pause policy.
+
 ## Quick start
 
 Create a VoiceRender RenderProfile, then create and review a user-owned Readio render intent. The two TOML files have separate responsibilities: the RenderProfile defines voice roles; the intent describes the requested conversion, planning, composition, and output.

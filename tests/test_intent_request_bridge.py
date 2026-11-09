@@ -6,7 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from readio.api import Readio, RenderRequest, render_request_from_intent
-from readio.intent import create_book_intent, create_document_intent
+from readio.intent import (
+    PreparationIntent,
+    ProjectionIntent,
+    create_book_intent,
+    create_document_intent,
+)
+from readio.intent_codec import dump_render_intent, load_render_intent
 
 
 def _configure_resolver(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
@@ -133,3 +139,68 @@ def test_intent_bridge_defaults_to_temporary_workspace_and_public_function(
     assert request.bundle is None
     assert request.output == (config_dir / "article.mp3").resolve()
     assert request.format == "mp3"
+
+
+def test_intent_bridge_maps_persisted_preparation_and_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    source = config_dir / "article.md"
+    source.write_text("A short article.", encoding="utf-8")
+    (config_dir / "profile.renderprofile.toml").write_text("profile", encoding="utf-8")
+    (config_dir / "speech-profile.toml").write_text("profile", encoding="utf-8")
+    _configure_resolver(monkeypatch, "document")
+    intent = create_document_intent(
+        "article.md",
+        profile="profile.renderprofile.toml",
+        language="en",
+        preparation=PreparationIntent(
+            speech_semantics="preserve",
+            spacy="md",
+            speech_profile=Path("speech-profile.toml"),
+            pronunciations={"Readio": "ree-dee-oh"},
+        ),
+        projection=ProjectionIntent(pause_timing="engaging"),
+    )
+
+    request = render_request_from_intent(
+        intent,
+        config_path=config_dir / "article.readio.toml",
+    )
+
+    assert intent.preparation.speech_profile == Path("speech-profile.toml")
+    assert request.preparation.speech_semantics == "preserve"
+    assert request.preparation.spacy == "md"
+    assert request.preparation.speech_profile == (config_dir / "speech-profile.toml").resolve()
+    assert request.preparation.pronunciations == {"Readio": "ree-dee-oh"}
+    assert request.projection.pause_timing == "engaging"
+    assert request.planning.planner_config.linguistics.use_spacy is True
+    assert request.planning.planner_config.linguistics.spacy_model_size == "md"
+    assert request.planning.planner_config.linguistics.require_spacy is True
+
+
+def test_inspecting_legacy_intent_does_not_rewrite_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "article.md").write_text("A short article.", encoding="utf-8")
+    (config_dir / "profile.renderprofile.toml").write_text("profile", encoding="utf-8")
+    _configure_resolver(monkeypatch, "document")
+    intent = create_document_intent("article.md", profile="profile.renderprofile.toml")
+    contents = dump_render_intent(intent, minimal=True).replace(
+        "readio.render.v3", "readio.render.v2"
+    )
+    config_path = config_dir / "article.readio.toml"
+    config_path.write_text(contents, encoding="utf-8")
+    original = config_path.read_bytes()
+    monkeypatch.setattr(Readio, "inspect", lambda _self, request: request)
+
+    request = Readio().inspect_intent(load_render_intent(config_path), config_path=config_path)
+
+    assert isinstance(request, RenderRequest)
+    assert request.source == (config_dir / "article.md").resolve()
+    assert config_path.read_bytes() == original

@@ -34,7 +34,7 @@ def test_book_create_stdout_is_reviewable_toml_without_service_or_rendering(
 
     assert status == 0
     content = capsys.readouterr().out
-    assert 'schema = "readio.render.v2"' in content
+    assert 'schema = "readio.render.v3"' in content
     assert 'kind = "book"' in content
     assert 'source = "novel.epub"' in content
     assert 'chapters = "all"' in content

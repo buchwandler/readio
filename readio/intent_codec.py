@@ -21,6 +21,8 @@ from readio.intent import (
     IntentKind,
     OutputIntent,
     PlanningIntent,
+    PreparationIntent,
+    ProjectionIntent,
     RenderIntent,
     RenderOptionsIntent,
     VoiceIntent,
@@ -89,7 +91,7 @@ def _path(value: object, name: str) -> Path | None:
 
 
 def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
-    """Parse a mapping into a validated immutable ``readio.render.v2`` value."""
+    """Parse a mapping into a validated immutable ``readio.render.v3`` value."""
     if not isinstance(data, Mapping):
         raise TypeError("render intent must be a TOML table")
     allowed_root = {
@@ -101,13 +103,15 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
         "planning",
         "render",
         "compose",
+        "preparation",
+        "projection",
         "output",
     }
     unknown_root = sorted(set(data) - allowed_root)
     if unknown_root:
         raise ValueError(f"unknown top-level key(s): {', '.join(str(key) for key in unknown_root)}")
     schema = _string(data.get("schema"), "schema")
-    if schema != INTENT_SCHEMA:
+    if schema not in {INTENT_SCHEMA, "readio.render.v2"}:
         raise ValueError(f"unsupported schema {schema!r}; expected {INTENT_SCHEMA!r}")
     kind_value = data.get("kind")
     if kind_value is not None and (
@@ -133,6 +137,12 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
             "require_spacy",
         },
     )
+    preparation_data = _table(
+        data.get("preparation", {}),
+        "preparation",
+        {"speech_semantics", "spacy", "speech_profile", "pronunciations"},
+    )
+    projection_data = _table(data.get("projection", {}), "projection", {"pause_timing"})
     render_data = _table(data.get("render", {}), "render", {"speech", "emphasis_policy"})
     compose_data = _table(
         data.get("compose", {}),
@@ -200,6 +210,27 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
         ),
         require_spacy=_bool(planning_data.get("require_spacy", False), "planning.require_spacy"),
     )
+    pronunciation_value = preparation_data.get("pronunciations", {})
+    if not isinstance(pronunciation_value, Mapping):
+        raise TypeError("preparation.pronunciations must be a TOML table")
+    pronunciations: dict[str, str] = {}
+    for key, value in pronunciation_value.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise TypeError("preparation.pronunciations must map strings to strings")
+        pronunciations[key] = value
+    preparation = PreparationIntent(
+        speech_semantics=_string(
+            preparation_data.get("speech_semantics", "freeze"), "preparation.speech_semantics"
+        ),
+        spacy=_string(preparation_data.get("spacy"), "preparation.spacy", optional=True),
+        speech_profile=_path(preparation_data.get("speech_profile"), "preparation.speech_profile"),
+        pronunciations=pronunciations,
+    )
+    projection = ProjectionIntent(
+        pause_timing=_string(
+            projection_data.get("pause_timing", "fixed"), "projection.pause_timing"
+        )
+    )
     render = RenderOptionsIntent(
         speech=_string(render_data.get("speech", "all"), "render.speech"),
         emphasis_policy=_string(
@@ -235,10 +266,12 @@ def parse_render_intent(data: Mapping[str, Any]) -> RenderIntent:
         workspace=workspace,
         voice=voice_intent,
         planning=planning,
+        preparation=preparation,
+        projection=projection,
         render=render,
         compose=compose,
         output=output,
-        schema=schema,
+        schema=INTENT_SCHEMA,
     )
     validate_intent_shape(intent)
     return intent
@@ -308,6 +341,23 @@ def dump_render_intent(intent: RenderIntent, *, minimal: bool = False) -> str:
     if intent.voice.variant is not None:
         voice_values.append(("variant", intent.voice.variant))
     lines.extend(_table_lines("voice", voice_values))
+    preparation_values: list[tuple[str, object]] = []
+    if not (minimal and intent.preparation.speech_semantics == "freeze"):
+        preparation_values.append(("speech_semantics", intent.preparation.speech_semantics))
+    if intent.preparation.spacy is not None:
+        preparation_values.append(("spacy", intent.preparation.spacy))
+    if intent.preparation.speech_profile is not None:
+        preparation_values.append(("speech_profile", intent.preparation.speech_profile))
+    lines.extend(_table_lines("preparation", preparation_values))
+    if intent.preparation.pronunciations:
+        lines.append("[preparation.pronunciations]")
+        lines.extend(
+            f"{json.dumps(key, ensure_ascii=False)} = {_toml_value(value)}"
+            for key, value in sorted(intent.preparation.pronunciations.items())
+        )
+
+    if not (minimal and intent.projection.pause_timing == "fixed"):
+        lines.extend(_table_lines("projection", [("pause_timing", intent.projection.pause_timing)]))
 
     planning_defaults = {
         "diagnostics": "errors",

@@ -20,6 +20,7 @@ from readio.api.types import (
     PipelineResult,
     PlanningOptions,
     PlanRequest,
+    ProjectionOptions,
     RebuildStage,
     RenderExecutionOptions,
     RenderPlanRequest,
@@ -47,7 +48,11 @@ from readio.progress import normalize_progress
 from readio.render_service import _compose_options, _planner_config
 from readio.speech import speak_request as _speak_request
 from readio.status import inspect_status
-from readio.workspace import CreateWorkspaceRequest, WorkspaceRef
+from readio.workspace import (
+    CreateWorkspaceRequest,
+    PreparationOptions,
+    WorkspaceRef,
+)
 from readio.workspace import create_workspace as _create_workspace
 from readio.workspace import resolve_workspace as _resolve_workspace
 
@@ -149,6 +154,15 @@ def render_request_from_intent(
         planning=PlanningOptions(
             planner_config=_planner_config(resolved),
             diagnostics=cast(DiagnosticsMode, resolved.intent.planning.diagnostics),
+        ),
+        projection=ProjectionOptions(
+            pause_timing=resolved.intent.projection.pause_timing,
+        ),
+        preparation=PreparationOptions(
+            speech_semantics=resolved.intent.preparation.speech_semantics,
+            spacy=resolved.intent.preparation.spacy or "off",
+            speech_profile=resolved.intent.preparation.speech_profile,
+            pronunciations=resolved.intent.preparation.pronunciations,
         ),
         voice_render=VoiceRenderOptions(
             speech=resolved.intent.render.speech,

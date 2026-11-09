@@ -12,6 +12,7 @@ import numpy as np
 
 from readio.workspace import (
     CreateWorkspaceRequest,
+    PreparationOptions,
     WorkspaceMode,
     WorkspaceRef,
 )
@@ -110,6 +111,10 @@ class RenderPlanRequest:
     utterplan_root: Path | None = None
     output_root: Path | None = None
     force: bool = False
+    pause_timing: PauseTiming = "fixed"
+
+    def __post_init__(self) -> None:
+        _validate_pause_timing(self.pause_timing)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +209,20 @@ WorkflowAction = Literal["reuse", "execute", "replace", "blocked"]
 WorkflowState = Literal["not_started", "partial", "complete", "stale", "blocked", "error"]
 WorkflowInspectionState = WorkflowState | Literal["unknown"]
 RebuildStage = Literal["convert", "compile", "render_plan", "render", "compose", "export"]
+PauseTiming = Literal["fixed", "natural", "engaging"]
+
+
+def _validate_pause_timing(value: str) -> None:
+    if value not in {"fixed", "natural", "engaging"}:
+        raise ValueError("pause_timing must be one of: fixed, natural, engaging")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionOptions:
+    pause_timing: PauseTiming = "fixed"
+
+    def __post_init__(self) -> None:
+        _validate_pause_timing(self.pause_timing)
 
 
 @dataclass(frozen=True)
@@ -330,6 +349,8 @@ class RenderRequest:
     replace_output: bool = False
     planning: PlanningOptions = dataclass_field(default_factory=PlanningOptions)
     voice_render: VoiceRenderOptions = dataclass_field(default_factory=VoiceRenderOptions)
+    projection: ProjectionOptions = dataclass_field(default_factory=ProjectionOptions)
+    preparation: PreparationOptions = dataclass_field(default_factory=PreparationOptions)
     composition: CompositionOptions = dataclass_field(default_factory=CompositionOptions)
     export: ExportOptions = dataclass_field(default_factory=ExportOptions)
 

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal, cast
 from uuid import uuid4
 
@@ -13,6 +14,33 @@ import ssmdconvert  # type: ignore[import-not-found]
 
 WorkspaceKind = Literal["document", "book"]
 WorkspaceMode = Literal["temporary", "persistent"]
+
+
+PreparationSpacy = Literal["off", "auto", "sm", "md", "lg", "trf"]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparationOptions:
+    """Readio-owned source speech preparation controls."""
+
+    speech_semantics: Literal["freeze", "preserve"] = "freeze"
+    spacy: PreparationSpacy = "off"
+    speech_profile: Path | None = None
+    pronunciations: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.speech_semantics not in {"freeze", "preserve"}:
+            raise ValueError("speech_semantics must be 'freeze' or 'preserve'")
+        if self.spacy not in {"off", "auto", "sm", "md", "lg", "trf"}:
+            raise ValueError("spacy must be one of: off, auto, sm, md, lg, trf")
+        if self.speech_profile is not None and not isinstance(self.speech_profile, Path):
+            raise TypeError("speech_profile must be a Path or None")
+        pronunciations = dict(self.pronunciations)
+        if not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in pronunciations.items()
+        ):
+            raise TypeError("pronunciations must map strings to strings")
+        object.__setattr__(self, "pronunciations", MappingProxyType(pronunciations))
 
 
 def default_bundle_workspace_path(source: str | Path) -> Path:
@@ -55,6 +83,7 @@ class CreateWorkspaceRequest:
     output: Path | None = None
     language: str | None = None
     chapters: str = "all"
+    preparation: PreparationOptions = field(default_factory=PreparationOptions)
     force: bool = False
 
 
@@ -97,11 +126,20 @@ def create_workspace(
     if source_path.name.casefold().endswith((".ssmd-bundle", ".ssmd-bundle.zip")):
         return resolve_workspace(source_path)
 
+    preparation = options.preparation
+    pronunciations: dict[str, str] = {}
+    if preparation.speech_profile is not None:
+        speech_profile = ssmdconvert.load_speech_profile(preparation.speech_profile)
+        pronunciations.update(ssmdconvert.effective_replacements(speech_profile))
+    pronunciations.update(preparation.pronunciations)
     result = ssmdconvert.convert_bundle(
         source_path,
         output=options.output,
         chapters=options.chapters,
         language=options.language,
+        speech_semantics=preparation.speech_semantics,
+        spacy=preparation.spacy,
+        pronunciations=pronunciations or None,
         force=options.force,
         on_progress=on_progress,
     )

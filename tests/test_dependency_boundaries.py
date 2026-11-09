@@ -22,6 +22,7 @@ BACKEND_ROOTS = frozenset(
 SPECIALIST_ROOTS = frozenset(
     {"ssmdconvert", "utterplan", "voicerender", "audiocompose", "audioexport"}
 )
+PUBLIC_SPECIALIST_MODULES = frozenset({"utterplan.spacy_models"})
 PRIVATE_IMPORT_PREFIXES = (
     "voicerender.engines",
     "audiocompose.integrations",
@@ -76,11 +77,11 @@ def test_runtime_facade_imports_only_voicerender_from_the_synthesis_stack() -> N
     assert not imported & {"onnxvoice", "onnxruntime"}
 
 
-def test_specialist_imports_use_only_public_roots() -> None:
+def test_specialist_imports_use_public_apis() -> None:
     specialist_imports = {
         module for module in _runtime_imports() if module.split(".", 1)[0] in SPECIALIST_ROOTS
     }
-    assert specialist_imports <= SPECIALIST_ROOTS
+    assert specialist_imports <= SPECIALIST_ROOTS | PUBLIC_SPECIALIST_MODULES
 
 
 def test_source_profile_adapter_uses_public_specialist_root_imports() -> None:

@@ -54,16 +54,39 @@ print(result.output, result.workspace_mode, result.variant)
 
 `inspect` is read-only: it does not create a temporary directory, convert source material, or mutate specialist artifacts. `render` executes the complete workflow and cleans temporary state on success or failure. To persist an editable SSMD workspace, set `bundle=Path("article.ssmd-bundle")`; passing an existing `.ssmd-bundle` as `source` also selects persistent mode. There is no implicit default bundle path.
 
-`RenderRequest` also accepts chapter selection, language, output format/path, bitrate, sample rate, channels, and specialist-backed option groups (`PlanningOptions`, `VoiceRenderOptions`, `CompositionOptions`, and `ExportOptions`). `rebuild_from` requests an explicit workflow rebuild; `replace_output` separately authorizes replacement of an existing final output. The dry-run form is `service.render(request, dry_run=True)` and returns the same `WorkflowPlan` shape as `inspect`.
+`RenderRequest` also accepts chapter selection, language, output format/path, bitrate, sample rate, channels, Readio-owned preparation/projection options, and specialist-backed option groups (`PlanningOptions`, `VoiceRenderOptions`, `CompositionOptions`, and `ExportOptions`). `rebuild_from` requests an explicit workflow rebuild; `replace_output` separately authorizes replacement of an existing final output. The dry-run form is `service.render(request, dry_run=True)` and returns the same `WorkflowPlan` shape as `inspect`.
 
 The returned `WorkflowPlan` contains the source, workspace mode/path, selected variant and output, planned steps, and warnings. `RenderResult` reports the final output, workspace mode, exact variant, executed/reused workflow stages, and warnings. Normalized `WorkflowEvent` progress is available through the `on_progress` callback.
 
+## Source preparation, projection, and spaCy resources
+
+`PreparationOptions` configures SSMDConvert conversion. Select a speech profile explicitly; SSMDConvert loads and validates it and applies its own replacement precedence. A concrete preparation spaCy tier is also applied to UtterPlan planning. `ProjectionOptions.pause_timing` selects `fixed`, `natural`, or `engaging` RenderPlan projection timing. It does not configure AudioCompose pause policy.
+
+```python
+from pathlib import Path
+from readio.api import PreparationOptions, ProjectionOptions, RenderRequest
+
+request = RenderRequest(
+    source=Path("article.docx"),
+    profile=Path("narrator.renderprofile.toml"),
+    preparation=PreparationOptions(
+        speech_semantics="preserve",
+        spacy="md",
+        speech_profile=Path("reader.speech.toml"),
+        pronunciations={"Readio": "ree-dee-oh"},
+    ),
+    projection=ProjectionOptions(pause_timing="engaging"),
+)
+```
+
+Use `inspect_spacy_model(language, tier)` to inspect installed resources. Pass `offline=True` to `ensure_spacy_model(language, tier)` to fail rather than provision when the model is missing. Provisioning occurs only when `ensure_spacy_model()` is explicitly called. Source conversion, compilation, and projection do not download models. Install the optional `readio[spacy]` extra to enable spaCy support.
+
 ## Render intents
 
-`RenderIntent` and the TOML helpers represent user-owned desired configuration. The current schema is `readio.render.v2`; input source and scope are separate from workspace policy:
+`RenderIntent` and the TOML helpers represent user-owned desired configuration. The current schema is `readio.render.v3`; input source and scope are separate from workspace policy:
 
 ```toml
-schema = "readio.render.v2"
+schema = "readio.render.v3"
 kind = "document"
 
 [input]
@@ -75,18 +98,38 @@ mode = "temporary"
 
 [voice]
 profile = "narrator.renderprofile.toml"
+[preparation]
+speech_semantics = "freeze"
+spacy = "md"
+speech_profile = "reader.speech.toml"
+
+[preparation.pronunciations]
+"Readio" = "ree-dee-oh"
+
+[projection]
+pause_timing = "engaging"
 ```
 
-For persistence, use `mode = "bundle"` and provide `workspace.bundle`. The `create_book_intent` and `create_document_intent` factories apply kind-specific defaults; `load_render_intent`, `save_render_intent`, `parse_render_intent`, and `dump_render_intent` read, validate, and serialize the intent. A VoiceRender RenderProfile remains a separate, user-owned artifact.
+For persistence, use `mode = "bundle"` and provide `workspace.bundle`. `PreparationIntent` and `ProjectionIntent` carry source-preparation and RenderPlan timing choices; omitted preparation spaCy retains legacy planning settings. The `create_book_intent` and `create_document_intent` factories apply kind-specific defaults; `load_render_intent`, `save_render_intent`, `parse_render_intent`, and `dump_render_intent` read, validate, and serialize the intent. Version 2 files remain readable with no speech profile and fixed pause timing, and inspection does not rewrite them. Paths are resolved relative to the intent file when `config_path` is supplied. A VoiceRender RenderProfile remains a separate, user-owned artifact.
 
 ```python
 from pathlib import Path
-from readio.api import create_document_intent, save_render_intent
+from readio.api import (
+    PreparationIntent,
+    ProjectionIntent,
+    create_document_intent,
+    save_render_intent,
+)
 
 intent = create_document_intent(
     Path("article.docx"),
     profile=Path("narrator.renderprofile.toml"),
     bundle=Path("article.ssmd-bundle"),
+    preparation=PreparationIntent(
+        spacy="md",
+        speech_profile=Path("reader.speech.toml"),
+    ),
+    projection=ProjectionIntent(pause_timing="engaging"),
 )
 save_render_intent(intent, Path("article.readio.toml"))
 ```

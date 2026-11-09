@@ -240,6 +240,14 @@ def resolve_render_intent(
             profile=profile_path,
             variant=variant if variant is not None else intent.voice.variant,
         ),
+        preparation=replace(
+            intent.preparation,
+            speech_profile=(
+                _absolute_path(intent.preparation.speech_profile, base=config_dir)
+                if intent.preparation.speech_profile is not None
+                else None
+            ),
+        ),
         output=replace(intent.output, format=format_value, path=output_path),
     )
     validate_render_intent(effective_intent)

@@ -22,6 +22,10 @@ def test_compile_forwards_bundle_to_public_api_for_both_kinds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: Literal["document", "book"]
 ) -> None:
     workspace = _workspace(tmp_path, kind)
+    monkeypatch.setattr(
+        "readio.spacy_resources.ensure_spacy_model",
+        lambda *_args, **_kwargs: pytest.fail("UtterPlan compilation must not provision spaCy"),
+    )
     planner_config = object()
     start_source = SimpleNamespace(phase="bundle.start")
     progress_source = SimpleNamespace(completed=2, total=4, message="compiled")
@@ -63,10 +67,15 @@ def test_compile_forwards_bundle_to_public_api_for_both_kinds(
     assert events[1].message == "compiled"
 
 
+@pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
 def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pause_timing: str
 ) -> None:
     workspace = _workspace(tmp_path, "document")
+    monkeypatch.setattr(
+        "readio.spacy_resources.ensure_spacy_model",
+        lambda *_args, **_kwargs: pytest.fail("RenderPlan projection must not provision spaCy"),
+    )
     profile = tmp_path / "narration.renderprofile.toml"
     result = SimpleNamespace(variant="narration--exact-projection")
     start_source = object()
@@ -89,6 +98,7 @@ def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
             chapters="2-4",
             utterplan_root=tmp_path / "utterplan-override",
             output_root=tmp_path / "projection-override",
+            pause_timing=pause_timing,
             force=True,
         ),
         on_start=events.append,
@@ -104,6 +114,7 @@ def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
     assert captured["utterplan_dir"] == tmp_path / "utterplan-override"
     assert captured["output_root"] == tmp_path / "projection-override"
     assert captured["force"] is True
+    assert captured["pause_timing"] == utterplan.PauseTimingConfig(pause_timing)
     assert events[0].stage == events[1].stage == "render_plan"
     assert events[0].source is start_source
     assert events[1].current == 3

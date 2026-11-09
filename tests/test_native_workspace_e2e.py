@@ -18,6 +18,7 @@ from readio.api.types import (
     RunRequest,
     VoiceRenderRequest,
 )
+from readio.workspace import CreateWorkspaceRequest
 
 
 def _write_epub(path: Path) -> None:
@@ -119,3 +120,57 @@ def test_bundle_kinds_use_the_same_model_free_full_run_api(
     assert workspace.root.name.endswith(".ssmd-bundle")
     assert not (workspace.root / ".readio").exists()
     assert not (workspace.root / "project.json").exists()
+
+
+def test_book_workflow_uses_sibling_render_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "PROJECT"
+    project.mkdir()
+    source = project / "book.epub"
+    _write_epub(source)
+    bundle = project / "book.ssmd-bundle"
+    service = Readio()
+    workspace = service.create_workspace(
+        source,
+        CreateWorkspaceRequest(source=source, output=bundle),
+    )
+    profile = project / "narrator.renderprofile.toml"
+    _write_profile(profile)
+
+    observed: dict[str, Any] = {}
+
+    def render_bundle(path: Path, **kwargs: Any) -> object:
+        observed["render_path"] = path
+        observed["render_variant"] = kwargs["variant"]
+        return SimpleNamespace(rendered=True)
+
+    def compose_bundle(path: Path, **kwargs: Any) -> object:
+        observed["compose_path"] = path
+        observed["compose_variant"] = kwargs["variant"]
+        return SimpleNamespace(composed=True)
+
+    monkeypatch.setattr(voicerender, "render_bundle", render_bundle)
+    monkeypatch.setattr(audiocompose, "compose_bundle", compose_bundle)
+
+    result = service.run(
+        workspace.root,
+        RunRequest(
+            plan=PlanRequest(language="en-US", diagnostics="none"),
+            render_plan=RenderPlanRequest(profile=profile),
+            render=VoiceRenderRequest(variant="placeholder"),
+            compose=ComposeRequest(variant="placeholder"),
+        ),
+    )
+
+    assert profile.parent == workspace.root.parent
+    assert result.workspace == workspace
+    assert result.compile.output_dir.is_dir()
+    assert result.render_plan.variant == result.variant
+    assert result.render.rendered is True
+    assert result.compose.composed is True
+    assert observed["render_path"] == workspace.root
+    assert observed["compose_path"] == workspace.root
+    assert observed["render_variant"] == result.variant
+    assert observed["compose_variant"] == result.variant

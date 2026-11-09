@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Literal, cast
 
 import audiocompose  # type: ignore[import-not-found]
@@ -12,6 +13,32 @@ from readio.intent_resolver import ResolvedRenderIntent
 
 def _planner_config(resolved: ResolvedRenderIntent) -> Any | None:
     planning = resolved.intent.planning
+    if resolved.intent.preparation.spacy is not None:
+        preparation_spacy = resolved.intent.preparation.spacy
+        if preparation_spacy == "off":
+            planning = replace(
+                planning,
+                spacy="off",
+                spacy_model=None,
+                spacy_model_size=None,
+                require_spacy=False,
+            )
+        elif preparation_spacy == "auto":
+            planning = replace(
+                planning,
+                spacy="auto",
+                spacy_model=None,
+                spacy_model_size=None,
+                require_spacy=False,
+            )
+        else:
+            planning = replace(
+                planning,
+                spacy="on",
+                spacy_model=None,
+                spacy_model_size=preparation_spacy,
+                require_spacy=True,
+            )
     if resolved.language is None:
         custom = (
             planning.text_preparation != "auto"

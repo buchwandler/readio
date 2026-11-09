@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_DEPENDENCIES = {
     "numpy>=1.23",
-    "utterplan>=0.6.18,<0.7",
+    "utterplan>=0.6.19,<0.7",
     "voicerender>=0.2.9,<0.3",
     "audiocompose>=0.3.8,<0.4",
     "ssmdconvert>=0.2.5,<0.3",
@@ -72,7 +72,7 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
         "inflect",
         "dev",
     }
-    assert optional["spacy"] == ["utterplan[spacy]>=0.6.18,<0.7"]
+    assert optional["spacy"] == ["utterplan[spacy]>=0.6.19,<0.7"]
     assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
     assert optional["audioexport"] == ["audioexport>=0.1.7,<0.2"]
     for extra in ("kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"):
@@ -84,7 +84,7 @@ def test_minimum_stack_ci_targets_requested_releases() -> None:
     workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
     for requirement in (
         '"ssmdconvert[pdf,docx]==0.2.5"',
-        '"utterplan[spacy]==0.6.18"',
+        '"utterplan[spacy]==0.6.19"',
         '"renderplan==0.2.1"',
         '"voicerender==0.2.9"',
         '"audiocompose==0.3.8"',

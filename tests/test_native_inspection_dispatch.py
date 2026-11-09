@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import audiocompose
+import pytest
 import utterplan
 import voicerender
 
@@ -16,8 +17,9 @@ from readio.integrations import voicerender as voicerender_integration
 from readio.workspace import WorkspaceRef
 
 
+@pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
 def test_utterplan_inspection_adapters_forward_specialist_options(
-    tmp_path: Path, monkeypatch: Any
+    tmp_path: Path, monkeypatch: Any, pause_timing: str
 ) -> None:
     workspace = WorkspaceRef(tmp_path / "book.ssmd-bundle", "book")
     config = object()
@@ -49,6 +51,7 @@ def test_utterplan_inspection_adapters_forward_specialist_options(
             profile=profile,
             chapters="3-5",
             variant="narration",
+            pause_timing=pause_timing,
             output_root=tmp_path / "renderplans",
         )
         is projection_result
@@ -66,7 +69,7 @@ def test_utterplan_inspection_adapters_forward_specialist_options(
                 "profile": profile,
                 "chapters": "3-5",
                 "variant": "narration",
-                "pause_timing": None,
+                "pause_timing": utterplan.PauseTimingConfig(pause_timing),
                 "utterplan_dir": None,
                 "output_root": tmp_path / "renderplans",
             },

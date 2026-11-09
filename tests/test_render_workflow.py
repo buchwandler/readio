@@ -8,9 +8,15 @@ import pytest
 
 from readio import render_workflow as workflow
 from readio.api.service import Readio
-from readio.api.types import RenderRequest, WorkflowPlan, WorkflowStep
+from readio.api.types import (
+    ProjectionOptions,
+    RenderPlanRequest,
+    RenderRequest,
+    WorkflowPlan,
+    WorkflowStep,
+)
 from readio.errors import OutputCollisionError, WorkflowStageError
-from readio.workspace import WorkspacePolicy, WorkspaceRef
+from readio.workspace import PreparationOptions, WorkspacePolicy, WorkspaceRef
 
 _FORMATS = {
     "mp3": SimpleNamespace(extension=".mp3"),
@@ -282,3 +288,175 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
     assert executed == list(workflow._STAGE_ORDER)
     assert workspace_paths and not workspace_paths[0].parent.exists()
     assert (tmp_path / "result.mp3").read_bytes() == b"audio"
+
+
+@pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
+def test_projection_options_and_render_plan_request_validate_pause_timing(
+    pause_timing: str,
+) -> None:
+    assert ProjectionOptions(pause_timing=pause_timing).pause_timing == pause_timing
+    assert (
+        RenderPlanRequest(
+            profile=Path("voice.renderprofile.toml"), pause_timing=pause_timing
+        ).pause_timing
+        == pause_timing
+    )
+
+
+def test_projection_options_reject_invalid_pause_timing() -> None:
+    with pytest.raises(ValueError, match="pause_timing must be one of"):
+        ProjectionOptions(pause_timing="silent")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="pause_timing must be one of"):
+        RenderPlanRequest(
+            profile=Path("voice.renderprofile.toml"),
+            pause_timing="silent",  # type: ignore[arg-type]
+        )
+
+
+def test_workflow_inspection_and_execution_share_pause_timing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = replace(
+        _request(tmp_path, output=tmp_path / "result.mp3"),
+        projection=ProjectionOptions(pause_timing="engaging"),
+    )
+    bundle = tmp_path / "existing.ssmd-bundle"
+    bundle.mkdir()
+    policy = WorkspacePolicy(
+        mode="persistent",
+        root=bundle,
+        source_is_bundle=False,
+        newly_created=False,
+        cleanup=False,
+    )
+    workspace = WorkspaceRef(root=bundle, kind="document")
+    resolved = workflow._ResolvedRender(
+        source=request.source,
+        profile=request.profile,
+        policy=policy,
+        source_kind="document",
+        format="mp3",
+        output=request.output,
+        expected_extension=".mp3",
+        warnings=(),
+    )
+    projection_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        workflow,
+        "inspect_source_provenance",
+        lambda *_args: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+    monkeypatch.setattr(workflow, "resolve_workspace", lambda _root: workspace)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_compile",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+
+    def inspect_projection(_workspace: WorkspaceRef, **kwargs: object) -> object:
+        projection_calls.append(kwargs)
+        state = "stale" if kwargs["pause_timing"] == "engaging" else "complete"
+        variant = "voice--engaging" if state == "stale" else "voice--fixed"
+        return SimpleNamespace(state=state, variant=variant, replacement_safe=True)
+
+    monkeypatch.setattr(workflow, "inspect_bundle_projection", inspect_projection)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_render",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_composition",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_export",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+
+    plan = workflow._inspect_with_policy(resolved, request, policy)
+    execution_requests: list[RenderPlanRequest] = []
+
+    class FakeService:
+        def render_plan(
+            self, received_workspace: WorkspaceRef, render_request: RenderPlanRequest
+        ) -> object:
+            assert received_workspace == workspace
+            execution_requests.append(render_request)
+            return SimpleNamespace(variant="voice--engaging")
+
+    result = workflow._invoke_stage(
+        FakeService(),
+        request,
+        resolved,
+        policy,
+        SimpleNamespace(stage="render_plan", selector="all", force=False),
+        variant=None,
+    )
+
+    assert plan.variant == "voice--engaging"
+    assert plan.steps[0].stage == "convert" and plan.steps[0].action == "reuse"
+    assert plan.steps[1].stage == "compile" and plan.steps[1].action == "reuse"
+    assert plan.steps[2].stage == "render_plan" and plan.steps[2].action == "replace"
+    assert projection_calls[0]["pause_timing"] == "engaging"
+    assert result.variant == plan.variant
+    assert execution_requests[0].pause_timing == projection_calls[0]["pause_timing"]
+
+
+def test_preparation_change_rebuilds_from_conversion_and_forwards_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preparation = PreparationOptions(
+        spacy="md",
+        speech_profile=tmp_path / "speech-profile.toml",
+        pronunciations={"Readio": "ree-dee-oh"},
+    )
+    request = replace(
+        _request(tmp_path, output=tmp_path / "result.mp3"),
+        rebuild_from="convert",
+        preparation=preparation,
+    )
+    bundle = tmp_path / "existing.ssmd-bundle"
+    bundle.mkdir()
+    policy = WorkspacePolicy(
+        mode="persistent",
+        root=bundle,
+        source_is_bundle=False,
+        newly_created=False,
+        cleanup=False,
+    )
+    resolved = workflow._ResolvedRender(
+        source=request.source,
+        profile=request.profile,
+        policy=policy,
+        source_kind="document",
+        format="mp3",
+        output=request.output,
+        expected_extension=".mp3",
+        warnings=(),
+    )
+    completed = {"state": "complete", "replacement_safe": True}
+
+    assert workflow._plan_step(request, "convert", completed).action == "replace"
+    assert workflow._plan_step(request, "compile", completed).action == "replace"
+
+    captured: list[object] = []
+
+    class FakeService:
+        def create_workspace(self, _source: Path, create_request: object) -> object:
+            captured.append(create_request)
+            return object()
+
+    workflow._invoke_stage(
+        FakeService(),
+        request,
+        resolved,
+        policy,
+        SimpleNamespace(stage="convert", selector="all", force=True),
+        variant=None,
+    )
+
+    assert captured[0].preparation == preparation  # type: ignore[attr-defined]

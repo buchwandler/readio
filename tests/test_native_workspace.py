@@ -7,12 +7,20 @@ import pytest
 import ssmdconvert
 from ebooklib import epub
 
+from readio.api import (
+    PreparationOptions as PublicPreparationOptions,
+)
 from readio.workspace import (
     CreateWorkspaceRequest,
+    PreparationOptions,
     create_workspace,
     resolve_workspace,
     resolve_workspace_policy,
 )
+
+
+def test_preparation_options_are_public_from_api() -> None:
+    assert PublicPreparationOptions is PreparationOptions
 
 
 def _make_epub(path: Path) -> None:
@@ -93,6 +101,10 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
 
     monkeypatch.setattr(ssmdconvert, "convert_bundle", convert_bundle)
     monkeypatch.setattr(
+        "readio.spacy_resources.ensure_spacy_model",
+        lambda *_args, **_kwargs: pytest.fail("workspace conversion must not provision spaCy"),
+    )
+    monkeypatch.setattr(
         ssmdconvert, "load_bundle_workspace", lambda _root: SimpleNamespace(kind="document")
     )
     request = CreateWorkspaceRequest(
@@ -100,6 +112,11 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
         output=output,
         language="en-US",
         chapters="2-4",
+        preparation=PreparationOptions(
+            speech_semantics="preserve",
+            spacy="sm",
+            pronunciations={"example": "pronunciation"},
+        ),
         force=True,
     )
 
@@ -111,9 +128,66 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
         "output": output,
         "chapters": "2-4",
         "language": "en-US",
+        "speech_semantics": "preserve",
+        "spacy": "sm",
+        "pronunciations": {"example": "pronunciation"},
         "force": True,
         "on_progress": progress,
     }
+
+
+def test_speech_profile_replacements_are_bridged_through_ssmdconvert(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "story.txt"
+    source.write_text("A short story.", encoding="utf-8")
+    output = tmp_path / "exact.ssmd-bundle"
+    output.mkdir()
+    profile_path = tmp_path / "reader.speech.toml"
+    loaded_profile = object()
+    loaded_paths: list[Path] = []
+    captured: dict[str, object] = {}
+
+    def load_speech_profile(path: Path) -> object:
+        loaded_paths.append(path)
+        return loaded_profile
+
+    def convert_bundle(source_arg: Path, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(output=output)
+
+    monkeypatch.setattr(ssmdconvert, "load_speech_profile", load_speech_profile)
+    monkeypatch.setattr(
+        ssmdconvert,
+        "effective_replacements",
+        lambda profile: (
+            {"shared": "profile", "profile-only": "spoken"} if profile is loaded_profile else {}
+        ),
+    )
+    monkeypatch.setattr(ssmdconvert, "convert_bundle", convert_bundle)
+    monkeypatch.setattr(
+        ssmdconvert, "load_bundle_workspace", lambda _root: SimpleNamespace(kind="document")
+    )
+
+    create_workspace(
+        source,
+        CreateWorkspaceRequest(
+            source=source,
+            output=output,
+            preparation=PreparationOptions(
+                speech_profile=profile_path,
+                pronunciations={"shared": "python", "python-only": "custom"},
+            ),
+        ),
+    )
+
+    assert loaded_paths == [profile_path]
+    assert captured["pronunciations"] == {
+        "shared": "python",
+        "profile-only": "spoken",
+        "python-only": "custom",
+    }
+    assert "speech_profile" not in captured
 
 
 def test_existing_bundle_is_resolved_without_reconversion(

@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import utterplan  # type: ignore[import-not-found]
 
-from readio.api.types import PlanRequest, RenderPlanRequest
+from readio.api.types import PauseTiming, PlanRequest, RenderPlanRequest
 from readio.workspace import WorkspaceRef
 
 ProgressCallback = Callable[[Any], None] | None
@@ -46,6 +46,7 @@ def render_bundle_plan(
         profile=request.profile,
         variant=request.variant,
         chapters=request.chapters,
+        pause_timing=utterplan.PauseTimingConfig(request.pause_timing),
         utterplan_dir=request.utterplan_root,
         output_root=request.output_root,
         force=request.force,
@@ -78,7 +79,7 @@ def inspect_bundle_projection(
     profile: str | Path,
     chapters: str = "all",
     variant: str | None = None,
-    pause_timing: Any | None = None,
+    pause_timing: PauseTiming = "fixed",
     utterplan_dir: str | Path | None = None,
     output_root: str | Path | None = None,
 ) -> Any:
@@ -88,7 +89,7 @@ def inspect_bundle_projection(
         profile=profile,
         chapters=chapters,
         variant=variant,
-        pause_timing=pause_timing,
+        pause_timing=utterplan.PauseTimingConfig(pause_timing),
         utterplan_dir=utterplan_dir,
         output_root=output_root,
     )

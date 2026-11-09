@@ -120,6 +120,8 @@ def test_readio_render_intent_api_is_public() -> None:
         "InputIntent",
         "WorkspaceIntent",
         "RenderIntent",
+        "PreparationIntent",
+        "ProjectionIntent",
         "create_book_intent",
         "create_document_intent",
         "load_render_intent",
@@ -178,3 +180,19 @@ def test_readio_workflow_foundation_types_are_public() -> None:
         "WorkflowStep",
     ):
         assert hasattr(api, symbol), f"readio.api is missing {symbol}"
+
+
+def test_readio_api_control_types_do_not_leak_specialist_implementations() -> None:
+    from readio import api
+
+    assert api.PreparationOptions.__module__ == "readio.workspace"
+    assert api.ProjectionOptions.__module__ == "readio.api.types"
+    assert api.PreparationIntent.__module__ == "readio.intent"
+    assert api.ProjectionIntent.__module__ == "readio.intent"
+    for specialist_type in (
+        "LinguisticsConfig",
+        "PauseTimingConfig",
+        "SpeechProfile",
+        "SpacyLanguageModel",
+    ):
+        assert not hasattr(api, specialist_type), f"specialist type leaked: {specialist_type}"

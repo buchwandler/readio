@@ -50,7 +50,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install \
             "ssmdconvert[pdf,docx]==0.2.5" \
-            "utterplan[spacy]==0.6.18" \
+            "utterplan[spacy]==0.6.19" \
             "renderplan==0.2.1" \
             "voicerender==0.2.9" \
             "audiocompose==0.3.8" \

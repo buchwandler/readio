@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Literal
 
 IntentKind = Literal["book", "document"]
-INTENT_SCHEMA = "readio.render.v2"
+INTENT_SCHEMA = "readio.render.v3"
 
 DIAGNOSTICS_MODES = ("errors", "warnings", "all", "none")
 TEXT_PREPARATIONS = ("auto", "ssmd", "spokenform", "identity")
@@ -20,6 +20,10 @@ RENDERABILITY_MODES = ("repair", "strict")
 SPACY_MODES = ("auto", "on", "off")
 SPACY_MODEL_SIZES = ("sm", "md", "lg", "trf")
 COMPOSE_EMPHASIS_POLICIES = ("segment_fallback", "strict")
+
+PREPARATION_SPEECH_SEMANTICS = ("freeze", "preserve")
+PROJECTION_PAUSE_TIMINGS = ("fixed", "natural", "engaging")
+PREPARATION_SPACY_MODES = ("off", "auto", *SPACY_MODEL_SIZES)
 CLIP_POLICIES = ("clamp", "warn", "error")
 PEAK_POLICIES = ("reduce_gain", "error")
 
@@ -87,6 +91,22 @@ class VoiceIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparationIntent:
+    speech_semantics: Literal["freeze", "preserve"] = "freeze"
+    spacy: Literal["off", "auto", "sm", "md", "lg", "trf"] | None = None
+    speech_profile: Path | None = None
+    pronunciations: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "pronunciations", MappingProxyType(dict(self.pronunciations)))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionIntent:
+    pause_timing: Literal["fixed", "natural", "engaging"] = "fixed"
+
+
+@dataclass(frozen=True, slots=True)
 class PlanningIntent:
     diagnostics: str = "errors"
     text_preparation: str = "auto"
@@ -137,6 +157,8 @@ class RenderIntent:
     input: InputIntent = field(default_factory=InputIntent)
     workspace: WorkspaceIntent = field(default_factory=WorkspaceIntent)
     voice: VoiceIntent = field(default_factory=VoiceIntent)
+    preparation: PreparationIntent = field(default_factory=PreparationIntent)
+    projection: ProjectionIntent = field(default_factory=ProjectionIntent)
     planning: PlanningIntent = field(default_factory=PlanningIntent)
     render: RenderOptionsIntent = field(default_factory=RenderOptionsIntent)
     compose: ComposeIntent = field(default_factory=ComposeIntent)
@@ -204,6 +226,8 @@ def _create_intent(
     cover: str | Path | None,
     timeline: str | Path | None,
     metadata: Mapping[str, str] | None,
+    preparation: PreparationIntent | None,
+    projection: ProjectionIntent | None,
 ) -> RenderIntent:
     source_path = _path(source, "input.source")
     profile_path = _path(profile, "voice.profile")
@@ -296,6 +320,8 @@ def _create_intent(
         input=input_intent,
         workspace=workspace_intent,
         voice=voice_intent,
+        preparation=(preparation if preparation is not None else PreparationIntent()),
+        projection=(projection if projection is not None else ProjectionIntent()),
         planning=planning,
         render=RenderOptionsIntent(speech=speech, emphasis_policy=emphasis_policy),
         compose=compose,
@@ -346,6 +372,8 @@ def create_book_intent(
     cover: str | Path | None = None,
     timeline: str | Path | None = None,
     metadata: Mapping[str, str] | None = None,
+    preparation: PreparationIntent | None = None,
+    projection: ProjectionIntent | None = None,
 ) -> RenderIntent:
     """Build book intent values without converting, rendering, or writing files."""
     return _create_intent(
@@ -380,6 +408,8 @@ def create_book_intent(
         cover=cover,
         timeline=timeline,
         metadata=metadata,
+        preparation=preparation,
+        projection=projection,
     )
 
 
@@ -414,6 +444,8 @@ def create_document_intent(
     cover: str | Path | None = None,
     timeline: str | Path | None = None,
     metadata: Mapping[str, str] | None = None,
+    preparation: PreparationIntent | None = None,
+    projection: ProjectionIntent | None = None,
 ) -> RenderIntent:
     """Build document intent values without converting, rendering, or writing files."""
     return _create_intent(
@@ -448,6 +480,8 @@ def create_document_intent(
         cover=cover,
         timeline=timeline,
         metadata=metadata,
+        preparation=preparation,
+        projection=projection,
     )
 
 
@@ -481,6 +515,25 @@ def validate_intent_shape(intent: RenderIntent) -> None:
         raise ValueError("workspace.mode='bundle' requires workspace.bundle")
     if intent.voice.profile is not None and not isinstance(intent.voice.profile, Path):
         raise TypeError("voice.profile must be a path")
+    if not isinstance(intent.preparation, PreparationIntent):
+        raise TypeError("preparation must be a PreparationIntent")
+    _choice(
+        intent.preparation.speech_semantics,
+        PREPARATION_SPEECH_SEMANTICS,
+        "preparation.speech_semantics",
+    )
+    if intent.preparation.spacy is not None:
+        _choice(intent.preparation.spacy, PREPARATION_SPACY_MODES, "preparation.spacy")
+    if intent.preparation.speech_profile is not None and not isinstance(
+        intent.preparation.speech_profile, Path
+    ):
+        raise TypeError("preparation.speech_profile must be a path")
+    for key, value in intent.preparation.pronunciations.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise TypeError("preparation.pronunciations must map strings to strings")
+    if not isinstance(intent.projection, ProjectionIntent):
+        raise TypeError("projection must be a ProjectionIntent")
+    _choice(intent.projection.pause_timing, PROJECTION_PAUSE_TIMINGS, "projection.pause_timing")
     if intent.input.chapters is not None:
         if intent.kind == "document":
             raise ValueError("input.chapters is not valid for document intents")
@@ -561,6 +614,12 @@ def validate_render_intent(
         raise FileNotFoundError(f"render source does not exist: {source_path}")
     if intent.voice.profile is None:
         raise ValueError("voice.profile is required")
+    if intent.preparation.speech_profile is not None:
+        speech_profile_path = resolve(intent.preparation.speech_profile)
+        if not speech_profile_path.is_file():
+            raise FileNotFoundError(
+                f"preparation.speech_profile does not exist: {speech_profile_path}"
+            )
     profile_path = resolve(intent.voice.profile)
     if not profile_path.is_file():
         raise FileNotFoundError(f"VoiceRender RenderProfile does not exist: {profile_path}")
@@ -586,6 +645,9 @@ __all__ = [
     "INTENT_SCHEMA",
     "OVERLAP_MODES",
     "PEAK_POLICIES",
+    "PREPARATION_SPACY_MODES",
+    "PREPARATION_SPEECH_SEMANTICS",
+    "PROJECTION_PAUSE_TIMINGS",
     "RENDERABILITY_MODES",
     "SPACY_MODEL_SIZES",
     "SPACY_MODES",
@@ -595,6 +657,8 @@ __all__ = [
     "IntentKind",
     "OutputIntent",
     "PlanningIntent",
+    "PreparationIntent",
+    "ProjectionIntent",
     "RenderIntent",
     "RenderOptionsIntent",
     "VoiceIntent",

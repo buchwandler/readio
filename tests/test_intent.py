@@ -6,6 +6,8 @@ import pytest
 
 from readio.intent import (
     INTENT_SCHEMA,
+    PreparationIntent,
+    ProjectionIntent,
     create_book_intent,
     create_document_intent,
     validate_render_intent,
@@ -78,6 +80,13 @@ def test_full_intent_toml_round_trips_all_stable_values(tmp_path: Path) -> None:
         cover="cover.jpg",
         timeline="timeline.json",
         metadata={"title": 'A "Novel"', "author": "Author"},
+        preparation=PreparationIntent(
+            speech_semantics="preserve",
+            spacy="md",
+            speech_profile=Path("speech-profile.toml"),
+            pronunciations={"Readio": "ree-dee-oh"},
+        ),
+        projection=ProjectionIntent(pause_timing="engaging"),
     )
 
     rendered = dump_render_intent(intent)
@@ -86,7 +95,7 @@ def test_full_intent_toml_round_trips_all_stable_values(tmp_path: Path) -> None:
     decoded = load_render_intent(path)
 
     assert decoded == intent
-    assert 'schema = "readio.render.v2"' in rendered
+    assert 'schema = "readio.render.v3"' in rendered
     assert 'kind = "book"' in rendered
     assert "[output.metadata]" in rendered
     assert '"title" = "A \\"Novel\\""' in rendered
@@ -96,7 +105,7 @@ def test_minimal_intent_omits_effective_defaults() -> None:
     intent = create_book_intent("novel.epub", profile="cast.renderprofile.toml")
     rendered = dump_render_intent(intent, minimal=True)
 
-    assert 'schema = "readio.render.v2"' in rendered
+    assert 'schema = "readio.render.v3"' in rendered
     assert 'kind = "book"' in rendered
     assert "[input]" in rendered
     assert 'source = "novel.epub"' in rendered
@@ -104,12 +113,39 @@ def test_minimal_intent_omits_effective_defaults() -> None:
     assert 'mode = "temporary"' in rendered
     assert "[voice]" in rendered
     assert 'profile = "cast.renderprofile.toml"' in rendered
+    assert "[preparation]" not in rendered
+    assert "[projection]" not in rendered
     assert "novel.ssmd-bundle" not in rendered
     assert "chapters" not in rendered
     assert "[planning]" not in rendered
     assert "[render]" not in rendered
     assert "[compose]" not in rendered
     assert "[output]" not in rendered
+
+
+def test_legacy_v2_intent_defaults_without_mutating_config(tmp_path: Path) -> None:
+    legacy = create_document_intent(
+        "article.md",
+        profile="voice.renderprofile.toml",
+        spacy="on",
+        spacy_model_size="sm",
+    )
+    contents = dump_render_intent(legacy, minimal=True).replace(
+        "readio.render.v3", "readio.render.v2"
+    )
+    path = tmp_path / "legacy.readio.toml"
+    path.write_text(contents, encoding="utf-8")
+    original = path.read_bytes()
+
+    decoded = load_render_intent(path)
+
+    assert decoded.schema == INTENT_SCHEMA
+    assert decoded.planning.spacy == "on"
+    assert decoded.planning.spacy_model_size == "sm"
+    assert decoded.preparation.spacy is None
+    assert decoded.preparation.speech_profile is None
+    assert decoded.projection.pause_timing == "fixed"
+    assert path.read_bytes() == original
 
 
 def test_minimal_toml_omissions_load_as_schema_defaults(tmp_path: Path) -> None:
