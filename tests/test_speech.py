@@ -226,6 +226,13 @@ def test_speak_request_uses_semantic_in_memory_pipeline_and_bounded_replan(
             "end_sample": 2,
         },
     )
+    speech_audio = setup["rendered"].rendered[0].speech.audio
+    buffer_call = next(call for call in setup["calls"] if call[0] == "buffer")
+    compose_call = next(call for call in setup["calls"] if call[0] == "compose")
+    composed_input = compose_call[2][(1, _SEGMENT_ID)]
+    assert buffer_call[1] is speech_audio
+    assert composed_input.audio is speech_audio
+    assert np.array_equal(speech_audio, np.array([0.25, -0.25], dtype=np.float32))
     assert result.profile_id == "profile-1"
     assert isinstance(result.audio, AudioBuffer)
     assert result.audio.sample_rate == 24000

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -143,3 +144,108 @@ def test_corrupt_render_state_fails_closed_before_any_stage_runs(
     with pytest.raises(WorkflowStateError, match="render"):
         workflow.render_workflow(NoRunService(), request)
     assert executed == []
+
+
+def test_stale_voice_render_output_requires_explicit_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    _install_default_inspections(monkeypatch)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_render",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="stale",
+            reason="VoiceRender artifact policy changed",
+            force_required=True,
+            replacement_safe=True,
+        ),
+    )
+    calls: list[object] = []
+
+    class RecordingService:
+        def render(self, *_args: object, **_kwargs: object) -> None:
+            calls.append((_args, _kwargs))
+
+    plan = Readio().inspect(request)
+    render_step = next(step for step in plan.steps if step.stage == "render")
+    assert render_step.state == "stale"
+    assert render_step.action == "blocked"
+    assert not render_step.force
+    with pytest.raises(WorkflowStateError, match="render"):
+        workflow.render_workflow(RecordingService(), request)
+    assert calls == []
+
+
+def test_explicit_render_rebuild_resets_stale_voice_render_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    request = replace(request, rebuild_from="render")
+    _install_default_inspections(monkeypatch)
+    state = {"render": False, "compose": False, "export": False}
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_compile",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_projection",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="complete", variant="narrator--new-profile", replacement_safe=True
+        ),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_render",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="complete" if state["render"] else "stale",
+            force_required=not state["render"],
+            replacement_safe=True,
+        ),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_composition",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="complete" if state["compose"] else "not_started", replacement_safe=True
+        ),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_export",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="complete" if state["export"] else "not_started", replacement_safe=True
+        ),
+    )
+
+    plan = Readio().inspect(request)
+    steps = {step.stage: step for step in plan.steps}
+    assert steps["render"].action == "replace"
+    assert steps["render"].force
+    assert steps["compose"].action == "execute"
+    assert steps["export"].action == "execute"
+
+    calls: list[tuple[str, object]] = []
+
+    class RecordingService:
+        def render(self, _workspace: object, render_request: object) -> None:
+            calls.append(("render", render_request))
+            state["render"] = True
+
+        def compose(self, _workspace: object, _compose_request: object) -> None:
+            calls.append(("compose", _compose_request))
+            state["compose"] = True
+
+        def export(self, _workspace: object, export_request: object) -> None:
+            calls.append(("export", export_request))
+            state["export"] = True
+
+    result = workflow.render_workflow(RecordingService(), request)
+
+    assert [stage for stage, _request in calls] == ["render", "compose", "export"]
+    render_request = calls[0][1]
+    assert render_request.force is True
+    assert render_request.reset_stale_output is True
+    assert result.executed_stages == ("render", "compose", "export")

@@ -3,15 +3,18 @@ schema_version: 2
 object_type: release_entry
 versioning:
   schema_version: 1
-  revision: 1
+  revision: 2
 entry_id: entry-0002
 release_version: v0.6.3
 kind: changed
-summary: Raised the minimum VoiceRender version to 0.2.10 for regional language matching
+summary:
+  Raised minimum VoiceRender to 0.2.11 and AudioCompose to 0.3.9 so VoiceRender
+  preserves raw speech and AudioCompose owns terminal-silence conditioning
 status: accepted
 audience: null
 scopes: []
-source_refs: []
+source_refs:
+  - tl:task-0016
 paths:
   - pyproject.toml
   - .github/workflows/tests.yml

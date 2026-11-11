@@ -119,3 +119,14 @@ def test_legacy_project_modules_are_absent() -> None:
     )
     for module in removed_modules:
         assert not (ROOT / module).exists(), f"legacy module was restored: {module}"
+
+
+def test_readio_does_not_own_terminal_silence_conditioning() -> None:
+    forbidden = (
+        "trim_trail",
+        "speech_end",
+        "audiocompose.trailing-silence",
+    )
+    for path in (ROOT / "readio").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert not any(token in source for token in forbidden), path
