@@ -79,7 +79,16 @@ request = RenderRequest(
 )
 ```
 
-Use `inspect_spacy_model(language, tier)` to inspect installed resources. Pass `offline=True` to `ensure_spacy_model(language, tier)` to fail rather than provision when the model is missing. Provisioning occurs only when `ensure_spacy_model()` is explicitly called. Source conversion, compilation, and projection do not download models. Install the optional `readio[spacy]` extra to enable spaCy support.
+Use `list_spacy_models(language)` to inventory the concrete `sm`, `md`, `lg`, and `trf` tiers. It returns `SpacyModelInfo` records in that stable order with each resolved package name, package installation state, model version, and spaCy version when known. It reads distribution metadata only. It does not load models, download packages, install spaCy, or mutate the environment.
+
+```python
+from readio.api import list_spacy_models
+
+for model in list_spacy_models("en-US"):
+    print(model.tier, model.model, model.installed, model.model_version, model.spacy_version)
+```
+
+Use `inspect_spacy_model(language, tier)` to validate a selected model; this stronger check can load the model. Pass `offline=True` to `ensure_spacy_model(language, tier)` to fail rather than provision when the model is missing. Provisioning occurs only when `ensure_spacy_model()` is explicitly called. Source conversion, compilation, and projection do not download models. Install the optional `readio[spacy]` extra to enable spaCy support.
 
 ## Render intents
 

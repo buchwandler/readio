@@ -14,6 +14,9 @@ from utterplan.spacy_models import resolve_spacy_model
 SpacyTier = Literal["sm", "md", "lg", "trf"]
 
 
+_SPACY_MODEL_TIERS: tuple[SpacyTier, ...] = ("sm", "md", "lg", "trf")
+
+
 @dataclass(frozen=True, slots=True)
 class SpacyModelInfo:
     language: str
@@ -34,6 +37,26 @@ def _distribution_version(package: str) -> str | None:
 def _load_model(model: str) -> None:
     spacy = import_module("spacy")
     spacy.load(model)
+
+
+def list_spacy_models(language: str) -> tuple[SpacyModelInfo, ...]:
+    """List concrete spaCy model packages using distribution metadata only."""
+    spacy_version = _distribution_version("spacy")
+    models: list[SpacyModelInfo] = []
+    for tier in _SPACY_MODEL_TIERS:
+        model = resolve_spacy_model(language, tier)
+        model_version = _distribution_version(model)
+        models.append(
+            SpacyModelInfo(
+                language=language,
+                tier=tier,
+                model=model,
+                installed=model_version is not None,
+                spacy_version=spacy_version,
+                model_version=model_version,
+            )
+        )
+    return tuple(models)
 
 
 def inspect_spacy_model(language: str, tier: SpacyTier) -> SpacyModelInfo:
@@ -80,4 +103,9 @@ def ensure_spacy_model(
     return verified
 
 
-__all__ = ["SpacyModelInfo", "ensure_spacy_model", "inspect_spacy_model"]
+__all__ = [
+    "SpacyModelInfo",
+    "ensure_spacy_model",
+    "inspect_spacy_model",
+    "list_spacy_models",
+]

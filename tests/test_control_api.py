@@ -205,6 +205,30 @@ def test_voice_list_filters_kind_without_rewriting_specialist_result(
     assert voices.list_voices(engine="e", target="t", kind="cloned") == (cloned,)
 
 
+def test_voice_list_forwards_language_and_target_id_to_voicerender(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    specialist_result = (object(),)
+
+    def discover(**kwargs: object) -> tuple[object, ...]:
+        captured.update(kwargs)
+        return specialist_result
+
+    monkeypatch.setattr(voices.voicerender, "list_voices", discover)
+
+    assert (
+        voices.list_voices(language="en-US", target="akinvox-multispeaker-v1") is specialist_result
+    )
+    assert captured == {
+        "engine": None,
+        "target_id": "akinvox-multispeaker-v1",
+        "language": "en-US",
+        "offline": False,
+        "refresh": False,
+    }
+
+
 def test_engine_target_discovery_forwards_voice_render_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

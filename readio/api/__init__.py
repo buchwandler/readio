@@ -68,7 +68,12 @@ from readio.profiles import (
     validate_profile,
 )
 from readio.runtime import reset_runtime_providers, runtime_status, set_runtime_providers
-from readio.spacy_resources import SpacyModelInfo, ensure_spacy_model, inspect_spacy_model
+from readio.spacy_resources import (
+    SpacyModelInfo,
+    ensure_spacy_model,
+    inspect_spacy_model,
+    list_spacy_models,
+)
 from readio.speech import VoiceSelector, parse_voice_selector, speak
 from readio.voices import (
     clone_voice,
@@ -184,6 +189,7 @@ __all__ = [
     "list_engine_options",
     "list_engines",
     "list_profile_roles",
+    "list_spacy_models",
     "list_voices",
     "load_profile",
     "load_render_intent",

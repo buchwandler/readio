@@ -7,7 +7,12 @@ from typing import Any
 import pytest
 
 from readio import spacy_resources
-from readio.api import SpacyModelInfo, ensure_spacy_model, inspect_spacy_model
+from readio.api import (
+    SpacyModelInfo,
+    ensure_spacy_model,
+    inspect_spacy_model,
+    list_spacy_models,
+)
 
 
 def _info(
@@ -29,6 +34,61 @@ def _info(
 def test_public_api_exposes_stable_model_resource_functions() -> None:
     assert inspect_spacy_model is spacy_resources.inspect_spacy_model
     assert ensure_spacy_model is spacy_resources.ensure_spacy_model
+    assert list_spacy_models is spacy_resources.list_spacy_models
+
+
+def test_list_spacy_models_reports_metadata_in_stable_tier_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    packages = {
+        "sm": "en_core_web_sm",
+        "md": "en_core_web_md",
+        "lg": "en_core_web_lg",
+        "trf": "en_core_web_trf",
+    }
+    versions = {
+        "spacy": "3.8.0",
+        "en_core_web_sm": "3.8.1",
+        "en_core_web_lg": "3.8.2",
+    }
+    resolved: list[tuple[str, str]] = []
+
+    def resolve(language: str, tier: str) -> str:
+        resolved.append((language, tier))
+        return packages[tier]
+
+    monkeypatch.setattr(spacy_resources, "resolve_spacy_model", resolve)
+    monkeypatch.setattr(spacy_resources, "_distribution_version", versions.get)
+
+    models = list_spacy_models("en-US")
+
+    assert tuple(info.tier for info in models) == ("sm", "md", "lg", "trf")
+    assert tuple(info.model for info in models) == tuple(packages.values())
+    assert tuple(info.installed for info in models) == (True, False, True, False)
+    assert tuple(info.model_version for info in models) == ("3.8.1", None, "3.8.2", None)
+    assert all(info.spacy_version == "3.8.0" for info in models)
+    assert resolved == [("en-US", tier) for tier in ("sm", "md", "lg", "trf")]
+
+
+def test_list_spacy_models_never_loads_or_provisions_installed_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(spacy_resources, "_distribution_version", lambda _package: "3.8.0")
+    monkeypatch.setattr(
+        spacy_resources,
+        "_load_model",
+        lambda *_args: pytest.fail("spaCy inventory must not load models"),
+    )
+    monkeypatch.setattr(
+        spacy_resources.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("spaCy inventory must not provision models"),
+    )
+
+    models = list_spacy_models("en-US")
+
+    assert tuple(info.tier for info in models) == ("sm", "md", "lg", "trf")
+    assert all(info.installed for info in models)
 
 
 def test_inspect_reports_installed_model_and_versions(monkeypatch: pytest.MonkeyPatch) -> None:
