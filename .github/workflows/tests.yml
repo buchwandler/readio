@@ -53,7 +53,7 @@ jobs:
             "utterplan[spacy]==0.6.19" \
             "renderplan==0.2.1" \
             "voicerender==0.2.11" \
-            "audiocompose==0.3.9" \
+            "audiocompose==0.3.10" \
             "audioexport==0.1.7"
           python -m pip install -e ".[dev,documents,spacy]"
       - name: Verify dependency resolution

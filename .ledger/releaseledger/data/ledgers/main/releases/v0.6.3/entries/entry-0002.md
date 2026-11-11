@@ -8,7 +8,7 @@ entry_id: entry-0002
 release_version: v0.6.3
 kind: changed
 summary:
-  Raised minimum VoiceRender to 0.2.11 and AudioCompose to 0.3.9 so VoiceRender
+  Raised minimum VoiceRender to 0.2.11 and AudioCompose to 0.3.10 so VoiceRender
   preserves raw speech and AudioCompose owns terminal-silence conditioning
 status: accepted
 audience: null
