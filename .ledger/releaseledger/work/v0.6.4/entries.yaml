@@ -1,0 +1,27 @@
+schema: releaseledger.entry-batch.v1
+operation: create
+schema_version: 1
+object_type: release_entry_batch
+release_version: v0.6.4
+git_base_ref: 8ebd7e59387bf17d9a41efecfdae794ecb76c822
+git_base_sha: 8ebd7e59387bf17d9a41efecfdae794ecb76c822
+git_head_ref: b9e19a401be683e733c150623a9d1a011f6f8f74
+git_head_sha: b9e19a401be683e733c150623a9d1a011f6f8f74
+include_merges: nontrivial
+entries:
+  - kind: internal
+    summary: Changed release metadata and regenerated the changelog
+    status: accepted
+    internal: true
+    source_refs:
+      - git:8b70a22ad288f9cd661874eb8d87ebccb2c739ff
+    paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.4/release.md
+      - docs/changelog.md
+    sources: []
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"

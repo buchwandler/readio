@@ -1,0 +1,115 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 4
+release_version: v0.6.4
+git_base_ref: v0.6.3
+git_base_sha: 8ebd7e59387bf17d9a41efecfdae794ecb76c822
+git_head_ref: b9e19a4
+git_head_sha: b9e19a401be683e733c150623a9d1a011f6f8f74
+git_range: 8ebd7e59387bf17d9a41efecfdae794ecb76c822..b9e19a401be683e733c150623a9d1a011f6f8f74
+commit_count: 3
+rows:
+  - sha: b2831ffe4ef5d4539fb03ec98c2c02bfd264cb2c
+    source_ref: git:b2831ffe4ef5d4539fb03ec98c2c02bfd264cb2c
+    short_sha: b2831ff
+    changed_paths:
+      - .github/workflows/audio-e2e.yml
+      - .github/workflows/tests.yml
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/entries/entry-0002.md
+      - docs/changelog.md
+      - pyproject.toml
+      - tests/test_dependency_boundaries.py
+      - tests/test_packaging_metadata.py
+      - tests/test_render_workflow_persistent.py
+      - tests/test_speech.py
+    stats:
+      files_changed: 10
+      insertions: 149
+      deletions: 21
+    inspected: true
+    inspected_paths:
+      - .github/workflows/audio-e2e.yml
+      - .github/workflows/tests.yml
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/entries/entry-0002.md
+      - docs/changelog.md
+      - pyproject.toml
+      - tests/test_dependency_boundaries.py
+      - tests/test_packaging_metadata.py
+      - tests/test_render_workflow_persistent.py
+      - tests/test_speech.py
+    observed_behavior:
+      Raised the minimum VoiceRender and AudioCompose versions to 0.2.11
+      and 0.3.9. Tests verify raw rendered speech is passed unchanged to composition,
+      terminal-silence conditioning remains in AudioCompose, and stale render output
+      requires an explicit rebuild.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "feat: update min version of voicerender and audiocompose"
+    target_entry_id: entry-0001
+    notes:
+      Assign this post-tag behavior to v0.6.4. It was previously recorded in the
+      v0.6.3 entry and will be moved back to the content present at the v0.6.3 tag.
+  - sha: 8b70a22ad288f9cd661874eb8d87ebccb2c739ff
+    source_ref: git:8b70a22ad288f9cd661874eb8d87ebccb2c739ff
+    short_sha: 8b70a22
+    changed_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.4/release.md
+      - docs/changelog.md
+    stats:
+      files_changed: 4
+      insertions: 33
+      deletions: 4
+    inspected: true
+    inspected_paths:
+      - .ledger/releaseledger/data/ledgers/main/events/events.jsonl
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/release.md
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.4/release.md
+      - docs/changelog.md
+    observed_behavior:
+      Updates release metadata and generated changelog text only. It
+      adds no product behavior.
+    public_impact: none
+    decision: internal
+    stale: false
+    evidence_subject: "doc: changelog"
+    target_entry_id: entry-0002
+    notes: Exclude release bookkeeping from public v0.6.4 notes.
+  - sha: b9e19a401be683e733c150623a9d1a011f6f8f74
+    source_ref: git:b9e19a401be683e733c150623a9d1a011f6f8f74
+    short_sha: b9e19a4
+    changed_paths:
+      - .github/workflows/tests.yml
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/entries/entry-0002.md
+      - docs/changelog.md
+      - pyproject.toml
+      - tests/test_packaging_metadata.py
+    stats:
+      files_changed: 5
+      insertions: 6
+      deletions: 6
+    inspected: true
+    inspected_paths:
+      - .github/workflows/tests.yml
+      - .ledger/releaseledger/data/ledgers/main/releases/v0.6.3/entries/entry-0002.md
+      - docs/changelog.md
+      - pyproject.toml
+      - tests/test_packaging_metadata.py
+    observed_behavior:
+      Raises the minimum AudioCompose version from 0.3.9 to 0.3.10
+      in package metadata and minimum-stack CI; packaging tests verify that the declared
+      and tested dependency floors agree.
+    public_impact: public
+    decision: accepted
+    stale: false
+    evidence_subject: "chore: increase min version"
+    target_entry_id: entry-0001
+    notes:
+      Group this incremental dependency-floor update with the v0.6.4 entry for
+      the post-tag compatibility changes.

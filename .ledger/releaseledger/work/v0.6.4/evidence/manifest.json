@@ -1,0 +1,65 @@
+{
+  "candidate_count": 3,
+  "candidates": [
+    {
+      "additions": 149,
+      "deletions": 21,
+      "patch_file": "b2831ff.patch",
+      "patch_sha256": "bab65ce56fea036b9ceca7ed8e9c4646e6a4c3380495024c93b9c520f81a3b93",
+      "paths": [
+        ".github/workflows/audio-e2e.yml",
+        ".github/workflows/tests.yml",
+        ".ledger/releaseledger/data/ledgers/main/events/events.jsonl",
+        ".ledger/releaseledger/data/ledgers/main/releases/v0.6.3/entries/entry-0002.md",
+        "docs/changelog.md",
+        "pyproject.toml",
+        "tests/test_dependency_boundaries.py",
+        "tests/test_packaging_metadata.py",
+        "tests/test_render_workflow_persistent.py",
+        "tests/test_speech.py"
+      ],
+      "sha": "b2831ffe4ef5d4539fb03ec98c2c02bfd264cb2c",
+      "short_sha": "b2831ff",
+      "source_ref": "git:b2831ffe4ef5d4539fb03ec98c2c02bfd264cb2c"
+    },
+    {
+      "additions": 33,
+      "deletions": 4,
+      "patch_file": "8b70a22.patch",
+      "patch_sha256": "7e2e8946a97d2611c649eb509b1791c3f716cae44e4d75c08e49adacb1f63294",
+      "paths": [
+        ".ledger/releaseledger/data/ledgers/main/events/events.jsonl",
+        ".ledger/releaseledger/data/ledgers/main/releases/v0.6.3/release.md",
+        ".ledger/releaseledger/data/ledgers/main/releases/v0.6.4/release.md",
+        "docs/changelog.md"
+      ],
+      "sha": "8b70a22ad288f9cd661874eb8d87ebccb2c739ff",
+      "short_sha": "8b70a22",
+      "source_ref": "git:8b70a22ad288f9cd661874eb8d87ebccb2c739ff"
+    },
+    {
+      "additions": 6,
+      "deletions": 6,
+      "patch_file": "b9e19a4.patch",
+      "patch_sha256": "9c67d134d6b6bfed5a0ac59204cd5910e85d86646f8e6dc6a9e2b1c20d5a3be6",
+      "paths": [
+        ".github/workflows/tests.yml",
+        ".ledger/releaseledger/data/ledgers/main/releases/v0.6.3/entries/entry-0002.md",
+        "docs/changelog.md",
+        "pyproject.toml",
+        "tests/test_packaging_metadata.py"
+      ],
+      "sha": "b9e19a401be683e733c150623a9d1a011f6f8f74",
+      "short_sha": "b9e19a4",
+      "source_ref": "git:b9e19a401be683e733c150623a9d1a011f6f8f74"
+    }
+  ],
+  "git_base_ref": "8ebd7e59387bf17d9a41efecfdae794ecb76c822",
+  "git_base_sha": "8ebd7e59387bf17d9a41efecfdae794ecb76c822",
+  "git_head_ref": "b9e19a401be683e733c150623a9d1a011f6f8f74",
+  "git_head_sha": "b9e19a401be683e733c150623a9d1a011f6f8f74",
+  "include_merges": "nontrivial",
+  "object_type": "git_evidence_manifest",
+  "release_version": "v0.6.4",
+  "schema_version": 1
+}
