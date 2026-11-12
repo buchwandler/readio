@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from readio.api.types import (
     ProjectionOptions,
     RenderPlanRequest,
     RenderRequest,
+    WorkflowEvent,
     WorkflowPlan,
     WorkflowStep,
 )
@@ -204,7 +206,9 @@ def test_temporary_workspace_is_removed_when_conversion_fails(
     workspace_paths: list[Path] = []
 
     class FailingService:
-        def create_workspace(self, _source: Path, create_request: object) -> None:
+        def create_workspace(
+            self, _source: Path, create_request: object, **_kwargs: object
+        ) -> None:
             workspace_paths.append(create_request.output)  # type: ignore[attr-defined,arg-type]
             raise RuntimeError("conversion failed")
 
@@ -223,6 +227,7 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
     request = _request(tmp_path, output=tmp_path / "result.mp3")
     executed: list[str] = []
     workspace_paths: list[Path] = []
+    progress_events: list[WorkflowEvent] = []
 
     def current_plan(
         resolved: workflow._ResolvedRender,
@@ -258,29 +263,66 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
     )
 
     class FakeService:
-        def create_workspace(self, _source: Path, create_request: object) -> None:
+        @staticmethod
+        def _emit_progress(on_progress: Callable[[object], None] | None, stage: str) -> None:
+            assert on_progress is not None
+            on_progress(SimpleNamespace(kind=f"{stage}.progress", current=1, total=2))
+
+        def create_workspace(
+            self,
+            _source: Path,
+            create_request: object,
+            *,
+            on_progress: Callable[[object], None] | None = None,
+        ) -> None:
             workspace_paths.append(create_request.output)  # type: ignore[attr-defined,arg-type]
             create_request.output.mkdir(parents=True)  # type: ignore[attr-defined]
             executed.append("convert")
+            self._emit_progress(on_progress, "convert")
 
-        def plan(self, *_args: object, **_kwargs: object) -> None:
+        def plan(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> None:
             executed.append("compile")
+            self._emit_progress(on_progress, "compile")
 
-        def render_plan(self, *_args: object, **_kwargs: object) -> object:
+        def render_plan(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> object:
             executed.append("render_plan")
+            self._emit_progress(on_progress, "render_plan")
             return SimpleNamespace(variant="voice--profile")
 
-        def render(self, *_args: object, **_kwargs: object) -> None:
+        def render(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> None:
             executed.append("render")
+            self._emit_progress(on_progress, "render")
 
-        def compose(self, *_args: object, **_kwargs: object) -> None:
+        def compose(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> None:
             executed.append("compose")
+            self._emit_progress(on_progress, "compose")
 
         def export(self, _workspace: WorkspaceRef, export_request: object) -> None:
             executed.append("export")
             export_request.output.write_bytes(b"audio")  # type: ignore[attr-defined]
 
-    result = workflow.render_workflow(FakeService(), request)
+    service = FakeService()
+    result = workflow.render_workflow(service, request, on_progress=progress_events.append)
 
     assert result.workspace is None
     assert result.workspace_mode == "temporary"
@@ -288,6 +330,30 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
     assert executed == list(workflow._STAGE_ORDER)
     assert workspace_paths and not workspace_paths[0].parent.exists()
     assert (tmp_path / "result.mp3").read_bytes() == b"audio"
+
+    callback_stages = {"convert", "compile", "render_plan", "render", "compose"}
+    expected_events: list[tuple[str, str]] = []
+    for stage in workflow._STAGE_ORDER:
+        expected_events.append((stage, "stage.started"))
+        if stage in callback_stages:
+            expected_events.append((stage, f"{stage}.progress"))
+        expected_events.append((stage, "stage.completed"))
+    assert [(event.stage, event.kind) for event in progress_events] == expected_events
+    specialist_events = [event for event in progress_events if event.kind.endswith(".progress")]
+    assert len(specialist_events) == len(callback_stages)
+    assert all((event.current, event.total) == (1, 2) for event in specialist_events)
+    assert all(
+        event.package == workflow._STAGE_PACKAGES[event.stage] for event in specialist_events
+    )
+
+    calls_after_execution = list(executed)
+    reused_events: list[WorkflowEvent] = []
+    reused = workflow.render_workflow(service, request, on_progress=reused_events.append)
+    assert reused.reused_stages == tuple(workflow._STAGE_ORDER)
+    assert executed == calls_after_execution
+    assert [(event.stage, event.kind) for event in reused_events] == [
+        (stage, "stage.reused") for stage in workflow._STAGE_ORDER
+    ]
 
 
 @pytest.mark.parametrize("pause_timing", ["fixed", "natural", "engaging"])
@@ -382,7 +448,10 @@ def test_workflow_inspection_and_execution_share_pause_timing(
 
     class FakeService:
         def render_plan(
-            self, received_workspace: WorkspaceRef, render_request: RenderPlanRequest
+            self,
+            received_workspace: WorkspaceRef,
+            render_request: RenderPlanRequest,
+            **_kwargs: object,
         ) -> object:
             assert received_workspace == workspace
             execution_requests.append(render_request)
@@ -393,7 +462,7 @@ def test_workflow_inspection_and_execution_share_pause_timing(
         request,
         resolved,
         policy,
-        SimpleNamespace(stage="render_plan", selector="all", force=False),
+        SimpleNamespace(stage="render_plan", package="UtterPlan", selector="all", force=False),
         variant=None,
     )
 
@@ -446,7 +515,9 @@ def test_preparation_change_rebuilds_from_conversion_and_forwards_options(
     captured: list[object] = []
 
     class FakeService:
-        def create_workspace(self, _source: Path, create_request: object) -> object:
+        def create_workspace(
+            self, _source: Path, create_request: object, **_kwargs: object
+        ) -> object:
             captured.append(create_request)
             return object()
 
@@ -455,8 +526,84 @@ def test_preparation_change_rebuilds_from_conversion_and_forwards_options(
         request,
         resolved,
         policy,
-        SimpleNamespace(stage="convert", selector="all", force=True),
+        SimpleNamespace(stage="convert", package="SSMDConvert", selector="all", force=True),
         variant=None,
     )
 
     assert captured[0].preparation == preparation  # type: ignore[attr-defined]
+
+
+def test_invoke_render_stage_forwards_normalized_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path, output=tmp_path / "result.mp3")
+    bundle = tmp_path / "existing.ssmd-bundle"
+    bundle.mkdir()
+    policy = WorkspacePolicy(
+        mode="persistent",
+        root=bundle,
+        source_is_bundle=False,
+        newly_created=False,
+        cleanup=False,
+    )
+    resolved = workflow._ResolvedRender(
+        source=request.source,
+        profile=request.profile,
+        policy=policy,
+        source_kind="document",
+        format="mp3",
+        output=request.output,
+        expected_extension=".mp3",
+        warnings=(),
+    )
+    workspace = WorkspaceRef(root=bundle, kind="document")
+    monkeypatch.setattr(workflow, "resolve_workspace", lambda _root: workspace)
+    events: list[WorkflowEvent] = []
+    callbacks: list[Callable[[object], None] | None] = []
+
+    class FakeService:
+        def render(
+            self,
+            received_workspace: WorkspaceRef,
+            render_request: object,
+            *,
+            on_progress: Callable[[object], None] | None = None,
+        ) -> object:
+            assert received_workspace == workspace
+            assert render_request is not None
+            callbacks.append(on_progress)
+            if on_progress is not None:
+                on_progress(
+                    SimpleNamespace(
+                        kind="speech.completed",
+                        current=2,
+                        total=5,
+                        elapsed_seconds=1.25,
+                        chapter_id="c7",
+                        number=7,
+                    )
+                )
+            return object()
+
+    service = FakeService()
+    step = SimpleNamespace(stage="render", package="VoiceRender", selector="chapter-2", force=False)
+    workflow._invoke_stage(
+        service,
+        request,
+        resolved,
+        policy,
+        step,
+        variant="voice--profile",
+        on_progress=events.append,
+    )
+    workflow._invoke_stage(service, request, resolved, policy, step, variant="voice--profile")
+
+    assert len(events) == 1
+    assert callbacks[0] is not None and callbacks[1] is None
+    event = events[0]
+    assert (event.stage, event.package, event.selector) == ("render", "VoiceRender", "chapter-2")
+    assert (event.current, event.total) == (2, 5)
+    assert event.kind == "speech.completed"
+    assert event.elapsed_seconds == 1.25
+    assert event.details["chapter_id"] == "c7"
+    assert event.details["chapter_number"] == 7

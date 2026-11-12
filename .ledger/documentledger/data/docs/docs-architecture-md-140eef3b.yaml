@@ -34,6 +34,29 @@ sections:
         reason: This section describes the compact public facade.
         tracked_hashes:
           body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
+  - section_id: md:section:docs/architecture.md::public-workflow-api
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Public workflow API
+    heading_slug: public-workflow-api
+    line_span:
+      - 5
+      - 8
+    section_hash: 598651aedfaf64a5ebd87bcc74c8bc2c867b9515533cc7894d5f949b748bd121
+    summary: Public workflow API
+    text: "## Public workflow API
+
+
+      `readio.api` is the public gateway for source and render workflows. `inspect_source()`
+      returns normalized source metadata and chapter inventory without creating a workspace.
+      `render_request_from_intent()` translates persisted user configuration into the
+      canonical `RenderRequest`; it does not orchestrate stages itself. `Readio.inspect(RenderRequest)`
+      and `Readio.render(RenderRequest)` are the shared read-only inspection and execution
+      workflows. The `inspect_intent()` and `render_intent()` convenience methods delegate
+      through that same request mapping and workflow rather than maintaining a second
+      stage runner. Specialist stage request schemas remain owned by their packages."
+    links: []
   - section_id: md:section:docs/architecture.md::intent-driven-bundle-workflow
     doc_path: docs/architecture.md
     heading_path:
@@ -41,9 +64,9 @@ sections:
       - Intent-driven bundle workflow
     heading_slug: intent-driven-bundle-workflow
     line_span:
-      - 5
-      - 24
-    section_hash: a5e816d234c5b3b817d2707ab6f5b7e905584df0aeb372b875d2735a933733f2
+      - 9
+      - 28
+    section_hash: 3755668f31d01bec04839433b0bb6499e62271ac2758a2c18408ab8b7bdd2928
     summary: Intent-driven bundle workflow
     text:
       "## Intent-driven bundle workflow\n\nThe intent and profile live at user-selected\
@@ -62,10 +85,37 @@ sections:
       \ Readio preserves UtterPlan's exact projected variant through VoiceRender, AudioCompose,\
       \ and AudioExport. `--rebuild-from` and `--replace-output` are separate explicit\
       \ safety controls. Specialist CLIs remain available for deliberate stage-level\
-      \ debugging; Readio does not provide a parallel stage-runner command tree.\n\n\
-      A book bundle may contain multiple chapter items; a document bundle represents\
-      \ a single document item. This is a content distinction recorded by the manifest,\
-      \ not a second workspace format or Readio routing policy."
+      \ debugging; Readio does not provide a parallel stage-runner command tree."
+    links: []
+  - section_id: md:section:docs/architecture.md::workflow-progress
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Workflow progress
+    heading_slug: workflow-progress
+    line_span:
+      - 29
+      - 35
+    section_hash: 8bdb02319c91152f23e7e9be96cdf43bd330a2e21eb35c51543336b747514c1d
+    summary: Workflow progress
+    text: "## Workflow progress
+
+
+      Readio forwards specialist progress synchronously through `WorkflowEvent` callbacks.
+      Executed stages emit `stage.started`, specialist progress events, then `stage.completed`;
+      reused stages emit only `stage.reused` and perform no specialist work. The progress
+      adapter preserves determinate counters and specialist elapsed time when provided,
+      while chapter keys are canonicalized in `details` only when chapter identity is
+      available. Generic counters are not reinterpreted as chapter numbers.
+
+
+      AudioExport's public `export_bundle` API does not expose a progress callback.
+      Readio therefore keeps export indeterminate and does not fabricate progress or
+      ETA. TTSForge or another caller owns wall-clock timing and terminal presentation.
+
+      A book bundle may contain multiple chapter items; a document bundle represents
+      a single document item. This is a content distinction recorded by the manifest,
+      not a second workspace format or Readio routing policy."
     links: []
   - section_id: md:section:docs/architecture.md::ownership
     doc_path: docs/architecture.md
@@ -74,8 +124,8 @@ sections:
       - Ownership
     heading_slug: ownership
     line_span:
-      - 25
-      - 40
+      - 36
+      - 51
     section_hash: 5a65111dbd96796a0deb936e2441cdef66d54526df4e9aa8bf9df879d1936a8f
     summary: Ownership
     text: "## Ownership
@@ -127,8 +177,8 @@ sections:
       - Direct speech and management
     heading_slug: direct-speech-and-management
     line_span:
-      - 41
-      - 44
+      - 52
+      - 55
     section_hash: ca1984b2223ff33978c41a8027e7ab3491aa9ec261f2d4b272ad2b1b933882e7
     summary: Direct speech and management
     text: "## Direct speech and management
@@ -146,8 +196,8 @@ sections:
       - Manual specialist workflow
     heading_slug: manual-specialist-workflow
     line_span:
-      - 45
-      - 64
+      - 56
+      - 75
     section_hash: be535688ac4583da706964e502765d6b851694e141e0360fe830bc4acd85db42
     summary: Manual specialist workflow
     text:
@@ -170,8 +220,8 @@ sections:
       - Persistent state
     heading_slug: persistent-state
     line_span:
-      - 65
-      - 68
+      - 76
+      - 79
     section_hash: 721e0fdd3ce47ddfadaeaccae3feb0f9ca7412190bbcbddc2c327ee6adc84438
     summary: Persistent state
     text: "## Persistent state
@@ -191,8 +241,8 @@ sections:
       - Dependency boundary
     heading_slug: dependency-boundary
     line_span:
-      - 69
-      - 72
+      - 80
+      - 83
     section_hash: f0a5edf8c4476353231739e294788547741e16ac2fac7b070e1c6d11c53af8e0
     summary: Dependency boundary
     text: "## Dependency boundary
@@ -217,8 +267,8 @@ sections:
       - Machine-level runtime policy
     heading_slug: machine-level-runtime-policy
     line_span:
-      - 73
-      - 75
+      - 84
+      - 86
     section_hash: e831e621983d000c8950b74f6f72b9641bf8b29caa44baf8efdcfd8af60abe44
     summary: Machine-level runtime policy
     text: "## Machine-level runtime policy
@@ -287,5 +337,4 @@ last_fresh_hash: b1b6d75f4cc233da2954a396fe46c18a691f5923e19e16eb47023043563ba44
 notes:
   Reviewed affected sections against current Readio public APIs and CLI; strict
   Sphinx build and focused documentation/workspace tests passed.
-coverage_resolution: null
-version: 218
+version: 220

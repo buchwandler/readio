@@ -33,6 +33,7 @@ from readio.integrations.ssmdconvert import inspect_source, inspect_source_prove
 from readio.integrations.utterplan import inspect_bundle_compile, inspect_bundle_projection
 from readio.integrations.voicerender import inspect_bundle_render, load_render_profile
 from readio.intent import _default_output_path
+from readio.progress import normalize_workflow_progress
 from readio.workflow import make_workflow_plan, normalize_inspection_state, plan_workflow_step
 from readio.workspace import (
     CreateWorkspaceRequest,
@@ -573,9 +574,15 @@ def _invoke_stage(
     policy: WorkspacePolicy,
     step: Any,
     variant: str | None,
+    *,
+    on_progress: Callable[[WorkflowEvent], None] | None = None,
 ) -> Any:
     stage = step.stage
     selector = step.selector or request.chapters
+    stage_progress = normalize_workflow_progress(
+        stage, step.package, on_progress, selector=selector
+    )
+    stage_progress_kwargs = {"on_progress": stage_progress} if stage_progress is not None else {}
     if stage == "convert":
         chapters = (
             "all"
@@ -592,6 +599,7 @@ def _invoke_stage(
                 preparation=request.preparation,
                 force=step.force,
             ),
+            **stage_progress_kwargs,
         )
     workspace = resolve_workspace(policy.root)
     if stage == "compile":
@@ -604,6 +612,7 @@ def _invoke_stage(
                 diagnostics=request.planning.diagnostics,
                 force=step.force,
             ),
+            **stage_progress_kwargs,
         )
     if stage == "render_plan":
         result = service.render_plan(
@@ -616,6 +625,7 @@ def _invoke_stage(
                 pause_timing=request.projection.pause_timing,
                 force=step.force,
             ),
+            **stage_progress_kwargs,
         )
         return result
     if not isinstance(variant, str) or not variant:
@@ -635,6 +645,7 @@ def _invoke_stage(
                 fail_fast=request.voice_render.fail_fast,
                 emphasis_policy=request.voice_render.emphasis_policy,
             ),
+            **stage_progress_kwargs,
         )
     if stage == "compose":
         options = request.composition
@@ -655,6 +666,7 @@ def _invoke_stage(
                 fail_fast=options.fail_fast,
                 emphasis_policy=options.emphasis_policy,
             ),
+            **stage_progress_kwargs,
         )
     if stage == "export":
         return service.export(
@@ -695,7 +707,9 @@ def _execute_stages(
             )
         _emit(on_progress, stage, "stage.started", step)
         try:
-            result = _invoke_stage(service, request, resolved, policy, step, variant)
+            result = _invoke_stage(
+                service, request, resolved, policy, step, variant, on_progress=on_progress
+            )
         except WorkflowError:
             raise
         except Exception as exc:

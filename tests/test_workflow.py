@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from readio.api.types import WorkflowEvent
+from readio.api.types import PipelineEvent, WorkflowEvent
 from readio.errors import (
     OutputCollisionError,
     ReadioStageError,
@@ -165,7 +165,74 @@ def test_normalize_workflow_progress_preserves_source_details() -> None:
     assert (event.current, event.total) == (2, 5)
     assert event.message == "rendered occurrence"
     assert event.elapsed_seconds == 1.25
-    assert event.details == {"engine": "local", "chapter_id": "chapter-4", "number": 7}
+    assert event.details == {
+        "engine": "local",
+        "chapter_id": "chapter-4",
+        "number": 7,
+        "chapter_number": 7,
+    }
+
+
+def test_normalize_workflow_progress_unwraps_pipeline_event_source() -> None:
+    raw_event = SimpleNamespace(
+        kind="speech.completed",
+        current=9,
+        total=12,
+        message="nested message",
+        phase="nested phase",
+        elapsed_seconds=1.25,
+        chapter_id="c7",
+        number=7,
+        title="The Long Way Down",
+        engine="local",
+    )
+    seen: list[WorkflowEvent] = []
+    callback = normalize_workflow_progress("render", "VoiceRender", seen.append, selector="5-17")
+    assert callback is not None
+    callback(
+        PipelineEvent(
+            stage="render",
+            current=2,
+            total=5,
+            message="segment rendered",
+            source=raw_event,
+        )
+    )
+
+    event = seen[0]
+    assert (event.current, event.total) == (2, 5)
+    assert event.message == "segment rendered"
+    assert event.kind == "speech.completed"
+    assert event.elapsed_seconds == 1.25
+    assert event.selector == "5-17"
+    assert event.details == {
+        "chapter_id": "c7",
+        "number": 7,
+        "title": "The Long Way Down",
+        "engine": "local",
+        "chapter_number": 7,
+        "chapter_title": "The Long Way Down",
+    }
+    assert "source" not in event.details
+
+
+def test_normalize_workflow_progress_does_not_map_segment_number_to_chapter() -> None:
+    seen: list[WorkflowEvent] = []
+    callback = normalize_workflow_progress("render", "VoiceRender", seen.append)
+    assert callback is not None
+    callback(SimpleNamespace(number=51, segment_id="s51"))
+
+    assert seen[0].details["number"] == 51
+    assert "chapter_number" not in seen[0].details
+
+
+def test_normalize_workflow_progress_uses_nested_phase_as_message_fallback() -> None:
+    seen: list[WorkflowEvent] = []
+    callback = normalize_workflow_progress("render", "VoiceRender", seen.append)
+    assert callback is not None
+    callback(SimpleNamespace(message=None, source=SimpleNamespace(phase="chapter rendered")))
+
+    assert seen[0].message == "chapter rendered"
 
 
 def test_normalize_workflow_progress_accepts_structured_mapping_events() -> None:

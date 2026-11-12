@@ -24,6 +24,11 @@ source material
 
 `readio render` owns the complete workflow. With no explicit bundle it converts and processes inside temporary storage; `--bundle PATH` selects persistent storage, and a bundle supplied as `SOURCE` is reused as persistent input. Persistent book creation converts the full source inventory while the selected chapter scope controls downstream work. Readio preserves UtterPlan's exact projected variant through VoiceRender, AudioCompose, and AudioExport. `--rebuild-from` and `--replace-output` are separate explicit safety controls. Specialist CLIs remain available for deliberate stage-level debugging; Readio does not provide a parallel stage-runner command tree.
 
+## Workflow progress
+
+Readio forwards specialist progress synchronously through `WorkflowEvent` callbacks. Executed stages emit `stage.started`, specialist progress events, then `stage.completed`; reused stages emit only `stage.reused` and perform no specialist work. The progress adapter preserves determinate counters and specialist elapsed time when provided, while chapter keys are canonicalized in `details` only when chapter identity is available. Generic counters are not reinterpreted as chapter numbers.
+
+AudioExport's public `export_bundle` API does not expose a progress callback. Readio therefore keeps export indeterminate and does not fabricate progress or ETA. TTSForge or another caller owns wall-clock timing and terminal presentation.
 A book bundle may contain multiple chapter items; a document bundle represents a single document item. This is a content distinction recorded by the manifest, not a second workspace format or Readio routing policy.
 
 ## Ownership

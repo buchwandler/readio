@@ -47,8 +47,8 @@ sections:
     heading_slug: install
     line_span:
       - 7
-      - 15
-    section_hash: 2baf3358ef7526630b1cd2af44e6c9363818391690de0bfa89ccffb1830612a1
+      - 17
+    section_hash: 297ce8be6f4aab829e66c49f9dd0f7e2f5bcc31f25694a4c22514f181404c9c2
     summary: Install
     text: '## Install
 
@@ -64,7 +64,14 @@ sections:
 
 
       `readio[documents]` enables SSMDConvert''s optional PDF and DOCX support; `readio[spacy]`
-      enables UtterPlan''s optional spaCy support. Readio requires Python 3.10 or newer.'
+      enables UtterPlan''s optional spaCy support. Readio requires Python 3.10 or newer.
+
+
+      Use `readio.api.inspect_spacy_model(language, tier)` to check a local model and
+      `readio.api.ensure_spacy_model(language, tier)` to explicitly provision one. Readio
+      conversion and UtterPlan stages do not download models. `PreparationOptions` controls
+      conversion speech semantics, spaCy tier, and explicit speech profiles; `ProjectionOptions`
+      controls RenderPlan pause timing separately from AudioCompose pause policy.'
     links: []
   - section_id: md:section:README.md::quick-start
     doc_path: README.md
@@ -73,8 +80,8 @@ sections:
       - Quick start
     heading_slug: quick-start
     line_span:
-      - 16
-      - 39
+      - 18
+      - 41
     section_hash: 5a5dd9c996b1515c1a67c0d8f7aed5fa625f830acd89d4454ac20e8730b7766e
     summary: Quick start
     text:
@@ -104,8 +111,8 @@ sections:
       - Create profiles from SSMD voice roles
     heading_slug: create-profiles-from-ssmd-voice-roles
     line_span:
-      - 40
-      - 82
+      - 42
+      - 83
     section_hash: aff432c32dd98791d1d04c49561daa9f7fe2e4ae50d9cd5e0d51d04bb8f2b51b
     summary: Create profiles from SSMD voice roles
     text:
@@ -145,8 +152,8 @@ sections:
       - Manual specialist workflow
     heading_slug: manual-specialist-workflow
     line_span:
-      - 83
-      - 100
+      - 84
+      - 101
     section_hash: 0293e40d73de6bba3d5d279a599cfa018403c4f40217aaa1c26a3b60f570922e
     summary: Manual specialist workflow
     text:
@@ -168,8 +175,8 @@ sections:
       - Direct speech
     heading_slug: direct-speech
     line_span:
-      - 101
-      - 108
+      - 102
+      - 109
     section_hash: e0f46c9f1405b62234006a61663a4276d2abade45202455190cecbf1c9c73fba
     summary: Direct speech
     text: '## Direct speech
@@ -200,8 +207,8 @@ sections:
       - ONNX Runtime controls
     heading_slug: onnx-runtime-controls
     line_span:
-      - 109
-      - 124
+      - 110
+      - 125
     section_hash: 2f83c97f05f8473d51033ff41770067abf3a7c95e6b86d6a4eb552ab00e6fe96
     summary: ONNX Runtime controls
     text: "## ONNX Runtime controls
@@ -247,9 +254,9 @@ sections:
       - Python API
     heading_slug: python-api
     line_span:
-      - 125
-      - 143
-    section_hash: 2a8dd681512c82213f3471abaab5f296e66ebf59c656a0590158177dd53a7057
+      - 126
+      - 160
+    section_hash: d2ffe7b322424599ddb6967b854229c04ddc89a6a07c64cd684dde7e86310204
     summary: Python API
     text:
       "## Python API\n\n```python\nfrom pathlib import Path\nfrom readio.api import\
@@ -262,7 +269,16 @@ sections:
       \ synthesizes semantic text in memory; `inspect` reports specialist-backed workflow\
       \ state without writing; `render` executes the complete file-to-audio workflow.\
       \ Specialist CLIs remain available for deliberate package-level debugging. See\
-      \ the [Python API guide](docs/api.md)."
+      \ the [Python API guide](docs/api.md).\n\nSource inventory and saved intents use\
+      \ the same gateway:\n\n```python\nfrom pathlib import Path\nfrom readio.api import\
+      \ Readio, load_render_intent, render_request_from_intent\n\nservice = Readio()\n\
+      source = service.inspect_source(Path(\"novel.epub\"))\nintent_path = Path(\"novel.readio.toml\"\
+      )\nintent = load_render_intent(intent_path)\nrequest = render_request_from_intent(intent,\
+      \ config_path=intent_path)\nplan = service.inspect(request)\n```\n\n`inspect_source()`\
+      \ is read-only and does not create a workspace. `inspect_intent()` and `render_intent()`\
+      \ are convenience methods over the same `RenderRequest` mapping and canonical\
+      \ inspect/render workflow. Use `service.render_intent(intent, dry_run=True)` for\
+      \ a read-only workflow plan."
     links:
       - source_id: py:class:readio/api/service.py::Readio
         source_path: readio/api/service.py
@@ -306,8 +322,8 @@ sections:
       - Documentation
     heading_slug: documentation
     line_span:
-      - 144
-      - 150
+      - 161
+      - 167
     section_hash: 801a81c500435e3c6d55e491d498410a7bd3a6b48b8f88c6295b134ddc5690f6
     summary: Documentation
     text: "## Documentation
@@ -349,5 +365,4 @@ last_fresh_hash: e9e6752df80ad6c1cc32c060f35ee1b59afc40956d981c2d8bd74918266b830
 notes:
   Reviewed affected sections against current Readio public APIs and CLI; strict
   Sphinx build and focused documentation/workspace tests passed.
-coverage_resolution: null
-version: 216
+version: 220

@@ -58,6 +58,10 @@ print(result.output, result.workspace_mode, result.variant)
 
 The returned `WorkflowPlan` contains the source, workspace mode/path, selected variant and output, planned steps, and warnings. `RenderResult` reports the final output, workspace mode, exact variant, executed/reused workflow stages, and warnings. Normalized `WorkflowEvent` progress is available through the `on_progress` callback.
 
+`on_progress` callbacks run synchronously. An executed stage emits `stage.started`, zero or more normalized specialist events, then `stage.completed`. A reused stage emits only `stage.reused` and does not call its specialist operation. Progress events preserve specialist `current` and `total` counters, `kind`, and `elapsed_seconds` when supplied. Additional data is available in `WorkflowEvent.details`; chapter identifiers are normalized to `chapter_id`, `chapter_number`, and `chapter_title` when the event is clearly chapter-scoped. Generic counters are not chapter numbers.
+
+Readio does not synthesize workflow timing or ETA. AudioExport's public `export_bundle` API has no progress callback, so export has no intermediate counters or current-stage ETA. Consumers may still track their own total wall-clock time around `render()`.
+
 ## Source preparation, projection, and spaCy resources
 
 `PreparationOptions` configures SSMDConvert conversion. Select a speech profile explicitly; SSMDConvert loads and validates it and applies its own replacement precedence. A concrete preparation spaCy tier is also applied to UtterPlan planning. `ProjectionOptions.pause_timing` selects `fixed`, `natural`, or `engaging` RenderPlan projection timing. It does not configure AudioCompose pause policy.
