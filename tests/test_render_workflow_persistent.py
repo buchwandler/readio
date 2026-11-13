@@ -8,7 +8,7 @@ import pytest
 
 from readio import render_workflow as workflow
 from readio.api.service import Readio
-from readio.api.types import RenderRequest
+from readio.api.types import ComposeRequest, RenderRequest
 from readio.errors import WorkflowStateError
 from readio.workspace import WorkspacePolicy, WorkspaceRef
 
@@ -97,6 +97,26 @@ def _install_default_inspections(monkeypatch: pytest.MonkeyPatch) -> None:
         workflow,
         "inspect_bundle_export",
         lambda *_args, **_kwargs: SimpleNamespace(state="not_started"),
+    )
+
+
+def _install_complete_upstream_inspections(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_compile",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_projection",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="complete", variant="narrator--new-profile", replacement_safe=True
+        ),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_render",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
     )
 
 
@@ -249,3 +269,110 @@ def test_explicit_render_rebuild_resets_stale_voice_render_output(
     assert render_request.force is True
     assert render_request.reset_stale_output is True
     assert result.executed_stages == ("render", "compose", "export")
+
+
+@pytest.mark.parametrize("rebuild_from", [None, "compose"])
+def test_stale_replacement_safe_composition_auto_recovers_and_exports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rebuild_from: str | None
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    if rebuild_from is not None:
+        request = replace(request, rebuild_from=rebuild_from)
+    _install_default_inspections(monkeypatch)
+    _install_complete_upstream_inspections(monkeypatch)
+    state = {"compose": False, "export": False}
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_composition",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="complete" if state["compose"] else "stale",
+            reason="Previous VoiceRender handoff failure was repaired.",
+            force_required=not state["compose"],
+            replacement_safe=True,
+        ),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_export",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state=("complete" if state["export"] else "not_started")
+            if state["compose"]
+            else "error",
+            reason="Prior composition is unusable.",
+        ),
+    )
+
+    plan = Readio().inspect(request)
+    steps = {step.stage: step for step in plan.steps}
+    assert steps["compose"].action == "replace"
+    assert steps["compose"].state == "stale"
+    assert steps["compose"].force is True
+    assert steps["export"].action == "execute"
+    assert steps["export"].details["inspection_deferred"] is True
+    assert steps["export"].details["prior_inspection"].state == "error"
+    assert request.rebuild_from == rebuild_from
+
+    calls: list[tuple[str, object]] = []
+
+    class RecordingService:
+        def compose(self, _workspace: object, compose_request: object) -> None:
+            calls.append(("compose", compose_request))
+            state["compose"] = True
+
+        def export(self, _workspace: object, export_request: object) -> None:
+            calls.append(("export", export_request))
+            state["export"] = True
+
+    result = workflow.render_workflow(RecordingService(), request)
+
+    assert [stage for stage, _request in calls] == ["compose", "export"]
+    compose_request = calls[0][1]
+    assert isinstance(compose_request, ComposeRequest)
+    assert compose_request.force is True
+    assert result.executed_stages == ("compose", "export")
+
+
+@pytest.mark.parametrize(
+    ("state", "replacement_safe"),
+    [
+        ("stale", False),
+        ("stale", None),
+        ("error", True),
+        ("unknown", True),
+        ("blocked", True),
+    ],
+)
+def test_unsafe_or_failed_composition_remains_blocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+    replacement_safe: bool | None,
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    _install_default_inspections(monkeypatch)
+    _install_complete_upstream_inspections(monkeypatch)
+    compose_inspection: dict[str, object] = {
+        "state": state,
+        "force_required": True,
+        "reason": "Composition cannot be safely reused or replaced.",
+    }
+    if replacement_safe is not None:
+        compose_inspection["replacement_safe"] = replacement_safe
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_composition",
+        lambda *_args, **_kwargs: compose_inspection,
+    )
+    calls: list[str] = []
+
+    class RecordingService:
+        def compose(self, *_args: object, **_kwargs: object) -> None:
+            calls.append("compose")
+
+    plan = Readio().inspect(request)
+    compose_step = next(step for step in plan.steps if step.stage == "compose")
+    assert compose_step.action == "blocked"
+    assert not compose_step.force
+    with pytest.raises(WorkflowStateError, match="compose"):
+        workflow.render_workflow(RecordingService(), request)
+    assert calls == []

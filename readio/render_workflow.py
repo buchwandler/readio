@@ -454,7 +454,19 @@ def _inspect_with_policy(
                 if render_pending
                 else {"state": "error", "error": str(exc), "reason": str(exc)}
             )
-    compose_step = _plan_step(request, "compose", compose_report, selector=request.chapters)
+    compose_state = normalize_inspection_state(compose_report)
+    compose_rebuild_requested = (
+        request.rebuild_from is not None
+        and _STAGE_INDEX["compose"] >= _STAGE_INDEX[request.rebuild_from]
+    )
+    compose_auto_recovery = compose_state == "stale" and _replacement_safe(compose_report)
+    compose_step = _plan_step(
+        request,
+        "compose",
+        compose_report,
+        selector=request.chapters,
+        explicit_rebuild=compose_rebuild_requested or compose_auto_recovery,
+    )
     steps.append(compose_step)
     compose_pending = compose_step.action in {"execute", "replace"}
 

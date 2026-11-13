@@ -13,7 +13,7 @@ EXPECTED_DEPENDENCIES = {
     "numpy>=1.23",
     "utterplan>=0.6.19,<0.7",
     "voicerender>=0.2.12,<0.3",
-    "audiocompose>=0.3.11,<0.4",
+    "audiocompose>=0.3.12,<0.4",
     "ssmdconvert>=0.2.5,<0.3",
     "sounddevice>=0.4.6,<1.0",
     "tomli>=2.0; python_version < '3.11'",
@@ -87,7 +87,7 @@ def test_minimum_stack_ci_targets_requested_releases() -> None:
         '"utterplan[spacy]==0.6.19"',
         '"renderplan==0.2.1"',
         '"voicerender==0.2.12"',
-        '"audiocompose==0.3.11"',
+        '"audiocompose==0.3.12"',
         '"audioexport==0.1.8"',
     ):
         assert requirement in workflow
