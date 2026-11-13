@@ -271,6 +271,151 @@ def test_explicit_render_rebuild_resets_stale_voice_render_output(
     assert result.executed_stages == ("render", "compose", "export")
 
 
+def test_audiocompose_rerender_recovery_recomposes_and_exports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    _install_default_inspections(monkeypatch)
+    _install_complete_upstream_inspections(monkeypatch)
+    state = {"render": False, "compose": False, "export": False}
+
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_render",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=True),
+    )
+
+    def inspect_composition(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        if state["compose"]:
+            return SimpleNamespace(state="complete", replacement_safe=True)
+        if state["render"]:
+            return SimpleNamespace(
+                state="stale",
+                force_required=True,
+                replacement_safe=True,
+                recovery_action="recompose",
+                automatic_convergence_safe=True,
+            )
+        return SimpleNamespace(
+            state="error",
+            reason="The current VoiceRender handoff uses an unsupported policy.",
+            recovery_action="rerender",
+            automatic_convergence_safe=True,
+            required_audio_artifact_policy="voicerender.preserve-silence.v3",
+            required_voicerender=">=0.2.12,<0.3",
+        )
+
+    monkeypatch.setattr(workflow, "inspect_bundle_composition", inspect_composition)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_export",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state=("complete" if state["export"] else "not_started")
+            if state["compose"]
+            else "error",
+            reason="Composition has not converged.",
+        ),
+    )
+
+    plan = Readio().inspect(request)
+    steps = {step.stage: step for step in plan.steps}
+    assert steps["render"].action == "replace"
+    assert steps["render"].force is True
+    assert "voicerender.preserve-silence.v3" in steps["render"].reason
+    assert steps["compose"].action == "execute"
+    assert steps["compose"].details["inspection_deferred"] is True
+    assert steps["export"].action == "execute"
+    assert steps["export"].details["inspection_deferred"] is True
+
+    calls: list[tuple[str, object]] = []
+
+    class RecordingService:
+        def render(self, _workspace: object, render_request: object) -> None:
+            calls.append(("render", render_request))
+            state["render"] = True
+
+        def compose(self, _workspace: object, compose_request: object) -> None:
+            calls.append(("compose", compose_request))
+            state["compose"] = True
+
+        def export(self, _workspace: object, export_request: object) -> None:
+            calls.append(("export", export_request))
+            state["export"] = True
+
+    result = workflow.render_workflow(RecordingService(), request)
+
+    assert [stage for stage, _stage_request in calls] == ["render", "compose", "export"]
+    render_request = calls[0][1]
+    assert render_request.force is True
+    assert render_request.reset_stale_output is True
+    compose_request = calls[1][1]
+    assert isinstance(compose_request, ComposeRequest)
+    assert compose_request.force is True
+    assert result.executed_stages == ("render", "compose", "export")
+
+
+def test_audiocompose_rerender_request_blocks_without_voicerender_safety(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    _install_default_inspections(monkeypatch)
+    _install_complete_upstream_inspections(monkeypatch)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_render",
+        lambda *_args, **_kwargs: SimpleNamespace(state="complete", replacement_safe=False),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_composition",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="error",
+            recovery_action="rerender",
+            automatic_convergence_safe=True,
+            required_audio_artifact_policy="voicerender.preserve-silence.v3",
+        ),
+    )
+
+    plan = Readio().inspect(request)
+    steps = {step.stage: step for step in plan.steps}
+    assert steps["render"].action == "blocked"
+    assert "VoiceRender did not certify replacement safety" in steps["render"].reason
+    assert steps["compose"].action == "blocked"
+
+    with pytest.raises(WorkflowStateError, match="render"):
+        workflow.render_workflow(object(), request)
+
+
+@pytest.mark.parametrize(
+    ("recovery_action", "automatic_convergence_safe"),
+    [("rerender", False), (None, True), ("unknown", True)],
+)
+def test_unsafe_audiocompose_rerender_metadata_does_not_replace_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    recovery_action: str | None,
+    automatic_convergence_safe: bool,
+) -> None:
+    request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    _install_default_inspections(monkeypatch)
+    _install_complete_upstream_inspections(monkeypatch)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_bundle_composition",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            state="error",
+            recovery_action=recovery_action,
+            automatic_convergence_safe=automatic_convergence_safe,
+        ),
+    )
+
+    plan = Readio().inspect(request)
+    steps = {step.stage: step for step in plan.steps}
+    assert steps["render"].action == "reuse"
+    assert steps["render"].force is False
+    assert steps["compose"].action == "blocked"
+
+
 @pytest.mark.parametrize("rebuild_from", [None, "compose"])
 def test_stale_replacement_safe_composition_auto_recovers_and_exports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rebuild_from: str | None
@@ -289,6 +434,8 @@ def test_stale_replacement_safe_composition_auto_recovers_and_exports(
             reason="Previous VoiceRender handoff failure was repaired.",
             force_required=not state["compose"],
             replacement_safe=True,
+            recovery_action="recompose",
+            automatic_convergence_safe=True,
         ),
     )
     monkeypatch.setattr(
@@ -342,13 +489,17 @@ def test_stale_replacement_safe_composition_auto_recovers_and_exports(
         ("blocked", True),
     ],
 )
+@pytest.mark.parametrize("rebuild_from", [None, "compose"])
 def test_unsafe_or_failed_composition_remains_blocked(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     state: str,
     replacement_safe: bool | None,
+    rebuild_from: str | None,
 ) -> None:
     request, _bundle = _persistent_inputs(tmp_path, monkeypatch)
+    if rebuild_from is not None:
+        request = replace(request, rebuild_from=rebuild_from)
     _install_default_inspections(monkeypatch)
     _install_complete_upstream_inspections(monkeypatch)
     compose_inspection: dict[str, object] = {

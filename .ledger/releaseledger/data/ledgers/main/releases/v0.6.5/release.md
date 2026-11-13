@@ -3,12 +3,12 @@ schema_version: 2
 object_type: release
 versioning:
   schema_version: 1
-  revision: 2
+  revision: 5
 version: v0.6.5
-status: planned
+status: released
 history_state: curated
 title: Readio 0.6.5
-released_at: null
+released_at: "2026-11-12"
 previous_version: v0.6.4
 cancel_reason: null
 superseded_by: null

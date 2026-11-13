@@ -426,9 +426,18 @@ def _inspect_with_policy(
                 if projection_pending
                 else {"state": "error", "error": str(exc), "reason": str(exc)}
             )
-    render_step = _plan_step(request, "render", render_report, selector=request.chapters)
-    steps.append(render_step)
-    render_pending = render_step.action in {"execute", "replace"}
+    render_rebuild_requested = (
+        request.rebuild_from is not None
+        and _STAGE_INDEX["render"] >= _STAGE_INDEX[request.rebuild_from]
+    )
+    provisional_render_step = _plan_step(
+        request,
+        "render",
+        render_report,
+        selector=request.chapters,
+        explicit_rebuild=render_rebuild_requested,
+    )
+    render_pending = provisional_render_step.action in {"execute", "replace"}
 
     if not isinstance(variant, str) or not variant:
         compose_report: object = _deferred("Composition inspection awaits a resolved variant.")
@@ -454,6 +463,41 @@ def _inspect_with_policy(
                 if render_pending
                 else {"state": "error", "error": str(exc), "reason": str(exc)}
             )
+    compose_recovery_action = _value(compose_report, "recovery_action")
+    compose_recovery_safe = _value(compose_report, "automatic_convergence_safe") is True
+    compose_requires_rerender = compose_recovery_action == "rerender" and compose_recovery_safe
+    render_downstream_recovery = compose_requires_rerender and _replacement_safe(render_report)
+    render_step = _plan_step(
+        request,
+        "render",
+        render_report,
+        selector=request.chapters,
+        explicit_rebuild=render_rebuild_requested or render_downstream_recovery,
+    )
+    if compose_requires_rerender and not _replacement_safe(render_report):
+        render_step = replace(
+            render_step,
+            action="blocked",
+            force=False,
+            reason=(
+                "AudioCompose requested a VoiceRender rerender, but VoiceRender did not "
+                "certify replacement safety."
+            ),
+        )
+    elif render_downstream_recovery:
+        required_policy = _value(compose_report, "required_audio_artifact_policy")
+        required_voicerender = _value(compose_report, "required_voicerender")
+        recovery_reason = "AudioCompose requires a VoiceRender rerender"
+        if isinstance(required_policy, str) and required_policy.strip():
+            recovery_reason += f" to satisfy {required_policy.strip()}"
+        if isinstance(required_voicerender, str) and required_voicerender.strip():
+            recovery_reason += f" (required VoiceRender {required_voicerender.strip()})"
+        render_step = replace(render_step, reason=f"{recovery_reason}.")
+        compose_report = _deferred(
+            "Composition inspection will be retried after AudioCompose-requested VoiceRender rerender.",
+            compose_report,
+        )
+    steps.append(render_step)
     compose_state = normalize_inspection_state(compose_report)
     compose_rebuild_requested = (
         request.rebuild_from is not None
@@ -489,6 +533,11 @@ def _inspect_with_policy(
                 if compose_pending
                 else {"state": "error", "error": str(exc), "reason": str(exc)}
             )
+    if render_downstream_recovery:
+        export_report = _deferred(
+            "Export inspection will be retried after VoiceRender rerender and composition recovery.",
+            export_report,
+        )
     if (
         resolved.output.exists()
         and normalize_inspection_state(export_report) != "complete"
