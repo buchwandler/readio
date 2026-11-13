@@ -25,6 +25,34 @@ jobs:
         run: python -m build
       - name: Validate artifact metadata
         run: python -m twine check dist/*
+      - name: Verify wheel requires AudioExport
+        run: |
+          python - <<'PY'
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          from packaging.requirements import Requirement
+          from packaging.specifiers import SpecifierSet
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, f"expected one wheel, found {len(wheels)}"
+          with ZipFile(wheels[0]) as wheel:
+              metadata_files = [
+                  name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
+              ]
+              assert len(metadata_files) == 1, metadata_files
+              metadata = BytesParser(policy=default).parsebytes(wheel.read(metadata_files[0]))
+
+          requirements = [
+              Requirement(value)
+              for value in metadata.get_all("Requires-Dist", [])
+              if Requirement(value).name.lower() == "audioexport"
+          ]
+          assert len(requirements) == 1, requirements
+          assert requirements[0].specifier == SpecifierSet(">=0.1.8,<0.2"), requirements[0]
+          PY
       - name: Validate release version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}

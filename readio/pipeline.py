@@ -34,12 +34,14 @@ def plan(
 ) -> Any:
     """Compile bundle content through UtterPlan."""
 
-    operation = lambda: compile_bundle(
-        workspace,
-        request,
-        on_start=normalize_progress("compile", on_start),
-        on_progress=normalize_progress("compile", on_progress),
-    )
+    def operation() -> Any:
+        return compile_bundle(
+            workspace,
+            request,
+            on_start=normalize_progress("compile", on_start),
+            on_progress=normalize_progress("compile", on_progress),
+        )
+
     return _call_stage("compile", workspace, operation)
 
 
@@ -52,12 +54,14 @@ def render_plan(
 ) -> RenderPlanResult:
     """Project a profile-specific RenderPlan and retain UtterPlan's exact variant."""
 
-    operation = lambda: render_bundle_plan(
-        workspace,
-        request,
-        on_start=normalize_progress("render_plan", on_start),
-        on_progress=normalize_progress("render_plan", on_progress),
-    )
+    def operation() -> Any:
+        return render_bundle_plan(
+            workspace,
+            request,
+            on_start=normalize_progress("render_plan", on_start),
+            on_progress=normalize_progress("render_plan", on_progress),
+        )
+
     native_result = _call_stage("render_plan", workspace, operation)
     return RenderPlanResult(native=native_result, variant=native_result.variant)
 
@@ -70,11 +74,13 @@ def render(
 ) -> Any:
     """Render speech through VoiceRender's bundle service."""
 
-    operation = lambda: render_bundle(
-        workspace,
-        request,
-        on_event=normalize_progress("render", on_event),
-    )
+    def operation() -> Any:
+        return render_bundle(
+            workspace,
+            request,
+            on_event=normalize_progress("render", on_event),
+        )
+
     return _call_stage("render", workspace, operation)
 
 
@@ -86,11 +92,13 @@ def compose(
 ) -> Any:
     """Compose rendered output through AudioCompose's bundle service."""
 
-    operation = lambda: compose_bundle(
-        workspace,
-        request,
-        on_progress=normalize_progress("compose", on_progress),
-    )
+    def operation() -> Any:
+        return compose_bundle(
+            workspace,
+            request,
+            on_progress=normalize_progress("compose", on_progress),
+        )
+
     return _call_stage("compose", workspace, operation)
 
 

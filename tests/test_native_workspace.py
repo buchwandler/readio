@@ -91,7 +91,10 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
     source.write_text("A short story.", encoding="utf-8")
     output = tmp_path / "exact.ssmd-bundle"
     output.mkdir()
-    progress = lambda _event: None
+
+    def progress(_event: object) -> None:
+        pass
+
     captured: dict[str, object] = {}
 
     def convert_bundle(source_arg: Path, **kwargs: object) -> object:

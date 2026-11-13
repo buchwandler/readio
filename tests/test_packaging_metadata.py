@@ -14,6 +14,7 @@ EXPECTED_DEPENDENCIES = {
     "utterplan>=0.6.19,<0.7",
     "voicerender>=0.2.12,<0.3",
     "audiocompose>=0.3.12,<0.4",
+    "audioexport>=0.1.8,<0.2",
     "ssmdconvert>=0.2.5,<0.3",
     "sounddevice>=0.4.6,<1.0",
     "tomli>=2.0; python_version < '3.11'",
@@ -62,7 +63,6 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
     optional = project["optional-dependencies"]
     assert set(optional) == {
         "spacy",
-        "audioexport",
         "documents",
         "kokoro",
         "piper",
@@ -74,7 +74,6 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
     }
     assert optional["spacy"] == ["utterplan[spacy]>=0.6.19,<0.7"]
     assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
-    assert optional["audioexport"] == ["audioexport>=0.1.8,<0.2"]
     for extra in ("kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"):
         assert optional[extra] == [f"voicerender[{extra}]>=0.2.12,<0.3"]
     assert not any("renderplan" in item for item in project["dependencies"])
