@@ -1,0 +1,35 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 1
+release_version: v0.6.7
+git_base_ref: v0.6.6
+git_base_sha: e1e591e5aa7711721b2b83ab798b7fb6c8652a4b
+git_head_ref: HEAD
+git_head_sha: 2eae05631b32a7aad2279fe3e3985928aa201a28
+git_range: e1e591e5aa7711721b2b83ab798b7fb6c8652a4b..2eae05631b32a7aad2279fe3e3985928aa201a28
+commit_count: 1
+rows:
+  - sha: 2eae05631b32a7aad2279fe3e3985928aa201a28
+    source_ref: git:2eae05631b32a7aad2279fe3e3985928aa201a28
+    short_sha: 2eae056
+    changed_paths:
+      - .github/workflows/codecov.yml
+      - .github/workflows/python-publish.yml
+      - .github/workflows/tests.yml
+      - pyproject.toml
+      - readio/pipeline.py
+      - tests/test_native_workspace.py
+      - tests/test_packaging_metadata.py
+    stats:
+      files_changed: 7
+      insertions: 67
+      deletions: 28
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "fix: missing audioexport dep"

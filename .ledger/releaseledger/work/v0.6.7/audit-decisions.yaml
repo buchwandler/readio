@@ -1,0 +1,18 @@
+rows:
+  - sha: 2eae05631b32a7aad2279fe3e3985928aa201a28
+    inspected: true
+    inspected_paths:
+      - .github/workflows/codecov.yml
+      - .github/workflows/python-publish.yml
+      - .github/workflows/tests.yml
+      - pyproject.toml
+      - readio/pipeline.py
+      - tests/test_native_workspace.py
+      - tests/test_packaging_metadata.py
+    observed_behavior: "The package now declares AudioExport as a core dependency instead of an optional extra. Test and coverage jobs install only the dev extra, while the publish workflow verifies that built wheels declare the supported AudioExport range."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false

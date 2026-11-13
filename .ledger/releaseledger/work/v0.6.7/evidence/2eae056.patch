@@ -1,0 +1,230 @@
+ .github/workflows/codecov.yml        |  2 +-
+ .github/workflows/python-publish.yml | 28 +++++++++++++++++++
+ .github/workflows/tests.yml          |  3 ++-
+ pyproject.toml                       |  2 +-
+ readio/pipeline.py                   | 52 +++++++++++++++++++++---------------
+ tests/test_native_workspace.py       |  5 +++-
+ tests/test_packaging_metadata.py     |  3 +--
+ 7 files changed, 67 insertions(+), 28 deletions(-)
+
+diff --git a/.github/workflows/codecov.yml b/.github/workflows/codecov.yml
+index cd08840..5c3685a 100644
+--- a/.github/workflows/codecov.yml
++++ b/.github/workflows/codecov.yml
+@@ -20,7 +20,7 @@ jobs:
+       - name: Install project and coverage tools
+         run: |
+           python -m pip install --upgrade pip
+-          python -m pip install -e ".[dev,audioexport]" pytest-cov
++          python -m pip install -e ".[dev]" pytest-cov
+       - name: Generate coverage report
+         run: python -m pytest --cov=readio --cov-branch --cov-report=xml
+       - name: Upload coverage report
+diff --git a/.github/workflows/python-publish.yml b/.github/workflows/python-publish.yml
+index d5a69c0..7e6dcd3 100644
+--- a/.github/workflows/python-publish.yml
++++ b/.github/workflows/python-publish.yml
+@@ -25,6 +25,34 @@ jobs:
+         run: python -m build
+       - name: Validate artifact metadata
+         run: python -m twine check dist/*
++      - name: Verify wheel requires AudioExport
++        run: |
++          python - <<'PY'
++          from email.parser import BytesParser
++          from email.policy import default
++          from pathlib import Path
++          from zipfile import ZipFile
++
++          from packaging.requirements import Requirement
++          from packaging.specifiers import SpecifierSet
++
++          wheels = list(Path("dist").glob("*.whl"))
++          assert len(wheels) == 1, f"expected one wheel, found {len(wheels)}"
++          with ZipFile(wheels[0]) as wheel:
++              metadata_files = [
++                  name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
++              ]
++              assert len(metadata_files) == 1, metadata_files
++              metadata = BytesParser(policy=default).parsebytes(wheel.read(metadata_files[0]))
++
++          requirements = [
++              Requirement(value)
++              for value in metadata.get_all("Requires-Dist", [])
++              if Requirement(value).name.lower() == "audioexport"
++          ]
++          assert len(requirements) == 1, requirements
++          assert requirements[0].specifier == SpecifierSet(">=0.1.8,<0.2"), requirements[0]
++          PY
+       - name: Validate release version
+         env:
+           RELEASE_TAG: ${{ github.event.release.tag_name }}
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index 648dd17..bfe7b02 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -25,7 +25,7 @@ jobs:
+       - name: Install project and test tools
+         run: |
+           python -m pip install --upgrade pip
+-          python -m pip install -e ".[dev,audioexport]"
++          python -m pip install -e ".[dev]"
+       - name: Verify dependency resolution
+         run: python -m pip check
+       - name: Run tests
+@@ -95,6 +95,7 @@ jobs:
+
+           import readio
+           import readio.api
++          import audioexport
+
+           wheel = Path(os.environ["WHEEL"])
+           with zipfile.ZipFile(wheel) as archive:
+diff --git a/pyproject.toml b/pyproject.toml
+index 14383b3..fb115f4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,7 @@ dependencies = [
+   "utterplan>=0.6.19,<0.7",
+   "voicerender>=0.2.12,<0.3",
+   "audiocompose>=0.3.12,<0.4",
++  "audioexport>=0.1.8,<0.2",
+   "ssmdconvert>=0.2.5,<0.3",
+   "sounddevice>=0.4.6,<1.0",
+   "tomli>=2.0; python_version < '3.11'",
+@@ -21,7 +22,6 @@ dependencies = [
+ [project.optional-dependencies]
+ spacy = ["utterplan[spacy]>=0.6.19,<0.7"]
+ documents = ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
+-audioexport = ["audioexport>=0.1.8,<0.2"]
+ kokoro = ["voicerender[kokoro]>=0.2.12,<0.3"]
+ piper = ["voicerender[piper]>=0.2.12,<0.3"]
+ pocket = ["voicerender[pocket]>=0.2.12,<0.3"]
+diff --git a/readio/pipeline.py b/readio/pipeline.py
+index d054ea4..630b950 100644
+--- a/readio/pipeline.py
++++ b/readio/pipeline.py
+@@ -34,12 +34,14 @@ def plan(
+ ) -> Any:
+     """Compile bundle content through UtterPlan."""
+
+-    operation = lambda: compile_bundle(
+-        workspace,
+-        request,
+-        on_start=normalize_progress("compile", on_start),
+-        on_progress=normalize_progress("compile", on_progress),
+-    )
++    def operation() -> Any:
++        return compile_bundle(
++            workspace,
++            request,
++            on_start=normalize_progress("compile", on_start),
++            on_progress=normalize_progress("compile", on_progress),
++        )
++
+     return _call_stage("compile", workspace, operation)
+
+
+@@ -52,12 +54,14 @@ def render_plan(
+ ) -> RenderPlanResult:
+     """Project a profile-specific RenderPlan and retain UtterPlan's exact variant."""
+
+-    operation = lambda: render_bundle_plan(
+-        workspace,
+-        request,
+-        on_start=normalize_progress("render_plan", on_start),
+-        on_progress=normalize_progress("render_plan", on_progress),
+-    )
++    def operation() -> Any:
++        return render_bundle_plan(
++            workspace,
++            request,
++            on_start=normalize_progress("render_plan", on_start),
++            on_progress=normalize_progress("render_plan", on_progress),
++        )
++
+     native_result = _call_stage("render_plan", workspace, operation)
+     return RenderPlanResult(native=native_result, variant=native_result.variant)
+
+@@ -70,11 +74,13 @@ def render(
+ ) -> Any:
+     """Render speech through VoiceRender's bundle service."""
+
+-    operation = lambda: render_bundle(
+-        workspace,
+-        request,
+-        on_event=normalize_progress("render", on_event),
+-    )
++    def operation() -> Any:
++        return render_bundle(
++            workspace,
++            request,
++            on_event=normalize_progress("render", on_event),
++        )
++
+     return _call_stage("render", workspace, operation)
+
+
+@@ -86,11 +92,13 @@ def compose(
+ ) -> Any:
+     """Compose rendered output through AudioCompose's bundle service."""
+
+-    operation = lambda: compose_bundle(
+-        workspace,
+-        request,
+-        on_progress=normalize_progress("compose", on_progress),
+-    )
++    def operation() -> Any:
++        return compose_bundle(
++            workspace,
++            request,
++            on_progress=normalize_progress("compose", on_progress),
++        )
++
+     return _call_stage("compose", workspace, operation)
+
+
+diff --git a/tests/test_native_workspace.py b/tests/test_native_workspace.py
+index 5e07fcf..3c75386 100644
+--- a/tests/test_native_workspace.py
++++ b/tests/test_native_workspace.py
+@@ -91,7 +91,10 @@ def test_conversion_forwards_output_and_options_to_ssmdconvert(
+     source.write_text("A short story.", encoding="utf-8")
+     output = tmp_path / "exact.ssmd-bundle"
+     output.mkdir()
+-    progress = lambda _event: None
++
++    def progress(_event: object) -> None:
++        pass
++
+     captured: dict[str, object] = {}
+
+     def convert_bundle(source_arg: Path, **kwargs: object) -> object:
+diff --git a/tests/test_packaging_metadata.py b/tests/test_packaging_metadata.py
+index 10d7f43..57f26cf 100644
+--- a/tests/test_packaging_metadata.py
++++ b/tests/test_packaging_metadata.py
+@@ -14,6 +14,7 @@ EXPECTED_DEPENDENCIES = {
+     "utterplan>=0.6.19,<0.7",
+     "voicerender>=0.2.12,<0.3",
+     "audiocompose>=0.3.12,<0.4",
++    "audioexport>=0.1.8,<0.2",
+     "ssmdconvert>=0.2.5,<0.3",
+     "sounddevice>=0.4.6,<1.0",
+     "tomli>=2.0; python_version < '3.11'",
+@@ -62,7 +63,6 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
+     optional = project["optional-dependencies"]
+     assert set(optional) == {
+         "spacy",
+-        "audioexport",
+         "documents",
+         "kokoro",
+         "piper",
+@@ -74,7 +74,6 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
+     }
+     assert optional["spacy"] == ["utterplan[spacy]>=0.6.19,<0.7"]
+     assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
+-    assert optional["audioexport"] == ["audioexport>=0.1.8,<0.2"]
+     for extra in ("kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"):
+         assert optional[extra] == [f"voicerender[{extra}]>=0.2.12,<0.3"]
+     assert not any("renderplan" in item for item in project["dependencies"])

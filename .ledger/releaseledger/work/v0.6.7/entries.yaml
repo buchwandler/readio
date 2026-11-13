@@ -1,0 +1,30 @@
+schema: releaseledger.entry-batch.v1
+operation: create
+schema_version: 1
+object_type: release_entry_batch
+release_version: v0.6.7
+git_base_ref: e1e591e5aa7711721b2b83ab798b7fb6c8652a4b
+git_base_sha: e1e591e5aa7711721b2b83ab798b7fb6c8652a4b
+git_head_ref: 2eae05631b32a7aad2279fe3e3985928aa201a28
+git_head_sha: 2eae05631b32a7aad2279fe3e3985928aa201a28
+include_merges: nontrivial
+entries:
+  - kind: fixed
+    summary: "Fixed package installation by making AudioExport a required dependency and validating wheel metadata during publishing"
+    status: accepted
+    source_refs:
+      - git:2eae05631b32a7aad2279fe3e3985928aa201a28
+    paths:
+      - .github/workflows/codecov.yml
+      - .github/workflows/python-publish.yml
+      - .github/workflows/tests.yml
+      - pyproject.toml
+      - readio/pipeline.py
+      - tests/test_native_workspace.py
+      - tests/test_packaging_metadata.py
+    sources:
+      - git:2eae05631b32a7aad2279fe3e3985928aa201a28
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"

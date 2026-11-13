@@ -1,0 +1,31 @@
+{
+  "candidate_count": 1,
+  "candidates": [
+    {
+      "additions": 67,
+      "deletions": 28,
+      "patch_file": "2eae056.patch",
+      "patch_sha256": "081cc00ac87f9353a7905d3fe9954d6394f7a61101383e331b5eae12729137d7",
+      "paths": [
+        ".github/workflows/codecov.yml",
+        ".github/workflows/python-publish.yml",
+        ".github/workflows/tests.yml",
+        "pyproject.toml",
+        "readio/pipeline.py",
+        "tests/test_native_workspace.py",
+        "tests/test_packaging_metadata.py"
+      ],
+      "sha": "2eae05631b32a7aad2279fe3e3985928aa201a28",
+      "short_sha": "2eae056",
+      "source_ref": "git:2eae05631b32a7aad2279fe3e3985928aa201a28"
+    }
+  ],
+  "git_base_ref": "e1e591e5aa7711721b2b83ab798b7fb6c8652a4b",
+  "git_base_sha": "e1e591e5aa7711721b2b83ab798b7fb6c8652a4b",
+  "git_head_ref": "2eae05631b32a7aad2279fe3e3985928aa201a28",
+  "git_head_sha": "2eae05631b32a7aad2279fe3e3985928aa201a28",
+  "include_merges": "nontrivial",
+  "object_type": "git_evidence_manifest",
+  "release_version": "v0.6.7",
+  "schema_version": 1
+}
