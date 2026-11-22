@@ -1,0 +1,42 @@
+rows:
+  - sha: c384a2671fc019788f8c00693cb66fe439954c52
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/api.md
+      - readio/api/service.py
+      - readio/api/types.py
+      - readio/catalog.py
+      - readio/errors.py
+      - readio/speech.py
+      - tests/test_speech.py
+    observed_behavior: Exposed in-memory speech synthesis with WAV encoding and cooperative cancellation, plus normalized engine, target, voice, and engine-option records for application integrations.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
+  - sha: 7da1a441b8fee579424c3c64607878902412feb0
+    inspected: true
+    inspected_paths:
+      - docs/api.md
+      - docs/architecture.md
+      - docs/cli.md
+      - pyproject.toml
+      - readio/api/serialization.py
+      - readio/capabilities.py
+      - readio/cli.py
+      - readio/mcp/server.py
+      - readio/render_workflow.py
+      - readio/workflow.py
+      - tests/test_capabilities.py
+      - tests/test_mcp_adapter.py
+      - tests/test_public_serialization_contract.py
+    observed_behavior: Added versioned JSON projections for plans, results, errors, capabilities, and speech output, read-only capability reporting, and an optional MCP adapter with fail-closed workflow inspection and rendering.
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false

@@ -1,0 +1,1711 @@
+ README.md                                 |   2 +-
+ docs/api.md                               |  39 ++++-
+ readio/api/__init__.py                    |  18 ++
+ readio/api/errors.py                      |  24 +++
+ readio/api/service.py                     | 131 +++++++++++++-
+ readio/api/types.py                       | 165 +++++++++++++++++-
+ readio/catalog.py                         | 231 +++++++++++++++++++++++++
+ readio/errors.py                          |  28 +++
+ readio/speech.py                          |  63 +++----
+ tests/test_catalog.py                     | 272 ++++++++++++++++++++++++++++++
+ tests/test_public_package_api_contract.py |  62 +++++++
+ tests/test_speech.py                      | 199 +++++++++++++++++++++-
+ 12 files changed, 1164 insertions(+), 70 deletions(-)
+
+diff --git a/README.md b/README.md
+index 660bfff..d36089d 100644
+--- a/README.md
++++ b/README.md
+@@ -140,7 +140,7 @@ result = service.render(request)
+ print(plan.steps, result.output, result.workspace_mode)
+ ```
+
+-The primary gateway API is `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `speak` synthesizes semantic text in memory; `inspect` reports specialist-backed workflow state without writing; `render` executes the complete file-to-audio workflow. Specialist CLIs remain available for deliberate package-level debugging. See the [Python API guide](docs/api.md).
++The primary gateway API is `Readio.synthesize()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `synthesize` returns semantic audio in memory without playback or output files; `Readio.speak()` optionally plays that result. `inspect` reports specialist-backed workflow state without writing; `render` executes the complete file-to-audio workflow. Specialist CLIs remain available for deliberate package-level debugging. See the [Python API guide](docs/api.md).
+
+ Source inventory and saved intents use the same gateway:
+
+diff --git a/docs/api.md b/docs/api.md
+index 604899a..e8a9bba 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -1,6 +1,6 @@
+ # Python API
+
+-`readio.api` is the user-facing orchestration gateway. Its primary workflow methods are `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. Specialist packages own their stage APIs, schemas, validation, artifacts, and reports; Readio normalizes workflow planning and execution without re-exporting stage request types as its primary API.
++`readio.api` is the user-facing orchestration gateway. `Readio.synthesize()` is the canonical application speech method and returns in-memory audio without playback; `Readio.speak()` is its optional-playback convenience wrapper. The file-to-audio workflow remains `Readio.inspect(RenderRequest)` and `Readio.render(RenderRequest)`. Specialist packages own their stage APIs, schemas, validation, artifacts, and reports; Readio normalizes workflow planning and execution without re-exporting stage request types as its primary API.
+
+ ## Source inspection
+
+@@ -20,18 +20,43 @@ Use `inspect_source()` when a caller needs source metadata or chapter inventory
+
+ ## Semantic speech
+
++````python
+ ```python
+ from readio.api import Readio, SpeakRequest
+
+ service = Readio()
+-result = service.speak(
+-    SpeakRequest(text="Hello from Readio.", voice="kokoro:v1.0/af_heart"),
+-    play=False,
++request = SpeakRequest(text="Hello from Readio.", voice="kokoro:v1.0/af_heart")
++result = service.synthesize(request)
++wav_bytes = result.audio.to_wav_bytes()
++print(
++    result.audio.sample_rate,
++    result.audio.channels,
++    result.audio.frames,
++    result.duration_seconds,
+ )
+-print(result.audio.sample_rate, result.audio.channels, len(result.audio))
++````
++
++`Readio.synthesize()` returns a `SpeakResult` containing an `AudioBuffer`. It does not play audio, write files, or persist workflow artifacts. Use `result.audio.write_wav(path)` when a WAV file is explicitly needed. `Readio.speak(request, play=True)` delegates to synthesis and optionally plays the result; the module-level `readio.api.speak(...)` remains available for compatibility.
++
++Pass a `CancellationToken` to `synthesize()` when the application needs cooperative cancellation. Readio checks the token at stage boundaries. It does not interrupt a VoiceRender engine call already in progress.
++
++## Application catalog and errors
++
++Use the `Readio` instance methods for normalized application catalog records. They return Readio-owned DTOs rather than VoiceRender descriptor objects:
++
++```python
++engines = service.list_engines()
++targets = service.list_targets(engines[0].id, language="en-US", offline=True)
++voices = service.list_voices(
++    engine=engines[0].id,
++    target=targets[0].id,
++    language="en-US",
++    offline=True,
++)
++options = service.list_engine_options(engines[0].id, target=targets[0].id)
+ ```
+
+-Semantic speech returns an `AudioBuffer` in memory. Playback is optional, and this path does not create a bundle or intermediate artifacts. The `readio.api.speak(...)` convenience function is also available.
++`CatalogError` wraps expected failures from normalized discovery and option inspection. Use `describe_error()` to project any expected `ReadioError` into the stable `ErrorInfo` DTO for application transport. The module-level discovery delegates documented below remain raw compatibility APIs and preserve specialist results.
+
+ ## Complete file-to-audio workflow
+
+@@ -168,7 +193,7 @@ result = service.render(request)
+
+ ## Management delegates
+
+-`readio.api` also exposes delegates for VoiceRender engine/model discovery, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. These calls preserve specialist results and validation behavior.
++`readio.api` retains module-level delegates for VoiceRender engine/model discovery, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. They preserve specialist results and validation behavior for compatibility. Application integrations should use `Readio.list_engines()`, `Readio.list_targets()`, `Readio.list_voices()`, and `Readio.list_engine_options()` for normalized Readio-owned records.
+
+ ONNX Runtime controls delegate to VoiceRender's public package-root APIs:
+
+diff --git a/readio/api/__init__.py b/readio/api/__init__.py
+index fca4453..b4a7a56 100644
+--- a/readio/api/__init__.py
++++ b/readio/api/__init__.py
+@@ -16,9 +16,11 @@ from readio.engines import (
+     verify_engine_model,
+ )
+ from readio.errors import (
++    CatalogError,
+     OutputCollisionError,
+     ReadioError,
+     ReadioStageError,
++    WorkflowCancelledError,
+     WorkflowError,
+     WorkflowReplanError,
+     WorkflowResolutionError,
+@@ -91,10 +93,15 @@ from readio.workspace import (
+ )
+
+ from .service import Readio, inspect_source, render_request_from_intent
++from .errors import describe_error
+ from .types import (
++    CancellationToken,
+     AudioBuffer,
+     CompositionOptions,
+     ExportOptions,
++    EngineInfo,
++    EngineOptionInfo,
++    ErrorInfo,
+     PauseTiming,
+     PlanningOptions,
+     ProjectionOptions,
+@@ -103,6 +110,8 @@ from .types import (
+     RenderResult,
+     SourceChapter,
+     SourceInspection,
++    TargetInfo,
++    VoiceInfo,
+     SpeakRequest,
+     SpeakResult,
+     VoiceRenderOptions,
+@@ -118,11 +127,16 @@ from .types import (
+ __all__ = [
+     "INTENT_SCHEMA",
+     "AudioBuffer",
++    "CancellationToken",
+     "ComposeIntent",
+     "CompositionOptions",
++    "CatalogError",
+     "DocumentVoiceRequirements",
+     "DocumentVoiceRole",
+     "ExportOptions",
++    "EngineInfo",
++    "EngineOptionInfo",
++    "ErrorInfo",
+     "InputIntent",
+     "IntentKind",
+     "OutputCollisionError",
+@@ -146,6 +160,7 @@ __all__ = [
+     "RoleVoiceBinding",
+     "SourceChapter",
+     "SourceInspection",
++    "TargetInfo",
+     "SpacyModelInfo",
+     "SpeakRequest",
+     "SpeakResult",
+@@ -155,6 +170,7 @@ __all__ = [
+     "VoiceSelector",
+     "WorkflowAction",
+     "WorkflowError",
++    "WorkflowCancelledError",
+     "WorkflowEvent",
+     "WorkflowInspectionState",
+     "WorkflowPlan",
+@@ -173,6 +189,7 @@ __all__ = [
+     "create_book_intent",
+     "create_document_intent",
+     "create_document_profile",
++    "describe_error",
+     "create_profile",
+     "create_voice_source",
+     "discover_engine_targets",
+@@ -212,4 +229,5 @@ __all__ = [
+     "validate_render_intent",
+     "verify_engine_model",
+     "verify_voice_source",
++    "VoiceInfo",
+ ]
+diff --git a/readio/api/errors.py b/readio/api/errors.py
+new file mode 100644
+index 0000000..d1d0d80
+--- /dev/null
++++ b/readio/api/errors.py
+@@ -0,0 +1,24 @@
++"""Stable application-facing error descriptions."""
++
++from __future__ import annotations
++
++from readio.api.types import ErrorInfo
++from readio.errors import ReadioError
++
++
++def describe_error(error: ReadioError) -> ErrorInfo:
++    """Project an expected Readio error into its stable application DTO."""
++    if not isinstance(error, ReadioError):
++        raise TypeError("describe_error expects a ReadioError")
++    return ErrorInfo(
++        type=type(error).__name__,
++        message=str(error),
++        code=getattr(error, "code", None),
++        stage=getattr(error, "stage", None),
++        package=getattr(error, "package", None),
++        selector=getattr(error, "selector", None),
++        details=dict(getattr(error, "details", {})),
++    )
++
++
++__all__ = ["describe_error"]
+diff --git a/readio/api/service.py b/readio/api/service.py
+index 3793e2d..98b8bbc 100644
+--- a/readio/api/service.py
++++ b/readio/api/service.py
+@@ -10,6 +10,9 @@ from types import MappingProxyType
+ from typing import Any, cast
+
+ from readio.api.types import (
++    CancellationToken,
++    EngineInfo,
++    EngineOptionInfo,
+     BundleStatus,
+     ComposeRequest,
+     CompositionOptions,
+@@ -29,16 +32,18 @@ from readio.api.types import (
+     RunRequest,
+     SourceChapter,
+     SourceInspection,
++    TargetInfo,
+     SpeakRequest,
+     SpeakResult,
+     StatusRequest,
++    VoiceInfo,
+     VoiceRenderOptions,
+     VoiceRenderRequest,
+     WorkflowEvent,
+     WorkflowPlan,
+ )
+ from readio.diagnostics import log_event, logger_for, timed_span
+-from readio.errors import ReadioError
++from readio.errors import CatalogError, ReadioError
+ from readio.integrations.ssmdconvert import inspect_source as _inspect_source_with_ssmdconvert
+ from readio.intent import RenderIntent
+ from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
+@@ -255,14 +260,14 @@ class Readio:
+     ) -> WorkspaceRef:
+         return self.create_workspace(source, request, on_progress=on_progress)
+
+-    def speak(
++    def synthesize(
+         self,
+         request: SpeakRequest,
+         *,
+-        play: bool = True,
+         on_progress: Callable[[WorkflowEvent], None] | None = None,
++        cancellation: CancellationToken | None = None,
+     ) -> SpeakResult:
+-        """Synthesize semantic text entirely in memory and optionally play the result."""
++        """Synthesize semantic text in memory without playback or file output."""
+         with timed_span(
+             _LOGGER,
+             "stage",
+@@ -272,11 +277,127 @@ class Readio:
+             engine=request.engine,
+             target=request.target,
+         ):
+-            result = _speak_request(request, on_progress=on_progress)
++            return _speak_request(
++                request,
++                on_progress=on_progress,
++                cancellation=cancellation,
++            )
++
++    def speak(
++        self,
++        request: SpeakRequest,
++        *,
++        play: bool = True,
++        on_progress: Callable[[WorkflowEvent], None] | None = None,
++        cancellation: CancellationToken | None = None,
++    ) -> SpeakResult:
++        """Synthesize semantic text entirely in memory and optionally play the result."""
++        result = self.synthesize(
++            request,
++            on_progress=on_progress,
++            cancellation=cancellation,
++        )
+         if play:
+             play_audio(result.audio.audio, result.audio.sample_rate)
+         return result
+
++    def list_engines(self) -> tuple[EngineInfo, ...]:
++        """List engines as Readio-owned application catalog records."""
++        from readio import engines as engine_api
++        from readio.catalog import engine_info
++
++        try:
++            return tuple(engine_info(item) for item in engine_api.list_engines())
++        except Exception as error:
++            raise CatalogError(
++                f"Cannot list engines: {error}",
++                operation="list_engines",
++                cause=error,
++            ) from error
++
++    def list_targets(
++        self,
++        engine: str,
++        *,
++        language: str | None = None,
++        offline: bool = False,
++        refresh: bool = False,
++    ) -> tuple[TargetInfo, ...]:
++        """Discover targets as Readio-owned application catalog records."""
++        from readio import engines as engine_api
++        from readio.catalog import target_info
++
++        try:
++            targets = engine_api.discover_engine_targets(
++                engine,
++                language=language,
++                offline=offline,
++                refresh=refresh,
++            )
++            return tuple(target_info(item) for item in targets)
++        except Exception as error:
++            raise CatalogError(
++                f"Cannot list targets for engine {engine!r}: {error}",
++                operation="list_targets",
++                engine=engine,
++                cause=error,
++                details={"language": language, "offline": offline, "refresh": refresh},
++            ) from error
++
++    def list_voices(
++        self,
++        *,
++        engine: str,
++        target: str,
++        language: str | None = None,
++        offline: bool = False,
++        refresh: bool = False,
++    ) -> tuple[VoiceInfo, ...]:
++        """List voices as Readio-owned application catalog records."""
++        from readio import voices as voice_api
++        from readio.catalog import voice_info
++
++        try:
++            voices = voice_api.list_voices(
++                engine=engine,
++                target=target,
++                language=language,
++                offline=offline,
++                refresh=refresh,
++            )
++            return tuple(info for item in voices if (info := voice_info(item)) is not None)
++        except Exception as error:
++            raise CatalogError(
++                f"Cannot list voices for {engine!r}:{target!r}: {error}",
++                operation="list_voices",
++                engine=engine,
++                target=target,
++                cause=error,
++                details={"language": language, "offline": offline, "refresh": refresh},
++            ) from error
++
++    def list_engine_options(
++        self,
++        engine: str,
++        *,
++        target: str | None = None,
++    ) -> tuple[EngineOptionInfo, ...]:
++        """Inspect engine options as Readio-owned application catalog records."""
++        from readio import engines as engine_api
++        from readio.catalog import engine_option_info
++
++        try:
++            options = engine_api.list_engine_options(engine, target=target)
++            return tuple(engine_option_info(item) for item in options)
++        except Exception as error:
++            raise CatalogError(
++                f"Cannot inspect options for engine {engine!r}: {error}",
++                operation="list_engine_options",
++                engine=engine,
++                target=target,
++                cause=error,
++            ) from error
++
+     def plan(
+         self,
+         workspace: WorkspaceRef | str | Path,
+diff --git a/readio/api/types.py b/readio/api/types.py
+index 759f405..7a9f96c 100644
+--- a/readio/api/types.py
++++ b/readio/api/types.py
+@@ -2,14 +2,20 @@
+
+ from __future__ import annotations
+
++import wave
+ from collections.abc import Mapping
+ from dataclasses import dataclass
+ from dataclasses import field as dataclass_field
++from io import BytesIO
+ from pathlib import Path
++from threading import Event
++from types import MappingProxyType
+ from typing import Any, Literal
+
+ import numpy as np
+
++from readio.errors import OutputCollisionError, WorkflowCancelledError
++
+ from readio.workspace import (
+     CreateWorkspaceRequest,
+     PreparationOptions,
+@@ -265,7 +271,7 @@ class ExportOptions:
+     ffprobe: Path | None = None
+
+
+-@dataclass(frozen=True)
++@dataclass(frozen=True, slots=True)
+ class SpeakRequest:
+     text: str
+     profile: Path | None = None
+@@ -279,24 +285,83 @@ class SpeakRequest:
+     offline: bool = False
+     refresh: bool = False
+
++    def __post_init__(self) -> None:
++        if not self.text.strip():
++            raise ValueError("text must not be empty or whitespace-only")
++        if self.profile is not None and any(
++            value is not None for value in (self.engine, self.target, self.voice)
++        ):
++            raise ValueError(
++                "profile is mutually exclusive with direct engine, target, and voice arguments"
++            )
++        if self.role is not None and self.profile is None:
++            raise ValueError("--role requires --profile")
++        object.__setattr__(self, "engine_options", MappingProxyType(dict(self.engine_options)))
++
+
+ @dataclass(frozen=True, slots=True)
+ class AudioBuffer:
+-    """Stable audio payload returned by semantic in-memory speech."""
++    """Validated in-memory audio and WAV transport boundary."""
+
+     audio: np.ndarray
+     sample_rate: int
+
++    def __post_init__(self) -> None:
++        if self.sample_rate <= 0:
++            raise ValueError("sample_rate must be positive")
++        audio = np.asarray(self.audio)
++        if audio.ndim not in {1, 2} or (audio.ndim == 2 and audio.shape[1] <= 0):
++            raise ValueError(
++                "audio must be a one- or two-dimensional array with a valid channel dimension"
++            )
++        object.__setattr__(self, "audio", audio)
++
+     @property
+     def channels(self) -> int:
+-        if self.audio.ndim == 1:
+-            return 1
+-        if self.audio.ndim == 2 and self.audio.shape[1] > 0:
+-            return int(self.audio.shape[1])
+-        raise ValueError("audio must be a non-empty one- or two-dimensional array")
++        return 1 if self.audio.ndim == 1 else int(self.audio.shape[1])
++
++    @property
++    def frames(self) -> int:
++        return int(self.audio.shape[0])
++
++    @property
++    def duration_seconds(self) -> float:
++        return self.frames / self.sample_rate
+
+     def __len__(self) -> int:
+-        return int(self.audio.shape[0]) if self.audio.ndim in {1, 2} else 0
++        return self.frames
++
++    def to_wav_bytes(self) -> bytes:
++        """Encode the current float audio as an in-memory PCM16 WAV."""
++        audio = np.asarray(self.audio, dtype=np.float32)
++        pcm = np.rint(np.clip(audio, -1.0, 1.0) * 32767).astype("<i2")
++        output = BytesIO()
++        with wave.open(output, "wb") as stream:
++            stream.setnchannels(self.channels)
++            stream.setsampwidth(2)
++            stream.setframerate(self.sample_rate)
++            stream.writeframes(pcm.tobytes())
++        return output.getvalue()
++
++    def write_wav(self, path: str | Path, *, replace: bool = False) -> Path:
++        """Write this buffer as PCM16 WAV, refusing existing paths unless allowed."""
++        output_path = Path(path).expanduser()
++        if not replace and (output_path.exists() or output_path.is_symlink()):
++            raise OutputCollisionError(f"output already exists: {output_path}")
++        payload = self.to_wav_bytes()
++        output_path.parent.mkdir(parents=True, exist_ok=True)
++        try:
++            with output_path.open("wb" if replace else "xb") as stream:
++                stream.write(payload)
++        except FileExistsError as error:
++            if not replace:
++                raise OutputCollisionError(f"output already exists: {output_path}") from error
++            raise
++        except Exception:
++            if not replace:
++                output_path.unlink(missing_ok=True)
++            raise
++        return output_path
+
+
+ @dataclass(frozen=True, slots=True)
+@@ -313,6 +378,90 @@ class SpeakResult:
+         """Compatibility shortcut for callers that only need basic playback metadata."""
+         return self.audio.sample_rate
+
++    @property
++    def duration_seconds(self) -> float:
++        return self.audio.duration_seconds
++
++
++@dataclass(frozen=True, slots=True)
++class EngineInfo:
++    id: str
++    version: str | None
++    installed: bool
++    runnable: bool
++    features: tuple[str, ...]
++    reason: str | None = None
++
++
++@dataclass(frozen=True, slots=True)
++class TargetInfo:
++    id: str
++    languages: tuple[str, ...]
++    status: str
++    runtime_available: bool
++    default_voice: str | None
++    voice_count: int
++    qualities: tuple[str, ...]
++    voice_mode: str | None
++    sample_rate: int | None
++    features: tuple[str, ...]
++    reference_only: bool
++
++
++@dataclass(frozen=True, slots=True)
++class VoiceInfo:
++    id: str
++    language: str | None
++    locale: str | None
++    language_label: str | None
++    gender: str
++    kind: str | None
++    default: bool
++    runtime_available: bool
++
++
++@dataclass(frozen=True, slots=True)
++class EngineOptionInfo:
++    name: str
++    value_type: str | None
++    required: bool
++    default: object
++    choices: tuple[object, ...]
++    minimum: int | float | None
++    maximum: int | float | None
++    description: str
++    identity_affecting: bool
++    runtime_only: bool
++
++
++@dataclass(frozen=True, slots=True)
++class ErrorInfo:
++    type: str
++    message: str
++    code: str | None = None
++    stage: str | None = None
++    package: str | None = None
++    selector: str | None = None
++    details: Mapping[str, object] = dataclass_field(default_factory=dict)
++
++
++class CancellationToken:
++    """Thread-safe cooperative cancellation signal for synchronous workflows."""
++
++    def __init__(self) -> None:
++        self._event = Event()
++
++    def cancel(self) -> None:
++        self._event.set()
++
++    @property
++    def cancelled(self) -> bool:
++        return self._event.is_set()
++
++    def raise_if_cancelled(self) -> None:
++        if self.cancelled:
++            raise WorkflowCancelledError()
++
+
+ @dataclass(frozen=True, slots=True)
+ class SourceChapter:
+diff --git a/readio/catalog.py b/readio/catalog.py
+new file mode 100644
+index 0000000..6ba7743
+--- /dev/null
++++ b/readio/catalog.py
+@@ -0,0 +1,231 @@
++"""Normalize VoiceRender catalog descriptors into Readio-owned API types."""
++
++from __future__ import annotations
++
++from collections.abc import Iterable, Mapping, Sequence
++
++from readio.api.types import EngineInfo, EngineOptionInfo, TargetInfo, VoiceInfo
++
++_ENGINE_FEATURES = (
++    ("supports_named_voices", "voices"),
++    ("supports_lexicons", "lexicons"),
++    ("supports_model_sources", "model sources"),
++    ("supports_qualities", "qualities"),
++    ("supports_voice_level_calibration", "voice level"),
++    ("reference_audio", "reference audio"),
++)
++_FEATURE_LABELS = {
++    "named_voices": "voices",
++    "lexicons": "lexicons",
++    "model_sources": "model sources",
++    "qualities": "qualities",
++    "voice_level_calibration": "voice level",
++    "pronunciation_overrides": "pronunciation overrides",
++    "reference_voice": "reference audio",
++    "prepared_voice": "prepared voices",
++    "speakers": "speakers",
++    "request_measurement": "request measurement",
++}
++
++
++def _value(record: object, key: str, default: object = None) -> object:
++    if isinstance(record, Mapping):
++        return record.get(key, default)
++    return getattr(record, key, default)
++
++
++def _strings(value: object) -> tuple[str, ...]:
++    if isinstance(value, str):
++        return (value,) if value else ()
++    if isinstance(value, (set, frozenset)):
++        return tuple(sorted(item for item in value if isinstance(item, str) and item))
++    if isinstance(value, Iterable) and not isinstance(value, Mapping):
++        return tuple(item for item in value if isinstance(item, str) and item)
++    return ()
++
++
++def _metadata(record: object) -> Mapping[str, object]:
++    value = _value(record, "metadata")
++    return value if isinstance(value, Mapping) else {}
++
++
++def _capability_names(record: object) -> tuple[str, ...]:
++    capabilities = _value(record, "capabilities")
++    if isinstance(capabilities, Mapping):
++        return tuple(key for key, enabled in capabilities.items() if enabled)
++    return _strings(capabilities)
++
++
++def _features(names: Iterable[str]) -> tuple[str, ...]:
++    return tuple(dict.fromkeys(_FEATURE_LABELS.get(name, name.replace("_", " ")) for name in names))
++
++
++def engine_info(engine: object) -> EngineInfo:
++    identifier = _value(engine, "id")
++    if not isinstance(identifier, str):
++        identifier = str(identifier)
++    installed = bool(_value(engine, "installed", True))
++    version_value = _value(engine, "installed_version") or _value(engine, "version")
++    version = version_value if isinstance(version_value, str) else None
++    features = [label for key, label in _ENGINE_FEATURES if bool(_value(engine, key, False))]
++    features.extend(
++        label for label in _features(_capability_names(engine)) if label not in features
++    )
++    reason_value = _value(engine, "missing_dependency")
++    reason = reason_value if isinstance(reason_value, str) else None
++    return EngineInfo(
++        id=identifier,
++        version=version,
++        installed=installed,
++        runnable=bool(_value(engine, "runnable", installed)),
++        features=tuple(features),
++        reason=reason,
++    )
++
++
++def _target_language_labels(target: object) -> dict[str, str]:
++    labels: dict[str, str] = {}
++    details = _value(target, "voice_details", ())
++    if not isinstance(details, Sequence) or isinstance(details, str):
++        return labels
++    for detail in details:
++        label = _value(detail, "language_label")
++        if not isinstance(label, str) or not label:
++            continue
++        codes = (
++            _value(detail, "language"),
++            _value(detail, "locale"),
++            *_strings(_value(detail, "languages")),
++        )
++        for code in codes:
++            if isinstance(code, str) and code:
++                labels[code.casefold()] = label
++    return labels
++
++
++def target_info(target: object) -> TargetInfo:
++    identifier = _value(target, "id")
++    if not isinstance(identifier, str):
++        identifier = str(identifier)
++    languages = _strings(_value(target, "languages")) or _strings(_value(target, "language"))
++    labels = _target_language_labels(target)
++    languages = tuple(labels.get(language.casefold(), language) for language in languages)
++    voices = _strings(_value(target, "voices"))
++    speakers = _strings(_value(target, "speakers"))
++    default_voice = _value(target, "default_voice")
++    if not isinstance(default_voice, str):
++        default_voice = None
++    capabilities = _capability_names(target)
++    metadata = _metadata(target)
++    requires_reference = (
++        "reference_voice" in capabilities
++        or bool(metadata.get("supports_reference_enrollment"))
++        or bool(metadata.get("supports_voice_enrollment"))
++    )
++    reference_only = requires_reference and not voices and not speakers and default_voice is None
++    status = _value(target, "status", "ready")
++    sample_rate_value = _value(target, "sample_rate")
++    sample_rate = (
++        sample_rate_value
++        if isinstance(sample_rate_value, int) and not isinstance(sample_rate_value, bool)
++        else None
++    )
++    voice_mode_value = metadata.get("voice_mode")
++    voice_mode = voice_mode_value if isinstance(voice_mode_value, str) else None
++    return TargetInfo(
++        id=identifier,
++        languages=languages,
++        status=status if isinstance(status, str) else str(status),
++        runtime_available=bool(_value(target, "runtime_available", True)),
++        default_voice=default_voice,
++        voice_count=len(voices) or len(speakers),
++        qualities=_strings(_value(target, "qualities")),
++        voice_mode=voice_mode,
++        sample_rate=sample_rate,
++        features=_features(capabilities),
++        reference_only=reference_only,
++    )
++
++
++def voice_info(voice: object) -> VoiceInfo | None:
++    identifier = _value(voice, "id")
++    if not isinstance(identifier, str) or not identifier:
++        identifier = _value(voice, "voice")
++    if not isinstance(identifier, str) or not identifier:
++        speaker = _value(voice, "speaker")
++        if speaker is not None:
++            identifier = str(speaker)
++    if not isinstance(identifier, str) or not identifier:
++        identifier = _value(voice, "selector")
++    if not isinstance(identifier, str) or not identifier:
++        return None
++
++    languages = _strings(_value(voice, "languages"))
++    language_value = _value(voice, "language")
++    language = language_value if isinstance(language_value, str) else None
++    if language is None and languages:
++        language = languages[0]
++
++    metadata = _metadata(voice)
++    voice_metadata = metadata.get("voice")
++    if not isinstance(voice_metadata, Mapping):
++        voice_metadata = {}
++    language_label_value = _value(voice, "language_label") or voice_metadata.get("language_label")
++    language_label = language_label_value if isinstance(language_label_value, str) else None
++    locale_value = _value(voice, "locale")
++    locale = locale_value if isinstance(locale_value, str) else None
++    gender_value = _value(voice, "gender")
++    gender = gender_value if isinstance(gender_value, str) and gender_value else "unknown"
++    kind_value = _value(voice, "kind")
++    kind_value = getattr(kind_value, "value", kind_value)
++    kind = kind_value if isinstance(kind_value, str) else None
++    target_metadata = metadata.get("target")
++    default_voice = _value(target_metadata, "default_voice")
++    explicit_default = bool(_value(voice, "default", False))
++    default = explicit_default or (
++        isinstance(default_voice, str)
++        and (identifier == default_voice or _value(voice, "voice") == default_voice)
++    )
++    installed = _value(voice, "installed", True)
++    runtime_available = bool(_value(voice, "runtime_available", installed))
++    return VoiceInfo(
++        id=identifier,
++        language=language,
++        locale=locale,
++        language_label=language_label,
++        gender=gender,
++        kind=kind,
++        default=default,
++        runtime_available=runtime_available,
++    )
++
++
++def _optional_number(value: object) -> int | float | None:
++    if isinstance(value, (int, float)) and not isinstance(value, bool):
++        return value
++    return None
++
++
++def engine_option_info(option: object) -> EngineOptionInfo:
++    name = _value(option, "name")
++    if not isinstance(name, str) or not name:
++        raise ValueError("An engine option must have a non-empty name.")
++    value_type = _value(option, "value_type")
++    raw_choices = _value(option, "choices", ())
++    choices = tuple(raw_choices) if isinstance(raw_choices, (tuple, list)) else ()
++    description = _value(option, "description", "")
++    return EngineOptionInfo(
++        name=name,
++        value_type=value_type if isinstance(value_type, str) else None,
++        required=bool(_value(option, "required", False)),
++        default=_value(option, "default"),
++        choices=choices,
++        minimum=_optional_number(_value(option, "minimum")),
++        maximum=_optional_number(_value(option, "maximum")),
++        description=description if isinstance(description, str) else "",
++        identity_affecting=bool(_value(option, "identity_affecting", False)),
++        runtime_only=bool(_value(option, "runtime_only", False)),
++    )
++
++
++__all__ = ["engine_info", "engine_option_info", "target_info", "voice_info"]
+diff --git a/readio/errors.py b/readio/errors.py
+index 767f74d..74287f0 100644
+--- a/readio/errors.py
++++ b/readio/errors.py
+@@ -10,6 +10,27 @@ class ReadioError(Exception):
+     """Base exception for errors produced by Readio orchestration."""
+
+
++class CatalogError(ReadioError):
++    """A normalized application catalog operation failed."""
++
++    def __init__(
++        self,
++        message: str,
++        *,
++        operation: str,
++        engine: str | None = None,
++        target: str | None = None,
++        cause: Exception | None = None,
++        details: Mapping[str, object] | None = None,
++    ) -> None:
++        super().__init__(message)
++        self.operation = operation
++        self.engine = engine
++        self.target = target
++        self.cause = cause
++        self.details = dict(details or {})
++
++
+ class WorkflowError(ReadioError):
+     """Base for errors raised while resolving or executing a Readio workflow."""
+
+@@ -25,6 +46,13 @@ class WorkflowError(ReadioError):
+         self.details = dict(details or {})
+
+
++class WorkflowCancelledError(WorkflowError):
++    """A synchronous workflow was cancelled at a cooperative stage boundary."""
++
++    def __init__(self, message: str = "workflow cancelled") -> None:
++        super().__init__(message)
++
++
+ class WorkflowResolutionError(WorkflowError):
+     """The workflow request cannot be resolved safely."""
+
+diff --git a/readio/speech.py b/readio/speech.py
+index e3853b5..e1c8296 100644
+--- a/readio/speech.py
++++ b/readio/speech.py
+@@ -3,7 +3,6 @@
+ from __future__ import annotations
+
+ import time
+-import wave
+ from collections.abc import Callable, Mapping
+ from dataclasses import replace
+ from pathlib import Path
+@@ -12,9 +11,8 @@ from typing import TYPE_CHECKING, Any
+ import numpy as np
+
+ if TYPE_CHECKING:
+-    from readio.api.types import SpeakRequest, SpeakResult
++    from readio.api.types import CancellationToken, SpeakRequest, SpeakResult
+ from readio.errors import (
+-    OutputCollisionError,
+     WorkflowReplanError,
+     WorkflowResolutionError,
+     WorkflowStageError,
+@@ -202,10 +200,16 @@ def _word_timing(item: Any) -> Mapping[str, object]:
+     }
+
+
++def _raise_if_cancelled(cancellation: CancellationToken | None) -> None:
++    if cancellation is not None:
++        cancellation.raise_if_cancelled()
++
++
+ def speak_request(
+     request: SpeakRequest,
+     *,
+     on_progress: WorkflowProgressHandler = None,
++    cancellation: CancellationToken | None = None,
+ ) -> SpeakResult:
+     """Run UtterPlan, VoiceRender, and AudioCompose entirely in memory."""
+     from readio.api.types import AudioBuffer, SpeakResult
+@@ -217,6 +221,7 @@ def speak_request(
+     started = time.perf_counter()
+     language = request.language or "en-US"
+     compile_progress = normalize_workflow_progress("compile", "utterplan", on_progress)
++    _raise_if_cancelled(cancellation)
+     try:
+         compiled = utterplan_integration.compile_document(
+             request.text,
+@@ -233,6 +238,7 @@ def speak_request(
+             cause=error,
+         ) from error
+
++    _raise_if_cancelled(cancellation)
+     try:
+         profile = _profile_for_request(request)
+     except WorkflowResolutionError:
+@@ -241,8 +247,10 @@ def speak_request(
+         raise WorkflowResolutionError(
+             f"cannot resolve a RenderProfile: {error}", cause=error
+         ) from error
++    _raise_if_cancelled(cancellation)
+     profile_id = _profile_id(profile)
+     flow_plan = compiled.plan
++    _raise_if_cancelled(cancellation)
+     try:
+         render_plan = utterplan_integration.build_render_plan(flow_plan, profile)
+     except Exception as error:
+@@ -255,9 +263,11 @@ def speak_request(
+             cause=error,
+         ) from error
+
++    _raise_if_cancelled(cancellation)
+     seen_plan_ids: set[str] = set()
+     replan_count = 0
+     while True:
++        _raise_if_cancelled(cancellation)
+         current_plan_id = _plan_id(render_plan)
+         if current_plan_id in seen_plan_ids:
+             raise WorkflowReplanError(
+@@ -281,6 +291,7 @@ def speak_request(
+                 cause=error,
+             ) from error
+
++        _raise_if_cancelled(cancellation)
+         status = getattr(preflight, "status", None)
+         if status == "ok":
+             break
+@@ -312,6 +323,7 @@ def speak_request(
+                 + ("; ".join(summary) or "no segment detail was supplied"),
+                 details={**details, "replan_count": replan_count},
+             )
++        _raise_if_cancelled(cancellation)
+         try:
+             refined_plan = utterplan_integration.build_render_plan(
+                 flow_plan,
+@@ -330,6 +342,7 @@ def speak_request(
+                 cause=error,
+                 details=details,
+             ) from error
++        _raise_if_cancelled(cancellation)
+         refined_plan_id = _plan_id(refined_plan)
+         if refined_plan_id == current_plan_id or refined_plan_id in seen_plan_ids:
+             raise WorkflowReplanError(
+@@ -344,6 +357,7 @@ def speak_request(
+         render_plan = refined_plan
+         replan_count += 1
+
++    _raise_if_cancelled(cancellation)
+     try:
+         rendered = voicerender_integration.render_renderplan_memory(
+             render_plan,
+@@ -359,6 +373,7 @@ def speak_request(
+             code=_code(error),
+             cause=error,
+         ) from error
++    _raise_if_cancelled(cancellation)
+     if getattr(rendered, "error", None) is not None or not getattr(
+         rendered, "selection_complete", False
+     ):
+@@ -411,6 +426,7 @@ def speak_request(
+         )
+         render_warnings.extend(getattr(speech, "warnings", ()))
+
++    _raise_if_cancelled(cancellation)
+     try:
+         composed = audiocompose_integration.compose_renderplan_memory(
+             render_plan,
+@@ -427,6 +443,7 @@ def speak_request(
+             cause=error,
+         ) from error
+
++    _raise_if_cancelled(cancellation)
+     diagnostics = tuple(getattr(compiled, "diagnostics", ()))
+     warnings = tuple(
+         dict.fromkeys(
+@@ -448,34 +465,7 @@ def speak_request(
+
+
+ def _write_speech_wav(result: SpeakResult, output: str | Path) -> Path:
+-    path = Path(output).expanduser()
+-    if path.exists() or path.is_symlink():
+-        raise OutputCollisionError(f"output already exists: {path}")
+-    audio = np.asarray(result.audio.audio, dtype=np.float32)
+-    if audio.ndim == 1:
+-        channels = 1
+-    elif audio.ndim == 2 and audio.shape[1] > 0:
+-        channels = int(audio.shape[1])
+-    else:
+-        raise ValueError("AudioBuffer has an unsupported audio shape")
+-    if result.audio.sample_rate <= 0:
+-        raise ValueError("AudioBuffer has an invalid sample rate")
+-    pcm = np.rint(np.clip(audio, -1.0, 1.0) * 32767).astype("<i2")
+-    path.parent.mkdir(parents=True, exist_ok=True)
+-    try:
+-        raw = path.open("xb")
+-    except FileExistsError as error:
+-        raise OutputCollisionError(f"output already exists: {path}") from error
+-    try:
+-        with raw, wave.open(raw, "wb") as stream:
+-            stream.setnchannels(channels)
+-            stream.setsampwidth(2)
+-            stream.setframerate(result.audio.sample_rate)
+-            stream.writeframes(pcm.tobytes())
+-    except Exception:
+-        path.unlink(missing_ok=True)
+-        raise
+-    return path
++    return result.audio.write_wav(output)
+
+
+ def speak(
+@@ -494,6 +484,7 @@ def speak(
+     output: str | Path | None = None,
+     no_play: bool = False,
+     on_progress: WorkflowProgressHandler = None,
++    cancellation: CancellationToken | None = None,
+ ) -> SpeakResult:
+     """Speak text semantically, while retaining the transitional function-call form."""
+     from readio.api.types import SpeakRequest
+@@ -522,15 +513,7 @@ def speak(
+     ):
+         raise ValueError("pass either a SpeakRequest or direct speak options, not both")
+
+-    if request.profile is not None and any(
+-        value is not None for value in (request.engine, request.target, request.voice)
+-    ):
+-        raise ValueError("--profile is mutually exclusive with --voice, --engine, and --target")
+-
+-    if request.role is not None and request.profile is None:
+-        raise ValueError("--role requires --profile")
+-
+-    result = speak_request(request, on_progress=on_progress)
++    result = speak_request(request, on_progress=on_progress, cancellation=cancellation)
+     if output is not None:
+         _write_speech_wav(result, output)
+     if not no_play:
+diff --git a/tests/test_catalog.py b/tests/test_catalog.py
+new file mode 100644
+index 0000000..3dcd607
+--- /dev/null
++++ b/tests/test_catalog.py
+@@ -0,0 +1,272 @@
++from __future__ import annotations
++
++from types import SimpleNamespace
++from typing import Any
++
++import pytest
++
++from readio import api, engines, voices
++from readio.api import Readio
++from readio.api.types import EngineInfo, EngineOptionInfo, TargetInfo, VoiceInfo
++from readio.errors import CatalogError
++
++
++def test_readio_catalog_methods_normalize_mapping_and_attribute_descriptors(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    engine_records = [
++        {
++            "id": "kitten",
++            "installed": True,
++            "installed_version": "1.2.0",
++            "runnable": True,
++            "capabilities": {"named_voices": True, "speakers": False},
++            "missing_dependency": None,
++        },
++        SimpleNamespace(id="bare", installed=False),
++    ]
++    target_records = [
++        {
++            "id": "kitten-v1",
++            "languages": ["en-US", "de-DE"],
++            "status": "ready",
++            "runtime_available": True,
++            "default_voice": "voice-a",
++            "voices": ["voice-a", "voice-b"],
++            "speakers": ["1", "2", "3"],
++            "qualities": ["standard", "high"],
++            "sample_rate": 24000,
++            "voice_details": [{"language": "en-US", "language_label": "English"}],
++            "capabilities": {"named_voices": True, "speakers": True},
++            "metadata": {"voice_mode": "named"},
++        },
++        SimpleNamespace(
++            id="reference-only",
++            capabilities=frozenset({"reference_voice"}),
++            runtime_available=False,
++        ),
++    ]
++    voice_records = [
++        {
++            "voice": "voice-a",
++            "languages": ["en-US"],
++            "gender": "female",
++            "locale": "en-US",
++            "kind": "builtin",
++            "installed": True,
++            "metadata": {
++                "target": {"default_voice": "voice-a"},
++                "voice": {"language_label": "English"},
++            },
++        },
++        SimpleNamespace(
++            selector="kitten:kitten-v1#7",
++            speaker=7,
++            kind="speaker",
++            languages=("en-US",),
++            installed=False,
++        ),
++        {"id": "voice-b"},
++    ]
++    option_records = [
++        {
++            "name": "temperature",
++            "value_type": "float",
++            "required": True,
++            "default": 0.5,
++            "choices": [0.1, 0.5],
++            "minimum": 0.0,
++            "maximum": 1.0,
++            "description": "Synthesis temperature",
++            "identity_affecting": True,
++            "runtime_only": False,
++        },
++        SimpleNamespace(name="threads", minimum=True, maximum=8),
++    ]
++    monkeypatch.setattr(engines.voicerender, "list_engines", lambda: engine_records)
++    monkeypatch.setattr(
++        engines.voicerender,
++        "discover_targets",
++        lambda *_args, **_kwargs: target_records,
++    )
++    monkeypatch.setattr(voices.voicerender, "list_voices", lambda **_kwargs: voice_records)
++    monkeypatch.setattr(
++        engines.voicerender,
++        "engine_options",
++        lambda *_args, **_kwargs: option_records,
++    )
++
++    service = Readio()
++    listed_engines = service.list_engines()
++    assert listed_engines == (
++        EngineInfo(
++            id="kitten",
++            version="1.2.0",
++            installed=True,
++            runnable=True,
++            features=("voices",),
++        ),
++        EngineInfo(
++            id="bare",
++            version=None,
++            installed=False,
++            runnable=False,
++            features=(),
++        ),
++    )
++    targets = service.list_targets("kitten", language="en-US", offline=True, refresh=True)
++    assert targets == (
++        TargetInfo(
++            id="kitten-v1",
++            languages=("English", "de-DE"),
++            status="ready",
++            runtime_available=True,
++            default_voice="voice-a",
++            voice_count=2,
++            qualities=("standard", "high"),
++            voice_mode="named",
++            sample_rate=24000,
++            features=("voices", "speakers"),
++            reference_only=False,
++        ),
++        TargetInfo(
++            id="reference-only",
++            languages=(),
++            status="ready",
++            runtime_available=False,
++            default_voice=None,
++            voice_count=0,
++            qualities=(),
++            voice_mode=None,
++            sample_rate=None,
++            features=("reference audio",),
++            reference_only=True,
++        ),
++    )
++    listed_voices = service.list_voices(engine="kitten", target="kitten-v1")
++    assert listed_voices == (
++        VoiceInfo(
++            id="voice-a",
++            language="en-US",
++            locale="en-US",
++            language_label="English",
++            gender="female",
++            kind="builtin",
++            default=True,
++            runtime_available=True,
++        ),
++        VoiceInfo(
++            id="7",
++            language="en-US",
++            locale=None,
++            language_label=None,
++            gender="unknown",
++            kind="speaker",
++            default=False,
++            runtime_available=False,
++        ),
++        VoiceInfo(
++            id="voice-b",
++            language=None,
++            locale=None,
++            language_label=None,
++            gender="unknown",
++            kind=None,
++            default=False,
++            runtime_available=True,
++        ),
++    )
++    options = service.list_engine_options("kitten", target="kitten-v1")
++    assert options == (
++        EngineOptionInfo(
++            name="temperature",
++            value_type="float",
++            required=True,
++            default=0.5,
++            choices=(0.1, 0.5),
++            minimum=0.0,
++            maximum=1.0,
++            description="Synthesis temperature",
++            identity_affecting=True,
++            runtime_only=False,
++        ),
++        EngineOptionInfo(
++            name="threads",
++            value_type=None,
++            required=False,
++            default=None,
++            choices=(),
++            minimum=None,
++            maximum=8,
++            description="",
++            identity_affecting=False,
++            runtime_only=False,
++        ),
++    )
++    assert all(isinstance(item, EngineInfo) for item in listed_engines)
++    assert all(isinstance(item, TargetInfo) for item in targets)
++    assert all(isinstance(item, VoiceInfo) for item in listed_voices)
++    assert all(isinstance(item, EngineOptionInfo) for item in options)
++
++
++def test_readio_catalog_wraps_specialist_failures(monkeypatch: pytest.MonkeyPatch) -> None:
++    service = Readio()
++    failure = RuntimeError("catalog backend failed")
++
++    def fail(*_args: Any, **_kwargs: Any) -> Any:
++        raise failure
++
++    monkeypatch.setattr(engines.voicerender, "list_engines", fail)
++    with pytest.raises(CatalogError) as caught:
++        service.list_engines()
++    assert caught.value.operation == "list_engines"
++    assert caught.value.cause is failure
++
++    monkeypatch.setattr(engines.voicerender, "discover_targets", fail)
++    with pytest.raises(CatalogError) as caught:
++        service.list_targets("engine-a")
++    assert caught.value.operation == "list_targets"
++    assert caught.value.engine == "engine-a"
++    assert caught.value.cause is failure
++
++    monkeypatch.setattr(voices.voicerender, "list_voices", fail)
++    with pytest.raises(CatalogError) as caught:
++        service.list_voices(engine="engine-a", target="target-a")
++    assert caught.value.operation == "list_voices"
++    assert caught.value.engine == "engine-a"
++    assert caught.value.target == "target-a"
++    assert caught.value.cause is failure
++
++    monkeypatch.setattr(engines.voicerender, "engine_options", fail)
++    with pytest.raises(CatalogError) as caught:
++        service.list_engine_options("engine-a", target="target-a")
++    assert caught.value.operation == "list_engine_options"
++    assert caught.value.engine == "engine-a"
++    assert caught.value.target == "target-a"
++    assert caught.value.cause is failure
++
++
++def test_raw_module_catalog_delegates_keep_specialist_results(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    raw_engines = [{"id": "engine-a", "specialist": object()}]
++    raw_targets = (SimpleNamespace(id="target-a"),)
++    raw_voices = (SimpleNamespace(id="voice-a"),)
++    raw_options = (SimpleNamespace(name="option-a"),)
++    monkeypatch.setattr(engines.voicerender, "list_engines", lambda: raw_engines)
++    monkeypatch.setattr(
++        engines.voicerender,
++        "discover_targets",
++        lambda *_args, **_kwargs: raw_targets,
++    )
++    monkeypatch.setattr(voices.voicerender, "list_voices", lambda **_kwargs: raw_voices)
++    monkeypatch.setattr(
++        engines.voicerender,
++        "engine_options",
++        lambda *_args, **_kwargs: raw_options,
++    )
++
++    assert api.list_engines() is raw_engines
++    assert api.discover_engine_targets("engine-a") is raw_targets
++    assert api.list_voices(engine="engine-a", target="target-a") is raw_voices
++    assert api.list_engine_options("engine-a", target="target-a") is raw_options
+diff --git a/tests/test_public_package_api_contract.py b/tests/test_public_package_api_contract.py
+index 6cd791f..5cc743e 100644
+--- a/tests/test_public_package_api_contract.py
++++ b/tests/test_public_package_api_contract.py
+@@ -99,6 +99,12 @@ def test_readio_public_api_centers_on_unified_workflows() -> None:
+         )
+
+     assert callable(api.Readio.speak)
++    assert callable(api.Readio.synthesize)
++    assert callable(api.Readio.list_engines)
++    assert callable(api.Readio.list_targets)
++    assert callable(api.Readio.list_voices)
++    assert callable(api.Readio.list_engine_options)
++    assert callable(api.describe_error)
+     assert callable(api.Readio.render)
+     assert callable(api.Readio.inspect)
+     assert callable(api.Readio.inspect_source)
+@@ -158,6 +164,14 @@ def test_readio_workflow_foundation_types_are_public() -> None:
+         "VoiceRenderOptions",
+         "CompositionOptions",
+         "ExportOptions",
++        "CancellationToken",
++        "CatalogError",
++        "EngineInfo",
++        "EngineOptionInfo",
++        "ErrorInfo",
++        "TargetInfo",
++        "VoiceInfo",
++        "WorkflowCancelledError",
+         "SpeakRequest",
+         "SourceChapter",
+         "SourceInspection",
+@@ -196,3 +210,51 @@ def test_readio_api_control_types_do_not_leak_specialist_implementations() -> No
+         "SpacyLanguageModel",
+     ):
+         assert not hasattr(api, specialist_type), f"specialist type leaked: {specialist_type}"
++
++
++def test_describe_error_projects_expected_workflow_context() -> None:
++    from readio import api
++    from readio.api.types import ErrorInfo
++    from readio.errors import WorkflowStageError
++
++    error = WorkflowStageError(
++        "render",
++        "engine failed",
++        package="voicerender",
++        selector="speech 2",
++        code="engine.failed",
++        cause=RuntimeError("engine failed"),
++        details={"retryable": True},
++    )
++
++    info = api.describe_error(error)
++    assert info == ErrorInfo(
++        type="WorkflowStageError",
++        message=str(error),
++        code="engine.failed",
++        stage="render",
++        package="voicerender",
++        selector="speech 2",
++        details={"retryable": True},
++    )
++    with pytest.raises(TypeError, match="expects a ReadioError"):
++        api.describe_error(RuntimeError("unexpected"))
++
++
++def test_application_api_documentation_promotes_synthesis_and_catalog() -> None:
++    from pathlib import Path
++
++    root = Path(__file__).resolve().parents[1]
++    api_docs = (root / "docs" / "api.md").read_text(encoding="utf-8")
++    readme = (root / "README.md").read_text(encoding="utf-8")
++
++    for term in (
++        "Readio.synthesize()",
++        "to_wav_bytes()",
++        "Readio.list_targets()",
++        "Readio.list_engine_options()",
++        "CancellationToken",
++        "describe_error()",
++    ):
++        assert term in api_docs
++    assert "Readio.synthesize()" in readme
+diff --git a/tests/test_speech.py b/tests/test_speech.py
+index 4dfe329..83ee4d8 100644
+--- a/tests/test_speech.py
++++ b/tests/test_speech.py
+@@ -1,7 +1,9 @@
+ from __future__ import annotations
+
+ import importlib
++import io
+ import sys
++import wave
+ from pathlib import Path
+ from types import SimpleNamespace
+ from typing import Any
+@@ -11,10 +13,11 @@ import pytest
+ from renderplan import RenderProfile, RoleProfile
+
+ from readio import speech
+-from readio.api.types import AudioBuffer, SpeakRequest, SpeakResult
++from readio.api.types import AudioBuffer, CancellationToken, SpeakRequest, SpeakResult
+ from readio.errors import (
++    OutputCollisionError,
++    WorkflowCancelledError,
+     WorkflowReplanError,
+-    WorkflowResolutionError,
+     WorkflowStageError,
+ )
+
+@@ -314,10 +317,8 @@ def test_direct_voice_profile_creation_and_stored_profile_overrides(
+
+
+ def test_profile_and_direct_voice_arguments_are_mutually_exclusive() -> None:
+-    with pytest.raises(WorkflowResolutionError, match="mutually exclusive"):
+-        speech._profile_for_request(
+-            SpeakRequest(text="hello", profile=Path("profile.toml"), engine="kokoro")
+-        )
++    with pytest.raises(ValueError, match="mutually exclusive"):
++        SpeakRequest(text="hello", profile=Path("profile.toml"), engine="kokoro")
+
+
+ def test_preflight_rejection_keeps_segment_identity_and_measurements(
+@@ -448,7 +449,7 @@ def test_replan_loop_is_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
+     assert f"speech 2 ({_SEGMENT_ID})" in str(caught.value)
+
+
+-def test_readio_speak_returns_audio_and_playback_is_optional(
++def test_readio_synthesize_is_pure_and_speak_delegates_to_it(
+     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+ ) -> None:
+     service_module = importlib.import_module("readio.api.service")
+@@ -458,7 +459,13 @@ def test_readio_speak_returns_audio_and_playback_is_optional(
+         profile_id="profile-1",
+     )
+     calls: list[Any] = []
+-    monkeypatch.setattr(service_module, "_speak_request", lambda _request, **_options: result)
++    synthesize_options: list[dict[str, Any]] = []
++
++    def synthesize(_request: SpeakRequest, **options: Any) -> SpeakResult:
++        synthesize_options.append(options)
++        return result
++
++    monkeypatch.setattr(service_module, "_speak_request", synthesize)
+     monkeypatch.setattr(
+         service_module,
+         "play_audio",
+@@ -466,13 +473,30 @@ def test_readio_speak_returns_audio_and_playback_is_optional(
+     )
+     api = service_module.Readio()
+     request = SpeakRequest(text="Hello", engine="kokoro", target="kokoro-v1")
++    token = CancellationToken()
++
++    assert api.synthesize(request, cancellation=token) is result
++    assert synthesize_options[-1]["cancellation"] is token
++    assert calls == []
+
++    original_synthesize = api.synthesize
++    delegated: list[dict[str, Any]] = []
++
++    def synthesize_spy(_request: SpeakRequest, **options: Any) -> SpeakResult:
++        delegated.append(options)
++        return original_synthesize(_request, **options)
++
++    monkeypatch.setattr(api, "synthesize", synthesize_spy)
+     assert api.speak(request) is result
++    assert len(delegated) == 1
+     assert calls[0][1] == 22050
+     assert calls[0][0].tolist() == pytest.approx([0.2, -0.2])
+     assert api.speak(request, play=False) is result
+     assert len(calls) == 1
+-    assert not list(tmp_path.iterdir()), "playback must not require pipeline files"
++    assert len(delegated) == 2
++    assert not list(tmp_path.iterdir()), (
++        "semantic speech and playback must not require pipeline files"
++    )
+
+
+ def test_runtime_speech_has_no_readio_engine_import() -> None:
+@@ -518,3 +542,160 @@ def test_play_audio_uses_generic_mono_output_stream(monkeypatch: pytest.MonkeyPa
+     assert captured["channels"] == 1
+     assert captured["dtype"] == "float32"
+     assert captured["audio"].reshape(-1).tolist() == [0.25, -0.5]
++
++
++def test_speak_request_validates_boundary_and_copies_engine_options() -> None:
++    with pytest.raises(ValueError, match="whitespace-only"):
++        SpeakRequest(text="  \t\n")
++    with pytest.raises(ValueError, match="mutually exclusive"):
++        SpeakRequest(text="hello", profile=Path("profile.toml"), voice="engine:target/voice")
++    with pytest.raises(ValueError, match="requires --profile"):
++        SpeakRequest(text="hello", role="narrator")
++
++    options = {"speed": 1.0}
++    request = SpeakRequest(text="hello", engine_options=options)
++    options["speed"] = 1.5
++    assert request.engine_options == {"speed": 1.0}
++    with pytest.raises(TypeError):
++        request.engine_options["speed"] = 2.0  # type: ignore[index]
++    assert not hasattr(request, "__dict__")
++
++
++def test_audio_buffer_validates_sample_rate_and_channel_shape() -> None:
++    with pytest.raises(ValueError, match="sample_rate"):
++        AudioBuffer(audio=np.array([0.0]), sample_rate=0)
++    with pytest.raises(ValueError, match="one- or two-dimensional"):
++        AudioBuffer(audio=np.array(0.0), sample_rate=22050)
++    with pytest.raises(ValueError, match="channel dimension"):
++        AudioBuffer(audio=np.empty((2, 0)), sample_rate=22050)
++
++
++def test_audio_buffer_wav_bytes_are_in_memory_and_preserve_audio_metadata(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    def filesystem_access(*_args: Any, **_kwargs: Any) -> Any:
++        raise AssertionError("to_wav_bytes must not access the filesystem")
++
++    monkeypatch.setattr(Path, "open", filesystem_access)
++    monkeypatch.setattr(Path, "mkdir", filesystem_access)
++    buffer = AudioBuffer(
++        audio=np.array([[-1.0, 0.25], [1.0, 0.5]], dtype=np.float32),
++        sample_rate=24000,
++    )
++
++    encoded = buffer.to_wav_bytes()
++    assert buffer.frames == 2
++    assert buffer.duration_seconds == pytest.approx(2 / 24000)
++    assert buffer.channels == 2
++    with wave.open(io.BytesIO(encoded), "rb") as stream:
++        assert stream.getframerate() == 24000
++        assert stream.getnchannels() == 2
++        assert stream.getnframes() == 2
++        assert stream.getsampwidth() == 2
++        assert np.frombuffer(stream.readframes(2), dtype="<i2").tolist() == [
++            -32767,
++            8192,
++            32767,
++            16384,
++        ]
++
++
++def test_audio_buffer_write_wav_uses_same_encoder_and_replacement_policy(
++    tmp_path: Path,
++) -> None:
++    path = tmp_path / "nested" / "speech.wav"
++    buffer = AudioBuffer(audio=np.array([0.25, -0.25], dtype=np.float32), sample_rate=22050)
++
++    assert buffer.write_wav(path) == path
++    assert path.read_bytes() == buffer.to_wav_bytes()
++    with pytest.raises(OutputCollisionError):
++        buffer.write_wav(path)
++
++    replacement = AudioBuffer(audio=np.array([0.5], dtype=np.float32), sample_rate=16000)
++    assert replacement.write_wav(path, replace=True) == path
++    assert path.read_bytes() == replacement.to_wav_bytes()
++    assert SpeakResult(audio=replacement, profile_id="profile").duration_seconds == pytest.approx(
++        1 / 16000
++    )
++
++
++def test_cancellation_token_raises_after_cancel() -> None:
++    token = CancellationToken()
++    assert not token.cancelled
++    token.raise_if_cancelled()
++
++    token.cancel()
++    token.cancel()
++    assert token.cancelled
++    with pytest.raises(WorkflowCancelledError, match="workflow cancelled"):
++        token.raise_if_cancelled()
++
++
++def test_cancelled_synthesis_does_not_compile(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    setup = _install_pipeline(monkeypatch, tmp_path)
++    token = CancellationToken()
++    token.cancel()
++
++    with pytest.raises(WorkflowCancelledError):
++        speech.speak_request(
++            SpeakRequest(text="hello", engine="kokoro", target="kokoro-v1"),
++            cancellation=token,
++        )
++
++    assert setup["calls"] == []
++
++
++@pytest.mark.parametrize(
++    ("stage", "blocked_stage", "blocked_count"),
++    (
++        ("compile", "profile", 0),
++        ("profile", "build", 0),
++        ("build", "preflight", 0),
++        ("preflight", "build", 1),
++        ("replan", "preflight", 1),
++        ("render", "compose", 0),
++        ("compose", "result", 0),
++    ),
++)
++def test_cancellation_after_stage_prevents_following_work(
++    monkeypatch: pytest.MonkeyPatch,
++    tmp_path: Path,
++    stage: str,
++    blocked_stage: str,
++    blocked_count: int,
++) -> None:
++    setup = _install_pipeline(monkeypatch, tmp_path)
++    import readio.integrations.audiocompose as compose_adapter
++    import readio.integrations.utterplan as plan_adapter
++    import readio.integrations.voicerender as render_adapter
++
++    operations: dict[str, tuple[Any, str]] = {
++        "compile": (plan_adapter, "compile_document"),
++        "profile": (render_adapter, "create_render_profile"),
++        "build": (plan_adapter, "build_render_plan"),
++        "replan": (plan_adapter, "build_render_plan"),
++        "preflight": (render_adapter, "preflight_render_plan"),
++        "render": (render_adapter, "render_renderplan_memory"),
++        "compose": (compose_adapter, "compose_renderplan_memory"),
++    }
++    module, name = operations[stage]
++    operation = getattr(module, name)
++    token = CancellationToken()
++
++    def cancel_after(*args: Any, **kwargs: Any) -> Any:
++        result = operation(*args, **kwargs)
++        if stage != "replan" or kwargs.get("previous_plan") is not None:
++            token.cancel()
++        return result
++
++    monkeypatch.setattr(module, name, cancel_after)
++    with pytest.raises(WorkflowCancelledError):
++        speech.speak_request(
++            SpeakRequest(text="hello", engine="kokoro", target="kokoro-v1"),
++            cancellation=token,
++        )
++
++    call_names = [call[0] for call in setup["calls"]]
++    assert call_names.count(blocked_stage) == blocked_count

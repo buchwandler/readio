@@ -1,0 +1,54 @@
+schema: releaseledger.entry-batch.v1
+operation: create
+schema_version: 1
+object_type: release_entry_batch
+release_version: v0.6.8
+git_base_ref: d0a8b2aea60e05e6cb54841069b959fdd480a08f
+git_base_sha: d0a8b2aea60e05e6cb54841069b959fdd480a08f
+git_head_ref: 7da1a441b8fee579424c3c64607878902412feb0
+git_head_sha: 7da1a441b8fee579424c3c64607878902412feb0
+include_merges: nontrivial
+entries:
+  - kind: added
+    summary: Added in-memory synthesis with WAV export and cancellation, plus normalized engine, target, voice, and option catalogs
+    status: accepted
+    source_refs:
+      - git:c384a2671fc019788f8c00693cb66fe439954c52
+    paths:
+      - README.md
+      - docs/api.md
+      - readio/api/service.py
+      - readio/api/types.py
+      - readio/catalog.py
+      - readio/speech.py
+      - tests/test_speech.py
+    sources:
+      - git:c384a2671fc019788f8c00693cb66fe439954c52
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"
+  - kind: added
+    summary: Added versioned JSON contracts, read-only capability discovery, and an optional MCP server for guarded workflow tools
+    status: accepted
+    source_refs:
+      - git:7da1a441b8fee579424c3c64607878902412feb0
+    paths:
+      - docs/api.md
+      - docs/architecture.md
+      - docs/cli.md
+      - pyproject.toml
+      - readio/api/serialization.py
+      - readio/capabilities.py
+      - readio/mcp/server.py
+      - readio/render_workflow.py
+      - readio/workflow.py
+      - tests/test_capabilities.py
+      - tests/test_mcp_adapter.py
+      - tests/test_public_serialization_contract.py
+    sources:
+      - git:7da1a441b8fee579424c3c64607878902412feb0
+    prs: []
+    issues: []
+    contributors:
+      - "@holgern"
