@@ -16,9 +16,11 @@ from readio.engines import (
     verify_engine_model,
 )
 from readio.errors import (
+    CatalogError,
     OutputCollisionError,
     ReadioError,
     ReadioStageError,
+    WorkflowCancelledError,
     WorkflowError,
     WorkflowReplanError,
     WorkflowResolutionError,
@@ -91,10 +93,15 @@ from readio.workspace import (
 )
 
 from .service import Readio, inspect_source, render_request_from_intent
+from .errors import describe_error
 from .types import (
+    CancellationToken,
     AudioBuffer,
     CompositionOptions,
     ExportOptions,
+    EngineInfo,
+    EngineOptionInfo,
+    ErrorInfo,
     PauseTiming,
     PlanningOptions,
     ProjectionOptions,
@@ -103,6 +110,8 @@ from .types import (
     RenderResult,
     SourceChapter,
     SourceInspection,
+    TargetInfo,
+    VoiceInfo,
     SpeakRequest,
     SpeakResult,
     VoiceRenderOptions,
@@ -118,11 +127,16 @@ from .types import (
 __all__ = [
     "INTENT_SCHEMA",
     "AudioBuffer",
+    "CancellationToken",
     "ComposeIntent",
     "CompositionOptions",
+    "CatalogError",
     "DocumentVoiceRequirements",
     "DocumentVoiceRole",
     "ExportOptions",
+    "EngineInfo",
+    "EngineOptionInfo",
+    "ErrorInfo",
     "InputIntent",
     "IntentKind",
     "OutputCollisionError",
@@ -146,6 +160,7 @@ __all__ = [
     "RoleVoiceBinding",
     "SourceChapter",
     "SourceInspection",
+    "TargetInfo",
     "SpacyModelInfo",
     "SpeakRequest",
     "SpeakResult",
@@ -155,6 +170,7 @@ __all__ = [
     "VoiceSelector",
     "WorkflowAction",
     "WorkflowError",
+    "WorkflowCancelledError",
     "WorkflowEvent",
     "WorkflowInspectionState",
     "WorkflowPlan",
@@ -173,6 +189,7 @@ __all__ = [
     "create_book_intent",
     "create_document_intent",
     "create_document_profile",
+    "describe_error",
     "create_profile",
     "create_voice_source",
     "discover_engine_targets",
@@ -212,4 +229,5 @@ __all__ = [
     "validate_render_intent",
     "verify_engine_model",
     "verify_voice_source",
+    "VoiceInfo",
 ]

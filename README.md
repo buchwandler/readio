@@ -140,7 +140,7 @@ result = service.render(request)
 print(plan.steps, result.output, result.workspace_mode)
 ```
 
-The primary gateway API is `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `speak` synthesizes semantic text in memory; `inspect` reports specialist-backed workflow state without writing; `render` executes the complete file-to-audio workflow. Specialist CLIs remain available for deliberate package-level debugging. See the [Python API guide](docs/api.md).
+The primary gateway API is `Readio.synthesize()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `synthesize` returns semantic audio in memory without playback or output files; `Readio.speak()` optionally plays that result. `inspect` reports specialist-backed workflow state without writing; `render` executes the complete file-to-audio workflow. Specialist CLIs remain available for deliberate package-level debugging. See the [Python API guide](docs/api.md).
 
 Source inventory and saved intents use the same gateway:
 

@@ -10,6 +10,9 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from readio.api.types import (
+    CancellationToken,
+    EngineInfo,
+    EngineOptionInfo,
     BundleStatus,
     ComposeRequest,
     CompositionOptions,
@@ -29,16 +32,18 @@ from readio.api.types import (
     RunRequest,
     SourceChapter,
     SourceInspection,
+    TargetInfo,
     SpeakRequest,
     SpeakResult,
     StatusRequest,
+    VoiceInfo,
     VoiceRenderOptions,
     VoiceRenderRequest,
     WorkflowEvent,
     WorkflowPlan,
 )
 from readio.diagnostics import log_event, logger_for, timed_span
-from readio.errors import ReadioError
+from readio.errors import CatalogError, ReadioError
 from readio.integrations.ssmdconvert import inspect_source as _inspect_source_with_ssmdconvert
 from readio.intent import RenderIntent
 from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
@@ -255,14 +260,14 @@ class Readio:
     ) -> WorkspaceRef:
         return self.create_workspace(source, request, on_progress=on_progress)
 
-    def speak(
+    def synthesize(
         self,
         request: SpeakRequest,
         *,
-        play: bool = True,
         on_progress: Callable[[WorkflowEvent], None] | None = None,
+        cancellation: CancellationToken | None = None,
     ) -> SpeakResult:
-        """Synthesize semantic text entirely in memory and optionally play the result."""
+        """Synthesize semantic text in memory without playback or file output."""
         with timed_span(
             _LOGGER,
             "stage",
@@ -272,10 +277,126 @@ class Readio:
             engine=request.engine,
             target=request.target,
         ):
-            result = _speak_request(request, on_progress=on_progress)
+            return _speak_request(
+                request,
+                on_progress=on_progress,
+                cancellation=cancellation,
+            )
+
+    def speak(
+        self,
+        request: SpeakRequest,
+        *,
+        play: bool = True,
+        on_progress: Callable[[WorkflowEvent], None] | None = None,
+        cancellation: CancellationToken | None = None,
+    ) -> SpeakResult:
+        """Synthesize semantic text entirely in memory and optionally play the result."""
+        result = self.synthesize(
+            request,
+            on_progress=on_progress,
+            cancellation=cancellation,
+        )
         if play:
             play_audio(result.audio.audio, result.audio.sample_rate)
         return result
+
+    def list_engines(self) -> tuple[EngineInfo, ...]:
+        """List engines as Readio-owned application catalog records."""
+        from readio import engines as engine_api
+        from readio.catalog import engine_info
+
+        try:
+            return tuple(engine_info(item) for item in engine_api.list_engines())
+        except Exception as error:
+            raise CatalogError(
+                f"Cannot list engines: {error}",
+                operation="list_engines",
+                cause=error,
+            ) from error
+
+    def list_targets(
+        self,
+        engine: str,
+        *,
+        language: str | None = None,
+        offline: bool = False,
+        refresh: bool = False,
+    ) -> tuple[TargetInfo, ...]:
+        """Discover targets as Readio-owned application catalog records."""
+        from readio import engines as engine_api
+        from readio.catalog import target_info
+
+        try:
+            targets = engine_api.discover_engine_targets(
+                engine,
+                language=language,
+                offline=offline,
+                refresh=refresh,
+            )
+            return tuple(target_info(item) for item in targets)
+        except Exception as error:
+            raise CatalogError(
+                f"Cannot list targets for engine {engine!r}: {error}",
+                operation="list_targets",
+                engine=engine,
+                cause=error,
+                details={"language": language, "offline": offline, "refresh": refresh},
+            ) from error
+
+    def list_voices(
+        self,
+        *,
+        engine: str,
+        target: str,
+        language: str | None = None,
+        offline: bool = False,
+        refresh: bool = False,
+    ) -> tuple[VoiceInfo, ...]:
+        """List voices as Readio-owned application catalog records."""
+        from readio import voices as voice_api
+        from readio.catalog import voice_info
+
+        try:
+            voices = voice_api.list_voices(
+                engine=engine,
+                target=target,
+                language=language,
+                offline=offline,
+                refresh=refresh,
+            )
+            return tuple(info for item in voices if (info := voice_info(item)) is not None)
+        except Exception as error:
+            raise CatalogError(
+                f"Cannot list voices for {engine!r}:{target!r}: {error}",
+                operation="list_voices",
+                engine=engine,
+                target=target,
+                cause=error,
+                details={"language": language, "offline": offline, "refresh": refresh},
+            ) from error
+
+    def list_engine_options(
+        self,
+        engine: str,
+        *,
+        target: str | None = None,
+    ) -> tuple[EngineOptionInfo, ...]:
+        """Inspect engine options as Readio-owned application catalog records."""
+        from readio import engines as engine_api
+        from readio.catalog import engine_option_info
+
+        try:
+            options = engine_api.list_engine_options(engine, target=target)
+            return tuple(engine_option_info(item) for item in options)
+        except Exception as error:
+            raise CatalogError(
+                f"Cannot inspect options for engine {engine!r}: {error}",
+                operation="list_engine_options",
+                engine=engine,
+                target=target,
+                cause=error,
+            ) from error
 
     def plan(
         self,

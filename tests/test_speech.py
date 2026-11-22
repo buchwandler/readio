@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import io
 import sys
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -11,10 +13,11 @@ import pytest
 from renderplan import RenderProfile, RoleProfile
 
 from readio import speech
-from readio.api.types import AudioBuffer, SpeakRequest, SpeakResult
+from readio.api.types import AudioBuffer, CancellationToken, SpeakRequest, SpeakResult
 from readio.errors import (
+    OutputCollisionError,
+    WorkflowCancelledError,
     WorkflowReplanError,
-    WorkflowResolutionError,
     WorkflowStageError,
 )
 
@@ -314,10 +317,8 @@ def test_direct_voice_profile_creation_and_stored_profile_overrides(
 
 
 def test_profile_and_direct_voice_arguments_are_mutually_exclusive() -> None:
-    with pytest.raises(WorkflowResolutionError, match="mutually exclusive"):
-        speech._profile_for_request(
-            SpeakRequest(text="hello", profile=Path("profile.toml"), engine="kokoro")
-        )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        SpeakRequest(text="hello", profile=Path("profile.toml"), engine="kokoro")
 
 
 def test_preflight_rejection_keeps_segment_identity_and_measurements(
@@ -448,7 +449,7 @@ def test_replan_loop_is_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     assert f"speech 2 ({_SEGMENT_ID})" in str(caught.value)
 
 
-def test_readio_speak_returns_audio_and_playback_is_optional(
+def test_readio_synthesize_is_pure_and_speak_delegates_to_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     service_module = importlib.import_module("readio.api.service")
@@ -458,7 +459,13 @@ def test_readio_speak_returns_audio_and_playback_is_optional(
         profile_id="profile-1",
     )
     calls: list[Any] = []
-    monkeypatch.setattr(service_module, "_speak_request", lambda _request, **_options: result)
+    synthesize_options: list[dict[str, Any]] = []
+
+    def synthesize(_request: SpeakRequest, **options: Any) -> SpeakResult:
+        synthesize_options.append(options)
+        return result
+
+    monkeypatch.setattr(service_module, "_speak_request", synthesize)
     monkeypatch.setattr(
         service_module,
         "play_audio",
@@ -466,13 +473,30 @@ def test_readio_speak_returns_audio_and_playback_is_optional(
     )
     api = service_module.Readio()
     request = SpeakRequest(text="Hello", engine="kokoro", target="kokoro-v1")
+    token = CancellationToken()
 
+    assert api.synthesize(request, cancellation=token) is result
+    assert synthesize_options[-1]["cancellation"] is token
+    assert calls == []
+
+    original_synthesize = api.synthesize
+    delegated: list[dict[str, Any]] = []
+
+    def synthesize_spy(_request: SpeakRequest, **options: Any) -> SpeakResult:
+        delegated.append(options)
+        return original_synthesize(_request, **options)
+
+    monkeypatch.setattr(api, "synthesize", synthesize_spy)
     assert api.speak(request) is result
+    assert len(delegated) == 1
     assert calls[0][1] == 22050
     assert calls[0][0].tolist() == pytest.approx([0.2, -0.2])
     assert api.speak(request, play=False) is result
     assert len(calls) == 1
-    assert not list(tmp_path.iterdir()), "playback must not require pipeline files"
+    assert len(delegated) == 2
+    assert not list(tmp_path.iterdir()), (
+        "semantic speech and playback must not require pipeline files"
+    )
 
 
 def test_runtime_speech_has_no_readio_engine_import() -> None:
@@ -518,3 +542,160 @@ def test_play_audio_uses_generic_mono_output_stream(monkeypatch: pytest.MonkeyPa
     assert captured["channels"] == 1
     assert captured["dtype"] == "float32"
     assert captured["audio"].reshape(-1).tolist() == [0.25, -0.5]
+
+
+def test_speak_request_validates_boundary_and_copies_engine_options() -> None:
+    with pytest.raises(ValueError, match="whitespace-only"):
+        SpeakRequest(text="  \t\n")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        SpeakRequest(text="hello", profile=Path("profile.toml"), voice="engine:target/voice")
+    with pytest.raises(ValueError, match="requires --profile"):
+        SpeakRequest(text="hello", role="narrator")
+
+    options = {"speed": 1.0}
+    request = SpeakRequest(text="hello", engine_options=options)
+    options["speed"] = 1.5
+    assert request.engine_options == {"speed": 1.0}
+    with pytest.raises(TypeError):
+        request.engine_options["speed"] = 2.0  # type: ignore[index]
+    assert not hasattr(request, "__dict__")
+
+
+def test_audio_buffer_validates_sample_rate_and_channel_shape() -> None:
+    with pytest.raises(ValueError, match="sample_rate"):
+        AudioBuffer(audio=np.array([0.0]), sample_rate=0)
+    with pytest.raises(ValueError, match="one- or two-dimensional"):
+        AudioBuffer(audio=np.array(0.0), sample_rate=22050)
+    with pytest.raises(ValueError, match="channel dimension"):
+        AudioBuffer(audio=np.empty((2, 0)), sample_rate=22050)
+
+
+def test_audio_buffer_wav_bytes_are_in_memory_and_preserve_audio_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def filesystem_access(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("to_wav_bytes must not access the filesystem")
+
+    monkeypatch.setattr(Path, "open", filesystem_access)
+    monkeypatch.setattr(Path, "mkdir", filesystem_access)
+    buffer = AudioBuffer(
+        audio=np.array([[-1.0, 0.25], [1.0, 0.5]], dtype=np.float32),
+        sample_rate=24000,
+    )
+
+    encoded = buffer.to_wav_bytes()
+    assert buffer.frames == 2
+    assert buffer.duration_seconds == pytest.approx(2 / 24000)
+    assert buffer.channels == 2
+    with wave.open(io.BytesIO(encoded), "rb") as stream:
+        assert stream.getframerate() == 24000
+        assert stream.getnchannels() == 2
+        assert stream.getnframes() == 2
+        assert stream.getsampwidth() == 2
+        assert np.frombuffer(stream.readframes(2), dtype="<i2").tolist() == [
+            -32767,
+            8192,
+            32767,
+            16384,
+        ]
+
+
+def test_audio_buffer_write_wav_uses_same_encoder_and_replacement_policy(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "nested" / "speech.wav"
+    buffer = AudioBuffer(audio=np.array([0.25, -0.25], dtype=np.float32), sample_rate=22050)
+
+    assert buffer.write_wav(path) == path
+    assert path.read_bytes() == buffer.to_wav_bytes()
+    with pytest.raises(OutputCollisionError):
+        buffer.write_wav(path)
+
+    replacement = AudioBuffer(audio=np.array([0.5], dtype=np.float32), sample_rate=16000)
+    assert replacement.write_wav(path, replace=True) == path
+    assert path.read_bytes() == replacement.to_wav_bytes()
+    assert SpeakResult(audio=replacement, profile_id="profile").duration_seconds == pytest.approx(
+        1 / 16000
+    )
+
+
+def test_cancellation_token_raises_after_cancel() -> None:
+    token = CancellationToken()
+    assert not token.cancelled
+    token.raise_if_cancelled()
+
+    token.cancel()
+    token.cancel()
+    assert token.cancelled
+    with pytest.raises(WorkflowCancelledError, match="workflow cancelled"):
+        token.raise_if_cancelled()
+
+
+def test_cancelled_synthesis_does_not_compile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    setup = _install_pipeline(monkeypatch, tmp_path)
+    token = CancellationToken()
+    token.cancel()
+
+    with pytest.raises(WorkflowCancelledError):
+        speech.speak_request(
+            SpeakRequest(text="hello", engine="kokoro", target="kokoro-v1"),
+            cancellation=token,
+        )
+
+    assert setup["calls"] == []
+
+
+@pytest.mark.parametrize(
+    ("stage", "blocked_stage", "blocked_count"),
+    (
+        ("compile", "profile", 0),
+        ("profile", "build", 0),
+        ("build", "preflight", 0),
+        ("preflight", "build", 1),
+        ("replan", "preflight", 1),
+        ("render", "compose", 0),
+        ("compose", "result", 0),
+    ),
+)
+def test_cancellation_after_stage_prevents_following_work(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stage: str,
+    blocked_stage: str,
+    blocked_count: int,
+) -> None:
+    setup = _install_pipeline(monkeypatch, tmp_path)
+    import readio.integrations.audiocompose as compose_adapter
+    import readio.integrations.utterplan as plan_adapter
+    import readio.integrations.voicerender as render_adapter
+
+    operations: dict[str, tuple[Any, str]] = {
+        "compile": (plan_adapter, "compile_document"),
+        "profile": (render_adapter, "create_render_profile"),
+        "build": (plan_adapter, "build_render_plan"),
+        "replan": (plan_adapter, "build_render_plan"),
+        "preflight": (render_adapter, "preflight_render_plan"),
+        "render": (render_adapter, "render_renderplan_memory"),
+        "compose": (compose_adapter, "compose_renderplan_memory"),
+    }
+    module, name = operations[stage]
+    operation = getattr(module, name)
+    token = CancellationToken()
+
+    def cancel_after(*args: Any, **kwargs: Any) -> Any:
+        result = operation(*args, **kwargs)
+        if stage != "replan" or kwargs.get("previous_plan") is not None:
+            token.cancel()
+        return result
+
+    monkeypatch.setattr(module, name, cancel_after)
+    with pytest.raises(WorkflowCancelledError):
+        speech.speak_request(
+            SpeakRequest(text="hello", engine="kokoro", target="kokoro-v1"),
+            cancellation=token,
+        )
+
+    call_names = [call[0] for call in setup["calls"]]
+    assert call_names.count(blocked_stage) == blocked_count

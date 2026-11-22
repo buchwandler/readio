@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-import wave
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -12,9 +11,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
-    from readio.api.types import SpeakRequest, SpeakResult
+    from readio.api.types import CancellationToken, SpeakRequest, SpeakResult
 from readio.errors import (
-    OutputCollisionError,
     WorkflowReplanError,
     WorkflowResolutionError,
     WorkflowStageError,
@@ -202,10 +200,16 @@ def _word_timing(item: Any) -> Mapping[str, object]:
     }
 
 
+def _raise_if_cancelled(cancellation: CancellationToken | None) -> None:
+    if cancellation is not None:
+        cancellation.raise_if_cancelled()
+
+
 def speak_request(
     request: SpeakRequest,
     *,
     on_progress: WorkflowProgressHandler = None,
+    cancellation: CancellationToken | None = None,
 ) -> SpeakResult:
     """Run UtterPlan, VoiceRender, and AudioCompose entirely in memory."""
     from readio.api.types import AudioBuffer, SpeakResult
@@ -217,6 +221,7 @@ def speak_request(
     started = time.perf_counter()
     language = request.language or "en-US"
     compile_progress = normalize_workflow_progress("compile", "utterplan", on_progress)
+    _raise_if_cancelled(cancellation)
     try:
         compiled = utterplan_integration.compile_document(
             request.text,
@@ -233,6 +238,7 @@ def speak_request(
             cause=error,
         ) from error
 
+    _raise_if_cancelled(cancellation)
     try:
         profile = _profile_for_request(request)
     except WorkflowResolutionError:
@@ -241,8 +247,10 @@ def speak_request(
         raise WorkflowResolutionError(
             f"cannot resolve a RenderProfile: {error}", cause=error
         ) from error
+    _raise_if_cancelled(cancellation)
     profile_id = _profile_id(profile)
     flow_plan = compiled.plan
+    _raise_if_cancelled(cancellation)
     try:
         render_plan = utterplan_integration.build_render_plan(flow_plan, profile)
     except Exception as error:
@@ -255,9 +263,11 @@ def speak_request(
             cause=error,
         ) from error
 
+    _raise_if_cancelled(cancellation)
     seen_plan_ids: set[str] = set()
     replan_count = 0
     while True:
+        _raise_if_cancelled(cancellation)
         current_plan_id = _plan_id(render_plan)
         if current_plan_id in seen_plan_ids:
             raise WorkflowReplanError(
@@ -281,6 +291,7 @@ def speak_request(
                 cause=error,
             ) from error
 
+        _raise_if_cancelled(cancellation)
         status = getattr(preflight, "status", None)
         if status == "ok":
             break
@@ -312,6 +323,7 @@ def speak_request(
                 + ("; ".join(summary) or "no segment detail was supplied"),
                 details={**details, "replan_count": replan_count},
             )
+        _raise_if_cancelled(cancellation)
         try:
             refined_plan = utterplan_integration.build_render_plan(
                 flow_plan,
@@ -330,6 +342,7 @@ def speak_request(
                 cause=error,
                 details=details,
             ) from error
+        _raise_if_cancelled(cancellation)
         refined_plan_id = _plan_id(refined_plan)
         if refined_plan_id == current_plan_id or refined_plan_id in seen_plan_ids:
             raise WorkflowReplanError(
@@ -344,6 +357,7 @@ def speak_request(
         render_plan = refined_plan
         replan_count += 1
 
+    _raise_if_cancelled(cancellation)
     try:
         rendered = voicerender_integration.render_renderplan_memory(
             render_plan,
@@ -359,6 +373,7 @@ def speak_request(
             code=_code(error),
             cause=error,
         ) from error
+    _raise_if_cancelled(cancellation)
     if getattr(rendered, "error", None) is not None or not getattr(
         rendered, "selection_complete", False
     ):
@@ -411,6 +426,7 @@ def speak_request(
         )
         render_warnings.extend(getattr(speech, "warnings", ()))
 
+    _raise_if_cancelled(cancellation)
     try:
         composed = audiocompose_integration.compose_renderplan_memory(
             render_plan,
@@ -427,6 +443,7 @@ def speak_request(
             cause=error,
         ) from error
 
+    _raise_if_cancelled(cancellation)
     diagnostics = tuple(getattr(compiled, "diagnostics", ()))
     warnings = tuple(
         dict.fromkeys(
@@ -448,34 +465,7 @@ def speak_request(
 
 
 def _write_speech_wav(result: SpeakResult, output: str | Path) -> Path:
-    path = Path(output).expanduser()
-    if path.exists() or path.is_symlink():
-        raise OutputCollisionError(f"output already exists: {path}")
-    audio = np.asarray(result.audio.audio, dtype=np.float32)
-    if audio.ndim == 1:
-        channels = 1
-    elif audio.ndim == 2 and audio.shape[1] > 0:
-        channels = int(audio.shape[1])
-    else:
-        raise ValueError("AudioBuffer has an unsupported audio shape")
-    if result.audio.sample_rate <= 0:
-        raise ValueError("AudioBuffer has an invalid sample rate")
-    pcm = np.rint(np.clip(audio, -1.0, 1.0) * 32767).astype("<i2")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        raw = path.open("xb")
-    except FileExistsError as error:
-        raise OutputCollisionError(f"output already exists: {path}") from error
-    try:
-        with raw, wave.open(raw, "wb") as stream:
-            stream.setnchannels(channels)
-            stream.setsampwidth(2)
-            stream.setframerate(result.audio.sample_rate)
-            stream.writeframes(pcm.tobytes())
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
-    return path
+    return result.audio.write_wav(output)
 
 
 def speak(
@@ -494,6 +484,7 @@ def speak(
     output: str | Path | None = None,
     no_play: bool = False,
     on_progress: WorkflowProgressHandler = None,
+    cancellation: CancellationToken | None = None,
 ) -> SpeakResult:
     """Speak text semantically, while retaining the transitional function-call form."""
     from readio.api.types import SpeakRequest
@@ -522,15 +513,7 @@ def speak(
     ):
         raise ValueError("pass either a SpeakRequest or direct speak options, not both")
 
-    if request.profile is not None and any(
-        value is not None for value in (request.engine, request.target, request.voice)
-    ):
-        raise ValueError("--profile is mutually exclusive with --voice, --engine, and --target")
-
-    if request.role is not None and request.profile is None:
-        raise ValueError("--role requires --profile")
-
-    result = speak_request(request, on_progress=on_progress)
+    result = speak_request(request, on_progress=on_progress, cancellation=cancellation)
     if output is not None:
         _write_speech_wav(result, output)
     if not no_play:

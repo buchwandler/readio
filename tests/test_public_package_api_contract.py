@@ -99,6 +99,12 @@ def test_readio_public_api_centers_on_unified_workflows() -> None:
         )
 
     assert callable(api.Readio.speak)
+    assert callable(api.Readio.synthesize)
+    assert callable(api.Readio.list_engines)
+    assert callable(api.Readio.list_targets)
+    assert callable(api.Readio.list_voices)
+    assert callable(api.Readio.list_engine_options)
+    assert callable(api.describe_error)
     assert callable(api.Readio.render)
     assert callable(api.Readio.inspect)
     assert callable(api.Readio.inspect_source)
@@ -158,6 +164,14 @@ def test_readio_workflow_foundation_types_are_public() -> None:
         "VoiceRenderOptions",
         "CompositionOptions",
         "ExportOptions",
+        "CancellationToken",
+        "CatalogError",
+        "EngineInfo",
+        "EngineOptionInfo",
+        "ErrorInfo",
+        "TargetInfo",
+        "VoiceInfo",
+        "WorkflowCancelledError",
         "SpeakRequest",
         "SourceChapter",
         "SourceInspection",
@@ -196,3 +210,51 @@ def test_readio_api_control_types_do_not_leak_specialist_implementations() -> No
         "SpacyLanguageModel",
     ):
         assert not hasattr(api, specialist_type), f"specialist type leaked: {specialist_type}"
+
+
+def test_describe_error_projects_expected_workflow_context() -> None:
+    from readio import api
+    from readio.api.types import ErrorInfo
+    from readio.errors import WorkflowStageError
+
+    error = WorkflowStageError(
+        "render",
+        "engine failed",
+        package="voicerender",
+        selector="speech 2",
+        code="engine.failed",
+        cause=RuntimeError("engine failed"),
+        details={"retryable": True},
+    )
+
+    info = api.describe_error(error)
+    assert info == ErrorInfo(
+        type="WorkflowStageError",
+        message=str(error),
+        code="engine.failed",
+        stage="render",
+        package="voicerender",
+        selector="speech 2",
+        details={"retryable": True},
+    )
+    with pytest.raises(TypeError, match="expects a ReadioError"):
+        api.describe_error(RuntimeError("unexpected"))
+
+
+def test_application_api_documentation_promotes_synthesis_and_catalog() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    api_docs = (root / "docs" / "api.md").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    for term in (
+        "Readio.synthesize()",
+        "to_wav_bytes()",
+        "Readio.list_targets()",
+        "Readio.list_engine_options()",
+        "CancellationToken",
+        "describe_error()",
+    ):
+        assert term in api_docs
+    assert "Readio.synthesize()" in readme

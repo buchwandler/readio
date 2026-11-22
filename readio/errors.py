@@ -10,6 +10,27 @@ class ReadioError(Exception):
     """Base exception for errors produced by Readio orchestration."""
 
 
+class CatalogError(ReadioError):
+    """A normalized application catalog operation failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str,
+        engine: str | None = None,
+        target: str | None = None,
+        cause: Exception | None = None,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.operation = operation
+        self.engine = engine
+        self.target = target
+        self.cause = cause
+        self.details = dict(details or {})
+
+
 class WorkflowError(ReadioError):
     """Base for errors raised while resolving or executing a Readio workflow."""
 
@@ -23,6 +44,13 @@ class WorkflowError(ReadioError):
         super().__init__(message)
         self.cause = cause
         self.details = dict(details or {})
+
+
+class WorkflowCancelledError(WorkflowError):
+    """A synchronous workflow was cancelled at a cooperative stage boundary."""
+
+    def __init__(self, message: str = "workflow cancelled") -> None:
+        super().__init__(message)
 
 
 class WorkflowResolutionError(WorkflowError):

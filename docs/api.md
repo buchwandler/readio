@@ -1,6 +1,6 @@
 # Python API
 
-`readio.api` is the user-facing orchestration gateway. Its primary workflow methods are `Readio.speak()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. Specialist packages own their stage APIs, schemas, validation, artifacts, and reports; Readio normalizes workflow planning and execution without re-exporting stage request types as its primary API.
+`readio.api` is the user-facing orchestration gateway. `Readio.synthesize()` is the canonical application speech method and returns in-memory audio without playback; `Readio.speak()` is its optional-playback convenience wrapper. The file-to-audio workflow remains `Readio.inspect(RenderRequest)` and `Readio.render(RenderRequest)`. Specialist packages own their stage APIs, schemas, validation, artifacts, and reports; Readio normalizes workflow planning and execution without re-exporting stage request types as its primary API.
 
 ## Source inspection
 
@@ -20,18 +20,43 @@ Use `inspect_source()` when a caller needs source metadata or chapter inventory 
 
 ## Semantic speech
 
+````python
 ```python
 from readio.api import Readio, SpeakRequest
 
 service = Readio()
-result = service.speak(
-    SpeakRequest(text="Hello from Readio.", voice="kokoro:v1.0/af_heart"),
-    play=False,
+request = SpeakRequest(text="Hello from Readio.", voice="kokoro:v1.0/af_heart")
+result = service.synthesize(request)
+wav_bytes = result.audio.to_wav_bytes()
+print(
+    result.audio.sample_rate,
+    result.audio.channels,
+    result.audio.frames,
+    result.duration_seconds,
 )
-print(result.audio.sample_rate, result.audio.channels, len(result.audio))
+````
+
+`Readio.synthesize()` returns a `SpeakResult` containing an `AudioBuffer`. It does not play audio, write files, or persist workflow artifacts. Use `result.audio.write_wav(path)` when a WAV file is explicitly needed. `Readio.speak(request, play=True)` delegates to synthesis and optionally plays the result; the module-level `readio.api.speak(...)` remains available for compatibility.
+
+Pass a `CancellationToken` to `synthesize()` when the application needs cooperative cancellation. Readio checks the token at stage boundaries. It does not interrupt a VoiceRender engine call already in progress.
+
+## Application catalog and errors
+
+Use the `Readio` instance methods for normalized application catalog records. They return Readio-owned DTOs rather than VoiceRender descriptor objects:
+
+```python
+engines = service.list_engines()
+targets = service.list_targets(engines[0].id, language="en-US", offline=True)
+voices = service.list_voices(
+    engine=engines[0].id,
+    target=targets[0].id,
+    language="en-US",
+    offline=True,
+)
+options = service.list_engine_options(engines[0].id, target=targets[0].id)
 ```
 
-Semantic speech returns an `AudioBuffer` in memory. Playback is optional, and this path does not create a bundle or intermediate artifacts. The `readio.api.speak(...)` convenience function is also available.
+`CatalogError` wraps expected failures from normalized discovery and option inspection. Use `describe_error()` to project any expected `ReadioError` into the stable `ErrorInfo` DTO for application transport. The module-level discovery delegates documented below remain raw compatibility APIs and preserve specialist results.
 
 ## Complete file-to-audio workflow
 
@@ -168,7 +193,7 @@ result = service.render(request)
 
 ## Management delegates
 
-`readio.api` also exposes delegates for VoiceRender engine/model discovery, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. These calls preserve specialist results and validation behavior.
+`readio.api` retains module-level delegates for VoiceRender engine/model discovery, voice discovery and source/clone operations, selector parsing, and RenderProfile creation, validation, refresh, and role management. They preserve specialist results and validation behavior for compatibility. Application integrations should use `Readio.list_engines()`, `Readio.list_targets()`, `Readio.list_voices()`, and `Readio.list_engine_options()` for normalized Readio-owned records.
 
 ONNX Runtime controls delegate to VoiceRender's public package-root APIs:
 

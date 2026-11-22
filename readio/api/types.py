@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import wave
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from io import BytesIO
 from pathlib import Path
+from threading import Event
+from types import MappingProxyType
 from typing import Any, Literal
 
 import numpy as np
+
+from readio.errors import OutputCollisionError, WorkflowCancelledError
 
 from readio.workspace import (
     CreateWorkspaceRequest,
@@ -265,7 +271,7 @@ class ExportOptions:
     ffprobe: Path | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SpeakRequest:
     text: str
     profile: Path | None = None
@@ -279,24 +285,83 @@ class SpeakRequest:
     offline: bool = False
     refresh: bool = False
 
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("text must not be empty or whitespace-only")
+        if self.profile is not None and any(
+            value is not None for value in (self.engine, self.target, self.voice)
+        ):
+            raise ValueError(
+                "profile is mutually exclusive with direct engine, target, and voice arguments"
+            )
+        if self.role is not None and self.profile is None:
+            raise ValueError("--role requires --profile")
+        object.__setattr__(self, "engine_options", MappingProxyType(dict(self.engine_options)))
+
 
 @dataclass(frozen=True, slots=True)
 class AudioBuffer:
-    """Stable audio payload returned by semantic in-memory speech."""
+    """Validated in-memory audio and WAV transport boundary."""
 
     audio: np.ndarray
     sample_rate: int
 
+    def __post_init__(self) -> None:
+        if self.sample_rate <= 0:
+            raise ValueError("sample_rate must be positive")
+        audio = np.asarray(self.audio)
+        if audio.ndim not in {1, 2} or (audio.ndim == 2 and audio.shape[1] <= 0):
+            raise ValueError(
+                "audio must be a one- or two-dimensional array with a valid channel dimension"
+            )
+        object.__setattr__(self, "audio", audio)
+
     @property
     def channels(self) -> int:
-        if self.audio.ndim == 1:
-            return 1
-        if self.audio.ndim == 2 and self.audio.shape[1] > 0:
-            return int(self.audio.shape[1])
-        raise ValueError("audio must be a non-empty one- or two-dimensional array")
+        return 1 if self.audio.ndim == 1 else int(self.audio.shape[1])
+
+    @property
+    def frames(self) -> int:
+        return int(self.audio.shape[0])
+
+    @property
+    def duration_seconds(self) -> float:
+        return self.frames / self.sample_rate
 
     def __len__(self) -> int:
-        return int(self.audio.shape[0]) if self.audio.ndim in {1, 2} else 0
+        return self.frames
+
+    def to_wav_bytes(self) -> bytes:
+        """Encode the current float audio as an in-memory PCM16 WAV."""
+        audio = np.asarray(self.audio, dtype=np.float32)
+        pcm = np.rint(np.clip(audio, -1.0, 1.0) * 32767).astype("<i2")
+        output = BytesIO()
+        with wave.open(output, "wb") as stream:
+            stream.setnchannels(self.channels)
+            stream.setsampwidth(2)
+            stream.setframerate(self.sample_rate)
+            stream.writeframes(pcm.tobytes())
+        return output.getvalue()
+
+    def write_wav(self, path: str | Path, *, replace: bool = False) -> Path:
+        """Write this buffer as PCM16 WAV, refusing existing paths unless allowed."""
+        output_path = Path(path).expanduser()
+        if not replace and (output_path.exists() or output_path.is_symlink()):
+            raise OutputCollisionError(f"output already exists: {output_path}")
+        payload = self.to_wav_bytes()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with output_path.open("wb" if replace else "xb") as stream:
+                stream.write(payload)
+        except FileExistsError as error:
+            if not replace:
+                raise OutputCollisionError(f"output already exists: {output_path}") from error
+            raise
+        except Exception:
+            if not replace:
+                output_path.unlink(missing_ok=True)
+            raise
+        return output_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +377,90 @@ class SpeakResult:
     def sample_rate(self) -> int:
         """Compatibility shortcut for callers that only need basic playback metadata."""
         return self.audio.sample_rate
+
+    @property
+    def duration_seconds(self) -> float:
+        return self.audio.duration_seconds
+
+
+@dataclass(frozen=True, slots=True)
+class EngineInfo:
+    id: str
+    version: str | None
+    installed: bool
+    runnable: bool
+    features: tuple[str, ...]
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetInfo:
+    id: str
+    languages: tuple[str, ...]
+    status: str
+    runtime_available: bool
+    default_voice: str | None
+    voice_count: int
+    qualities: tuple[str, ...]
+    voice_mode: str | None
+    sample_rate: int | None
+    features: tuple[str, ...]
+    reference_only: bool
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceInfo:
+    id: str
+    language: str | None
+    locale: str | None
+    language_label: str | None
+    gender: str
+    kind: str | None
+    default: bool
+    runtime_available: bool
+
+
+@dataclass(frozen=True, slots=True)
+class EngineOptionInfo:
+    name: str
+    value_type: str | None
+    required: bool
+    default: object
+    choices: tuple[object, ...]
+    minimum: int | float | None
+    maximum: int | float | None
+    description: str
+    identity_affecting: bool
+    runtime_only: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorInfo:
+    type: str
+    message: str
+    code: str | None = None
+    stage: str | None = None
+    package: str | None = None
+    selector: str | None = None
+    details: Mapping[str, object] = dataclass_field(default_factory=dict)
+
+
+class CancellationToken:
+    """Thread-safe cooperative cancellation signal for synchronous workflows."""
+
+    def __init__(self) -> None:
+        self._event = Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def raise_if_cancelled(self) -> None:
+        if self.cancelled:
+            raise WorkflowCancelledError()
 
 
 @dataclass(frozen=True, slots=True)
