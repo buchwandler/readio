@@ -8,7 +8,7 @@ from pathlib import Path
 
 def skill_path() -> Path:
     """Return the installed Readio Skill resource path."""
-    resource = files("readio").joinpath("skills", "readio", "SKILL.md")
+    resource = files("readio").joinpath("skills").joinpath("readio").joinpath("SKILL.md")
     if not resource.is_file():
         raise FileNotFoundError("The packaged Readio Skill is missing")
     return Path(str(resource))
