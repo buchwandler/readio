@@ -23,7 +23,7 @@ from readio.integrations.audioexport import preflight_export, supported_formats
 def _specialist_capability(package: str) -> SpecialistCapability:
     try:
         package_version = distribution_version(package)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         return SpecialistCapability(
             package=package,
             version=None,
@@ -56,7 +56,7 @@ def synthesis_capabilities(service: Any) -> SynthesisCapabilities:
         return SynthesisCapabilities(specialist.state, (), specialist.reason)
     try:
         engines = service.list_engines()
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         return SynthesisCapabilities("unknown", (), f"Cannot list synthesis engines: {error}")
     if any(engine.runnable for engine in engines):
         return SynthesisCapabilities("ready", engines)
@@ -70,7 +70,7 @@ def synthesis_capabilities(service: Any) -> SynthesisCapabilities:
 def _collect_export_formats() -> tuple[tuple[ExportFormatCapability, ...], str | None]:
     try:
         formats = supported_formats()
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         return (), str(error)
 
     results: list[ExportFormatCapability] = []
@@ -92,7 +92,7 @@ def _collect_export_formats() -> tuple[tuple[ExportFormatCapability, ...], str |
             continue
         try:
             preflight_export(name)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             results.append(ExportFormatCapability(name, extension, False, str(error)))
         else:
             results.append(ExportFormatCapability(name, extension, True))

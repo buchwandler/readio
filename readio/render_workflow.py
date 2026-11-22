@@ -100,7 +100,7 @@ def _specialist_versions() -> tuple[Mapping[str, str | None], tuple[str, ...]]:
     for package in SPECIALIST_PACKAGES:
         try:
             version = distribution_version(package)
-        except Exception:
+        except Exception:  # noqa: BLE001
             versions[package] = None
             warnings.append(f"Could not determine the installed version of {package}.")
         else:
