@@ -443,6 +443,8 @@ class ErrorInfo:
     package: str | None = None
     selector: str | None = None
     details: Mapping[str, object] = dataclass_field(default_factory=dict)
+    recoverable: bool = False
+    suggested_action: str | None = None
 
 
 class CancellationToken:
@@ -481,6 +483,59 @@ class SourceInspection:
     chapters: tuple[SourceChapter, ...] = ()
 
 
+CapabilityState = Literal["ready", "unavailable", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class SpecialistCapability:
+    package: str
+    version: str | None
+    state: CapabilityState
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowCapabilities:
+    conversion: CapabilityState
+    planning: CapabilityState
+    synthesis: CapabilityState
+    composition: CapabilityState
+    export: CapabilityState
+
+
+@dataclass(frozen=True, slots=True)
+class ExportFormatCapability:
+    name: str
+    extension: str
+    available: bool
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceCapabilities:
+    source: SourceInspection
+    chapter_selection: bool
+    persistent_workspace: bool
+    default_output_format: str
+
+
+@dataclass(frozen=True, slots=True)
+class SynthesisCapabilities:
+    state: CapabilityState
+    engines: tuple[EngineInfo, ...]
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReadioCapabilities:
+    readio_version: str
+    specialists: tuple[SpecialistCapability, ...]
+    workflow: WorkflowCapabilities
+    engines: tuple[EngineInfo, ...]
+    export_formats: tuple[ExportFormatCapability, ...]
+    warnings: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class RenderRequest:
     source: Path
@@ -504,6 +559,41 @@ class RenderRequest:
     export: ExportOptions = dataclass_field(default_factory=ExportOptions)
 
 
+WorkflowReasonCode = Literal[
+    "artifact_missing",
+    "artifact_partial",
+    "artifact_current",
+    "artifact_stale",
+    "explicit_rebuild",
+    "inspection_deferred",
+    "dependency_not_ready",
+    "specialist_blocked",
+    "specialist_error",
+    "specialist_state_unknown",
+    "replacement_not_authorized",
+    "replacement_not_safe",
+    "output_replacement_required",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowBlocker:
+    code: str
+    message: str
+    owner: str | None = None
+    recoverable: bool = True
+    suggested_action: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowArtifactRef:
+    kind: str
+    owner: str
+    path: Path | None = None
+    identity: str | None = None
+    state: WorkflowInspectionState | None = None
+
+
 @dataclass(frozen=True)
 class WorkflowStep:
     stage: WorkflowStage
@@ -514,6 +604,10 @@ class WorkflowStep:
     force: bool = False
     state: WorkflowInspectionState = "unknown"
     details: Mapping[str, object] = dataclass_field(default_factory=dict)
+    reason_code: WorkflowReasonCode = "specialist_state_unknown"
+    inputs: tuple[WorkflowArtifactRef, ...] = ()
+    outputs: tuple[WorkflowArtifactRef, ...] = ()
+    blockers: tuple[WorkflowBlocker, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -525,6 +619,39 @@ class WorkflowPlan:
     output: Path | None
     steps: tuple[WorkflowStep, ...]
     warnings: tuple[str, ...] = ()
+    schema_version: int = 1
+
+    @property
+    def executable(self) -> bool:
+        return not any(step.action == "blocked" for step in self.steps)
+
+
+@dataclass(frozen=True, slots=True)
+class StageExecutionRecord:
+    stage: WorkflowStage
+    package: str
+    action: WorkflowAction
+    selector: str | None
+    state_before: WorkflowInspectionState
+    state_after: WorkflowInspectionState | None
+    elapsed_seconds: float
+    reason_code: WorkflowReasonCode
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionReport:
+    source: Path
+    workspace: Path | None
+    workspace_mode: WorkspaceMode
+    selected_chapters: str
+    profile: Path
+    variant: str
+    output: Path
+    output_format: str
+    stages: tuple[StageExecutionRecord, ...]
+    specialist_versions: Mapping[str, str | None]
+    warnings: tuple[str, ...]
+    elapsed_seconds: float
 
 
 @dataclass(frozen=True)
@@ -536,6 +663,7 @@ class RenderResult:
     executed_stages: tuple[str, ...]
     reused_stages: tuple[str, ...]
     warnings: tuple[str, ...] = ()
+    report: ExecutionReport | None = None
 
 
 @dataclass(frozen=True)

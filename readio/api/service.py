@@ -11,6 +11,10 @@ from typing import Any, cast
 
 from readio.api.types import (
     CancellationToken,
+    ExportFormatCapability,
+    ReadioCapabilities,
+    SourceCapabilities,
+    SynthesisCapabilities,
     EngineInfo,
     EngineOptionInfo,
     BundleStatus,
@@ -49,7 +53,7 @@ from readio.intent import RenderIntent
 from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
 from readio.pipeline import compose, export, plan, render, render_plan
 from readio.playback import play_audio
-from readio.progress import normalize_progress
+from readio.progress import cancellation_aware_callback, check_cancellation, normalize_progress
 from readio.render_service import _compose_options, _planner_config
 from readio.speech import speak_request as _speak_request
 from readio.status import inspect_status
@@ -301,6 +305,30 @@ class Readio:
             play_audio(result.audio.audio, result.audio.sample_rate)
         return result
 
+    def capabilities(self) -> ReadioCapabilities:
+        """Return read-only aggregate installation and workflow capabilities."""
+        from readio.capabilities import collect_capabilities
+
+        return collect_capabilities(self)
+
+    def source_capabilities(self, source: str | Path) -> SourceCapabilities:
+        """Inspect capabilities for one concrete source without creating a workspace."""
+        from readio.capabilities import source_capabilities
+
+        return source_capabilities(self, source)
+
+    def synthesis_capabilities(self) -> SynthesisCapabilities:
+        """Return normalized synthesis-engine availability without loading a model."""
+        from readio.capabilities import synthesis_capabilities
+
+        return synthesis_capabilities(self)
+
+    def export_capabilities(self) -> tuple[ExportFormatCapability, ...]:
+        """Return output formats and their read-only AudioExport preflight status."""
+        from readio.capabilities import export_capabilities
+
+        return export_capabilities()
+
     def list_engines(self) -> tuple[EngineInfo, ...]:
         """List engines as Readio-owned application catalog records."""
         from readio import engines as engine_api
@@ -457,6 +485,8 @@ class Readio:
         *,
         dry_run: bool = False,
         on_progress: Callable[[Any], None] | None = None,
+        cancellation: CancellationToken | None = None,
+        include_report: bool = False,
     ) -> Any:
         """Execute a complete RenderRequest, or the legacy VoiceRender stage adapter."""
         if isinstance(workspace, RenderRequest):
@@ -470,7 +500,17 @@ class Readio:
                 source=str(workspace.source),
                 dry_run=dry_run,
             ):
-                return render_workflow(self, workspace, dry_run=dry_run, on_progress=on_progress)
+                workflow_options: dict[str, Any] = {
+                    "dry_run": dry_run,
+                    "on_progress": on_progress,
+                }
+                if cancellation is not None:
+                    workflow_options["cancellation"] = cancellation
+                if include_report:
+                    workflow_options["include_report"] = True
+                return render_workflow(self, workspace, **workflow_options)
+        if include_report:
+            raise TypeError("include_report is only supported with a file-to-audio RenderRequest")
         if request is None:
             raise TypeError("the VoiceRender stage API requires a VoiceRenderRequest")
         if dry_run:
@@ -484,7 +524,19 @@ class Readio:
             output_root=request.output_root,
             cache_dir=request.cache_dir,
         ):
-            return render(self._workspace(workspace), request, on_event=on_progress)
+            from readio.integrations.voicerender import unwrap_workflow_cancellation
+
+            check_cancellation(cancellation, "render")
+            callback = cancellation_aware_callback(cancellation, on_progress, stage="render")
+            try:
+                result = render(self._workspace(workspace), request, on_event=callback)
+            except Exception as error:
+                cancellation_error = unwrap_workflow_cancellation(error)
+                if cancellation_error is not None:
+                    raise cancellation_error from error
+                raise
+            check_cancellation(cancellation, "render")
+            return result
 
     def compose(
         self,
@@ -589,15 +641,21 @@ class Readio:
         *,
         dry_run: bool = False,
         on_progress: Callable[[Any], None] | None = None,
+        cancellation: CancellationToken | None = None,
+        include_report: bool = False,
         **overrides: Any,
     ) -> RenderResult | WorkflowPlan:
         """Render an intent through the canonical RenderRequest workflow."""
         request = self.request_from_intent(intent, **overrides)
-        return self.render(
-            _with_execution_options(request, options),
-            dry_run=dry_run,
-            on_progress=on_progress,
-        )
+        render_options: dict[str, Any] = {
+            "dry_run": dry_run,
+            "on_progress": on_progress,
+        }
+        if cancellation is not None:
+            render_options["cancellation"] = cancellation
+        if include_report:
+            render_options["include_report"] = True
+        return self.render(_with_execution_options(request, options), **render_options)
 
     def run(
         self,

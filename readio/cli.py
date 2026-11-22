@@ -9,8 +9,6 @@ import shlex
 import sys
 import traceback
 from collections.abc import Mapping, Sequence
-from dataclasses import fields, is_dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +17,8 @@ from .cli_control import CLIUsageError, add_control_commands, run_control_comman
 from .diagnostics import configure_diagnostics, log_event, logger_for, timed_span
 from .doctor import doctor_report, format_doctor_report
 from .integrations.audioexport import supported_formats
+
+from readio.api.serialization import error_info_to_dict, serialize_public
 from .intent import (
     CLIP_POLICIES,
     COMPOSE_EMPHASIS_POLICIES,
@@ -746,28 +746,18 @@ def _progress(event: api.WorkflowEvent) -> None:
     print(f"{event.stage}: {message}{details}".rstrip(), file=sys.stderr)
 
 
-def _json_value(value: Any) -> Any:
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Path):
-        return value.as_posix()
-    if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
-    if isinstance(value, Mapping):
-        return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [_json_value(item) for item in value]
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    try:
-        return _json_value(vars(value))
-    except TypeError:
-        return str(value)
-
-
 def _emit_result(result: Any, *, as_json: bool, human: str | None = None) -> int:
     if as_json:
-        print(json.dumps({"ok": True, "result": _json_value(result)}, ensure_ascii=False))
+        serialized = serialize_public(result)
+        if (
+            isinstance(serialized, Mapping)
+            and isinstance(serialized.get("schema"), str)
+            and "result" in serialized
+        ):
+            payload = {"ok": True, **serialized}
+        else:
+            payload = {"ok": True, "result": serialized}
+        print(json.dumps(payload, ensure_ascii=False))
     else:
         print(human if human is not None else str(result))
     return 0
@@ -803,6 +793,10 @@ def _run_speak(args: argparse.Namespace) -> int:
 
 def _report_error(error: Exception, args: argparse.Namespace, *, status: int) -> int:
     if getattr(args, "json", False):
+        if isinstance(error, api.ReadioError):
+            payload = {"ok": False, "error": error_info_to_dict(api.describe_error(error))}
+            print(json.dumps(payload, ensure_ascii=False))
+            return status
         details = {
             "type": type(error).__name__,
             "code": getattr(error, "code", None),

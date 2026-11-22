@@ -5,10 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from time import perf_counter
+from types import MappingProxyType
 from tempfile import TemporaryDirectory
 from typing import Any
 
 from readio.api.types import (
+    CancellationToken,
+    ExecutionReport,
+    StageExecutionRecord,
+    WorkflowBlocker,
     ComposeRequest,
     ExportRequest,
     PlanRequest,
@@ -31,9 +37,18 @@ from readio.integrations.audiocompose import inspect_bundle_composition
 from readio.integrations.audioexport import inspect_bundle_export, supported_formats
 from readio.integrations.ssmdconvert import inspect_source, inspect_source_provenance
 from readio.integrations.utterplan import inspect_bundle_compile, inspect_bundle_projection
-from readio.integrations.voicerender import inspect_bundle_render, load_render_profile
+from readio.integrations.voicerender import (
+    inspect_bundle_render,
+    load_render_profile,
+    unwrap_workflow_cancellation,
+)
+from readio._packages import SPECIALIST_PACKAGES, distribution_version
 from readio.intent import _default_output_path
-from readio.progress import normalize_workflow_progress
+from readio.progress import (
+    cancellation_aware_callback,
+    check_cancellation,
+    normalize_workflow_progress,
+)
 from readio.workflow import make_workflow_plan, normalize_inspection_state, plan_workflow_step
 from readio.workspace import (
     CreateWorkspaceRequest,
@@ -79,6 +94,22 @@ def _value(report: object, name: str, default: Any = None) -> Any:
     return getattr(report, name, default)
 
 
+def _specialist_versions() -> tuple[Mapping[str, str | None], tuple[str, ...]]:
+    versions: dict[str, str | None] = {}
+    warnings: list[str] = []
+    for package in SPECIALIST_PACKAGES:
+        try:
+            version = distribution_version(package)
+        except Exception:
+            versions[package] = None
+            warnings.append(f"Could not determine the installed version of {package}.")
+        else:
+            versions[package] = version
+            if version is None:
+                warnings.append(f"No installed version metadata for {package}.")
+    return MappingProxyType(versions), tuple(warnings)
+
+
 def _replacement_safe(report: object) -> bool:
     value = _value(report, "replacement_safe", _value(report, "reset_safe", False))
     return value is True
@@ -95,16 +126,28 @@ def _is_within(path: Path, directory: Path) -> bool:
 def _resolve(request: RenderRequest) -> _ResolvedRender:
     try:
         source = Path(request.source).expanduser().resolve(strict=True)
+    except Exception as exc:
+        raise WorkflowResolutionError(
+            f"Cannot resolve render source: {exc}", cause=exc, code="invalid_request"
+        ) from exc
+    try:
         profile = Path(request.profile).expanduser().resolve(strict=True)
+    except Exception as exc:
+        raise WorkflowResolutionError(
+            f"Cannot resolve RenderProfile: {exc}", cause=exc, code="invalid_profile"
+        ) from exc
+    try:
         policy = resolve_workspace_policy(source, bundle=request.bundle)
     except Exception as exc:
         raise WorkflowResolutionError(
-            f"Cannot resolve render source, profile, or workspace policy: {exc}", cause=exc
+            f"Cannot resolve workspace policy: {exc}", cause=exc, code="invalid_request"
         ) from exc
     if not profile.is_file():
         error = FileNotFoundError(profile)
         raise WorkflowResolutionError(
-            f"RenderProfile is not a regular file: {profile}", cause=error
+            f"RenderProfile is not a regular file: {profile}",
+            cause=error,
+            code="invalid_profile",
         )
     if request.rebuild_from not in {None, *_STAGE_ORDER}:
         raise WorkflowResolutionError(f"Unknown rebuild stage: {request.rebuild_from!r}")
@@ -122,10 +165,24 @@ def _resolve(request: RenderRequest) -> _ResolvedRender:
         source_kind = source_inspection.kind
         if source_kind not in {"book", "document"}:
             raise ValueError(f"SSMDConvert returned unsupported source kind {source_kind!r}")
+    except Exception as exc:
+        raise WorkflowResolutionError(
+            f"Cannot inspect source: {exc}", cause=exc, code="unsupported_source"
+        ) from exc
+    try:
         load_render_profile(profile)
+    except Exception as exc:
+        raise WorkflowResolutionError(
+            f"Cannot load RenderProfile: {exc}", cause=exc, code="invalid_profile"
+        ) from exc
+    try:
         formats = supported_formats()
     except Exception as exc:
-        raise WorkflowResolutionError(f"Cannot inspect render inputs: {exc}", cause=exc) from exc
+        raise WorkflowResolutionError(
+            f"Cannot inspect AudioExport formats: {exc}",
+            cause=exc,
+            code="unsupported_output_format",
+        ) from exc
 
     selected_format = request.format or "auto"
     if not isinstance(selected_format, str) or not selected_format.strip():
@@ -135,16 +192,23 @@ def _resolve(request: RenderRequest) -> _ResolvedRender:
         selected_format = "m4b" if source_kind == "book" else "mp3"
     if selected_format not in formats:
         raise WorkflowResolutionError(
-            f"AudioExport does not support output format {selected_format!r}"
+            f"AudioExport does not support output format {selected_format!r}",
+            code="unsupported_output_format",
         )
     if source_kind == "book" and selected_format != "m4b":
-        raise WorkflowResolutionError("book sources can only be rendered as m4b audiobooks")
+        raise WorkflowResolutionError(
+            "book sources can only be rendered as m4b audiobooks",
+            code="unsupported_output_format",
+        )
     if source_kind == "document" and selected_format == "m4b":
-        raise WorkflowResolutionError("m4b output requires a book source")
+        raise WorkflowResolutionError(
+            "m4b output requires a book source", code="unsupported_output_format"
+        )
     extension = getattr(formats[selected_format], "extension", None)
     if not isinstance(extension, str) or not extension.startswith("."):
         raise WorkflowResolutionError(
-            "AudioExport returned a format without a valid file extension"
+            "AudioExport returned a format without a valid file extension",
+            code="unsupported_output_format",
         )
 
     try:
@@ -154,18 +218,23 @@ def _resolve(request: RenderRequest) -> _ResolvedRender:
             else _default_output_path(source, source_kind, selected_format)
         )
         output = requested_output.resolve(strict=False)
-        if output.suffix.casefold() != extension.casefold():
-            raise WorkflowResolutionError(
-                f"output path must use the {extension} extension for format {selected_format!r}"
-            )
     except Exception as exc:
         raise WorkflowResolutionError(
-            f"Cannot resolve final output path: {exc}", cause=exc
+            f"Cannot resolve final output path: {exc}", cause=exc, code="invalid_output"
         ) from exc
+    if output.suffix.casefold() != extension.casefold():
+        raise WorkflowResolutionError(
+            f"output path must use the {extension} extension for format {selected_format!r}",
+            code="invalid_output",
+        )
     if output == source:
-        raise WorkflowResolutionError("final output must not overwrite the source")
+        raise WorkflowResolutionError(
+            "final output must not overwrite the source", code="invalid_output"
+        )
     if policy.mode == "persistent" and _is_within(output, policy.root):
-        raise WorkflowResolutionError("final output must be outside the persistent bundle")
+        raise WorkflowResolutionError(
+            "final output must be outside the persistent bundle", code="invalid_output"
+        )
     warnings: list[str] = []
     if policy.source_is_bundle and request.bundle is not None:
         explicit = Path(request.bundle).expanduser().resolve(strict=False)
@@ -483,6 +552,15 @@ def _inspect_with_policy(
                 "AudioCompose requested a VoiceRender rerender, but VoiceRender did not "
                 "certify replacement safety."
             ),
+            reason_code="replacement_not_safe",
+            blockers=(
+                WorkflowBlocker(
+                    code="replacement_not_safe",
+                    message="VoiceRender did not certify replacement as safe.",
+                    owner="voicerender",
+                    recoverable=False,
+                ),
+            ),
         )
     elif render_downstream_recovery:
         required_policy = _value(compose_report, "required_audio_artifact_policy")
@@ -589,6 +667,7 @@ def _raise_if_blocked(plan: WorkflowPlan) -> None:
     if not blocked:
         return
     message = "; ".join(f"{step.stage}: {step.reason}" for step in blocked)
+    blockers = tuple(blocker for step in blocked for blocker in step.blockers)
     details = {
         "blocked_stages": tuple(step.stage for step in blocked),
         "steps": tuple(
@@ -597,16 +676,34 @@ def _raise_if_blocked(plan: WorkflowPlan) -> None:
                 "action": step.action,
                 "state": step.state,
                 "reason": step.reason,
+                "reason_code": step.reason_code,
+                "blockers": tuple(
+                    {
+                        "code": blocker.code,
+                        "owner": blocker.owner,
+                        "recoverable": blocker.recoverable,
+                        "suggested_action": blocker.suggested_action,
+                    }
+                    for blocker in step.blockers
+                ),
             }
             for step in blocked
         ),
     }
-    if blocked[0].stage == "export" and blocked[0].state in {"stale", "complete"}:
+    if blocked[0].reason_code == "output_replacement_required":
         raise OutputCollisionError(
             f"Final output {plan.output} requires explicit replace_output=True.",
             details=details,
         )
-    raise WorkflowStateError(f"Render workflow cannot safely converge: {message}", details=details)
+    suggested_action = next(
+        (blocker.suggested_action for blocker in blockers if blocker.suggested_action), None
+    )
+    raise WorkflowStateError(
+        f"Render workflow cannot safely converge: {message}",
+        details=details,
+        recoverable=any(blocker.recoverable for blocker in blockers),
+        suggested_action=suggested_action,
+    )
 
 
 def _emit(
@@ -628,6 +725,18 @@ def _emit(
         )
 
 
+def _emit_cancellable(
+    callback: Callable[[WorkflowEvent], None] | None,
+    stage: WorkflowStage,
+    kind: str,
+    step: Any,
+    cancellation: CancellationToken | None,
+) -> None:
+    check_cancellation(cancellation, stage)
+    _emit(cancellation_aware_callback(cancellation, callback, stage=stage), stage, kind, step)
+    check_cancellation(cancellation, stage)
+
+
 def _invoke_stage(
     service: Any,
     request: RenderRequest,
@@ -637,11 +746,13 @@ def _invoke_stage(
     variant: str | None,
     *,
     on_progress: Callable[[WorkflowEvent], None] | None = None,
+    cancellation: CancellationToken | None = None,
 ) -> Any:
     stage = step.stage
     selector = step.selector or request.chapters
+    progress_handler = cancellation_aware_callback(cancellation, on_progress, stage=stage)
     stage_progress = normalize_workflow_progress(
-        stage, step.package, on_progress, selector=selector
+        stage, step.package, progress_handler, selector=selector
     )
     stage_progress_kwargs = {"on_progress": stage_progress} if stage_progress is not None else {}
     if stage == "convert":
@@ -746,34 +857,70 @@ def _execute_stages(
     resolved: _ResolvedRender,
     policy: WorkspacePolicy,
     on_progress: Callable[[WorkflowEvent], None] | None,
+    cancellation: CancellationToken | None,
+    include_report: bool,
+    workflow_started: float | None,
 ) -> RenderResult:
+    check_cancellation(cancellation)
     plan = _inspect_with_policy(resolved, request, policy)
+    check_cancellation(cancellation)
     _raise_if_blocked(plan)
     executed: list[str] = []
     reused: list[str] = []
+    stage_records: list[StageExecutionRecord] = []
     variant = plan.variant
 
     for stage in _STAGE_ORDER:
+        check_cancellation(cancellation, stage)
         current = _inspect_with_policy(resolved, request, policy)
+        check_cancellation(cancellation, stage)
         _raise_if_blocked(current)
         step = next(item for item in current.steps if item.stage == stage)
         if step.action == "reuse":
             reused.append(stage)
-            _emit(on_progress, stage, "stage.reused", step)
+            if include_report:
+                stage_records.append(
+                    StageExecutionRecord(
+                        stage=stage,
+                        package=step.package,
+                        action=step.action,
+                        selector=step.selector,
+                        state_before=step.state,
+                        state_after=step.state,
+                        elapsed_seconds=0.0,
+                        reason_code=step.reason_code,
+                    )
+                )
+            _emit_cancellable(on_progress, stage, "stage.reused", step, cancellation)
             continue
         if step.action not in {"execute", "replace"}:
             raise WorkflowStateError(
                 f"Unexpected workflow action {step.action!r} for {stage}",
                 details={"stage": stage, "action": step.action, "state": step.state},
             )
-        _emit(on_progress, stage, "stage.started", step)
+        _emit_cancellable(on_progress, stage, "stage.started", step, cancellation)
+        stage_started = perf_counter() if include_report else None
         try:
             result = _invoke_stage(
-                service, request, resolved, policy, step, variant, on_progress=on_progress
+                service,
+                request,
+                resolved,
+                policy,
+                step,
+                variant,
+                on_progress=on_progress,
+                cancellation=cancellation,
             )
         except WorkflowError:
             raise
         except Exception as exc:
+            cancellation_error = unwrap_workflow_cancellation(exc)
+            if cancellation_error is not None:
+                raise cancellation_error from exc
+            stage_details = {"action": step.action, "state": step.state}
+            specialist_code = getattr(exc, "code", None)
+            if isinstance(specialist_code, str):
+                stage_details["specialist_code"] = specialist_code
             raise WorkflowStageError(
                 stage,
                 str(exc),
@@ -783,14 +930,17 @@ def _execute_stages(
                 variant=variant,
                 selector=step.selector,
                 cause=exc,
-                details={"action": step.action, "state": step.state},
+                details=stage_details,
             ) from exc
+        check_cancellation(cancellation, stage)
         executed.append(stage)
         if stage == "render_plan":
             candidate = _value(result, "variant")
             if isinstance(candidate, str) and candidate:
                 variant = candidate
+        check_cancellation(cancellation, stage)
         updated = _inspect_with_policy(resolved, request, policy)
+        check_cancellation(cancellation, stage)
         _raise_if_blocked(updated)
         if stage == "render_plan" and updated.variant:
             variant = updated.variant
@@ -805,13 +955,49 @@ def _execute_stages(
                     "details": dict(verified.details),
                 },
             )
-        _emit(on_progress, stage, "stage.completed", verified)
+        if include_report:
+            stage_records.append(
+                StageExecutionRecord(
+                    stage=stage,
+                    package=step.package,
+                    action=step.action,
+                    selector=step.selector,
+                    state_before=step.state,
+                    state_after=verified.state,
+                    elapsed_seconds=(
+                        perf_counter() - stage_started if stage_started is not None else 0.0
+                    ),
+                    reason_code=step.reason_code,
+                )
+            )
+        _emit_cancellable(on_progress, stage, "stage.completed", verified, cancellation)
 
     if not isinstance(variant, str) or not variant:
+        check_cancellation(cancellation)
         final_plan = _inspect_with_policy(resolved, request, policy)
         variant = final_plan.variant
     if not isinstance(variant, str) or not variant:
         raise WorkflowStateError("Render workflow completed without a resolved variant")
+    check_cancellation(cancellation)
+    report = None
+    if include_report:
+        versions, version_warnings = _specialist_versions()
+        report = ExecutionReport(
+            source=resolved.source,
+            workspace=None if policy.mode == "temporary" else policy.root,
+            workspace_mode=policy.mode,
+            selected_chapters=request.chapters,
+            profile=resolved.profile,
+            variant=variant,
+            output=resolved.output,
+            output_format=resolved.format,
+            stages=tuple(stage_records),
+            specialist_versions=versions,
+            warnings=(*resolved.warnings, *version_warnings),
+            elapsed_seconds=(
+                perf_counter() - workflow_started if workflow_started is not None else 0.0
+            ),
+        )
     return RenderResult(
         output=resolved.output,
         workspace=None if policy.mode == "temporary" else policy.root,
@@ -820,6 +1006,7 @@ def _execute_stages(
         executed_stages=tuple(executed),
         reused_stages=tuple(reused),
         warnings=resolved.warnings,
+        report=report,
     )
 
 
@@ -829,12 +1016,20 @@ def render_workflow(
     *,
     dry_run: bool = False,
     on_progress: Callable[[WorkflowEvent], None] | None = None,
+    cancellation: CancellationToken | None = None,
+    include_report: bool = False,
 ) -> WorkflowPlan | RenderResult:
     """Inspect or execute a complete source-to-audio workflow."""
+    workflow_started = perf_counter() if include_report and not dry_run else None
+    if not dry_run:
+        check_cancellation(cancellation)
     resolved = _resolve(request)
+    if not dry_run:
+        check_cancellation(cancellation)
     initial_plan = _inspect_with_policy(resolved, request, resolved.policy)
     if dry_run:
         return initial_plan
+    check_cancellation(cancellation)
     _raise_if_blocked(initial_plan)
     if resolved.policy.mode == "temporary":
         with TemporaryDirectory(prefix="readio-render-") as temporary_root:
@@ -849,8 +1044,26 @@ def render_workflow(
                 newly_created=True,
                 cleanup=True,
             )
-            return _execute_stages(service, request, resolved, runtime_policy, on_progress)
-    return _execute_stages(service, request, resolved, resolved.policy, on_progress)
+            return _execute_stages(
+                service,
+                request,
+                resolved,
+                runtime_policy,
+                on_progress,
+                cancellation,
+                include_report,
+                workflow_started,
+            )
+    return _execute_stages(
+        service,
+        request,
+        resolved,
+        resolved.policy,
+        on_progress,
+        cancellation,
+        include_report,
+        workflow_started,
+    )
 
 
 __all__ = ["inspect_render_workflow", "render_workflow"]

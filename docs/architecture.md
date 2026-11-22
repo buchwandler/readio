@@ -1,6 +1,6 @@
 # Readio architecture
 
-Readio is a workflow gateway over specialist public APIs. A visible, user-owned `readio.render.v2` intent describes a complete request; the separate VoiceRender RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces, whose manifest determines whether content is a book or document. UtterPlan, VoiceRender, AudioCompose, and AudioExport own their stage contracts and perform kind-sensitive dispatch. File renders use temporary storage by default; a persistent bundle is always explicit.
+Readio is a workflow gateway over specialist public APIs. A visible, user-owned `readio.render.v3` intent describes a complete request; the separate VoiceRender RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle` workspaces, whose manifest determines whether content is a book or document. UtterPlan, VoiceRender, AudioCompose, and AudioExport own their stage contracts and perform kind-sensitive dispatch. File renders use temporary storage by default; a persistent bundle is always explicit.
 
 ## Public workflow API
 
@@ -82,3 +82,13 @@ Readio imports specialist package-root public APIs only: SSMDConvert, UtterPlan,
 ## Machine-level runtime policy
 
 Readio exposes VoiceRender's ONNX Runtime status and provider-policy APIs through `readio.api` and `readio runtime`. The imported runtime distribution/build is not the same as an execution provider; provider selection affects future compatible sessions and does not prove which provider an existing session used. Environment variables such as `ONNXVOICE_PROVIDER` override a saved preference, and reset does not unset those variables. Explicit engine options and RenderProfile provider settings remain overrides. Provider aliases, precedence, validation, persistence, and installation guidance stay with VoiceRender; Readio does not install or switch runtime distributions or add runtime state to bundles, profiles, RenderPlans, or other project artifacts.
+
+## Stable contracts and fail-closed execution
+
+`Readio.inspect(RenderRequest)` is the canonical read-only planner. `status`, CLI dry-run, the Python API, and MCP all present the same `WorkflowPlan`. Stable reason codes, blockers, and logical artifact references describe plan state; human-readable reason strings and `details` remain diagnostic only. Replacement requires explicit rebuild authorization and specialist-certified safety. Existing final output replacement has its own explicit control.
+
+One public serializer defines the versioned JSON projections for plans, render results, errors, capabilities, and synthesized speech. Intent schema `readio.render.v3` is distinct from response schemas such as `readio.workflow-plan.v1`, `readio.render-result.v1`, and `readio.error-info.v1`. Capability discovery is read-only. Cancellation is cooperative at supported boundaries, and AudioExport cannot currently be interrupted through its public API. Optional execution reports contain in-memory stage timing and version metadata only.
+
+## Optional MCP adapter
+
+The optional MCP server is an adapter over `readio.api`, not a second orchestrator. It imports no specialist packages directly and runs over stdio after installing `readio[mcp]`. Inspection and capability tools are read-only. `speech_render` requires explicit source, profile, and output paths, inspects the request first, returns a blocked plan without mutation, and only delegates execution to `Readio.render()` when the plan is executable. Rebuild and final-output replacement remain separate explicit controls. `speech_speak` returns in-memory WAV data as base64 and does not play audio. No database, hidden project path, queue, daemon, or audiobook library is introduced.

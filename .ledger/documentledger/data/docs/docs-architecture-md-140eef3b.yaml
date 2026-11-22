@@ -2,7 +2,9 @@ schema: documentledger.doc_record.v4
 doc_path: docs/architecture.md
 linked_sources:
   - readio/api/__init__.py
-  - readio/speech.py
+  - readio/api/service.py
+  - readio/api/types.py
+  - readio/mcp/server.py
   - readio/workspace.py
   - tests/test_dependency_boundaries.py
 sections:
@@ -14,13 +16,13 @@ sections:
     line_span:
       - 1
       - 4
-    section_hash: 4ad800609619d24ccc45c47115a3e0a51dc450ea868df0506fafb7f04c735f97
+    section_hash: 346c9bfe32f97f474aa16e2f87766fe4d1d451850d50fbe8b9528e1355def195
     summary: Readio architecture
     text: "# Readio architecture
 
 
       Readio is a workflow gateway over specialist public APIs. A visible, user-owned
-      `readio.render.v2` intent describes a complete request; the separate VoiceRender
+      `readio.render.v3` intent describes a complete request; the separate VoiceRender
       RenderProfile defines voice roles. SSMDConvert owns conversion and editable `.ssmd-bundle`
       workspaces, whose manifest determines whether content is a book or document. UtterPlan,
       VoiceRender, AudioCompose, and AudioExport own their stage contracts and perform
@@ -33,7 +35,7 @@ sections:
         impact: unknown
         reason: This section describes the compact public facade.
         tracked_hashes:
-          body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
+          body_hash: 5e864a31517b6a5297ddadf6417a16c039b2a04efa2ef50e62dd4aad753e74ac
   - section_id: md:section:docs/architecture.md::public-workflow-api
     doc_path: docs/architecture.md
     heading_path:
@@ -56,7 +58,35 @@ sections:
       workflows. The `inspect_intent()` and `render_intent()` convenience methods delegate
       through that same request mapping and workflow rather than maintaining a second
       stage runner. Specialist stage request schemas remain owned by their packages."
-    links: []
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+      - source_id: py:method:readio/api/service.py::Readio.inspect
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.inspect`.
+        tracked_hashes:
+          body_hash: 63a03e3c54fd4c3e498374d79c4fd81e0e555dbbb8fb2b65976936abd10f9306
+      - source_id: py:method:readio/api/service.py::Readio.render
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render`.
+        tracked_hashes:
+          body_hash: 38432f0a12580eff1aae5b319d454d9ea59df9ca497693420336567219844f01
+      - source_id: py:class:readio/api/types.py::RenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderRequest`.
+        tracked_hashes:
+          body_hash: b69b185b43cdb322640330bbd4bf18400a3807b44dfa71ed476f8a71b356ee76
   - section_id: md:section:docs/architecture.md::intent-driven-bundle-workflow
     doc_path: docs/architecture.md
     heading_path:
@@ -65,7 +95,7 @@ sections:
     heading_slug: intent-driven-bundle-workflow
     line_span:
       - 9
-      - 28
+      - 26
     section_hash: 3755668f31d01bec04839433b0bb6499e62271ac2758a2c18408ab8b7bdd2928
     summary: Intent-driven bundle workflow
     text:
@@ -94,8 +124,8 @@ sections:
       - Workflow progress
     heading_slug: workflow-progress
     line_span:
-      - 29
-      - 35
+      - 27
+      - 33
     section_hash: 8bdb02319c91152f23e7e9be96cdf43bd330a2e21eb35c51543336b747514c1d
     summary: Workflow progress
     text: "## Workflow progress
@@ -116,7 +146,14 @@ sections:
       A book bundle may contain multiple chapter items; a document bundle represents
       a single document item. This is a content distinction recorded by the manifest,
       not a second workspace format or Readio routing policy."
-    links: []
+    links:
+      - source_id: py:class:readio/api/types.py::WorkflowEvent
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkflowEvent`.
+        tracked_hashes:
+          body_hash: c935ad5c73ad34850259ca61b0da78030d408fdc47db7b59f556cd47f24da716
   - section_id: md:section:docs/architecture.md::ownership
     doc_path: docs/architecture.md
     heading_path:
@@ -124,8 +161,8 @@ sections:
       - Ownership
     heading_slug: ownership
     line_span:
-      - 36
-      - 51
+      - 34
+      - 49
     section_hash: 5a65111dbd96796a0deb936e2441cdef66d54526df4e9aa8bf9df879d1936a8f
     summary: Ownership
     text: "## Ownership
@@ -169,7 +206,14 @@ sections:
       Readio-specific implementations. SSMDConvert determines source/bundle kind, specialists
       own chapter validation and kind-sensitive dispatch, and Readio rejects a resolved
       workspace whose kind contradicts the intent."
-    links: []
+    links:
+      - source_id: py:class:readio/workspace.py::WorkspaceRef
+        source_path: readio/workspace.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkspaceRef`.
+        tracked_hashes:
+          body_hash: a15da7a696727b634be55178ad896475c34755302251b6900005aa2c3d240069
   - section_id: md:section:docs/architecture.md::direct-speech-and-management
     doc_path: docs/architecture.md
     heading_path:
@@ -177,8 +221,8 @@ sections:
       - Direct speech and management
     heading_slug: direct-speech-and-management
     line_span:
-      - 52
-      - 55
+      - 50
+      - 53
     section_hash: ca1984b2223ff33978c41a8027e7ab3491aa9ec261f2d4b272ad2b1b933882e7
     summary: Direct speech and management
     text: "## Direct speech and management
@@ -196,8 +240,8 @@ sections:
       - Manual specialist workflow
     heading_slug: manual-specialist-workflow
     line_span:
-      - 56
-      - 75
+      - 54
+      - 73
     section_hash: be535688ac4583da706964e502765d6b851694e141e0360fe830bc4acd85db42
     summary: Manual specialist workflow
     text:
@@ -220,8 +264,8 @@ sections:
       - Persistent state
     heading_slug: persistent-state
     line_span:
-      - 76
-      - 79
+      - 74
+      - 77
     section_hash: 721e0fdd3ce47ddfadaeaccae3feb0f9ca7412190bbcbddc2c327ee6adc84438
     summary: Persistent state
     text: "## Persistent state
@@ -241,8 +285,8 @@ sections:
       - Dependency boundary
     heading_slug: dependency-boundary
     line_span:
-      - 80
-      - 83
+      - 78
+      - 81
     section_hash: f0a5edf8c4476353231739e294788547741e16ac2fac7b070e1c6d11c53af8e0
     summary: Dependency boundary
     text: "## Dependency boundary
@@ -267,8 +311,8 @@ sections:
       - Machine-level runtime policy
     heading_slug: machine-level-runtime-policy
     line_span:
-      - 84
-      - 86
+      - 82
+      - 85
     section_hash: e831e621983d000c8950b74f6f72b9641bf8b29caa44baf8efdcfd8af60abe44
     summary: Machine-level runtime policy
     text: "## Machine-level runtime policy
@@ -285,56 +329,121 @@ sections:
       runtime distributions or add runtime state to bundles, profiles, RenderPlans,
       or other project artifacts."
     links: []
-  - section_id: md:section:docs/architecture.md::persistent-state-and-compatibility
+  - section_id: md:section:docs/architecture.md::stable-contracts-and-fail-closed-execution
     doc_path: docs/architecture.md
     heading_path:
       - Readio architecture
-      - Persistent state and compatibility
-    heading_slug: persistent-state-and-compatibility
+      - Stable contracts and fail-closed execution
+    heading_slug: stable-contracts-and-fail-closed-execution
     line_span:
-      - 65
-      - 70
-    section_hash: c601274d34f30876352be68bce783e42b5d5d3c9426e3c5c6aeb04716e4e8682
-    summary: Persistent state and compatibility
+      - 86
+      - 91
+    section_hash: 85dad915ce666892c77aa1c482d2af915bbac130b29f4da4bc3070ab2058ef1d
+    summary: Stable contracts and fail-closed execution
+    text: "## Stable contracts and fail-closed execution
+
+
+      `Readio.inspect(RenderRequest)` is the canonical read-only planner. `status`,
+      CLI dry-run, the Python API, and MCP all present the same `WorkflowPlan`. Stable
+      reason codes, blockers, and logical artifact references describe plan state; human-readable
+      reason strings and `details` remain diagnostic only. Replacement requires explicit
+      rebuild authorization and specialist-certified safety. Existing final output replacement
+      has its own explicit control.
+
+
+      One public serializer defines the versioned JSON projections for plans, render
+      results, errors, capabilities, and synthesized speech. Intent schema `readio.render.v3`
+      is distinct from response schemas such as `readio.workflow-plan.v1`, `readio.render-result.v1`,
+      and `readio.error-info.v1`. Capability discovery is read-only. Cancellation is
+      cooperative at supported boundaries, and AudioExport cannot currently be interrupted
+      through its public API. Optional execution reports contain in-memory stage timing
+      and version metadata only."
     links:
-      - source_id: py:class:readio/workspace.py::WorkspaceRef
-        source_path: readio/workspace.py
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
         coverage: implementation-note
         impact: unknown
-        reason: Code contains public class `WorkspaceRef`.
+        reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: f58ec8d3488a2ef4ad41eb3a88a619507640ba066806ca059d4facacf7b89702
-      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-        source_path: tests/test_dependency_boundaries.py
+          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+      - source_id: py:method:readio/api/service.py::Readio.inspect
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.inspect`.
+        tracked_hashes:
+          body_hash: 63a03e3c54fd4c3e498374d79c4fd81e0e555dbbb8fb2b65976936abd10f9306
+      - source_id: py:class:readio/api/types.py::RenderRequest
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `RenderRequest`.
+        tracked_hashes:
+          body_hash: b69b185b43cdb322640330bbd4bf18400a3807b44dfa71ed476f8a71b356ee76
+      - source_id: py:class:readio/api/types.py::WorkflowPlan
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `WorkflowPlan`.
+        tracked_hashes:
+          body_hash: 670a1f087683e6605c0e0101fbf300214e8c8eef2465135d8e1b212cfad2f152
+  - section_id: md:section:docs/architecture.md::optional-mcp-adapter
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Optional MCP adapter
+    heading_slug: optional-mcp-adapter
+    line_span:
+      - 92
+      - 94
+    section_hash: 3b9612049fab9b29597d571f55d12c04ced724cced88334836d69b08cb0ae026
+    summary: Optional MCP adapter
+    text: "## Optional MCP adapter
+
+
+      The optional MCP server is an adapter over `readio.api`, not a second orchestrator.
+      It imports no specialist packages directly and runs over stdio after installing
+      `readio[mcp]`. Inspection and capability tools are read-only. `speech_render`
+      requires explicit source, profile, and output paths, inspects the request first,
+      returns a blocked plan without mutation, and only delegates execution to `Readio.render()`
+      when the plan is executable. Rebuild and final-output replacement remain separate
+      explicit controls. `speech_speak` returns in-memory WAV data as base64 and does
+      not play audio. No database, hidden project path, queue, daemon, or audiobook
+      library is introduced."
+    links:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        tracked_hashes:
+          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+      - source_id: py:method:readio/api/service.py::Readio.render
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render`.
+        tracked_hashes:
+          body_hash: 38432f0a12580eff1aae5b319d454d9ea59df9ca497693420336567219844f01
+      - source_id: py:function:readio/mcp/server.py::speech_render
+        source_path: readio/mcp/server.py
         coverage: implementation-note
         impact: unknown
         reason:
-          This section documents the absence of legacy project state and migration
-          behavior.
+          The documented render tool preflights the workflow and delegates only
+          to the gateway.
         tracked_hashes:
-          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-  - section_id: md:section:docs/architecture.md::readio-orchestration
-    doc_path: docs/architecture.md
-    heading_path:
-      - Readio architecture
-      - Readio orchestration
-    heading_slug: readio-orchestration
-    line_span:
-      - 5
-      - 6
-    section_hash: 1d8866c5fb16ff8a0355ec0985f34390598f9ef4ee38ce00b6b28a7b29ece68b
-    summary: Readio orchestration
-    links:
-      - source_id: py:function:readio/speech.py::speak
-        source_path: readio/speech.py
+          body_hash: dfbc056d12a552648fa7abd2795806bb46386f337d2542cee5a192bfdba71690
+      - source_id: py:function:readio/mcp/server.py::speech_speak
+        source_path: readio/mcp/server.py
         coverage: implementation-note
         impact: unknown
-        reason: This section describes the separate VoiceRender speech path.
+        reason: The documented speech tool returns in-memory audio without playback.
         tracked_hashes:
-          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
-last_fresh_scan_version: 18
-last_fresh_hash: b1b6d75f4cc233da2954a396fe46c18a691f5923e19e16eb47023043563ba448
+          body_hash: 41c094c18d36f6bd714d0e746675207aa5a146a0eb4eab81a2eaeb17add06842
+last_fresh_scan_version: 26
+last_fresh_hash: 5332bc52c3513fe499c59ac55ca309902f04ee9f63e015cc7a84f9151115f9c9
 notes:
-  Reviewed affected sections against current Readio public APIs and CLI; strict
-  Sphinx build and focused documentation/workspace tests passed.
-version: 220
+  Reviewed affected sections against current Readio public APIs and CLI; documentation
+  reflects the canonical workflow, current commands, and optional contracts.
+version: 268

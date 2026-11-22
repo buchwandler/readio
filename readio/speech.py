@@ -234,7 +234,7 @@ def speak_request(
             "compile",
             str(error),
             package="utterplan",
-            code=_code(error),
+            details={"specialist_code": _code(error)},
             cause=error,
         ) from error
 
@@ -259,7 +259,7 @@ def speak_request(
             str(error),
             package="utterplan",
             variant=profile_id,
-            code=_code(error),
+            details={"specialist_code": _code(error)},
             cause=error,
         ) from error
 
@@ -287,7 +287,7 @@ def speak_request(
                 str(error),
                 package="voicerender",
                 variant=profile_id,
-                code=_code(error),
+                details={"specialist_code": _code(error)},
                 cause=error,
             ) from error
 
@@ -308,9 +308,8 @@ def speak_request(
                 package="voicerender",
                 variant=profile_id,
                 selector=selector,
-                code="voicerender.preflight.reject",
                 cause=cause,
-                details=details,
+                details={**details, "specialist_code": "voicerender.preflight.reject"},
             ) from cause
         if status != "replan":
             raise WorkflowStateError(
@@ -338,9 +337,8 @@ def speak_request(
                 package="utterplan",
                 variant=profile_id,
                 selector="; ".join(summary) or None,
-                code=_code(error),
+                details={**details, "specialist_code": _code(error)},
                 cause=error,
-                details=details,
             ) from error
         _raise_if_cancelled(cancellation)
         refined_plan_id = _plan_id(refined_plan)
@@ -370,7 +368,7 @@ def speak_request(
             str(error),
             package="voicerender",
             variant=profile_id,
-            code=_code(error),
+            details={"specialist_code": _code(error)},
             cause=error,
         ) from error
     _raise_if_cancelled(cancellation)
@@ -406,9 +404,8 @@ def speak_request(
             package="voicerender",
             variant=profile_id,
             selector=selector,
-            code=getattr(rendered, "error_code", None),
             cause=cause,
-            details=details,
+            details={**details, "specialist_code": getattr(rendered, "error_code", None)},
         ) from cause
 
     audio_buffers: dict[tuple[int, str], Any] = {}
@@ -439,7 +436,7 @@ def speak_request(
             str(error),
             package="audiocompose",
             variant=profile_id,
-            code=_code(error),
+            details={"specialist_code": _code(error)},
             cause=error,
         ) from error
 

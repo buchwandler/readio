@@ -1,12 +1,12 @@
 ---
 name: readio
-description: Use Readio v0.6 for unified speech workflows, explicit temporary or persistent workspaces, and delegated VoiceRender controls.
+description: Use Readio v0.7 platform contracts for unified speech workflows, read-only capability discovery, cooperative cancellation, and optional execution reports.
 compatibility: Requires Readio and specialist packages for the selected workflow. Playback requires an audio device; synthesis requires an installed VoiceRender engine.
 ---
 
 # Readio
 
-Use Readio's user-owned `readio.render.v2` intent for complete file-to-audio workflows. Keep the intent TOML separate from the VoiceRender RenderProfile; specialists own their schemas, validation, artifacts, and kind-sensitive dispatch.
+Use Readio's user-owned `readio.render.v3` intent for complete file-to-audio workflows. Keep the intent TOML separate from the VoiceRender RenderProfile. Readio is an orchestration gateway; specialists own their schemas, validation, artifacts, engines, composition, and export behavior.
 
 ## Workflow decisions
 
@@ -19,6 +19,34 @@ Use Readio's user-owned `readio.render.v2` intent for complete file-to-audio wor
 7. **Safe reruns:** Use `--rebuild-from STAGE` for explicit rebuilds and `--replace-output` separately to authorize final-output replacement. Specialist inspection decides what is safe; Readio fails closed on unknown unsafe state.
 8. **Stage identity:** Preserve UtterPlan's exact projected variant through VoiceRender, AudioCompose, and AudioExport; never invent or normalize it.
 9. **Profiles and agents:** Profile/engine commands delegate to VoiceRender. Use explicit user-owned intent, profile, bundle, and output paths. Progress is on stderr; use `--json` for machine-readable results.
+
+## Public platform contracts
+
+`readio.api` is additive across compatible minor updates. Existing constructors and call patterns remain supported; new dataclass fields have defaults and new execution options are keyword-only. Workflow plans, render results, normalized errors, and aggregate capabilities use versioned Readio JSON envelopes. Use `readio.api.serialize_public()` or the specific `*_to_dict()` helper instead of building protocol JSON from diagnostics or specialist messages.
+
+The canonical workflow plan is used by inspection, status, and dry-run. Its reason codes, blockers, and logical artifact references are Readio-owned; `details` is diagnostic-only. Structured errors use stable Readio codes and recovery guidance, while specialist diagnostic codes remain nested details.
+
+## Capability discovery
+
+Use the read-only gateway methods for GUI or agent startup:
+
+```python
+from readio.api import Readio
+
+readio = Readio()
+readio.capabilities()
+readio.source_capabilities("novel.epub")
+readio.synthesis_capabilities()
+readio.export_capabilities()
+```
+
+Capability calls do not install or download models, open a synthesis model, create a workspace or bundle, mutate runtime-provider policy, create profiles, or write files. Source capabilities inspect one concrete source. Readio does not claim a global source-format list that SSMDConvert does not expose through a stable public API.
+
+## Cancellation and execution reports
+
+Pass a `CancellationToken` to `Readio.render()` or `Readio.render_intent()` to request cooperative cancellation at Readio-controlled stage boundaries and supported progress callbacks. Cancellation raises a structured `WorkflowCancelledError`. Temporary workspaces are cleaned up; completed persistent specialist artifacts are not rolled back. AudioExport currently has no public mid-call cancellation hook, so cancellation requested during export is observed only after its public call returns.
+
+Use `include_report=True` only when in-memory stage timings and specialist version metadata are useful. `RenderResult.report` is optional and is never written to a file, database, history store, or workspace.
 
 ## Unified workflow commands
 
@@ -64,3 +92,7 @@ audioexport bundle export novel.ssmd-bundle --variant "$VARIANT" --output novel.
 ```
 
 SSMDConvert owns conversion and bundles. UtterPlan owns semantic plans and variants. RenderPlan owns its public contract. VoiceRender owns profiles, voice/engine management, and synthesis. AudioCompose owns composition and audio-job artifacts. AudioExport owns encoding.
+
+## Explicit boundaries
+
+Use TTSForge or host applications for audiobook project/library management; Readio does not provide audiobook project management. Readio also does not add TTSForge imports, specialist-private API access, backend SDK imports, hidden persistence, job queues, daemons, worker pools, or background hosts. Use specialist tools directly when the task needs specialist-owned schemas or package-specific stage control.

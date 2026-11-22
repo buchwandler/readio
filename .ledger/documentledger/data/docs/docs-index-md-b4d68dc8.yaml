@@ -5,7 +5,6 @@ linked_sources:
   - readio/cli.py
   - readio/doctor.py
   - readio/speech.py
-  - tests/test_dependency_boundaries.py
 sections:
   - section_id: md:section:docs/index.md::readio-documentation
     doc_path: docs/index.md
@@ -15,12 +14,12 @@ sections:
     line_span:
       - 1
       - 13
-    section_hash: 68c5d2b4c992521ee8b1515440d50c93b264ed46fb535ade2aa7a90bdf6454a8
+    section_hash: 07ef5df2bbd84b16f6cd82a2d2af2d389894056cfae7161ab9976ee6e48a6626
     summary: Readio documentation
     text: "# Readio documentation
 
 
-      Readio's workflow gateway uses a visible, user-owned `readio.render.v2` intent
+      Readio's workflow gateway uses a visible, user-owned `readio.render.v3` intent
       and a separate VoiceRender RenderProfile to orchestrate specialist speech packages.
       SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind;
       specialist APIs own stage schemas, validation, persisted artifacts, and detailed
@@ -49,7 +48,7 @@ sections:
         impact: unknown
         reason: This overview describes the current public API surface.
         tracked_hashes:
-          body_hash: 700835078081123ba053b7ac8e4ef28a54f038d43c9a3c7249eced273199cbf4
+          body_hash: 5e864a31517b6a5297ddadf6417a16c039b2a04efa2ef50e62dd4aad753e74ac
   - section_id: md:section:docs/index.md::specialist-workflow
     doc_path: docs/index.md
     heading_path:
@@ -58,7 +57,7 @@ sections:
     heading_slug: specialist-workflow
     line_span:
       - 14
-      - 23
+      - 25
     section_hash: 7f5ca3726bed03872ea8e1a6d4fa620473dcf99e6ed2b972fd811fe39569a534
     summary: Specialist workflow
     text: "## Specialist workflow
@@ -78,6 +77,32 @@ sections:
       for Readio commands, and see the [Python API guide](api.md) for service calls.
       Consult each specialist package for complete package-specific options."
     links: []
+  - section_id: md:section:docs/index.md::stable-platform-contracts
+    doc_path: docs/index.md
+    heading_path:
+      - Readio documentation
+      - Stable platform contracts
+    heading_slug: stable-platform-contracts
+    line_span:
+      - 26
+      - 31
+    section_hash: bc26d338eccaa382500ed8ab6ef096878971014f430e1dd3f823b68aa6ce27f8
+    summary: Stable platform contracts
+    text: "## Stable platform contracts
+
+
+      `readio.render.v3` is the user-owned intent schema. Workflow plans, render results,
+      errors, capabilities, and synthesized speech use separate versioned JSON projections
+      from the shared serializer. Workflow reasons, blockers, explicit destructive controls,
+      cooperative cancellation limits, and optional nonpersistent execution reports
+      are documented in the [Python API guide](api.md).
+
+
+      The optional MCP server is installed with `readio[mcp]` and launched over stdio.
+      It exposes task-oriented tools through the public Readio gateway only. Its render
+      tool inspects first, requires explicit paths, and returns blocked plans without
+      execution. See the [MCP and ownership architecture](architecture.md#optional-mcp-adapter)."
+    links: []
   - section_id: md:section:docs/index.md::installation
     doc_path: docs/index.md
     heading_path:
@@ -85,8 +110,8 @@ sections:
       - Installation
     heading_slug: installation
     line_span:
-      - 24
-      - 27
+      - 32
+      - 35
     section_hash: b069d5bd2c80d121c080853f6e2e66c6d7afad9d4920510328495e7447c5bbf1
     summary: Installation
     text: '## Installation
@@ -105,8 +130,8 @@ sections:
       - Readio commands
     heading_slug: readio-commands
     line_span:
-      - 28
-      - 41
+      - 36
+      - 49
     section_hash: d664bcceebd1d8bf3f43eb7f5f52136f87d6a5fd68de3aaa1e7ef1e47ab445e4
     summary: Readio commands
     text: '## Readio commands
@@ -146,44 +171,24 @@ sections:
         impact: unknown
         reason: This section lists the retained Readio CLI commands.
         tracked_hashes:
-          body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
+          body_hash: 1e80307741ab5a3842301bddffde9f6b4cc7ad561c2dd4bb8860872ae62086b9
       - source_id: py:function:readio/doctor.py::doctor_report
         source_path: readio/doctor.py
         coverage: implementation-note
         impact: unknown
         reason: This section introduces dependency diagnostics.
         tracked_hashes:
-          body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
+          body_hash: d1b91a6fd489022cf37f95bbcb87ba9f4984e9cff4bd2c45a275985beaaa4c4d
       - source_id: py:function:readio/speech.py::speak
         source_path: readio/speech.py
         coverage: implementation-note
         impact: unknown
         reason: This section introduces literal-text speech.
         tracked_hashes:
-          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
-  - section_id: md:section:docs/index.md::no-legacy-migration
-    doc_path: docs/index.md
-    heading_path:
-      - Readio documentation
-      - No legacy migration
-    heading_slug: no-legacy-migration
-    line_span:
-      - 39
-      - 41
-    section_hash: 305c09e02d8d192ed59982d9274d0d3f7c732437f4170975e3093074dde81247
-    summary: No legacy migration
-    links:
-      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-        source_path: tests/test_dependency_boundaries.py
-        coverage: implementation-note
-        impact: unknown
-        reason: This section documents the explicit no-migration policy enforced by tests.
-        tracked_hashes:
-          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-last_fresh_scan_version: 18
-last_fresh_hash: 4fac904b61ab7f66374a8fb0520c0cf48c447b7e48a821a6f54ebbc3fdb5c8eb
+          body_hash: 5f690799767478116c582c391ea23a83d16e61ad99b6e1d43133365ebf98ee16
+last_fresh_scan_version: 26
+last_fresh_hash: 4425b8ac3a8f646ae8ce3e032f8f683230b9f2c90a5b17a61ff4d07bf8fe0cbf
 notes:
-  Reviewed affected sections against current Readio public APIs and CLI; strict
-  Sphinx build and focused documentation/workspace tests passed.
-coverage_resolution: null
-version: 216
+  Reviewed affected sections against current Readio public APIs and CLI; documentation
+  reflects the canonical workflow, current commands, and optional contracts.
+version: 268

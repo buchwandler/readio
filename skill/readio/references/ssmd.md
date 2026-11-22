@@ -28,4 +28,4 @@ audiocompose bundle compose novel.ssmd-bundle --variant "$VARIANT"
 audioexport bundle export novel.ssmd-bundle --variant "$VARIANT" --output novel.m4b
 ```
 
-See the [CLI reference](cli.md) and [Python API guide](../../../docs/api.md).
+See the [CLI reference](cli.md) and use the documented public APIs under `readio.api`.

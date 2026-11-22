@@ -39,7 +39,7 @@ def test_documented_readio_commands_exist_in_the_current_cli() -> None:
             if not command_line.startswith("readio "):
                 continue
             parts = command_line.split()
-            if len(parts) < 2:
+            if len(parts) < 2 or parts[1] == "=":
                 continue
             command = parts[1]
             if command.startswith("-"):

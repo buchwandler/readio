@@ -8,6 +8,8 @@ from typing import Any, Literal, cast
 import voicerender  # type: ignore[import-not-found]
 
 from readio.api.types import VoiceRenderRequest
+
+from readio.errors import WorkflowCancelledError
 from readio.workspace import WorkspaceRef
 
 EventCallback = Callable[[Any], None] | None
@@ -74,3 +76,13 @@ def create_render_profile(**options: Any) -> Any:
 def load_render_profile(profile: Any) -> Any:
     """Load or validate an existing in-memory RenderProfile through VoiceRender."""
     return voicerender.load_render_profile(profile)
+
+
+def unwrap_workflow_cancellation(error: Exception) -> Exception | None:
+    """Unwrap VoiceRender's public callback wrapper only for Readio cancellation."""
+    if isinstance(error, voicerender.RenderEventCallbackError):
+        cause = error.__cause__
+
+        if isinstance(cause, WorkflowCancelledError):
+            return cause
+    return None

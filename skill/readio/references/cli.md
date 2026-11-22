@@ -28,10 +28,10 @@ readio status --config novel.readio.toml
 
 ## Render intents
 
-The current schema is `readio.render.v2`. Source and selection belong under `[input]`; workspace mode and bundle path belong under `[workspace]`:
+The current schema is `readio.render.v3`. Source and selection belong under `[input]`; workspace mode and bundle path belong under `[workspace]`:
 
 ```toml
-schema = "readio.render.v2"
+schema = "readio.render.v3"
 kind = "book"
 
 [input]

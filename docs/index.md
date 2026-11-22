@@ -1,6 +1,6 @@
 # Readio documentation
 
-Readio's workflow gateway uses a visible, user-owned `readio.render.v2` intent and a separate VoiceRender RenderProfile to orchestrate specialist speech packages. SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides unified workflow sequencing and direct semantic speech without hidden workspace state.
+Readio's workflow gateway uses a visible, user-owned `readio.render.v3` intent and a separate VoiceRender RenderProfile to orchestrate specialist speech packages. SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides unified workflow sequencing and direct semantic speech without hidden workspace state.
 
 ```{toctree}
 :maxdepth: 1
@@ -20,6 +20,12 @@ SSMDConvert → UtterPlan / RenderPlan → VoiceRender → AudioCompose → Audi
 ```
 
 Start with the [architecture guide](architecture.md), use the [CLI reference](cli.md) for Readio commands, and see the [Python API guide](api.md) for service calls. Consult each specialist package for complete package-specific options.
+
+## Stable platform contracts
+
+`readio.render.v3` is the user-owned intent schema. Workflow plans, render results, errors, capabilities, and synthesized speech use separate versioned JSON projections from the shared serializer. Workflow reasons, blockers, explicit destructive controls, cooperative cancellation limits, and optional nonpersistent execution reports are documented in the [Python API guide](api.md).
+
+The optional MCP server is installed with `readio[mcp]` and launched over stdio. It exposes task-oriented tools through the public Readio gateway only. Its render tool inspects first, requires explicit paths, and returns blocked plans without execution. See the [MCP and ownership architecture](architecture.md#optional-mcp-adapter).
 
 ## Installation
 

@@ -7,4 +7,7 @@ try:
 except PackageNotFoundError:  # running directly from an unpacked source tree
     __version__ = "0+unknown"
 
-__all__ = ["__version__"]
+
+from .skills import skill_path
+
+__all__ = ["__version__", "skill_path"]

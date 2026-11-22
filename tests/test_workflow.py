@@ -136,7 +136,9 @@ def test_make_workflow_plan_carries_workspace_policy_and_paths(tmp_path: Path) -
     assert plan.workspace_mode == "persistent"
     assert plan.variant == "narration"
     assert plan.output == (tmp_path / "out.wav").absolute()
-    assert plan.steps == (step,)
+    assert plan.steps[0].stage == step.stage
+    assert plan.steps[0].inputs[0].kind == "workspace"
+    assert plan.steps[0].outputs[0].kind == "compiled_plan"
 
 
 def test_normalize_workflow_progress_preserves_source_details() -> None:

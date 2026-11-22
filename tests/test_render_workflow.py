@@ -10,6 +10,7 @@ import pytest
 from readio import render_workflow as workflow
 from readio.api.service import Readio
 from readio.api.types import (
+    CancellationToken,
     ProjectionOptions,
     RenderPlanRequest,
     RenderRequest,
@@ -17,7 +18,12 @@ from readio.api.types import (
     WorkflowPlan,
     WorkflowStep,
 )
-from readio.errors import OutputCollisionError, WorkflowStageError
+from readio.errors import (
+    OutputCollisionError,
+    WorkflowCancelledError,
+    WorkflowResolutionError,
+    WorkflowStageError,
+)
 from readio.workspace import PreparationOptions, WorkspacePolicy, WorkspaceRef
 
 _FORMATS = {
@@ -59,6 +65,231 @@ def _mock_source_inputs(monkeypatch: pytest.MonkeyPatch, kind: str = "document")
     )
     monkeypatch.setattr(workflow, "load_render_profile", lambda _profile: object())
     monkeypatch.setattr(workflow, "supported_formats", lambda: _FORMATS)
+
+
+def _install_fake_cancel_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    token: CancellationToken,
+    completed: list[str],
+    calls: list[str],
+    workspace_paths: list[Path],
+) -> tuple[object, RenderRequest]:
+    _mock_source_inputs(monkeypatch)
+    request = _request(tmp_path, output=tmp_path / "result.mp3")
+
+    def current_plan(
+        resolved: workflow._ResolvedRender,
+        _request: RenderRequest,
+        policy: WorkspacePolicy,
+    ) -> WorkflowPlan:
+        steps = tuple(
+            WorkflowStep(
+                stage=stage,
+                package=workflow._STAGE_PACKAGES[stage],
+                action="reuse" if stage in completed else "execute",
+                selector="all",
+                reason="fake specialist state",
+                state="complete" if stage in completed else "not_started",
+                details={},
+            )
+            for stage in workflow._STAGE_ORDER
+        )
+        return WorkflowPlan(
+            source=resolved.source,
+            workspace=policy.root,
+            workspace_mode=policy.mode,
+            variant="voice--profile",
+            output=resolved.output,
+            steps=steps,
+        )
+
+    monkeypatch.setattr(workflow, "_inspect_with_policy", current_plan)
+    monkeypatch.setattr(
+        workflow,
+        "resolve_workspace",
+        lambda root: WorkspaceRef(root=root, kind="document"),
+    )
+
+    class FakeService:
+        def _run(self, stage: str, callback: Callable[[object], None] | None = None) -> object:
+            calls.append(stage)
+            if callback is not None:
+                try:
+                    callback(SimpleNamespace(kind="stage.progress", current=1, total=1))
+                except Exception as error:
+                    if stage == "render":
+                        import voicerender
+
+                        raise voicerender.RenderEventCallbackError(
+                            "render.progress", error
+                        ) from error
+                    raise
+            result: object = None
+            if stage == "render_plan":
+                result = SimpleNamespace(variant="voice--profile")
+            elif stage == "export":
+                request.output.write_bytes(b"audio")
+                token.cancel()
+            completed.append(stage)
+            return result
+
+        def create_workspace(
+            self,
+            _source: Path,
+            create_request: object,
+            *,
+            on_progress: Callable[[object], None] | None = None,
+        ) -> object:
+            workspace = create_request.output  # type: ignore[attr-defined]
+            workspace.mkdir(parents=True)
+            workspace_paths.append(workspace)
+            return self._run("convert", on_progress)
+
+        def plan(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> object:
+            return self._run("compile", on_progress)
+
+        def render_plan(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> object:
+            return self._run("render_plan", on_progress)
+
+        def render(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> object:
+            return self._run("render", on_progress)
+
+        def compose(
+            self,
+            *_args: object,
+            on_progress: Callable[[object], None] | None = None,
+            **_kwargs: object,
+        ) -> object:
+            return self._run("compose", on_progress)
+
+        def export(self, _workspace: WorkspaceRef, _export_request: object) -> object:
+            return self._run("export")
+
+    return FakeService(), request
+
+
+@pytest.mark.parametrize(
+    "cancel_stage", ["convert", "compile", "render_plan", "render", "compose", "export"]
+)
+def test_cancellation_stops_at_stage_boundaries_and_cleans_temporary_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancel_stage: str
+) -> None:
+    token = CancellationToken()
+    completed: list[str] = []
+    calls: list[str] = []
+    workspace_paths: list[Path] = []
+    service, request = _install_fake_cancel_workflow(
+        monkeypatch, tmp_path, token, completed, calls, workspace_paths
+    )
+
+    def on_progress(event: WorkflowEvent) -> None:
+        if event.stage == cancel_stage and event.kind == "stage.progress":
+            token.cancel()
+
+    with pytest.raises(WorkflowCancelledError) as caught:
+        workflow.render_workflow(service, request, on_progress=on_progress, cancellation=token)
+
+    assert caught.value.stage == cancel_stage
+    assert calls == list(workflow._STAGE_ORDER[: workflow._STAGE_ORDER.index(cancel_stage) + 1])
+    if cancel_stage == "export":
+        assert request.output.read_bytes() == b"audio"
+        assert completed == list(workflow._STAGE_ORDER)
+    else:
+        assert not request.output.exists()
+        assert completed == list(workflow._STAGE_ORDER[: workflow._STAGE_ORDER.index(cancel_stage)])
+    assert workspace_paths
+    assert not workspace_paths[0].parent.exists()
+
+
+def test_cancellation_keeps_persistent_workspace_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = CancellationToken()
+    completed: list[str] = []
+    calls: list[str] = []
+    workspace_paths: list[Path] = []
+    service, request = _install_fake_cancel_workflow(
+        monkeypatch, tmp_path, token, completed, calls, workspace_paths
+    )
+    request = replace(request, bundle=tmp_path / "persistent.ssmd-bundle")
+
+    def cancel_after_conversion(event: WorkflowEvent) -> None:
+        if event.stage == "convert" and event.kind == "stage.progress":
+            token.cancel()
+
+    with pytest.raises(WorkflowCancelledError) as caught:
+        workflow.render_workflow(
+            service,
+            request,
+            on_progress=cancel_after_conversion,
+            cancellation=token,
+        )
+
+    assert caught.value.stage == "convert"
+    assert calls == ["convert"]
+    assert workspace_paths[0].exists()
+    assert workspace_paths[0].parent.exists()
+    assert not request.output.exists()
+
+
+def test_cancelled_render_stops_before_request_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    token = CancellationToken()
+    token.cancel()
+    monkeypatch.setattr(
+        workflow,
+        "_resolve",
+        lambda _request: pytest.fail("a cancelled render must stop before resolution"),
+    )
+
+    with pytest.raises(WorkflowCancelledError):
+        workflow.render_workflow(object(), request, cancellation=token)
+
+
+def test_non_cancellation_voice_render_callback_error_is_not_unwrapped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import voicerender
+
+    token = CancellationToken()
+    completed: list[str] = []
+    calls: list[str] = []
+    workspace_paths: list[Path] = []
+    service, request = _install_fake_cancel_workflow(
+        monkeypatch, tmp_path, token, completed, calls, workspace_paths
+    )
+    callback_error = RuntimeError("progress callback failed")
+
+    def on_progress(event: WorkflowEvent) -> None:
+        if event.stage == "render" and event.kind == "stage.progress":
+            raise callback_error
+
+    with pytest.raises(WorkflowStageError) as caught:
+        workflow.render_workflow(service, request, on_progress=on_progress, cancellation=token)
+
+    assert caught.value.stage == "render"
+    assert isinstance(caught.value.__cause__, voicerender.RenderEventCallbackError)
+    assert caught.value.__cause__.__cause__ is callback_error
+    assert not request.output.exists()
+    assert workspace_paths and not workspace_paths[0].parent.exists()
 
 
 def test_inspect_and_render_dry_run_use_temporary_policy_without_writes(
@@ -322,7 +553,16 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
             export_request.output.write_bytes(b"audio")  # type: ignore[attr-defined]
 
     service = FakeService()
-    result = workflow.render_workflow(service, request, on_progress=progress_events.append)
+
+    def package_version(package: str) -> str | None:
+        if package == "voicerender":
+            raise RuntimeError("metadata lookup failed")
+        return "test-version"
+
+    monkeypatch.setattr(workflow, "distribution_version", package_version)
+    result = workflow.render_workflow(
+        service, request, on_progress=progress_events.append, include_report=True
+    )
 
     assert result.workspace is None
     assert result.workspace_mode == "temporary"
@@ -330,6 +570,38 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
     assert executed == list(workflow._STAGE_ORDER)
     assert workspace_paths and not workspace_paths[0].parent.exists()
     assert (tmp_path / "result.mp3").read_bytes() == b"audio"
+    assert result.report is not None
+    report = result.report
+    assert report.source == request.source.resolve()
+    assert report.workspace is None
+    assert report.workspace_mode == "temporary"
+    assert report.selected_chapters == request.chapters
+    assert report.profile == request.profile.resolve()
+    assert report.output == request.output
+    assert report.output_format == "mp3"
+    assert tuple(record.stage for record in report.stages) == workflow._STAGE_ORDER
+    assert all(record.state_before == "not_started" for record in report.stages)
+    assert all(record.state_after == "complete" for record in report.stages)
+    assert all(record.elapsed_seconds >= 0 for record in report.stages)
+    assert report.elapsed_seconds >= 0
+    assert report.specialist_versions["voicerender"] is None
+    assert tuple(report.specialist_versions) == (
+        "ssmdconvert",
+        "utterplan",
+        "voicerender",
+        "audiocompose",
+        "audioexport",
+        "renderplan",
+    )
+    assert any("Could not determine" in warning for warning in report.warnings)
+    assert not list(tmp_path.rglob("*.report*"))
+    assert not list(tmp_path.rglob(".readio"))
+
+    from readio.api.serialization import render_result_to_dict
+
+    serialized = render_result_to_dict(result)
+    assert serialized["schema"] == "readio.render-result.v1"
+    assert serialized["result"]["report"]["stages"][0]["stage"] == "convert"
 
     callback_stages = {"convert", "compile", "render_plan", "render", "compose"}
     expected_events: list[tuple[str, str]] = []
@@ -350,6 +622,7 @@ def test_temporary_workflow_runs_all_stages_and_keeps_output_after_cleanup(
     reused_events: list[WorkflowEvent] = []
     reused = workflow.render_workflow(service, request, on_progress=reused_events.append)
     assert reused.reused_stages == tuple(workflow._STAGE_ORDER)
+    assert reused.report is None
     assert executed == calls_after_execution
     assert [(event.stage, event.kind) for event in reused_events] == [
         (stage, "stage.reused") for stage in workflow._STAGE_ORDER
@@ -607,3 +880,47 @@ def test_invoke_render_stage_forwards_normalized_progress(
     assert event.elapsed_seconds == 1.25
     assert event.details["chapter_id"] == "c7"
     assert event.details["chapter_number"] == 7
+
+
+def test_resolve_maps_source_profile_format_and_output_failures_to_stable_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_source_inputs(monkeypatch)
+    request = _request(tmp_path)
+    monkeypatch.setattr(
+        workflow,
+        "inspect_source",
+        lambda _source: (_ for _ in ()).throw(ValueError("unsupported source bytes")),
+    )
+    with pytest.raises(WorkflowResolutionError) as source_error:
+        workflow._resolve(request)
+    assert source_error.value.code == "unsupported_source"
+
+    _mock_source_inputs(monkeypatch)
+    monkeypatch.setattr(
+        workflow,
+        "load_render_profile",
+        lambda _profile: (_ for _ in ()).throw(ValueError("invalid profile")),
+    )
+    with pytest.raises(WorkflowResolutionError) as profile_error:
+        workflow._resolve(request)
+    assert profile_error.value.code == "invalid_profile"
+
+    _mock_source_inputs(monkeypatch)
+    format_request = RenderRequest(
+        source=request.source,
+        profile=request.profile,
+        format="unknown-format",
+    )
+    with pytest.raises(WorkflowResolutionError) as format_error:
+        workflow._resolve(format_request)
+    assert format_error.value.code == "unsupported_output_format"
+
+    output_request = RenderRequest(
+        source=request.source,
+        profile=request.profile,
+        output=tmp_path / "wrong.wav",
+    )
+    with pytest.raises(WorkflowResolutionError) as output_error:
+        workflow._resolve(output_request)
+    assert output_error.value.code == "invalid_output"

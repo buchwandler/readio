@@ -158,6 +158,12 @@ plan = service.inspect(request)
 
 `inspect_source()` is read-only and does not create a workspace. `inspect_intent()` and `render_intent()` are convenience methods over the same `RenderRequest` mapping and canonical inspect/render workflow. Use `service.render_intent(intent, dry_run=True)` for a read-only workflow plan.
 
+## Stable platform contracts and MCP
+
+`Readio.inspect()` is the canonical, read-only workflow plan used by `status`, dry-run, and the Python API. Plans expose stable reason codes, blockers, and logical artifact references; diagnostic details are not a protocol. Shared versioned serialization covers plans, results, errors, capabilities, and semantic speech results. `Readio.capabilities()` and scoped capability methods are read-only; cancellation is cooperative at supported boundaries, and execution reports are optional and never persisted.
+
+MCP is an optional adapter over `readio.api`. Install it with `python -m pip install 'readio[mcp]'` and launch `python -m readio.mcp.server` as a stdio server. Its tools inspect sources and workflows, report capabilities, list engines and cached voices, render, and synthesize speech. Rendering requires explicit source, profile, and output paths. It inspects first and executes only an executable plan with the request's explicit rebuild and output replacement controls. `speech_speak` returns WAV audio as base64 and does not play audio. See [Python API contracts](docs/api.md) and [architecture](docs/architecture.md).
+
 ## Documentation
 
 - [Architecture and ownership](docs/architecture.md)

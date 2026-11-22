@@ -130,3 +130,24 @@ def test_readio_does_not_own_terminal_silence_conditioning() -> None:
     for path in (ROOT / "readio").rglob("*.py"):
         source = path.read_text(encoding="utf-8")
         assert not any(token in source for token in forbidden), path
+
+
+def test_runtime_does_not_import_ttsforge() -> None:
+    roots = {module.split(".", 1)[0] for module in _runtime_imports()}
+    assert "ttsforge" not in roots
+
+
+def test_mcp_server_imports_only_readio_public_api_not_specialists() -> None:
+    path = ROOT / "readio/mcp/server.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imports.add(node.module)
+
+    roots = {module.split(".", 1)[0] for module in imports}
+    assert "readio.api" in imports
+    assert not roots & (SPECIALIST_ROOTS | BACKEND_ROOTS | {"ttsforge"})
+    assert "readio.api.service" not in imports

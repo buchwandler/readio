@@ -6,9 +6,45 @@ from collections.abc import Callable, Mapping
 from dataclasses import fields, is_dataclass
 from typing import Any
 
-from readio.api.types import PipelineEvent, PipelineStage, WorkflowEvent, WorkflowStage
+from readio.api.types import (
+    CancellationToken,
+    PipelineEvent,
+    PipelineStage,
+    WorkflowEvent,
+    WorkflowStage,
+)
+from readio.errors import WorkflowCancelledError
 
 ProgressHandler = Callable[[PipelineEvent], None] | None
+
+
+def check_cancellation(cancellation: CancellationToken | None, stage: str | None = None) -> None:
+    if cancellation is None:
+        return
+    try:
+        cancellation.raise_if_cancelled()
+    except WorkflowCancelledError as error:
+        if error.stage is not None or stage is None:
+            raise
+        raise WorkflowCancelledError(stage=stage) from error
+
+
+def cancellation_aware_callback(
+    cancellation: CancellationToken | None,
+    handler: Callable[[Any], None] | None,
+    *,
+    stage: str | None = None,
+) -> Callable[[Any], None] | None:
+    if cancellation is None:
+        return handler
+
+    def forward(event: Any) -> None:
+        check_cancellation(cancellation, stage)
+        if handler is not None:
+            handler(event)
+        check_cancellation(cancellation, stage)
+
+    return forward
 
 
 def normalize_progress(

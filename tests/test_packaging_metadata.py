@@ -71,9 +71,11 @@ def test_optional_dependencies_do_not_mirror_engine_extras() -> None:
         "supertonic",
         "inflect",
         "dev",
+        "mcp",
     }
     assert optional["spacy"] == ["utterplan[spacy]>=0.6.19,<0.7"]
     assert optional["documents"] == ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
+    assert optional["mcp"] == ["mcp>=1.28,<2"]
     for extra in ("kokoro", "piper", "pocket", "kitten", "supertonic", "inflect"):
         assert optional[extra] == [f"voicerender[{extra}]>=0.2.12,<0.3"]
     assert not any("renderplan" in item for item in project["dependencies"])

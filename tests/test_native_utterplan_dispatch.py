@@ -121,7 +121,7 @@ def test_render_plan_forwards_bundle_options_and_exact_projection_variant(
     assert events[1].total == 8
 
 
-def test_stage_error_keeps_code_cause_and_bundle_context(
+def test_stage_error_normalizes_code_and_preserves_bundle_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace = _workspace(tmp_path, "book")
@@ -134,6 +134,7 @@ def test_stage_error_keeps_code_cause_and_bundle_context(
     with pytest.raises(ReadioStageError) as caught:
         plan(workspace, PlanRequest())
 
-    assert caught.value.code == "INVALID_BUNDLE"
+    assert caught.value.code == "stage_failed"
+    assert caught.value.details["specialist_code"] == "INVALID_BUNDLE"
     assert caught.value.workspace == workspace.root
     assert caught.value.__cause__ is failure

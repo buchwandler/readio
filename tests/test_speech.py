@@ -350,7 +350,7 @@ def test_preflight_rejection_keeps_segment_identity_and_measurements(
     assert not any(call[0] in {"render", "compose"} for call in setup["calls"])
 
 
-def test_render_failure_preserves_engine_code_and_occurrence_identity(
+def test_render_failure_preserves_specialist_diagnostics_and_occurrence_identity(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     import readio.integrations.voicerender as render_adapter
@@ -380,7 +380,8 @@ def test_render_failure_preserves_engine_code_and_occurrence_identity(
 
     error = caught.value
     assert error.stage == "render"
-    assert error.code == "engine.render_failed"
+    assert error.code == "stage_failed"
+    assert error.details["specialist_code"] == "engine.render_failed"
     assert error.selector == f"speech 3 ({_SEGMENT_ID})"
     assert error.details["error_engine"] == "kokoro"
     assert error.details["error_diagnostic"] == {"reason": "unavailable"}

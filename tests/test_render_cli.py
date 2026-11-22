@@ -149,6 +149,7 @@ def test_persistent_render_dry_run_applies_cli_overrides_without_execution(
     assert request.format == "wav"
     assert request.rebuild_from == "export"
     assert request.replace_output is True
+    assert payload["schema"] == "readio.workflow-plan.v1"
     assert payload["result"]["workspace_mode"] == "persistent"
 
 
@@ -180,6 +181,7 @@ def test_status_inspects_the_same_workflow_plan(
     assert cli.main(["status", str(source), "--profile", str(profile), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
+    assert payload["schema"] == "readio.workflow-plan.v1"
     assert payload["result"]["workspace_mode"] == "temporary"
     assert captured["request"].source == source.resolve()
 

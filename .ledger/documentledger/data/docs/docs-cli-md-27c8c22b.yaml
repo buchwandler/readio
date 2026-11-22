@@ -1,10 +1,10 @@
 schema: documentledger.doc_record.v4
 doc_path: docs/cli.md
 linked_sources:
+  - readio/api/service.py
   - readio/cli.py
   - readio/doctor.py
   - readio/speech.py
-  - tests/test_dependency_boundaries.py
 sections:
   - section_id: md:section:docs/cli.md::cli-reference
     doc_path: docs/cli.md
@@ -46,14 +46,14 @@ sections:
         impact: unknown
         reason: This section documents the retained top-level command parser.
         tracked_hashes:
-          body_hash: eae5ccdce92479a4ebac992f348f68db5ca2e3b7b5c13797b9b0634fa16870fd
+          body_hash: 1e80307741ab5a3842301bddffde9f6b4cc7ad561c2dd4bb8860872ae62086b9
       - source_id: py:function:readio/cli.py::main
         source_path: readio/cli.py
         coverage: implementation-note
         impact: unknown
         reason: This section documents retained command dispatch.
         tracked_hashes:
-          body_hash: b489d88b319f7e8109a440f3a6156396da03c12bf0401588090934be1fc406c6
+          body_hash: a24ec8c9518c31d0d30ff5232cf49185445ca2cebde567a17f9ed0add14f4c52
   - section_id: md:section:docs/cli.md::unified-render-workflow
     doc_path: docs/cli.md
     heading_path:
@@ -100,13 +100,13 @@ sections:
     line_span:
       - 38
       - 78
-    section_hash: bd682dffcb46e578ac542e8b9d508e23cd4e9960ca7e1c05a67a98963e101dff
+    section_hash: a4cd87f3d6e92ba91010e445ec6cddf3998d8edbaa3a6548a50042a4aa3ea54b
     summary: Render intents
     text:
       "## Render intents\n\nA render intent is reviewable, user-owned TOML. The\
-      \ current schema is `readio.render.v2`; `[input]` describes source content, while\
+      \ current schema is `readio.render.v3`; `[input]` describes source content, while\
       \ workspace mode and persistent bundle path belong under `[workspace]`.\n\n```toml\n\
-      schema = \"readio.render.v2\"\nkind = \"book\"\n\n[input]\nsource = \"novel.epub\"\
+      schema = \"readio.render.v3\"\nkind = \"book\"\n\n[input]\nsource = \"novel.epub\"\
       \nchapters = \"5-17\"\nlanguage = \"en-US\"\n\n[workspace]\nmode = \"bundle\"\n\
       bundle = \"novel.ssmd-bundle\"\n\n[voice]\nprofile = \"narrator.renderprofile.toml\"\
       \n```\n\nUse `mode = \"temporary\"` when intermediate state should be discarded\
@@ -249,7 +249,7 @@ sections:
         impact: unknown
         reason: This section documents direct speech through VoiceRender.
         tracked_hashes:
-          body_hash: e4af6c4d1df0ec882b02d25b4fcfacdf06b4107fdc89d52937d0dea1e4cfe40d
+          body_hash: 5f690799767478116c582c391ea23a83d16e61ad99b6e1d43133365ebf98ee16
   - section_id: md:section:docs/cli.md::onnx-runtime-provider-controls
     doc_path: docs/cli.md
     heading_path:
@@ -332,7 +332,7 @@ sections:
         impact: unknown
         reason: This section documents the package and VoiceRender engine report.
         tracked_hashes:
-          body_hash: db3f2eba9263b382d7802f430325f9f4ff8e912dce62a7d90f93f3ef6f092e8f
+          body_hash: d1b91a6fd489022cf37f95bbcb87ba9f4984e9cff4bd2c45a275985beaaa4c4d
   - section_id: md:section:docs/cli.md::verbose-diagnostics-and-timing
     doc_path: docs/cli.md
     heading_path:
@@ -341,8 +341,8 @@ sections:
     heading_slug: verbose-diagnostics-and-timing
     line_span:
       - 167
-      - 176
-    section_hash: 8fca4e1a6d542752d129bb82f43c7f97146686d692b59f95e26ffea48adde5ab
+      - 170
+    section_hash: 2ac679f8c235787392c3b1c5ba590dbbf8ee66096fb784d158d1bdd8af836084
     summary: Verbose diagnostics and timing
     text: "## Verbose diagnostics and timing
 
@@ -350,7 +350,36 @@ sections:
       Global `-v`/`--verbose` and `-vv` flags are accepted before or after nested commands.
       `-v` emits INFO diagnostics and elapsed command/stage timings; `-vv` adds DEBUG
       dispatch and inspection details plus tracebacks for unexpected errors. Diagnostic
-      output is sent to stderr, leaving normal results and JSON on stdout.
+      output is sent to stderr, leaving normal results and JSON on stdout."
+    links: []
+  - section_id: md:section:docs/cli.md::machine-readable-contracts-and-mcp
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Machine-readable contracts and MCP
+    heading_slug: machine-readable-contracts-and-mcp
+    line_span:
+      - 171
+      - 182
+    section_hash: ef1a506f490b3606e4ed35f016c6a128e307b12d9dded181e2bd73e4617e672e
+    summary: Machine-readable contracts and MCP
+    text: "## Machine-readable contracts and MCP
+
+
+      CLI JSON uses the versioned public serializer shared with Python and MCP responses.
+      Workflow status and dry-run are presentations of the same canonical plan. Stable
+      reason and error codes are machine-facing; human messages and diagnostic `details`
+      are not protocol fields to parse. See the [Python API guide](api.md) for response
+      schemas, capabilities, cancellation limits, and optional execution reports.
+
+
+      The MCP server is not a CLI subcommand. Install the optional extra with `python
+      -m pip install 'readio[mcp]'`, then launch `python -m readio.mcp.server` under
+      an MCP host using stdio. The server exposes inspection, capability, engine/voice
+      listing, render, and speak tools through `readio.api`. Render requires explicit
+      paths and respects `--rebuild-from` and `--replace-output` semantics through request
+      fields; blocked plans are returned without calling `Readio.render()`. The adapter
+      introduces no hidden state or background service.
 
 
       ```bash
@@ -365,30 +394,24 @@ sections:
 
       `--no-progress` suppresses progress callbacks only; verbose diagnostics and timing
       remain enabled. Timings use a monotonic clock and are not persisted."
-    links: []
-  - section_id: md:section:docs/cli.md::removed-commands
-    doc_path: docs/cli.md
-    heading_path:
-      - CLI reference
-      - Removed commands
-    heading_slug: removed-commands
-    line_span:
-      - 81
-      - 83
-    section_hash: 9dd3be223790ba3ecce56b9c23865aab135674a43ee7270ceb06f4b2f833d067
-    summary: Removed commands
     links:
-      - source_id: py:function:tests/test_dependency_boundaries.py::test_runtime_contains_no_legacy_persistence_identifiers
-        source_path: tests/test_dependency_boundaries.py
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
         coverage: implementation-note
         impact: unknown
-        reason: This section documents removed runtime compatibility surfaces.
+        reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: dec299e9bf3087e8f3a7c17575bec70ae3706a58d3d156e115c9b18548ddec85
-last_fresh_scan_version: 18
-last_fresh_hash: a319cc70d89916a7a251ecaeb3793f31bc15bc1e6012f90dc1dc2691e0454de1
+          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+      - source_id: py:method:readio/api/service.py::Readio.render
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains exact qualified symbol `Readio.render`.
+        tracked_hashes:
+          body_hash: 38432f0a12580eff1aae5b319d454d9ea59df9ca497693420336567219844f01
+last_fresh_scan_version: 26
+last_fresh_hash: 46b1f60cb520827a36a115c382138aa36fefb870ed7d5c6ebfde0e0a20081618
 notes:
-  Reviewed affected sections against current Readio public APIs and CLI; strict
-  Sphinx build and focused documentation/workspace tests passed.
-coverage_resolution: null
-version: 216
+  Reviewed affected sections against current Readio public APIs and CLI; documentation
+  reflects the canonical workflow, current commands, and optional contracts.
+version: 268

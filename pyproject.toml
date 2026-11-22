@@ -22,6 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 spacy = ["utterplan[spacy]>=0.6.19,<0.7"]
 documents = ["ssmdconvert[pdf,docx]>=0.2.5,<0.3"]
+mcp = ["mcp>=1.28,<2"]
 kokoro = ["voicerender[kokoro]>=0.2.12,<0.3"]
 piper = ["voicerender[piper]>=0.2.12,<0.3"]
 pocket = ["voicerender[pocket]>=0.2.12,<0.3"]
@@ -39,8 +40,7 @@ include = ["readio*"]
 exclude = ["tests*", "skill*"]
 
 [tool.setuptools.package-data]
-readio = ["py.typed"]
-
+readio = ["py.typed", "skills/readio/SKILL.md", "skills/readio/references/*.md"]
 [tool.setuptools_scm]
 fallback_version = "0+unknown"
 

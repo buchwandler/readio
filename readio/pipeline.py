@@ -120,6 +120,6 @@ def _call_stage(stage: str, workspace: WorkspaceRef, operation: Callable[[], Any
             stage,
             str(exc),
             workspace=workspace.root,
-            code=error_code,
+            details={"specialist_code": error_code} if error_code is not None else {},
             cause=exc,
         ) from exc

@@ -37,10 +37,10 @@ Progress and diagnostics go to stderr; `--json` keeps the structured result on s
 
 ## Render intents
 
-A render intent is reviewable, user-owned TOML. The current schema is `readio.render.v2`; `[input]` describes source content, while workspace mode and persistent bundle path belong under `[workspace]`.
+A render intent is reviewable, user-owned TOML. The current schema is `readio.render.v3`; `[input]` describes source content, while workspace mode and persistent bundle path belong under `[workspace]`.
 
 ```toml
-schema = "readio.render.v2"
+schema = "readio.render.v3"
 kind = "book"
 
 [input]
@@ -167,6 +167,12 @@ Doctor reports specialist package versions, VoiceRender engine availability, and
 ## Verbose diagnostics and timing
 
 Global `-v`/`--verbose` and `-vv` flags are accepted before or after nested commands. `-v` emits INFO diagnostics and elapsed command/stage timings; `-vv` adds DEBUG dispatch and inspection details plus tracebacks for unexpected errors. Diagnostic output is sent to stderr, leaving normal results and JSON on stdout.
+
+## Machine-readable contracts and MCP
+
+CLI JSON uses the versioned public serializer shared with Python and MCP responses. Workflow status and dry-run are presentations of the same canonical plan. Stable reason and error codes are machine-facing; human messages and diagnostic `details` are not protocol fields to parse. See the [Python API guide](api.md) for response schemas, capabilities, cancellation limits, and optional execution reports.
+
+The MCP server is not a CLI subcommand. Install the optional extra with `python -m pip install 'readio[mcp]'`, then launch `python -m readio.mcp.server` under an MCP host using stdio. The server exposes inspection, capability, engine/voice listing, render, and speak tools through `readio.api`. Render requires explicit paths and respects `--rebuild-from` and `--replace-output` semantics through request fields; blocked plans are returned without calling `Readio.render()`. The adapter introduces no hidden state or background service.
 
 ```bash
 readio -v status novel.ssmd-bundle --profile narrator.renderprofile.toml

@@ -181,6 +181,9 @@ def test_readio_workflow_foundation_types_are_public() -> None:
         "RenderResult",
         "OutputCollisionError",
         "WorkflowAction",
+        "WorkflowArtifactRef",
+        "WorkflowBlocker",
+        "WorkflowReasonCode",
         "WorkflowError",
         "WorkflowReplanError",
         "WorkflowResolutionError",
@@ -258,3 +261,51 @@ def test_application_api_documentation_promotes_synthesis_and_catalog() -> None:
     ):
         assert term in api_docs
     assert "Readio.synthesize()" in readme
+
+
+def test_readio_intent_schema_is_current_public_contract() -> None:
+    from readio.api import INTENT_SCHEMA
+
+    assert INTENT_SCHEMA == "readio.render.v3"
+
+
+def test_versioned_workflow_serializers_are_public() -> None:
+    from readio import api
+
+    for name in (
+        "workflow_plan_to_dict",
+        "render_result_to_dict",
+        "speak_result_to_dict",
+        "error_info_to_dict",
+        "serialize_public",
+    ):
+        assert callable(getattr(api, name))
+
+
+def test_readio_capability_contract_is_public() -> None:
+    from readio import api
+
+    for name in (
+        "CapabilityState",
+        "SpecialistCapability",
+        "WorkflowCapabilities",
+        "ExportFormatCapability",
+        "SourceCapabilities",
+        "SynthesisCapabilities",
+        "ReadioCapabilities",
+        "ExecutionReport",
+        "StageExecutionRecord",
+        "capabilities_to_dict",
+        "source_capabilities_to_dict",
+        "synthesis_capabilities_to_dict",
+        "export_capabilities_to_dict",
+    ):
+        assert hasattr(api, name), f"readio.api is missing {name}"
+
+    for name in (
+        "capabilities",
+        "source_capabilities",
+        "synthesis_capabilities",
+        "export_capabilities",
+    ):
+        assert callable(getattr(api.Readio, name))

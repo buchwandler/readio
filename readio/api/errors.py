@@ -18,6 +18,8 @@ def describe_error(error: ReadioError) -> ErrorInfo:
         package=getattr(error, "package", None),
         selector=getattr(error, "selector", None),
         details=dict(getattr(error, "details", {})),
+        recoverable=getattr(error, "recoverable", False),
+        suggested_action=getattr(error, "suggested_action", None),
     )
 
 

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from readio.api import Readio, create_document_intent
-from readio.api.types import RenderExecutionOptions, RenderRequest
+from readio.api.types import CancellationToken, RenderExecutionOptions, RenderRequest
 
 
 def _request(tmp_path: Path) -> RenderRequest:
@@ -105,6 +105,51 @@ def test_render_intent_delegates_to_render_with_dry_run_and_progress(
 
     assert service.render_intent(intent, dry_run=True, on_progress=progress) is result
     assert calls == {"request": request, "dry_run": True, "on_progress": progress}
+
+
+def test_render_intent_propagates_explicit_cancellation_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    intent = create_document_intent("article.md", profile="profile.toml")
+    request = _request(tmp_path)
+    token = CancellationToken()
+    service = Readio()
+    calls: dict[str, Any] = {}
+    monkeypatch.setattr(service, "request_from_intent", lambda *_args, **_kwargs: request)
+
+    def render(received_request: RenderRequest, **options: Any) -> object:
+        calls.update(request=received_request, options=options)
+        return object()
+
+    monkeypatch.setattr(service, "render", render)
+
+    service.render_intent(intent, cancellation=token, include_report=True)
+
+    assert calls["request"] is request
+    assert calls["options"]["cancellation"] is token
+    assert calls["options"]["include_report"] is True
+
+
+def test_render_request_passes_cancellation_to_canonical_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import readio.render_workflow as render_module
+
+    request = _request(tmp_path)
+    token = CancellationToken()
+    service = Readio()
+    calls: dict[str, Any] = {}
+    result = object()
+
+    def render_workflow(_service: object, _request: RenderRequest, **options: Any) -> object:
+        calls.update(options)
+        return result
+
+    monkeypatch.setattr(render_module, "render_workflow", render_workflow)
+
+    assert service.render(request, cancellation=token, include_report=True) is result
+    assert calls["cancellation"] is token
+    assert calls["include_report"] is True
 
 
 def test_intent_execution_options_reject_unknown_stages(
