@@ -15,7 +15,6 @@ from typing import Any, Literal
 import numpy as np
 
 from readio.errors import OutputCollisionError, WorkflowCancelledError
-
 from readio.workspace import (
     CreateWorkspaceRequest,
     PreparationOptions,

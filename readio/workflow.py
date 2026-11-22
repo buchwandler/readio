@@ -276,7 +276,7 @@ def make_workflow_plan(
     """Build the public plan and attach Readio's logical workflow artifact references."""
     source_path = Path(source).expanduser().resolve()
     output_path = Path(output).expanduser().absolute() if output is not None else None
-    states = {step.stage: step.state for step in steps}
+    states: dict[str, WorkflowInspectionState] = {step.stage: step.state for step in steps}
     owners = {
         "source": "ssmdconvert",
         "workspace": "ssmdconvert",
@@ -304,7 +304,7 @@ def make_workflow_plan(
     enriched_steps: list[WorkflowStep] = []
     for step in steps:
         input_kinds, output_kinds = artifact_io[step.stage]
-        prior_stage = {
+        prior_stage: dict[str, str] = {
             "workspace": "convert",
             "compiled_plan": "compile",
             "render_plan": "render_plan",

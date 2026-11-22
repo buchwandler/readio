@@ -12,13 +12,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from readio.api.serialization import error_info_to_dict, serialize_public
+
 from . import __version__, api
 from .cli_control import CLIUsageError, add_control_commands, run_control_command
 from .diagnostics import configure_diagnostics, log_event, logger_for, timed_span
 from .doctor import doctor_report, format_doctor_report
 from .integrations.audioexport import supported_formats
-
-from readio.api.serialization import error_info_to_dict, serialize_public
 from .intent import (
     CLIP_POLICIES,
     COMPOSE_EMPHASIS_POLICIES,

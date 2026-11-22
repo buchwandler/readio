@@ -1,6 +1,7 @@
 """Distribution metadata shared by diagnostics and capability reports."""
 
 from __future__ import annotations
+
 from importlib import metadata
 
 SPECIALIST_PACKAGES = (

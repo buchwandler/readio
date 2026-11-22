@@ -10,14 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from readio.api.types import (
-    ExecutionReport,
-    StageExecutionRecord,
     ErrorInfo,
+    ExecutionReport,
     ExportFormatCapability,
     ReadioCapabilities,
     RenderResult,
-    SpeakResult,
     SourceCapabilities,
+    SpeakResult,
+    StageExecutionRecord,
     SynthesisCapabilities,
     WorkflowPlan,
 )
@@ -136,7 +136,7 @@ def render_result_to_dict(result: RenderResult) -> dict[str, object]:
         "reused_stages": list(result.reused_stages),
         "warnings": list(result.warnings),
     }
-    if getattr(result, "report", None) is not None:
+    if result.report is not None:
         value["report"] = _execution_report_to_dict(result.report)
     return {"schema": "readio.render-result.v1", "result": value}
 

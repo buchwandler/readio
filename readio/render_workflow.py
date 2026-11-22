@@ -5,23 +5,24 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from types import MappingProxyType
-from tempfile import TemporaryDirectory
 from typing import Any
 
+from readio._packages import SPECIALIST_PACKAGES, distribution_version
 from readio.api.types import (
     CancellationToken,
-    ExecutionReport,
-    StageExecutionRecord,
-    WorkflowBlocker,
     ComposeRequest,
+    ExecutionReport,
     ExportRequest,
     PlanRequest,
     RenderPlanRequest,
     RenderRequest,
     RenderResult,
+    StageExecutionRecord,
     VoiceRenderRequest,
+    WorkflowBlocker,
     WorkflowEvent,
     WorkflowPlan,
     WorkflowStage,
@@ -42,7 +43,6 @@ from readio.integrations.voicerender import (
     load_render_profile,
     unwrap_workflow_cancellation,
 )
-from readio._packages import SPECIALIST_PACKAGES, distribution_version
 from readio.intent import _default_output_path
 from readio.progress import (
     cancellation_aware_callback,
@@ -917,7 +917,7 @@ def _execute_stages(
             cancellation_error = unwrap_workflow_cancellation(exc)
             if cancellation_error is not None:
                 raise cancellation_error from exc
-            stage_details = {"action": step.action, "state": step.state}
+            stage_details: dict[str, object] = {"action": step.action, "state": step.state}
             specialist_code = getattr(exc, "code", None)
             if isinstance(specialist_code, str):
                 stage_details["specialist_code"] = specialist_code

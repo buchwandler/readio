@@ -75,7 +75,7 @@ def test_missing_specialist_and_unknown_version_are_reported_without_failure(mon
 
     monkeypatch.setattr(capability_module, "distribution_version", package_version)
     monkeypatch.setattr(Readio, "list_engines", lambda self: (_engine(),))
-    monkeypatch.setattr(capability_module, "supported_formats", lambda: {})
+    monkeypatch.setattr(capability_module, "supported_formats", dict)
 
     result = Readio().capabilities()
     specialists = {item.package: item for item in result.specialists}
@@ -139,7 +139,7 @@ def test_missing_voicerender_distribution_does_not_attempt_engine_discovery(monk
 
 
 def test_export_capabilities_are_versioned_even_when_no_formats_are_available(monkeypatch) -> None:
-    monkeypatch.setattr(capability_module, "supported_formats", lambda: {})
+    monkeypatch.setattr(capability_module, "supported_formats", dict)
 
     result = Readio().export_capabilities()
 

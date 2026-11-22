@@ -8,6 +8,7 @@ from typing import Any
 from readio import __version__
 from readio._packages import SPECIALIST_PACKAGES, distribution_version
 from readio.api.types import (
+    CapabilityState,
     ExportFormatCapability,
     ReadioCapabilities,
     SourceCapabilities,
@@ -118,7 +119,7 @@ def collect_capabilities(service: Any) -> ReadioCapabilities:
     elif formats and not any(item.available for item in formats):
         warnings.append("No AudioExport format passed readiness preflight.")
 
-    def state(package: str) -> str:
+    def state(package: str) -> CapabilityState:
         return by_package[package].state
 
     export_state = (
