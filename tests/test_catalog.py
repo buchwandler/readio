@@ -118,7 +118,7 @@ def test_readio_catalog_methods_normalize_mapping_and_attribute_descriptors(
     assert targets == (
         TargetInfo(
             id="kitten-v1",
-            languages=("English", "de-DE"),
+            languages=("en-US", "de-DE"),
             status="ready",
             runtime_available=True,
             default_voice="voice-a",
@@ -270,3 +270,37 @@ def test_raw_module_catalog_delegates_keep_specialist_results(
     assert api.discover_engine_targets("engine-a") is raw_targets
     assert api.list_voices(engine="engine-a", target="target-a") is raw_voices
     assert api.list_engine_options("engine-a", target="target-a") is raw_options
+
+
+def test_target_language_codes_round_trip_from_targets_to_voices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_target = {
+        "id": "kitten-v1",
+        "languages": ["en-US"],
+        "voices": ["voice-a"],
+        "voice_details": [{"language": "en-US", "language_label": "English"}],
+    }
+    voice_calls: list[dict[str, Any]] = []
+
+    def list_voices(**kwargs: Any) -> list[dict[str, str]]:
+        voice_calls.append(kwargs)
+        return [{"id": "voice-a", "language": "en-US", "language_label": "English"}]
+
+    monkeypatch.setattr(
+        engines.voicerender,
+        "discover_targets",
+        lambda *_args, **_kwargs: [raw_target],
+    )
+    monkeypatch.setattr(voices.voicerender, "list_voices", list_voices)
+
+    service = Readio()
+    target = service.list_targets("kitten")[0]
+    service.list_voices(
+        engine="kitten",
+        target=target.id,
+        language=target.languages[0],
+    )
+
+    assert target.languages == ("en-US",)
+    assert voice_calls[0]["language"] == "en-US"

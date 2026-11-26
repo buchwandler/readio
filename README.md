@@ -142,6 +142,8 @@ print(plan.steps, result.output, result.workspace_mode)
 
 The primary gateway API is `Readio.synthesize()`, `Readio.inspect(RenderRequest)`, and `Readio.render(RenderRequest)`. `synthesize` returns semantic audio in memory without playback or output files; `Readio.speak()` optionally plays that result. `inspect` reports specialist-backed workflow state without writing; `render` executes the complete file-to-audio workflow. Specialist CLIs remain available for deliberate package-level debugging. See the [Python API guide](docs/api.md).
 
+`Readio.list_models()` and `Readio.model_status()` provide normalized engine-model records; `Readio.install_model()`, `Readio.verify_model()`, and `Readio.remove_model()` delegate explicit actions to VoiceRender. VoiceRender 0.2.12 does not provide authoritative update semantics, model sizes, or storage identity, so those values remain unknown; `Readio.update_model()` reports unsupported operation rather than treating force-install as update. `readio models list` uses normalized human output, while `--json` preserves the legacy provider result and `--normalized-json` opts into `readio.engine-models.v1`. See the [model API contract](docs/api.md#engine-model-inventory-and-lifecycle).
+
 Source inventory and saved intents use the same gateway:
 
 ```python

@@ -1,6 +1,6 @@
 # Readio documentation
 
-Readio's workflow gateway uses a visible, user-owned `readio.render.v3` intent and a separate VoiceRender RenderProfile to orchestrate specialist speech packages. SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides unified workflow sequencing and direct semantic speech without hidden workspace state.
+Readio's workflow gateway uses a visible, user-owned `readio.render.v3` intent and a separate VoiceRender RenderProfile to orchestrate specialist speech packages. SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind; specialist APIs own stage schemas, validation, persisted artifacts, and detailed diagnostics. Readio provides unified workflow sequencing and direct semantic speech without hidden workspace state. It also offers normalized engine-model inventory and delegated lifecycle actions; update remains unsupported until VoiceRender provides authoritative semantics.
 
 ```{toctree}
 :maxdepth: 1

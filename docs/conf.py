@@ -36,6 +36,7 @@ source_suffix = {
 
 myst_enable_extensions = ["colon_fence"]
 
+myst_heading_anchors = 3
 # Napoleon settings for NumPy-style docstrings
 napoleon_google_docstring = False
 napoleon_numpy_docstring = True

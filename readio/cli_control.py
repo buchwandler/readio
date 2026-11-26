@@ -11,6 +11,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
+from readio.api import EngineModelInfo, serialize_public
+
 
 class CLIUsageError(ValueError):
     """A syntactically valid command with invalid option combinations or values."""
@@ -62,6 +64,11 @@ def add_control_commands(commands: Any) -> None:
     model_list.add_argument("--offline", action="store_true")
     model_list.add_argument("--refresh", action="store_true")
     model_list.add_argument("--json", action="store_true")
+    model_list.add_argument(
+        "--normalized-json",
+        action="store_true",
+        help="Emit the versioned Readio model inventory JSON contract.",
+    )
     model_show = model_commands.add_parser("show", help="Inspect a model")
     _model_target_arguments(model_show)
     model_install = model_commands.add_parser("install", help="Install a model")
@@ -234,6 +241,11 @@ def _model_target_arguments(parser: Any) -> None:
     parser.add_argument("--engine", required=True)
     parser.add_argument("--quality")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--normalized-json",
+        action="store_true",
+        help="Emit the versioned Readio model JSON contract.",
+    )
 
 
 def _voice_binding_arguments(parser: Any, *, require_source: bool = False) -> None:
@@ -387,9 +399,44 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _emit(result: Any, *, as_json: bool) -> int:
+def _model_human_summary(value: EngineModelInfo | tuple[EngineModelInfo, ...]) -> str:
+    models = (value,) if isinstance(value, EngineModelInfo) else value
+    lines = ["ENGINE\tTARGET\tQUALITY\tSTATE\tLOCAL VERSION\tAVAILABLE VERSION\tSIZE\tUPDATE"]
+    for model in models:
+        installed_size = "-" if model.bytes_installed is None else f"{model.bytes_installed} B"
+        download_size = "-" if model.bytes_download is None else f"{model.bytes_download} B"
+        lines.append(
+            "\t".join(
+                (
+                    model.engine,
+                    model.target,
+                    model.quality or "-",
+                    model.state,
+                    model.local_version or "-",
+                    model.available_version or "-",
+                    f"{installed_size} / {download_size}",
+                    model.update_state,
+                )
+            )
+        )
+    return "\n".join(lines)
+
+
+def _emit(
+    result: Any,
+    *,
+    as_json: bool,
+    normalized_json: bool = False,
+) -> int:
     if as_json:
-        print(json.dumps({"ok": True, "result": _json_value(result)}, ensure_ascii=False))
+        value = serialize_public(result) if normalized_json else _json_value(result)
+        print(json.dumps({"ok": True, "result": value}, ensure_ascii=False))
+    elif isinstance(result, EngineModelInfo) or (
+        isinstance(result, tuple)
+        and result
+        and all(isinstance(item, EngineModelInfo) for item in result)
+    ):
+        print(_model_human_summary(result))
     else:
         print(_human_summary(result))
     return 0
@@ -586,38 +633,83 @@ def run_control_command(args: argparse.Namespace, api: Any) -> int:
         return _emit(result, as_json=args.json)
 
     if command == "models":
+        normalized = not args.json or args.normalized_json
+        service = api.Readio() if normalized else None
         if args.model_command == "list":
-            result = api.list_engine_models(
-                args.engine,
-                language=args.lang,
-                installed=True if args.installed else None,
-                available=args.available,
-                offline=args.offline,
-                refresh=args.refresh,
-            )
+            if normalized:
+                result = service.list_models(
+                    args.engine,
+                    language=args.lang,
+                    installed=True if args.installed else None,
+                    available=args.available,
+                    offline=args.offline,
+                    refresh=args.refresh,
+                )
+            else:
+                result = api.list_engine_models(
+                    args.engine,
+                    language=args.lang,
+                    installed=True if args.installed else None,
+                    available=args.available,
+                    offline=args.offline,
+                    refresh=args.refresh,
+                )
         elif args.model_command == "show":
-            result = api.inspect_engine_model(args.target, engine=args.engine, quality=args.quality)
+            if normalized:
+                result = service.model_status(args.engine, args.target, quality=args.quality)
+            else:
+                result = api.inspect_engine_model(
+                    args.target, engine=args.engine, quality=args.quality
+                )
         elif args.model_command == "install":
-            result = api.install_engine_model(
-                args.target,
-                engine=args.engine,
-                quality=args.quality,
-                source=args.source,
-                cache_dir=args.cache_dir,
-                force=args.force,
-            )
+            if normalized:
+                result = service.install_model(
+                    args.engine,
+                    args.target,
+                    quality=args.quality,
+                    source=args.source,
+                    cache_dir=args.cache_dir,
+                    force=args.force,
+                )
+            else:
+                result = api.install_engine_model(
+                    args.target,
+                    engine=args.engine,
+                    quality=args.quality,
+                    source=args.source,
+                    cache_dir=args.cache_dir,
+                    force=args.force,
+                )
         elif args.model_command == "remove":
             if not args.yes:
                 raise CLIUsageError("model removal requires --yes")
-            result = api.remove_engine_model(
-                args.target, engine=args.engine, quality=args.quality, cache_dir=args.cache_dir
+            if normalized:
+                result = service.remove_model(
+                    args.engine,
+                    args.target,
+                    quality=args.quality,
+                    cache_dir=args.cache_dir,
+                )
+            else:
+                result = api.remove_engine_model(
+                    args.target, engine=args.engine, quality=args.quality, cache_dir=args.cache_dir
+                )
+        elif normalized:
+            result = service.verify_model(
+                args.engine,
+                args.target,
+                quality=args.quality,
+                cache_dir=args.cache_dir,
             )
         else:
             result = api.verify_engine_model(
                 args.target, engine=args.engine, quality=args.quality, cache_dir=args.cache_dir
             )
-        return _emit(result, as_json=args.json)
-
+        return _emit(
+            result,
+            as_json=args.json or args.normalized_json,
+            normalized_json=args.normalized_json,
+        )
     if command == "voices":
         if args.voices_command == "list":
             result = api.list_voices(

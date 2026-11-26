@@ -433,6 +433,56 @@ class EngineOptionInfo:
     runtime_only: bool
 
 
+ModelState = Literal[
+    "missing",
+    "ready",
+    "outdated",
+    "partial",
+    "corrupt",
+    "unavailable",
+    "unknown",
+]
+ModelUpdateState = Literal["current", "update_available", "unavailable", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class EngineModelInfo:
+    engine: str
+    target: str
+    quality: str | None = None
+    language: str | None = None
+    label: str | None = None
+    installed: bool = False
+    available: bool = False
+    state: ModelState = "unknown"
+    local_version: str | None = None
+    available_version: str | None = None
+    update_state: ModelUpdateState = "unknown"
+    bytes_installed: int | None = None
+    bytes_download: int | None = None
+    storage_id: str | None = None
+    installable: bool = False
+    updatable: bool = False
+    removable: bool = False
+    verifiable: bool = False
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.engine, str)
+            or not self.engine.strip()
+            or not isinstance(self.target, str)
+            or not self.target.strip()
+        ):
+            raise ValueError("engine and target identifiers must be non-empty")
+        for name in ("bytes_installed", "bytes_download"):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+            ):
+                raise ValueError(f"{name} must be a non-negative integer or None")
+
+
 @dataclass(frozen=True, slots=True)
 class ErrorInfo:
     type: str

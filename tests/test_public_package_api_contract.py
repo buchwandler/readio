@@ -105,6 +105,21 @@ def test_readio_public_api_centers_on_unified_workflows() -> None:
     assert callable(api.Readio.list_voices)
     assert callable(api.Readio.list_engine_options)
     assert callable(api.describe_error)
+    assert hasattr(api, "EngineModelInfo")
+    assert hasattr(api, "ModelState")
+    assert hasattr(api, "ModelUpdateState")
+    assert hasattr(api, "ModelOperationError")
+    assert callable(api.engine_model_to_dict)
+    assert callable(api.engine_models_to_dict)
+    for method in (
+        "list_models",
+        "model_status",
+        "install_model",
+        "update_model",
+        "verify_model",
+        "remove_model",
+    ):
+        assert callable(getattr(api.Readio, method))
     assert callable(api.Readio.render)
     assert callable(api.Readio.inspect)
     assert callable(api.Readio.inspect_source)
@@ -249,6 +264,8 @@ def test_application_api_documentation_promotes_synthesis_and_catalog() -> None:
 
     root = Path(__file__).resolve().parents[1]
     api_docs = (root / "docs" / "api.md").read_text(encoding="utf-8")
+    architecture_docs = (root / "docs" / "architecture.md").read_text(encoding="utf-8")
+    cli_docs = (root / "docs" / "cli.md").read_text(encoding="utf-8")
     readme = (root / "README.md").read_text(encoding="utf-8")
 
     for term in (
@@ -256,11 +273,21 @@ def test_application_api_documentation_promotes_synthesis_and_catalog() -> None:
         "to_wav_bytes()",
         "Readio.list_targets()",
         "Readio.list_engine_options()",
+        "Readio.list_models()",
+        "Engine model inventory and lifecycle",
+        "readio.engine-models.v1",
         "CancellationToken",
         "describe_error()",
     ):
         assert term in api_docs
     assert "Readio.synthesize()" in readme
+    assert "Readio.list_models()" in readme
+    assert (
+        "VoiceRender owns synthesis engine packages, model registries, model storage"
+        in architecture_docs
+    )
+    assert "--normalized-json" in cli_docs
+    assert "models update" in cli_docs
 
 
 def test_readio_intent_schema_is_current_public_contract() -> None:

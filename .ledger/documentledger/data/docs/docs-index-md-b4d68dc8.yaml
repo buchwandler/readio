@@ -14,7 +14,7 @@ sections:
     line_span:
       - 1
       - 13
-    section_hash: 07ef5df2bbd84b16f6cd82a2d2af2d389894056cfae7161ab9976ee6e48a6626
+    section_hash: ce3a948ee4e3c4cc4579b0dfb782874d5981ec4e3376655e320a489213daebdd
     summary: Readio documentation
     text: "# Readio documentation
 
@@ -24,7 +24,9 @@ sections:
       SSMDConvert owns `.ssmd-bundle` workspaces and their book/document manifest kind;
       specialist APIs own stage schemas, validation, persisted artifacts, and detailed
       diagnostics. Readio provides unified workflow sequencing and direct semantic speech
-      without hidden workspace state.
+      without hidden workspace state. It also offers normalized engine-model inventory
+      and delegated lifecycle actions; update remains unsupported until VoiceRender
+      provides authoritative semantics.
 
 
       ```{toctree}
@@ -48,7 +50,7 @@ sections:
         impact: unknown
         reason: This overview describes the current public API surface.
         tracked_hashes:
-          body_hash: 5e864a31517b6a5297ddadf6417a16c039b2a04efa2ef50e62dd4aad753e74ac
+          body_hash: 3e7c3c65520caecb209e11d7743cee5544e6d766057f34b466519f0763c0dbb1
   - section_id: md:section:docs/index.md::specialist-workflow
     doc_path: docs/index.md
     heading_path:
@@ -57,7 +59,7 @@ sections:
     heading_slug: specialist-workflow
     line_span:
       - 14
-      - 25
+      - 23
     section_hash: 7f5ca3726bed03872ea8e1a6d4fa620473dcf99e6ed2b972fd811fe39569a534
     summary: Specialist workflow
     text: "## Specialist workflow
@@ -84,8 +86,8 @@ sections:
       - Stable platform contracts
     heading_slug: stable-platform-contracts
     line_span:
-      - 26
-      - 31
+      - 24
+      - 29
     section_hash: bc26d338eccaa382500ed8ab6ef096878971014f430e1dd3f823b68aa6ce27f8
     summary: Stable platform contracts
     text: "## Stable platform contracts
@@ -110,8 +112,8 @@ sections:
       - Installation
     heading_slug: installation
     line_span:
-      - 32
-      - 35
+      - 30
+      - 33
     section_hash: b069d5bd2c80d121c080853f6e2e66c6d7afad9d4920510328495e7447c5bbf1
     summary: Installation
     text: '## Installation
@@ -130,8 +132,8 @@ sections:
       - Readio commands
     heading_slug: readio-commands
     line_span:
-      - 36
-      - 49
+      - 34
+      - 47
     section_hash: d664bcceebd1d8bf3f43eb7f5f52136f87d6a5fd68de3aaa1e7ef1e47ab445e4
     summary: Readio commands
     text: '## Readio commands
@@ -186,9 +188,10 @@ sections:
         reason: This section introduces literal-text speech.
         tracked_hashes:
           body_hash: 5f690799767478116c582c391ea23a83d16e61ad99b6e1d43133365ebf98ee16
-last_fresh_scan_version: 26
-last_fresh_hash: 4425b8ac3a8f646ae8ce3e032f8f683230b9f2c90a5b17a61ff4d07bf8fe0cbf
+last_fresh_scan_version: 33
+last_fresh_hash: f8b630e7f3811e69e23bd51dfe5ecb6cefa9a3f1040b60632f713b3954251a8d
 notes:
-  Reviewed affected sections against current Readio public APIs and CLI; documentation
-  reflects the canonical workflow, current commands, and optional contracts.
-version: 268
+  Reviewed all affected sections against current public APIs; documented the
+  normalized model contract in README and the API, architecture, and CLI guides, and
+  verified the strict Sphinx build.
+version: 286

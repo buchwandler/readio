@@ -16,6 +16,7 @@ from readio.api.types import (
     CompositionOptions,
     DiagnosticsMode,
     EngineInfo,
+    EngineModelInfo,
     EngineOptionInfo,
     ExportFormatCapability,
     ExportOptions,
@@ -47,10 +48,11 @@ from readio.api.types import (
     WorkflowPlan,
 )
 from readio.diagnostics import log_event, logger_for, timed_span
-from readio.errors import CatalogError, ReadioError
+from readio.errors import CatalogError, ModelOperationError, ReadioError
 from readio.integrations.ssmdconvert import inspect_source as _inspect_source_with_ssmdconvert
 from readio.intent import RenderIntent
 from readio.intent_resolver import ResolvedRenderIntent, resolve_render_intent
+from readio.model_catalog import model_info
 from readio.pipeline import compose, export, plan, render, render_plan
 from readio.playback import play_audio
 from readio.progress import cancellation_aware_callback, check_cancellation, normalize_progress
@@ -69,6 +71,40 @@ ProgressHandler = Callable[[PipelineEvent], None] | None
 
 
 _LOGGER = logger_for("service")
+
+
+def _model_info_from_operation_result(
+    result: object,
+    quality: str | None,
+) -> EngineModelInfo | None:
+    artifact = (
+        result.get("artifact") if isinstance(result, Mapping) else getattr(result, "artifact", None)
+    )
+    if artifact is None:
+        return None
+    try:
+        return replace(model_info(artifact), quality=quality)
+    except CatalogError:
+        return None
+
+
+def _model_operation_error(
+    operation: str,
+    engine: str,
+    target: str,
+    quality: str | None,
+    cause: Exception,
+    details: Mapping[str, object] | None = None,
+) -> ModelOperationError:
+    return ModelOperationError(
+        f"Cannot {operation} model {engine!r}:{target!r}.",
+        operation=operation,
+        engine=engine,
+        target=target,
+        quality=quality,
+        cause=cause,
+        details=details,
+    )
 
 
 def inspect_source(source: str | Path) -> SourceInspection:
@@ -425,6 +461,163 @@ class Readio:
                 target=target,
                 cause=error,
             ) from error
+
+    def list_models(
+        self,
+        engine: str,
+        *,
+        language: str | None = None,
+        installed: bool | None = None,
+        available: bool = False,
+        offline: bool = False,
+        refresh: bool = False,
+    ) -> tuple[EngineModelInfo, ...]:
+        """List model inventory as normalized Readio records without side effects."""
+        if installed is not None and available:
+            raise ValueError("installed and available filters are mutually exclusive")
+        from readio import engines as engine_api
+
+        details = {
+            "language": language,
+            "installed": installed,
+            "available": available,
+            "offline": offline,
+            "refresh": refresh,
+        }
+        try:
+            models = engine_api.list_engine_models(
+                engine,
+                language=language,
+                installed=installed,
+                available=available,
+                offline=offline,
+                refresh=refresh,
+            )
+            return tuple(model_info(item) for item in models)
+        except Exception as error:
+            raise CatalogError(
+                f"Cannot list models for engine {engine!r}.",
+                operation="list_models",
+                engine=engine,
+                cause=error,
+                details=details,
+            ) from error
+
+    def model_status(
+        self,
+        engine: str,
+        target: str,
+        *,
+        quality: str | None = None,
+    ) -> EngineModelInfo:
+        """Inspect one model and return its normalized specialist-reported status."""
+        from readio import engines as engine_api
+
+        try:
+            descriptor = engine_api.inspect_engine_model(target, engine=engine, quality=quality)
+            return replace(model_info(descriptor), quality=quality)
+        except Exception as error:
+            raise CatalogError(
+                f"Cannot inspect model {engine!r}:{target!r}.",
+                operation="model_status",
+                engine=engine,
+                target=target,
+                cause=error,
+                details={"quality": quality},
+            ) from error
+
+    def install_model(
+        self,
+        engine: str,
+        target: str,
+        *,
+        quality: str | None = None,
+        source: str | None = None,
+        cache_dir: str | Path | None = None,
+        force: bool = False,
+    ) -> EngineModelInfo:
+        """Install through VoiceRender and return a normalized post-operation status."""
+        from readio import engines as engine_api
+
+        try:
+            result = engine_api.install_engine_model(
+                target,
+                engine=engine,
+                quality=quality,
+                source=source,
+                cache_dir=cache_dir,
+                force=force,
+            )
+            info = _model_info_from_operation_result(result, quality)
+            return info if info is not None else self.model_status(engine, target, quality=quality)
+        except Exception as error:
+            raise _model_operation_error(
+                "install", engine, target, quality, error, {"source": source, "force": force}
+            ) from error
+
+    def update_model(
+        self,
+        engine: str,
+        target: str,
+        *,
+        quality: str | None = None,
+        cache_dir: str | Path | None = None,
+    ) -> EngineModelInfo:
+        """Reject updates until VoiceRender publishes authoritative update semantics."""
+        del cache_dir
+        raise ModelOperationError(
+            "VoiceRender does not provide authoritative model update semantics.",
+            operation="update",
+            engine=engine,
+            target=target,
+            quality=quality,
+            details={"supported": False},
+        )
+
+    def verify_model(
+        self,
+        engine: str,
+        target: str,
+        *,
+        quality: str | None = None,
+        cache_dir: str | Path | None = None,
+    ) -> EngineModelInfo:
+        """Verify through VoiceRender and return normalized status after verification."""
+        from readio import engines as engine_api
+
+        try:
+            result = engine_api.verify_engine_model(
+                target,
+                engine=engine,
+                quality=quality,
+                cache_dir=cache_dir,
+            )
+            info = _model_info_from_operation_result(result, quality)
+            return info if info is not None else self.model_status(engine, target, quality=quality)
+        except Exception as error:
+            raise _model_operation_error("verify", engine, target, quality, error) from error
+
+    def remove_model(
+        self,
+        engine: str,
+        target: str,
+        *,
+        quality: str | None = None,
+        cache_dir: str | Path | None = None,
+    ) -> EngineModelInfo:
+        """Remove through VoiceRender and return a fresh status after removal."""
+        from readio import engines as engine_api
+
+        try:
+            engine_api.remove_engine_model(
+                target,
+                engine=engine,
+                quality=quality,
+                cache_dir=cache_dir,
+            )
+            return self.model_status(engine, target, quality=quality)
+        except Exception as error:
+            raise _model_operation_error("remove", engine, target, quality, error) from error
 
     def plan(
         self,

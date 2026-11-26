@@ -458,3 +458,78 @@ def test_speak_cli_profile_role_and_structured_usage_errors(
     assert error["error"]["type"] == "CLIUsageError"
     assert cli.main(["speak", "Hello", "--role", "alice", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["error"]["message"] == "--role requires --profile"
+
+
+def test_model_commands_offer_opt_in_normalized_json_for_every_operation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from readio.api import EngineModelInfo
+
+    model = EngineModelInfo("kitten", "kitten-v1", state="ready", installed=True)
+    calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    def make_method(name: str):
+        def method(*args: object, **kwargs: object) -> EngineModelInfo:
+            calls.append((name, args, kwargs))
+            return model
+
+        return method
+
+    service = SimpleNamespace(
+        list_models=make_method("list_models"),
+        model_status=make_method("model_status"),
+        install_model=make_method("install_model"),
+        verify_model=make_method("verify_model"),
+        remove_model=make_method("remove_model"),
+    )
+    monkeypatch.setattr(cli.api, "Readio", lambda: service)
+
+    commands = (
+        (["models", "list", "--engine", "kitten", "--normalized-json"], "list_models"),
+        (
+            ["models", "show", "kitten-v1", "--engine", "kitten", "--normalized-json"],
+            "model_status",
+        ),
+        (
+            ["models", "install", "kitten-v1", "--engine", "kitten", "--normalized-json"],
+            "install_model",
+        ),
+        (
+            ["models", "verify", "kitten-v1", "--engine", "kitten", "--normalized-json"],
+            "verify_model",
+        ),
+        (
+            ["models", "remove", "kitten-v1", "--engine", "kitten", "--yes", "--normalized-json"],
+            "remove_model",
+        ),
+    )
+    for argv, method_name in commands:
+        assert cli.main(argv) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["result"]["schema"] == "readio.engine-models.v1"
+        assert payload["result"]["result"]["models"][0]["target"] == "kitten-v1"
+        assert calls[-1][0] == method_name
+
+
+def test_model_human_output_uses_normalized_status_table(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from readio.api import EngineModelInfo
+
+    model = EngineModelInfo(
+        "kitten",
+        "kitten-v1",
+        installed=True,
+        state="ready",
+        local_version="rev-2",
+        bytes_installed=1024,
+    )
+    service = SimpleNamespace(list_models=lambda *_args, **_kwargs: (model,))
+    monkeypatch.setattr(cli.api, "Readio", lambda: service)
+
+    assert cli.main(["models", "list", "--engine", "kitten"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (
+        "ENGINE\tTARGET\tQUALITY\tSTATE\tLOCAL VERSION\tAVAILABLE VERSION\tSIZE\tUPDATE"
+    )
+    assert lines[1] == "kitten\tkitten-v1\t-\tready\trev-2\t-\t1024 B / -\tunknown"

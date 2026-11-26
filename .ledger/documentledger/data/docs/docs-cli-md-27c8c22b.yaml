@@ -3,6 +3,7 @@ doc_path: docs/cli.md
 linked_sources:
   - readio/api/service.py
   - readio/cli.py
+  - readio/cli_control.py
   - readio/doctor.py
   - readio/speech.py
 sections:
@@ -178,6 +179,79 @@ sections:
       Use command-specific help for selectors and options. Install engine backends through
       VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.'
     links: []
+  - section_id: md:section:docs/cli.md::engine-model-inventory-and-lifecycle
+    doc_path: docs/cli.md
+    heading_path:
+      - CLI reference
+      - Voice and profile management
+      - Engine model inventory and lifecycle
+    heading_slug: engine-model-inventory-and-lifecycle
+    line_span:
+      - 93
+      - 108
+    section_hash: 6929d5ea800674bf537b0e4b52ccc3795e5b10c48bb4d6cd1bb2704be8c9f5d5
+    summary: Engine model inventory and lifecycle
+    text: "### Engine model inventory and lifecycle
+
+
+      Model commands use normalized Readio output for human-readable results:
+
+
+      ```bash
+
+      readio models list --engine kitten --lang en-US
+
+      readio models show kitten-v1 --engine kitten --quality high
+
+      readio models install kitten-v1 --engine kitten
+
+      readio models verify kitten-v1 --engine kitten
+
+      readio models remove kitten-v1 --engine kitten --yes
+
+      ```
+
+
+      The human inventory columns are `ENGINE`, `TARGET`, `QUALITY`, `STATE`, `LOCAL
+      VERSION`, `AVAILABLE VERSION`, `SIZE`, and `UPDATE`. Missing provider metadata
+      appears as `-` or `unknown`. VoiceRender owns model storage and revision semantics;
+      Readio does not inspect engine caches or install Python distributions.
+
+
+      For compatibility, `--json` without `--normalized-json` retains the existing VoiceRender-native
+      JSON result. Use `--normalized-json` on any model command to request the normalized
+      `readio.engine-models.v1` envelope; the flag implies JSON output. VoiceRender
+      0.2.12 does not provide authoritative update semantics, so there is no `models
+      update` command and the API reports update as unsupported rather than force-installing."
+    links:
+      - source_id: py:function:readio/cli_control.py::_model_human_summary
+        source_path: readio/cli_control.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The CLI reference documents normalized model human output.
+        tracked_hashes:
+          body_hash: bab5b17ccbbd9738b8ebce4ccd1684f5112d98acc239be26d28ac7ac72432a63
+      - source_id: py:function:readio/cli_control.py::_model_target_arguments
+        source_path: readio/cli_control.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The CLI reference documents model target selection.
+        tracked_hashes:
+          body_hash: 817c2b167c22d865fad23de9241d0f50764e46c08ef176ebdcba8c49f14f2407
+      - source_id: py:function:readio/cli_control.py::add_control_commands
+        source_path: readio/cli_control.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The CLI reference documents model subcommand registration and options.
+        tracked_hashes:
+          body_hash: 75d629abca631198bc8d482f89005dd8c1669d9e124cf268d6760b5dda97405b
+      - source_id: py:function:readio/cli_control.py::run_control_command
+        source_path: readio/cli_control.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The CLI reference documents legacy and normalized JSON modes.
+        tracked_hashes:
+          body_hash: 2c03ecb385c333af2835660a87daaaa7f8813d8741848d14a2a4f08825778fd7
   - section_id: md:section:docs/cli.md::source-aware-profiles-for-ssmd-documents
     doc_path: docs/cli.md
     heading_path:
@@ -186,8 +260,8 @@ sections:
       - Source-aware profiles for SSMD documents
     heading_slug: source-aware-profiles-for-ssmd-documents
     line_span:
-      - 93
-      - 131
+      - 109
+      - 147
     section_hash: 33017f8f2a21e37eda0177256dd54a1c933e04b0156ba213c941002676241a0b
     summary: Source-aware profiles for SSMD documents
     text:
@@ -232,8 +306,8 @@ sections:
       - Direct speech
     heading_slug: direct-speech
     line_span:
-      - 132
-      - 141
+      - 148
+      - 157
     section_hash: 16508f1488d0e26ac1adb792c334ed06289a9476df88cd45862426e104ac678a
     summary: Direct speech
     text:
@@ -257,8 +331,8 @@ sections:
       - ONNX Runtime provider controls
     heading_slug: onnx-runtime-provider-controls
     line_span:
-      - 142
-      - 157
+      - 158
+      - 173
     section_hash: 30ec2aea7fbe75a402c7b69947611448d53762c5477660273af0a3d7f022b896
     summary: ONNX Runtime provider controls
     text: "## ONNX Runtime provider controls
@@ -306,8 +380,8 @@ sections:
       - Dependency diagnostics
     heading_slug: dependency-diagnostics
     line_span:
-      - 158
-      - 166
+      - 174
+      - 182
     section_hash: bb3b638590ec19c0b4535bbe701f023ce47369345346e1bf424b3c1bb5a96ab3
     summary: Dependency diagnostics
     text: "## Dependency diagnostics
@@ -340,8 +414,8 @@ sections:
       - Verbose diagnostics and timing
     heading_slug: verbose-diagnostics-and-timing
     line_span:
-      - 167
-      - 170
+      - 183
+      - 186
     section_hash: 2ac679f8c235787392c3b1c5ba590dbbf8ee66096fb784d158d1bdd8af836084
     summary: Verbose diagnostics and timing
     text: "## Verbose diagnostics and timing
@@ -359,8 +433,8 @@ sections:
       - Machine-readable contracts and MCP
     heading_slug: machine-readable-contracts-and-mcp
     line_span:
-      - 171
-      - 182
+      - 187
+      - 198
     section_hash: ef1a506f490b3606e4ed35f016c6a128e307b12d9dded181e2bd73e4617e672e
     summary: Machine-readable contracts and MCP
     text: "## Machine-readable contracts and MCP
@@ -401,7 +475,7 @@ sections:
         impact: unknown
         reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+          body_hash: 9d9e0612ed00464b6bce052f2ef9b8ffe8628745598f81c11e90bce03b99d229
       - source_id: py:method:readio/api/service.py::Readio.render
         source_path: readio/api/service.py
         coverage: implementation-note
@@ -409,9 +483,10 @@ sections:
         reason: Code contains exact qualified symbol `Readio.render`.
         tracked_hashes:
           body_hash: 38432f0a12580eff1aae5b319d454d9ea59df9ca497693420336567219844f01
-last_fresh_scan_version: 26
-last_fresh_hash: 46b1f60cb520827a36a115c382138aa36fefb870ed7d5c6ebfde0e0a20081618
+last_fresh_scan_version: 33
+last_fresh_hash: 3b329388da2e2de6bc694b0741a68136e3fdfd6a74db79204df84bbc5aa8cfd6
 notes:
-  Reviewed affected sections against current Readio public APIs and CLI; documentation
-  reflects the canonical workflow, current commands, and optional contracts.
-version: 268
+  Reviewed all affected sections against current public APIs; documented the
+  normalized model contract in README and the API, architecture, and CLI guides, and
+  verified the strict Sphinx build.
+version: 286

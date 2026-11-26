@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 
 from readio.api.types import EngineInfo, EngineOptionInfo, TargetInfo, VoiceInfo
 
@@ -83,33 +83,11 @@ def engine_info(engine: object) -> EngineInfo:
     )
 
 
-def _target_language_labels(target: object) -> dict[str, str]:
-    labels: dict[str, str] = {}
-    details = _value(target, "voice_details", ())
-    if not isinstance(details, Sequence) or isinstance(details, str):
-        return labels
-    for detail in details:
-        label = _value(detail, "language_label")
-        if not isinstance(label, str) or not label:
-            continue
-        codes = (
-            _value(detail, "language"),
-            _value(detail, "locale"),
-            *_strings(_value(detail, "languages")),
-        )
-        for code in codes:
-            if isinstance(code, str) and code:
-                labels[code.casefold()] = label
-    return labels
-
-
 def target_info(target: object) -> TargetInfo:
     identifier = _value(target, "id")
     if not isinstance(identifier, str):
         identifier = str(identifier)
     languages = _strings(_value(target, "languages")) or _strings(_value(target, "language"))
-    labels = _target_language_labels(target)
-    languages = tuple(labels.get(language.casefold(), language) for language in languages)
     voices = _strings(_value(target, "voices"))
     speakers = _strings(_value(target, "speakers"))
     default_voice = _value(target, "default_voice")

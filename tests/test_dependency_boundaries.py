@@ -151,3 +151,16 @@ def test_mcp_server_imports_only_readio_public_api_not_specialists() -> None:
     assert "readio.api" in imports
     assert not roots & (SPECIALIST_ROOTS | BACKEND_ROOTS | {"ttsforge"})
     assert "readio.api.service" not in imports
+
+
+def test_model_management_keeps_concrete_synthesis_distributions_out_of_readio() -> None:
+    roots = {module.split(".", 1)[0] for module in _runtime_imports()}
+    concrete_distributions = {
+        "kittensynth",
+        "pipersynth",
+        "pykokoro",
+        "pocketsynth",
+        "supertonicsynth",
+        "inflectsynth",
+    }
+    assert not roots & concrete_distributions

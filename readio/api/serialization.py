@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from readio.api.types import (
+    EngineModelInfo,
     ErrorInfo,
     ExecutionReport,
     ExportFormatCapability,
@@ -181,6 +182,39 @@ def error_info_to_dict(info: ErrorInfo) -> dict[str, object]:
     }
 
 
+def engine_model_to_dict(model: EngineModelInfo) -> dict[str, object]:
+    """Serialize one normalized engine-model DTO without specialist fields."""
+    return {
+        "engine": model.engine,
+        "target": model.target,
+        "quality": model.quality,
+        "language": model.language,
+        "label": model.label,
+        "installed": model.installed,
+        "available": model.available,
+        "state": model.state,
+        "local_version": model.local_version,
+        "available_version": model.available_version,
+        "update_state": model.update_state,
+        "bytes_installed": model.bytes_installed,
+        "bytes_download": model.bytes_download,
+        "storage_id": model.storage_id,
+        "installable": model.installable,
+        "updatable": model.updatable,
+        "removable": model.removable,
+        "verifiable": model.verifiable,
+        "reason": model.reason,
+    }
+
+
+def engine_models_to_dict(models: tuple[EngineModelInfo, ...]) -> dict[str, object]:
+    """Serialize normalized model inventory using readio.engine-models.v1."""
+    return {
+        "schema": "readio.engine-models.v1",
+        "result": {"models": [engine_model_to_dict(model) for model in models]},
+    }
+
+
 def _engine_info_to_dict(engine: Any) -> dict[str, object]:
     return {
         "id": engine.id,
@@ -273,6 +307,8 @@ def export_capabilities_to_dict(
 
 def serialize_public(value: Any) -> Any:
     """Select the versioned serializer for a public Readio result when available."""
+    if isinstance(value, EngineModelInfo):
+        return engine_models_to_dict((value,))
     if isinstance(value, WorkflowPlan):
         return workflow_plan_to_dict(value)
     if isinstance(value, RenderResult):
@@ -287,6 +323,8 @@ def serialize_public(value: Any) -> Any:
         return source_capabilities_to_dict(value)
     if isinstance(value, SynthesisCapabilities):
         return synthesis_capabilities_to_dict(value)
+    if isinstance(value, tuple) and all(isinstance(item, EngineModelInfo) for item in value):
+        return engine_models_to_dict(value)
     if isinstance(value, tuple) and all(isinstance(item, ExportFormatCapability) for item in value):
         return export_capabilities_to_dict(value)
     return to_json_value(value)
@@ -294,6 +332,8 @@ def serialize_public(value: Any) -> Any:
 
 __all__ = [
     "capabilities_to_dict",
+    "engine_model_to_dict",
+    "engine_models_to_dict",
     "error_info_to_dict",
     "export_capabilities_to_dict",
     "render_result_to_dict",

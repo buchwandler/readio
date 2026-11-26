@@ -303,3 +303,48 @@ def test_speak_result_uses_shared_versioned_audio_serializer() -> None:
     assert audio["media_type"] == "audio/wav"
     assert b64decode(audio["data"]).startswith(b"RIFF")
     assert serialize_public(result) == value
+
+
+def test_engine_model_inventory_uses_normalized_versioned_schema() -> None:
+    from readio.api import (
+        EngineModelInfo,
+        engine_model_to_dict,
+        engine_models_to_dict,
+        serialize_public,
+    )
+
+    model = EngineModelInfo(
+        engine="kitten",
+        target="kitten-v1",
+        quality="high",
+        language="en-US",
+        label="Kitten v1",
+        installed=True,
+        available=True,
+        state="ready",
+        local_version="revision-7",
+        available_version=None,
+        update_state="unknown",
+        bytes_installed=0,
+        bytes_download=64,
+        storage_id="kitten:bundle-1",
+        installable=False,
+        updatable=False,
+        removable=True,
+        verifiable=True,
+    )
+    row = engine_model_to_dict(model)
+    payload = engine_models_to_dict((model,))
+
+    assert payload == {
+        "schema": "readio.engine-models.v1",
+        "result": {"models": [row]},
+    }
+    assert serialize_public((model,)) == payload
+    assert serialize_public(model) == payload
+    assert engine_models_to_dict(()) == {
+        "schema": "readio.engine-models.v1",
+        "result": {"models": []},
+    }
+    assert "specialist" not in row
+    json.dumps(payload)

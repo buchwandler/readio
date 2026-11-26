@@ -20,7 +20,6 @@ Use `inspect_source()` when a caller needs source metadata or chapter inventory 
 
 ## Semantic speech
 
-````python
 ```python
 from readio.api import Readio, SpeakRequest
 
@@ -34,7 +33,7 @@ print(
     result.audio.frames,
     result.duration_seconds,
 )
-````
+```
 
 `Readio.synthesize()` returns a `SpeakResult` containing an `AudioBuffer`. It does not play audio, write files, or persist workflow artifacts. Use `result.audio.write_wav(path)` when a WAV file is explicitly needed. `Readio.speak(request, play=True)` delegates to synthesis and optionally plays the result; the module-level `readio.api.speak(...)` remains available for compatibility.
 
@@ -57,6 +56,43 @@ options = service.list_engine_options(engines[0].id, target=targets[0].id)
 ```
 
 `CatalogError` wraps expected failures from normalized discovery and option inspection. Use `describe_error()` to project any expected `ReadioError` into the stable `ErrorInfo` DTO for application transport. The module-level discovery delegates documented below remain raw compatibility APIs and preserve specialist results.
+
+## Engine model inventory and lifecycle
+
+Use the `Readio` gateway for normalized engine-model records and explicit lifecycle actions. Its public methods are `Readio.list_models()`, `Readio.model_status()`, `Readio.install_model()`, `Readio.update_model()`, `Readio.verify_model()`, and `Readio.remove_model()`. The inventory is read-only: it does not install, download, load, verify, or inspect engine caches.
+
+```python
+from readio.api import Readio
+
+service = Readio()
+models = service.list_models("kitten", language="en-US", offline=True)
+status = service.model_status("kitten", "kitten-v1", quality="high")
+```
+
+`EngineModelInfo` is a Readio-owned DTO with `ModelState` and `ModelUpdateState` fields. `state` is mapped only from recognized, consistent VoiceRender status values; unknown or inconsistent status remains `unknown`. `update_state` is `unknown` when no authoritative comparison was reported. Version strings are provider-defined, and byte counts or storage identity remain `None` when the provider does not report them. False availability/action flags mean VoiceRender did not assert that capability, not that Readio independently checked it.
+
+`install_model()`, `verify_model()`, and `remove_model()` are explicit operations delegated to VoiceRender. They return normalized status, re-querying when an operation result has no usable model descriptor. The current VoiceRender public API has no authoritative update operation, so `update_model()` raises `ModelOperationError`; it never aliases to force-install. Existing module-level `list_engine_models()`, `inspect_engine_model()`, and operation delegates remain specialist-result compatibility APIs.
+
+`engine_models_to_dict()` and `serialize_public()` use the versioned `readio.engine-models.v1` envelope, containing only normalized Readio fields.
+
+### VoiceRender 0.2.12 compatibility matrix
+
+| VoiceRender public `ModelArtifact` field                                                                         | Readio projection                                        | Current support                               |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- |
+| `engine`                                                                                                         | `engine`                                                 | Available                                     |
+| `target_id`                                                                                                      | `target`                                                 | Available                                     |
+| `display_name`                                                                                                   | `label`                                                  | Available                                     |
+| `installed`                                                                                                      | `installed` and consistency check for `state`            | Available                                     |
+| `status`                                                                                                         | `state` for recognized exact values, otherwise `unknown` | Available as an open string                   |
+| `revision`                                                                                                       | `local_version` only when installed                      | Available, provider-defined                   |
+| `languages`                                                                                                      | `language` only when exactly one language is reported    | Available                                     |
+| `qualities`, `installed_qualities`                                                                               | No singular `quality` projection                         | Aggregate lists only                          |
+| `source`                                                                                                         | No Readio field                                          | Available upstream, not part of DTO           |
+| `path`                                                                                                           | No storage path or identity projection                   | Available upstream, intentionally not exposed |
+| `metadata`                                                                                                       | Not parsed                                               | Open-ended upstream mapping, ignored          |
+| available revision, update comparison, byte sizes, storage identity, per-model action support, progress callback | `None`, `unknown`, or unasserted action flags            | Not exposed by 0.2.12                         |
+
+VoiceRender operation results can include an optional `artifact`; Readio normalizes it when present and otherwise queries model status. Readio does not inspect private VoiceRender modules, infer cache paths, or turn provider/network failures into `update_state="current"`.
 
 ## Complete file-to-audio workflow
 

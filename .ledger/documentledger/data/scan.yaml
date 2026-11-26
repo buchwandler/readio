@@ -1,65 +1,66 @@
 schema: documentledger.scan.v5
-version: 27
+version: 33
 source_index_file: source-index.json
-source_index_hash: 1a4ce51ee18166490926b374a72722ca78e676bb931b35822c2a0d8e2e1c25ac
-source_file_count: 87
-source_unit_count: 934
+source_index_hash: 02542d56bba75232f9f2720c0e0c65bafb2eb9ae88834378f0326f9669751f35
+source_file_count: 90
+source_unit_count: 980
 doc_file_count: 6
 source_hashes:
   readio/__init__.py: 5a77a9bd57a207b7af4f9d22edcb1f56cf8a95c6ccb152b9bf1c1e21a1739c41
   readio/__main__.py: 935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d
   readio/_outputs.py: 8257ad06b8e27815408f8c940b97e0f3f4f9b87bdc7ac56c3bcd2d5023e9e1c7
-  readio/_packages.py: 021cc29e3352ceadb5925f9e5e2b3cab10f7ea84095beca02235f482fad8c663
-  readio/api/__init__.py: 5e864a31517b6a5297ddadf6417a16c039b2a04efa2ef50e62dd4aad753e74ac
+  readio/_packages.py: 94739b624582a3a19f1552c6ad09480d9a018dc49616abad84b26248ecfbefc4
+  readio/api/__init__.py: 3e7c3c65520caecb209e11d7743cee5544e6d766057f34b466519f0763c0dbb1
   readio/api/errors.py: f5a368d6ddb0de3f509448fef157b06797f32f737106b3a523281c42e5912fc0
-  readio/api/serialization.py: 2c11bccdb66b5b03b619cd4f589fc3fd21c4572b68f886e6c21bed90403c02d2
-  readio/api/service.py: cc80f4fc2915552165ebbd49791b6ba39c82c1e611ef9b4415c9556eadec0c68
-  readio/api/types.py: 2e030ed3f96584973f6bd5521b2da7066eff4656e94441d20d75fd877733dfa4
-  readio/capabilities.py: 4abff92eb8789308896be44b9742e17480ca642332b10d954687730fe1bc0cde
-  readio/catalog.py: 8c8bb65c4c712d980b0d1be6196363744357ada8adad0e0fa254079a10471f19
-  readio/cli.py: 91f7abcdd87b9ac6ca6e85abed1f2f256f8d28a48057bb6ea55a6ac81dce6d59
-  readio/cli_control.py: b3810695c830965fd74c24164e98ed2e6a22ffe09841e725ec842679c3ec40fc
+  readio/api/serialization.py: 3a287192101eed350cc83b4fe0a22e9424aa36e083ed4edcc17f7b2c892b0907
+  readio/api/service.py: d2a9375a8c734fb87eea84f442b19b040515ba92b8bc0b3d742748b3c5cf2b35
+  readio/api/types.py: 342235b26ad00945b30559034243a5ddc26a000a388f3d33ddba262d7d48caea
+  readio/capabilities.py: 3796ad1530619753a02267cef7b3ecd9b63b2d15dabc7e89da21e7c4454ee05d
+  readio/catalog.py: 1a19291ad4b1a6ea0f9a6abddbe3116a6784b662fa06df65df63830651beae08
+  readio/cli.py: cdd20c7710ad5ba763b4c181aea284e181816be13ba298f47aca7968803a4d82
+  readio/cli_control.py: 4442ce8ffa5c23f841a265c6205485744b77cd21bd2632b34d244f3024c7886e
   readio/diagnostics.py: 8f3b62711b9aa6d205e8a61505fcef5e52bdffdac1f65d7b75270f1162b9a14d
-  readio/doctor.py: afbcddcfd433e3b3c934e2b5303bcd6f9cd0d4d54ba0db22b1c587815be13025
+  readio/doctor.py: abeba56786f3ea3c206e453b3a552bd259fdbd52dc713f77bcdd6d77c5accb56
   readio/engines.py: f366a953c7c63240b4d9945da53272f235d2d7c812bd9c6552edf42f8dac6958
-  readio/errors.py: 0dcbde70581a50b9db658093eb2a23ced150525981d9e98366a68f71c7f06835
+  readio/errors.py: a1cb1c55438d454137f8edfdee993fba04d1a151a33a4bb685d3eaf03a41f3b5
   readio/integrations/__init__.py: ffeb45ce105bd77bb272817f72c6c5e3bd2b7aadcc8432f876009b181ea133e5
   readio/integrations/audiocompose.py: 46cbd028dda53fa1d2ed8c634dac43104ca9e814ebd8f64102c5039772dc176c
   readio/integrations/audioexport.py: 22687940b39177654ddaf4872cbaaf13a449780953deceeeb132a13c1fae40be
   readio/integrations/ssmdconvert.py: bfbdb958544648911510e9d336c1391837da734b74710d473c9965ec076652ce
   readio/integrations/status.py: 26c4d2a2148855944609b663b37cc10dd322017ce3df0fc9139d8a4879f45f8a
   readio/integrations/utterplan.py: 6a3f2a611e708ed744833dc00db44ba90c8ee3015e3b96556e290efb274b84f0
-  readio/integrations/voicerender.py: 69bcf99e63eb10f3b008bed6a4f73cd64c99ff039fb40bf13d957f43aa728b2a
+  readio/integrations/voicerender.py: 0bf0128549f045b5e0dc80ac7acb55b6b23c2a99ed338989377e3b272a42cdb9
   readio/intent.py: 95a7217eaef63ba21cbce95bebd648eafe76e812c28df30e64020714a6cc45ac
   readio/intent_codec.py: 6d9568d36d2c5718b2620471b7dd790561aeab21e0bd4d9c833347884280a4a6
   readio/intent_resolver.py: 61e068d00f8347e444267b0fda7744f0e3dd1d50dd4d0d5c16cd8ef00329d06d
   readio/mcp/__init__.py: 8d9f36fc8d1ad88c4519b6b91e59651c66ed7d566c605a4bbd088239bd14f47b
-  readio/mcp/server.py: 2813fc81228fa13a5145cc144ab3a1d3c6e1ef828b6c747cb7c064a5c7722da3
+  readio/mcp/server.py: f3a343387da395a53b95167dabdbaf31cea98c3ac1cceb85e8667356febcc439
+  readio/model_catalog.py: 74172f548e5f2e9c2fd79c33680d586f2d5b051bdbc77dbb4c7bd57ccc35ecf8
   readio/pipeline.py: 16fcb886690b3adfa868c7209ac38f239a3e7966d1b677547a761f08fed83016
   readio/playback.py: 674a4031d8a98bdba59cf1e88e9b1c8566b8228d19c9912fcc29ef02d8862ad4
   readio/profile_source.py: 06e35661a116775b5060c018105075ee6eb06b5dbfb31c0db8e0e06f0d955fe4
   readio/profiles.py: 3b390b9e671b25f4ea086ba1429a1a427bc49392604cb968f24f4f67c495602a
-  readio/progress.py: 7f3eab76c11ceb8e58ffa199f6d5872de41cea8e374bad1ed3a1e4361e972e54
+  readio/progress.py: 9469098bd0ed91f95448b1295c120a50295a569a1b991bb231517904cee8375b
   readio/render_service.py: d107d164a90833070adbde68982f7ef1acb191873e0fcf3c3bb4820167227138
-  readio/render_workflow.py: 2a9afb01789cfe017f2f1c272853be56e2a6bdb9721e2dc5dd606a95fb3779e0
+  readio/render_workflow.py: 64b84c5a9f291b7a10d2b51721483b2594003cd40f7d835b6775fa3baceeab6f
   readio/runtime.py: f55a92cb8c94c94e77e25ad71944b5ff48d5d3d04a5a8c3c7ab8fd444bf21d11
-  readio/skills.py: 08900d8c634632a3162954dff755ad038b73ad378482d059facc1da9280f7444
+  readio/skills.py: 0c9f2590f92d536a268bf9ce5392156081dc97ea3c0dd9ed87b8ef6eb5392ae8
   readio/spacy_resources.py: 28d31776370c5a995834ecdd68ffd94fd1ea109bca4d6565dce216eb50109f8a
   readio/speech.py: cf21246ae2a13f0142b80d1ff083400ea94c38e696604e071254c55d2f1af78a
   readio/status.py: c9893a17d5c423511fd7849d4c932f116e1d8fcd6ecfb0820f8b510f2c74c2eb
   readio/voice_selector.py: 52d14ebf5a152f60d8dac49f2035c31b73240952dd972677718c7f5f5f82dd34
   readio/voices.py: 4c36ac9a469184c1255c3f77374a12cce030296fcb3f0f7f0f1fe564ebb80a5e
-  readio/workflow.py: 403b9d2861d5a3c3426842e402bc569a7c1389f6ae1720879f90cbdf6fa05008
+  readio/workflow.py: f812cb427cefff134dc5a9e9ac6239dcbb52dc17639d78d7698195c556ad5f85
   readio/workspace.py: d1aba02af570f7f7a031f62dac72256eb1a4ea196e8c6616a8a53c24158f4d4b
   tests/test_audiocompose_recovery_integration.py: e7ff09581acc121feb8ad9684846d7a30ed792ef48acee69637687dee06b48a3
   tests/test_audioexport_preflight.py: dad6690e8e52a42772953ff9289d5583fdc1f00b603011047562a11cb53797a5
   tests/test_bundle_architecture.py: c9d026075591dbba297fb404d69ff6ab85290fd6aedb737357857d3829f6a88b
-  tests/test_capabilities.py: bd6eb48f59b7ea06247cf75c228f78a6c5096d0e8db0141c5b190da64c0b7885
-  tests/test_catalog.py: b0efe4895ce0f2ff7c9d27b16ea4ade36489899481d08e99a5f80a2790f8bb61
-  tests/test_cli_control.py: ebc8f901261cceeed81f8dbc1d3a752c5dc834e779ed1fd1b912ffb688f20171
+  tests/test_capabilities.py: 13bca51ddef2983649c94c7187c1e9e872bbee7a26944cfdd2f8fc829ad3bbe1
+  tests/test_catalog.py: dab8b321e644dda06cce04fd3a03826d984013b0c5d0d59f66e212040964a190
+  tests/test_cli_control.py: 0e6bb92d6309b469a6b381f8f595f62e533ee3f2966b047f08ed14e79e8cfbd0
   tests/test_cli_runtime.py: f3c4c4255075fb17740326aaa2d94bd510e043374e1bc488d1a8dd5ed217fb52
   tests/test_control_api.py: 6d0a856f250751cf009544d87e0b28cbfc19e1a02968071543326dd67ffdb377
-  tests/test_dependency_boundaries.py: 5f88273b04df18ef77826af0d5c05043a4a912d202eafa7cdabe7b5937ab5f59
+  tests/test_dependency_boundaries.py: 184d99ac2a9dc408c21329290f18fdbecb8f1f9c17202d9518abb8ebceeda740
   tests/test_diagnostics.py: 3c81a8299e9681eb392e4d2c60b03c08a1a74f03b68da7933159ea608b409a09
   tests/test_doctor_runtime.py: 839438d50cb51442ff3c2905492e24d2a4cbc28c1bf322eaf921ddb389787215
   tests/test_doctor_v05.py: 6957cd2d60dfbe2b59bc05e0e93504edc471dbd831050d27d17dfc1381bc16c9
@@ -69,6 +70,8 @@ source_hashes:
   tests/test_intent_request_bridge.py: fd124a887429e39f6cc279ae1599afe2dd0c98bc3c6b2aac983966c56a1b1542
   tests/test_intent_resolver.py: 6be2630800c2a190b1474b1a4731c8f0468ad19119b12fac9386e46eee478e2b
   tests/test_mcp_adapter.py: f1e024e3a69181813323d385688062bf8f1bac292b996f21cfcbc6666504efa5
+  tests/test_model_catalog.py: f1a6e837568436e5a8afc51e910508e3e64a81d74e850890d77406ffe5338ecd
+  tests/test_model_management.py: 3da75ec732a6279f1592ced896c0d4bbb3a13a355338c10abf8ff4a296b668e7
   tests/test_native_cli.py: f980054a68dd5958bc811eb8d17d6483c940775545b3f550e267418d92f7df98
   tests/test_native_inspection_dispatch.py: 7ccea9541eae870eb70de058923d210e19c16a39f77825673c0f5ac580eed601
   tests/test_native_media_dispatch.py: 390d9614cb922124eaccba730e55f05414bdbb6ecea285748553e39adc2da30e
@@ -80,333 +83,524 @@ source_hashes:
   tests/test_packaging_metadata.py: 94399e8a1faff477e4cfd31e59c8954f97d28c65c69fa087bb93e91869f58950
   tests/test_playback.py: efdda96c5228d3377a055b60029bc95344801c88c8b955af04cd70df5b0515b7
   tests/test_profile_source.py: b88ee6f7be396d7e93f8facfb756b88f3a91ae86e944f50aae1626d875274242
-  tests/test_public_package_api_contract.py: ec6e46e5792747a5f0c80543c0ff2fdb709bf2f6a1d17eb222fdacb45021f635
-  tests/test_public_serialization_contract.py: a58c890e7992271ffdc4744ba32a6b38c148b868af9c7ff154d700eed4b34ef7
+  tests/test_public_package_api_contract.py: 3119cd25c603a2019fa7d111c5984d4f78feda8aaea26bc8ca4b4be1549322e1
+  tests/test_public_serialization_contract.py: 7616327beb718d74922fac78dbf3bf7b53ff1d961950e8c4f97d6b285262ea9e
   tests/test_render_cli.py: b4386da6707a52fd908be95c781827a5874391724cd2e6ed884f28f0f1856e26
-  tests/test_render_service.py: ebe59210cd7e512070d09c21399caf9a674c7981548659416fdbcda4812db58d
-  tests/test_render_workflow.py: faf620f8906eabd89f9233221cee2629269a62674681abaec3162eb621c7be70
+  tests/test_render_service.py: 703d9d7c3c7f4bbf7dd10d407cd7bd87b76716548d84feea7586359aaa725b3b
+  tests/test_render_workflow.py: e14f87bc9d7f3d04bf4de3164be6209c8c3906d7a900e4ec78903726aa20487d
   tests/test_render_workflow_persistent.py: 3d3e40f31cfafbe6747b6898d6b939df2b4b63c2d5c80ce279e00c9361b31f7b
   tests/test_runtime_control.py: a6f13f74a06a4c69d85afecb154b9ed57e0836455306205b75a9ffce978b2e2e
-  tests/test_skill_resource.py: 2af6d1db2ac680d8bd2185fa0c810380f33bcc93cd1f8fa1aea8e38ff0e30c30
+  tests/test_skill_resource.py: ce567d209fa58a4f2feab837c1326ba57ab8e9cdee0da259b5014d03eec5b3f8
   tests/test_source_inspection.py: 46627019cf350ab73e5e6321db257bf2fea01ed8b28cf0f1516c3994762e25b4
   tests/test_spacy_resources.py: 31203c51d45fb0b074406d04eb113e37cda74d74283c27b2d48d728d2704cf35
   tests/test_speech.py: 789da9937daf7e4c2d413d6a9fe218e65f2dc562802ecc05ac167e34148acd53
   tests/test_status.py: d3f51a7cc363c3a6b780817880c34e519c62fe857aabc931018cf8c0f65ef0ba
   tests/test_workflow.py: 99648683b75e008e0061657a94a7802fe029dae09ff928a11d73af2580c3ff38
 doc_hashes:
-  README.md: 887b8a02eaca334c598682b4157822ac37118928c0b18391d145cc187ef886f1
-  docs/api.md: 0a0b71e16437b13b225fcf359d1d5da0f2391abb5f928e0657fe206d86d8042a
-  docs/architecture.md: 5332bc52c3513fe499c59ac55ca309902f04ee9f63e015cc7a84f9151115f9c9
-  docs/changelog.md: 5db8a9c7e618abc3c44ee96ee5181410949033d4de2cca933a82fe423e33f681
-  docs/cli.md: 46b1f60cb520827a36a115c382138aa36fefb870ed7d5c6ebfde0e0a20081618
-  docs/index.md: 4425b8ac3a8f646ae8ce3e032f8f683230b9f2c90a5b17a61ff4d07bf8fe0cbf
-changed_sources:
-  - readio/cli.py
-  - tests/test_documentation_contract.py
-  - tests/test_mcp_adapter.py
-  - tests/test_native_utterplan_dispatch.py
-  - tests/test_packaging_metadata.py
-  - tests/test_speech.py
+  README.md: cbf37235f21acd71f7023e0cba43e2917e869654bcaa12a710d89fd98dca7c96
+  docs/api.md: 0300e4b17b097aff791ea7c5307c5d091108c2c73d8e2bd7cce88b066796fe42
+  docs/architecture.md: 2625917371106a264f21bae44016d5dfcea81bda20c38b65943dc6ed9712beb5
+  docs/changelog.md: 518d0ff959a57e7a776121843dfb95c5950f07a2ecf6073e1f2ba508657125e7
+  docs/cli.md: 3b329388da2e2de6bc694b0741a68136e3fdfd6a74db79204df84bbc5aa8cfd6
+  docs/index.md: f8b630e7f3811e69e23bd51dfe5ecb6cefa9a3f1040b60632f713b3954251a8d
+changed_sources: []
 deleted_sources: []
-changed_units:
-  - source_id: py:function:readio/cli.py::_emit_result
-    path: readio/cli.py
-    kind: function
-    qualname: _emit_result
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-    old_line_span:
-      - 750
-      - 760
-    new_line_span:
-      - 750
-      - 764
-  - source_id: py:function:tests/test_documentation_contract.py::test_documented_readio_commands_exist_in_the_current_cli
-    path: tests/test_documentation_contract.py
-    kind: function
-    qualname: test_documented_readio_commands_exist_in_the_current_cli
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-    old_line_span:
-      - 30
-      - 50
-    new_line_span:
-      - 30
-      - 50
-  - source_id: py:function:tests/test_mcp_adapter.py::test_render_returns_blocked_plan_without_calling_render
-    path: tests/test_mcp_adapter.py
-    kind: function
-    qualname: test_render_returns_blocked_plan_without_calling_render
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-    old_line_span:
-      - 65
-      - 111
-    new_line_span:
-      - 65
-      - 111
-  - source_id: py:module:tests/test_native_utterplan_dispatch.py
-    path: tests/test_native_utterplan_dispatch.py
-    kind: module
-    qualname: tests/test_native_utterplan_dispatch.py
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
+changed_units: []
+added_units: []
+deleted_units: []
+affected_sections:
+  - doc_path: README.md
+    section_id: md:section:README.md::direct-speech
+    heading_path:
+      - Readio
+      - Direct speech
+    heading_slug: direct-speech
+    line_span:
+      - 102
+      - 109
+    section_hash: e0f46c9f1405b62234006a61663a4276d2abade45202455190cecbf1c9c73fba
+    summary: Direct speech
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: README.md
+    section_id: md:section:README.md::python-api
+    heading_path:
+      - Readio
+      - Python API
+    heading_slug: python-api
+    line_span:
+      - 126
+      - 162
+    section_hash: 73580e98205244c879ab86a3ca2fddbcbc47bd01c474c8690cd40c44a5ec52e0
+    summary: Python API
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: README.md
+    section_id: md:section:README.md::readio
+    heading_path:
+      - Readio
+    heading_slug: readio
+    line_span:
       - 1
-      - 139
-    new_line_span:
+      - 6
+    section_hash: f8e5b584476793a194450f20cc805061fa1f51ecd32f5510b5380211aab9e31f
+    summary: Readio
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The introduction describes Readio as a public facade over specialist packages.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 289
+  - doc_path: README.md
+    section_id: md:section:README.md::stable-platform-contracts-and-mcp
+    heading_path:
+      - Readio
+      - Stable platform contracts and MCP
+    heading_slug: stable-platform-contracts-and-mcp
+    line_span:
+      - 163
+      - 168
+    section_hash: 5c589b9fa47c6c1f0956c9dd6cb701dc518d4322fd97b5e676a75868ee34c341
+    summary: Stable platform contracts and MCP
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::application-catalog-and-errors
+    heading_path:
+      - Python API
+      - Application catalog and errors
+    heading_slug: application-catalog-and-errors
+    line_span:
+      - 42
+      - 59
+    section_hash: 81283b070f1361466dd2c9976c045688cf5855bc82d24b5038a4245f67b80eb1
+    summary: Application catalog and errors
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::complete-file-to-audio-workflow
+    heading_path:
+      - Python API
+      - Complete file-to-audio workflow
+    heading_slug: complete-file-to-audio-workflow
+    line_span:
+      - 98
+      - 126
+    section_hash: 1c9dd1080761667c843df541faa0a0f6a6a5560e55257b3579379eac280ba5f4
+    summary: Complete file-to-audio workflow
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::converting-and-running-saved-intents
+    heading_path:
+      - Python API
+      - Converting and running saved intents
+    heading_slug: converting-and-running-saved-intents
+    line_span:
+      - 212
+      - 230
+    section_hash: 049c203c240db5340210254d33366aca3b1bc51ae3c597c55263c1d660a74591
+    summary: Converting and running saved intents
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::management-delegates
+    heading_path:
+      - Python API
+      - Management delegates
+    heading_slug: management-delegates
+    line_span:
+      - 231
+      - 245
+    section_hash: f297b8ff374247aaf34c8c70f41a88de6e6c3842b9217c7d5eeaf3910d6abcd3
+    summary: Management delegates
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::python-api
+    heading_path:
+      - Python API
+    heading_slug: python-api
+    line_span:
       - 1
-      - 140
-  - source_id: py:function:tests/test_packaging_metadata.py::test_optional_dependencies_do_not_mirror_engine_extras
-    path: tests/test_packaging_metadata.py
-    kind: function
-    qualname: test_optional_dependencies_do_not_mirror_engine_extras
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-    old_line_span:
-      - 61
-      - 79
-    new_line_span:
-      - 61
-      - 81
-  - source_id: py:module:tests/test_speech.py
-    path: tests/test_speech.py
-    kind: module
-    qualname: tests/test_speech.py
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
+      - 4
+    section_hash: 53bd3ba49d5f534467ad890f0f16f0524316c9ec2fa0524dd97bbaa056999e2b
+    summary: Python API
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::render-intents
+    heading_path:
+      - Python API
+      - Render intents
+    heading_slug: render-intents
+    line_span:
+      - 159
+      - 211
+    section_hash: a1bababd26b58f75834b137e44bb3df2f392d16178f2f7ad45ae8d305bf1e73e
+    summary: Render intents
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::semantic-speech
+    heading_path:
+      - Python API
+      - Semantic speech
+    heading_slug: semantic-speech
+    line_span:
+      - 21
+      - 41
+    section_hash: 63e3546e7c5e221e8775db87e0e654d07479d1779c98bb2f1a2a53553f04cf92
+    summary: Semantic speech
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::source-inspection
+    heading_path:
+      - Python API
+      - Source inspection
+    heading_slug: source-inspection
+    line_span:
+      - 5
+      - 20
+    section_hash: c040a24a76d2c3efdc591a8a104d90933ae292d7ac44a1e82997b0898dd5fd4f
+    summary: Source inspection
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::source-preparation-projection-and-spacy-resources
+    heading_path:
+      - Python API
+      - Source preparation, projection, and spaCy resources
+    heading_slug: source-preparation-projection-and-spacy-resources
+    line_span:
+      - 127
+      - 158
+    section_hash: c6084215d911b7d6cc5370ffe34ec5879273cdcea98f26ce29aca45a2a25cd74
+    summary: Source preparation, projection, and spaCy resources
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/api.md
+    section_id: md:section:docs/api.md::workflow-capability-and-execution-contracts
+    heading_path:
+      - Python API
+      - Workflow, capability, and execution contracts
+    heading_slug: workflow-capability-and-execution-contracts
+    line_span:
+      - 252
+      - 261
+    section_hash: 4add77436c0bd72fd58b715a5c4d57bac760721a152e329affb45b6838311524
+    summary: Workflow, capability, and execution contracts
+    action: rewrite-section
+    changed_units:
+      - source_id: py:function:readio/api/serialization.py::serialize_public
+        source_path: readio/api/serialization.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The workflow contract documents the shared versioned serializer.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 308
+          - 330
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::optional-mcp-adapter
+    heading_path:
+      - Readio architecture
+      - Optional MCP adapter
+    heading_slug: optional-mcp-adapter
+    line_span:
+      - 99
+      - 101
+    section_hash: 3b9612049fab9b29597d571f55d12c04ced724cced88334836d69b08cb0ae026
+    summary: Optional MCP adapter
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::public-workflow-api
+    heading_path:
+      - Readio architecture
+      - Public workflow API
+    heading_slug: public-workflow-api
+    line_span:
+      - 5
+      - 8
+    section_hash: 598651aedfaf64a5ebd87bcc74c8bc2c867b9515533cc7894d5f949b748bd121
+    summary: Public workflow API
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::readio-architecture
+    heading_path:
+      - Readio architecture
+    heading_slug: readio-architecture
+    line_span:
       - 1
-      - 701
-    new_line_span:
+      - 4
+    section_hash: 346c9bfe32f97f474aa16e2f87766fe4d1d451850d50fbe8b9528e1355def195
+    summary: Readio architecture
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This section describes the compact public facade.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 289
+  - doc_path: docs/architecture.md
+    section_id: md:section:docs/architecture.md::stable-contracts-and-fail-closed-execution
+    heading_path:
+      - Readio architecture
+      - Stable contracts and fail-closed execution
+    heading_slug: stable-contracts-and-fail-closed-execution
+    line_span:
+      - 93
+      - 98
+    section_hash: 85dad915ce666892c77aa1c482d2af915bbac130b29f4da4bc3070ab2058ef1d
+    summary: Stable contracts and fail-closed execution
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/cli.md
+    section_id: md:section:docs/cli.md::machine-readable-contracts-and-mcp
+    heading_path:
+      - CLI reference
+      - Machine-readable contracts and MCP
+    heading_slug: machine-readable-contracts-and-mcp
+    line_span:
+      - 187
+      - 198
+    section_hash: ef1a506f490b3606e4ed35f016c6a128e307b12d9dded181e2bd73e4617e672e
+    summary: Machine-readable contracts and MCP
+    action: rewrite-section
+    changed_units:
+      - source_id: py:class:readio/api/service.py::Readio
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: Code contains public class `Readio`.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 268
+          - 914
+  - doc_path: docs/index.md
+    section_id: md:section:docs/index.md::readio-documentation
+    heading_path:
+      - Readio documentation
+    heading_slug: readio-documentation
+    line_span:
       - 1
-      - 702
-added_units:
-  - source_id: py:function:tests/test_native_utterplan_dispatch.py::test_stage_error_normalizes_code_and_preserves_bundle_context
-    path: tests/test_native_utterplan_dispatch.py
-    kind: function
-    qualname: test_stage_error_normalizes_code_and_preserves_bundle_context
-    change_type: added
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - decorator_hash
-      - docstring_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 0
-      - 0
-    new_line_span:
-      - 124
-      - 140
-  - source_id: py:function:tests/test_speech.py::test_render_failure_preserves_specialist_diagnostics_and_occurrence_identity
-    path: tests/test_speech.py
-    kind: function
-    qualname: test_render_failure_preserves_specialist_diagnostics_and_occurrence_identity
-    change_type: added
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - decorator_hash
-      - docstring_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 0
-      - 0
-    new_line_span:
-      - 353
-      - 389
-deleted_units:
-  - source_id: py:function:tests/test_native_utterplan_dispatch.py::test_stage_error_keeps_code_cause_and_bundle_context
-    path: tests/test_native_utterplan_dispatch.py
-    kind: function
-    qualname: test_stage_error_keeps_code_cause_and_bundle_context
-    change_type: deleted
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - decorator_hash
-      - docstring_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 124
-      - 139
-    new_line_span:
-      - 0
-      - 0
-  - source_id: py:function:tests/test_speech.py::test_render_failure_preserves_engine_code_and_occurrence_identity
-    path: tests/test_speech.py
-    kind: function
-    qualname: test_render_failure_preserves_engine_code_and_occurrence_identity
-    change_type: deleted
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - decorator_hash
-      - docstring_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 353
-      - 388
-    new_line_span:
-      - 0
-      - 0
-affected_sections: []
-stale_docs: []
-unlinked_changed_sources:
-  - tests/test_documentation_contract.py
-  - tests/test_mcp_adapter.py
-  - tests/test_native_utterplan_dispatch.py
-  - tests/test_packaging_metadata.py
-  - tests/test_speech.py
-unmapped_changed_units:
-  - source_id: py:function:readio/cli.py::_emit_result
-    path: readio/cli.py
-    kind: function
-    qualname: _emit_result
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-    old_line_span:
-      - 750
-      - 760
-    new_line_span:
-      - 750
-      - 764
-  - source_id: py:function:tests/test_documentation_contract.py::test_documented_readio_commands_exist_in_the_current_cli
-    path: tests/test_documentation_contract.py
-    kind: function
-    qualname: test_documented_readio_commands_exist_in_the_current_cli
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-    old_line_span:
-      - 30
-      - 50
-    new_line_span:
-      - 30
-      - 50
-  - source_id: py:function:tests/test_mcp_adapter.py::test_render_returns_blocked_plan_without_calling_render
-    path: tests/test_mcp_adapter.py
-    kind: function
-    qualname: test_render_returns_blocked_plan_without_calling_render
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-    old_line_span:
-      - 65
-      - 111
-    new_line_span:
-      - 65
-      - 111
-  - source_id: py:module:tests/test_native_utterplan_dispatch.py
-    path: tests/test_native_utterplan_dispatch.py
-    kind: module
-    qualname: tests/test_native_utterplan_dispatch.py
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 1
-      - 139
-    new_line_span:
-      - 1
-      - 140
-  - source_id: py:function:tests/test_packaging_metadata.py::test_optional_dependencies_do_not_mirror_engine_extras
-    path: tests/test_packaging_metadata.py
-    kind: function
-    qualname: test_optional_dependencies_do_not_mirror_engine_extras
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-    old_line_span:
-      - 61
-      - 79
-    new_line_span:
-      - 61
-      - 81
-  - source_id: py:module:tests/test_speech.py
-    path: tests/test_speech.py
-    kind: module
-    qualname: tests/test_speech.py
-    change_type: modified
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 1
-      - 701
-    new_line_span:
-      - 1
-      - 702
-  - source_id: py:function:tests/test_native_utterplan_dispatch.py::test_stage_error_normalizes_code_and_preserves_bundle_context
-    path: tests/test_native_utterplan_dispatch.py
-    kind: function
-    qualname: test_stage_error_normalizes_code_and_preserves_bundle_context
-    change_type: added
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - decorator_hash
-      - docstring_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 0
-      - 0
-    new_line_span:
-      - 124
-      - 140
-  - source_id: py:function:tests/test_speech.py::test_render_failure_preserves_specialist_diagnostics_and_occurrence_identity
-    path: tests/test_speech.py
-    kind: function
-    qualname: test_render_failure_preserves_specialist_diagnostics_and_occurrence_identity
-    change_type: added
-    changed_hashes:
-      - body_hash
-      - content_hash
-      - decorator_hash
-      - docstring_hash
-      - public_contract_hash
-      - signature_hash
-    old_line_span:
-      - 0
-      - 0
-    new_line_span:
-      - 353
-      - 389
+      - 13
+    section_hash: ce3a948ee4e3c4cc4579b0dfb782874d5981ec4e3376655e320a489213daebdd
+    summary: Readio documentation
+    action: rewrite-section
+    changed_units:
+      - source_id: py:file:readio/api/__init__.py
+        source_path: readio/api/__init__.py
+        coverage: implementation-note
+        impact: unknown
+        reason: This overview describes the current public API surface.
+        change_type: modified
+        changed_hashes:
+          - body_hash
+        line_span:
+          - 1
+          - 289
+stale_docs:
+  - README.md
+  - docs/api.md
+  - docs/architecture.md
+  - docs/cli.md
+  - docs/index.md
+unlinked_changed_sources: []
+unmapped_changed_units: []

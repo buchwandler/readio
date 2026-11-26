@@ -33,23 +33,30 @@ A book bundle may contain multiple chapter items; a document bundle represents a
 
 ## Ownership
 
-| Concern                                          | Owner                  | Readio's role                                                         |
-| ------------------------------------------------ | ---------------------- | --------------------------------------------------------------------- |
-| Requested render settings and intent file        | User                   | Readio validates/resolves and orchestrates; no hidden workspace state |
-| Voice roles and RenderProfile                    | VoiceRender / user     | Readio references the profile; does not define a cast schema          |
-| Source conversion, `.ssmd-bundle`, manifest kind | SSMDConvert            | Forward conversion requests and resolve validated bundles             |
-| Semantic plans and RenderPlan projection         | UtterPlan / RenderPlan | Forward bundle requests and preserve the exact returned variant       |
-| Profiles, voices, engines, models, and synthesis | VoiceRender            | Delegate management and bundle rendering                              |
-| ONNX Runtime build and provider policy           | VoiceRender            | Expose status and provider selection; do not manage distributions     |
-| Composition and audio-job artifacts              | AudioCompose           | Forward one bundle compose request and return the native result       |
-| Encoding and export artifacts                    | AudioExport            | Forward one bundle export request; integration is optional            |
-| CLI, sequencing, and playback convenience        | Readio                 | Coordinate public calls and adapt progress                            |
+| Concern                                                                                           | Owner                  | Readio's role                                                                                                           |
+| ------------------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Requested render settings and intent file                                                         | User                   | Readio validates/resolves and orchestrates; no hidden workspace state                                                   |
+| Voice roles and RenderProfile                                                                     | VoiceRender / user     | Readio references the profile; does not define a cast schema                                                            |
+| Source conversion, `.ssmd-bundle`, manifest kind                                                  | SSMDConvert            | Forward conversion requests and resolve validated bundles                                                               |
+| Semantic plans and RenderPlan projection                                                          | UtterPlan / RenderPlan | Forward bundle requests and preserve the exact returned variant                                                         |
+| Profiles, voices, engines, and synthesis                                                          | VoiceRender            | Delegate management and bundle rendering                                                                                |
+| Engine packages, model registries, model storage, revisions, downloads, verification, and removal | VoiceRender            | Normalize public model status and delegate explicit actions; no Python environment mutation or private cache inspection |
+| ONNX Runtime build and provider policy                                                            | VoiceRender            | Expose status and provider selection; do not manage distributions                                                       |
+| Composition and audio-job artifacts                                                               | AudioCompose           | Forward one bundle compose request and return the native result                                                         |
+| Encoding and export artifacts                                                                     | AudioExport            | Forward one bundle export request; integration is optional                                                              |
+| CLI, sequencing, and playback convenience                                                         | Readio                 | Coordinate public calls and adapt progress                                                                              |
 
 `WorkspaceRef.kind` is an informational consistency check, not a selector for Readio-specific implementations. SSMDConvert determines source/bundle kind, specialists own chapter validation and kind-sensitive dispatch, and Readio rejects a resolved workspace whose kind contradicts the intent.
 
 ## Direct speech and management
 
 `readio speak` is a separate literal-text path through VoiceRender and local playback; it does not create a bundle or invoke planning, composition, or export. Engine/model, voice/source, and RenderProfile operations delegate to VoiceRender's public management APIs. Backend engines are installed through VoiceRender extras.
+
+## Engine model inventory and lifecycle
+
+VoiceRender owns synthesis engine packages, model registries, model storage, revision semantics, downloads, verification, and removal. Readio normalizes public VoiceRender model records and delegates explicit model actions. Readio does not mutate Python package environments, inspect specialist-private caches, guess storage paths, or delete model directories.
+
+The stable application contract is `readio.api.EngineModelInfo` with `Readio.list_models()`, `Readio.model_status()`, `Readio.install_model()`, `Readio.verify_model()`, and `Readio.remove_model()`. VoiceRender 0.2.12 does not publish byte counts, stable storage identity, per-model action capabilities, or authoritative update semantics; Readio leaves those values unknown or unasserted. `Readio.update_model()` reports unsupported operation rather than treating force-install as update. Existing module-level delegates preserve their VoiceRender-native results for compatibility.
 
 ## Manual specialist workflow
 

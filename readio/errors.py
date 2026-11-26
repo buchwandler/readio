@@ -35,6 +35,41 @@ class CatalogError(ReadioError):
         self.details = dict(details or {})
 
 
+class ModelOperationError(ReadioError):
+    """A model lifecycle operation failed at the VoiceRender boundary."""
+
+    code = "model_operation_failed"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str,
+        engine: str,
+        target: str,
+        quality: str | None = None,
+        cause: Exception | None = None,
+        details: Mapping[str, object] | None = None,
+        recoverable: bool = False,
+        suggested_action: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.operation = operation
+        self.engine = engine
+        self.target = target
+        self.quality = quality
+        self.cause = cause
+        self.details = {
+            "operation": operation,
+            "engine": engine,
+            "target": target,
+            "quality": quality,
+            **dict(details or {}),
+        }
+        self.recoverable = recoverable
+        self.suggested_action = suggested_action
+
+
 class WorkflowError(ReadioError):
     """Base for errors raised while resolving or executing a Readio workflow."""
 

@@ -35,7 +35,7 @@ sections:
         impact: unknown
         reason: This section describes the compact public facade.
         tracked_hashes:
-          body_hash: 5e864a31517b6a5297ddadf6417a16c039b2a04efa2ef50e62dd4aad753e74ac
+          body_hash: 3e7c3c65520caecb209e11d7743cee5544e6d766057f34b466519f0763c0dbb1
   - section_id: md:section:docs/architecture.md::public-workflow-api
     doc_path: docs/architecture.md
     heading_path:
@@ -65,7 +65,7 @@ sections:
         impact: unknown
         reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+          body_hash: 9d9e0612ed00464b6bce052f2ef9b8ffe8628745598f81c11e90bce03b99d229
       - source_id: py:method:readio/api/service.py::Readio.inspect
         source_path: readio/api/service.py
         coverage: implementation-note
@@ -162,8 +162,8 @@ sections:
     heading_slug: ownership
     line_span:
       - 34
-      - 49
-    section_hash: 5a65111dbd96796a0deb936e2441cdef66d54526df4e9aa8bf9df879d1936a8f
+      - 50
+    section_hash: 937f2a4543c475031318b8ea7f637d6a42f92b59f40c5483e58e3894a19baf8d
     summary: Ownership
     text: "## Ownership
 
@@ -186,10 +186,14 @@ sections:
       | Semantic plans and RenderPlan projection         | UtterPlan / RenderPlan |
       Forward bundle requests and preserve the exact returned variant       |
 
-      | Profiles, voices, engines, models, and synthesis | VoiceRender            |
+      | Profiles, voices, engines, and synthesis           | VoiceRender            |
       Delegate management and bundle rendering                              |
 
-      | ONNX Runtime build and provider policy           | VoiceRender            |
+      | Engine packages, model registries, model storage, revisions, downloads, verification,
+      and removal | VoiceRender | Normalize public model status and delegate explicit
+      actions; no Python environment mutation or private cache inspection |
+
+      | ONNX Runtime build and provider policy             | VoiceRender            |
       Expose status and provider selection; do not manage distributions     |
 
       | Composition and audio-job artifacts              | AudioCompose           |
@@ -221,8 +225,8 @@ sections:
       - Direct speech and management
     heading_slug: direct-speech-and-management
     line_span:
-      - 50
-      - 53
+      - 51
+      - 54
     section_hash: ca1984b2223ff33978c41a8027e7ab3491aa9ec261f2d4b272ad2b1b933882e7
     summary: Direct speech and management
     text: "## Direct speech and management
@@ -233,6 +237,84 @@ sections:
       voice/source, and RenderProfile operations delegate to VoiceRender's public management
       APIs. Backend engines are installed through VoiceRender extras."
     links: []
+  - section_id: md:section:docs/architecture.md::engine-model-inventory-and-lifecycle
+    doc_path: docs/architecture.md
+    heading_path:
+      - Readio architecture
+      - Engine model inventory and lifecycle
+    heading_slug: engine-model-inventory-and-lifecycle
+    line_span:
+      - 55
+      - 60
+    section_hash: 0ba5a971b45a2a7f90bd3541d87122b61cbd7a0a2cd0fc1b6219236796703389
+    summary: Engine model inventory and lifecycle
+    text: "## Engine model inventory and lifecycle
+
+
+      VoiceRender owns synthesis engine packages, model registries, model storage, revision
+      semantics, downloads, verification, and removal. Readio normalizes public VoiceRender
+      model records and delegates explicit model actions. Readio does not mutate Python
+      package environments, inspect specialist-private caches, guess storage paths,
+      or delete model directories.
+
+
+      The stable application contract is `readio.api.EngineModelInfo` with `Readio.list_models()`,
+      `Readio.model_status()`, `Readio.install_model()`, `Readio.verify_model()`, and
+      `Readio.remove_model()`. VoiceRender 0.2.12 does not publish byte counts, stable
+      storage identity, per-model action capabilities, or authoritative update semantics;
+      Readio leaves those values unknown or unasserted. `Readio.update_model()` reports
+      unsupported operation rather than treating force-install as update. Existing module-level
+      delegates preserve their VoiceRender-native results for compatibility."
+    links:
+      - source_id: py:method:readio/api/service.py::Readio.install_model
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide documents delegated model installation.
+        tracked_hashes:
+          body_hash: db762ce29e6cab3d03e9ff124f441aaec1c4f4cc8d29aedfa20f2aa6735db4f2
+      - source_id: py:method:readio/api/service.py::Readio.list_models
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide documents normalized model inventory.
+        tracked_hashes:
+          body_hash: f7e424752e49d5cbeb4a1f1ab6828a90a0dd63913fab5f82ff157c5501ae5a8b
+      - source_id: py:method:readio/api/service.py::Readio.model_status
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide documents normalized model status.
+        tracked_hashes:
+          body_hash: 8911844e72c0af8051de12a27e237336cd2a652e6e19b052aa7c8abf0214eec3
+      - source_id: py:method:readio/api/service.py::Readio.remove_model
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide documents delegated model removal.
+        tracked_hashes:
+          body_hash: 38dded714552c89e0e31ab68cf2e0635393c8e938d48df12affaf0ac1d1c7f5a
+      - source_id: py:method:readio/api/service.py::Readio.update_model
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide documents unsupported update semantics.
+        tracked_hashes:
+          body_hash: fbe736bcbc02ac08b19c5961c6d55c98731a03413610e5179a6c06373b0aa2e3
+      - source_id: py:method:readio/api/service.py::Readio.verify_model
+        source_path: readio/api/service.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide documents delegated model verification.
+        tracked_hashes:
+          body_hash: 1857dbe446447a293bbd36334ae61cef177982aef688522bac458d4316a43d0f
+      - source_id: py:class:readio/api/types.py::EngineModelInfo
+        source_path: readio/api/types.py
+        coverage: implementation-note
+        impact: unknown
+        reason: The architecture guide names the stable normalized model DTO.
+        tracked_hashes:
+          body_hash: 0e5616efe0a1cf048a381aa10013cc1fdb8602daa279b15c35d0bd6a75f67115
   - section_id: md:section:docs/architecture.md::manual-specialist-workflow
     doc_path: docs/architecture.md
     heading_path:
@@ -240,8 +322,8 @@ sections:
       - Manual specialist workflow
     heading_slug: manual-specialist-workflow
     line_span:
-      - 54
-      - 73
+      - 61
+      - 80
     section_hash: be535688ac4583da706964e502765d6b851694e141e0360fe830bc4acd85db42
     summary: Manual specialist workflow
     text:
@@ -264,8 +346,8 @@ sections:
       - Persistent state
     heading_slug: persistent-state
     line_span:
-      - 74
-      - 77
+      - 81
+      - 84
     section_hash: 721e0fdd3ce47ddfadaeaccae3feb0f9ca7412190bbcbddc2c327ee6adc84438
     summary: Persistent state
     text: "## Persistent state
@@ -285,8 +367,8 @@ sections:
       - Dependency boundary
     heading_slug: dependency-boundary
     line_span:
-      - 78
-      - 81
+      - 85
+      - 88
     section_hash: f0a5edf8c4476353231739e294788547741e16ac2fac7b070e1c6d11c53af8e0
     summary: Dependency boundary
     text: "## Dependency boundary
@@ -311,8 +393,8 @@ sections:
       - Machine-level runtime policy
     heading_slug: machine-level-runtime-policy
     line_span:
-      - 82
-      - 85
+      - 89
+      - 92
     section_hash: e831e621983d000c8950b74f6f72b9641bf8b29caa44baf8efdcfd8af60abe44
     summary: Machine-level runtime policy
     text: "## Machine-level runtime policy
@@ -336,8 +418,8 @@ sections:
       - Stable contracts and fail-closed execution
     heading_slug: stable-contracts-and-fail-closed-execution
     line_span:
-      - 86
-      - 91
+      - 93
+      - 98
     section_hash: 85dad915ce666892c77aa1c482d2af915bbac130b29f4da4bc3070ab2058ef1d
     summary: Stable contracts and fail-closed execution
     text: "## Stable contracts and fail-closed execution
@@ -365,7 +447,7 @@ sections:
         impact: unknown
         reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+          body_hash: 9d9e0612ed00464b6bce052f2ef9b8ffe8628745598f81c11e90bce03b99d229
       - source_id: py:method:readio/api/service.py::Readio.inspect
         source_path: readio/api/service.py
         coverage: implementation-note
@@ -394,8 +476,8 @@ sections:
       - Optional MCP adapter
     heading_slug: optional-mcp-adapter
     line_span:
-      - 92
-      - 94
+      - 99
+      - 101
     section_hash: 3b9612049fab9b29597d571f55d12c04ced724cced88334836d69b08cb0ae026
     summary: Optional MCP adapter
     text: "## Optional MCP adapter
@@ -417,7 +499,7 @@ sections:
         impact: unknown
         reason: Code contains public class `Readio`.
         tracked_hashes:
-          body_hash: 32b35ea08d8704680a21cd076214ff585843c0c96d72559625c103c5e2ce40e0
+          body_hash: 9d9e0612ed00464b6bce052f2ef9b8ffe8628745598f81c11e90bce03b99d229
       - source_id: py:method:readio/api/service.py::Readio.render
         source_path: readio/api/service.py
         coverage: implementation-note
@@ -441,9 +523,10 @@ sections:
         reason: The documented speech tool returns in-memory audio without playback.
         tracked_hashes:
           body_hash: 41c094c18d36f6bd714d0e746675207aa5a146a0eb4eab81a2eaeb17add06842
-last_fresh_scan_version: 26
-last_fresh_hash: 5332bc52c3513fe499c59ac55ca309902f04ee9f63e015cc7a84f9151115f9c9
+last_fresh_scan_version: 33
+last_fresh_hash: 2625917371106a264f21bae44016d5dfcea81bda20c38b65943dc6ed9712beb5
 notes:
-  Reviewed affected sections against current Readio public APIs and CLI; documentation
-  reflects the canonical workflow, current commands, and optional contracts.
-version: 268
+  Reviewed all affected sections against current public APIs; documented the
+  normalized model contract in README and the API, architecture, and CLI guides, and
+  verified the strict Sphinx build.
+version: 286

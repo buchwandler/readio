@@ -90,6 +90,22 @@ These command groups delegate to VoiceRender:
 
 Use command-specific help for selectors and options. Install engine backends through VoiceRender extras, for example `python -m pip install "voicerender[kokoro]"`.
 
+### Engine model inventory and lifecycle
+
+Model commands use normalized Readio output for human-readable results:
+
+```bash
+readio models list --engine kitten --lang en-US
+readio models show kitten-v1 --engine kitten --quality high
+readio models install kitten-v1 --engine kitten
+readio models verify kitten-v1 --engine kitten
+readio models remove kitten-v1 --engine kitten --yes
+```
+
+The human inventory columns are `ENGINE`, `TARGET`, `QUALITY`, `STATE`, `LOCAL VERSION`, `AVAILABLE VERSION`, `SIZE`, and `UPDATE`. Missing provider metadata appears as `-` or `unknown`. VoiceRender owns model storage and revision semantics; Readio does not inspect engine caches or install Python distributions.
+
+For compatibility, `--json` without `--normalized-json` retains the existing VoiceRender-native JSON result. Use `--normalized-json` on any model command to request the normalized `readio.engine-models.v1` envelope; the flag implies JSON output. VoiceRender 0.2.12 does not provide authoritative update semantics, so there is no `models update` command and the API reports update as unsupported rather than force-installing.
+
 ### Source-aware profiles for SSMD documents
 
 `profile document` inspects explicit voice-role blocks in an existing `.ssmd.md` source using UtterPlan. Inspection does not infer speakers from prose or download language/engine models. Roles appear in source order, with `narrator` first when present; the block counts are useful for reviewing a cast:
