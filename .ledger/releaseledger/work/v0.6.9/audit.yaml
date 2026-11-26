@@ -1,0 +1,58 @@
+schema_version: 1
+object_type: commit_audit_sheet
+versioning:
+  schema_version: 1
+  revision: 1
+release_version: v0.6.9
+git_base_ref: v0.6.8
+git_base_sha: 16fbdf20acb316303655793c218e5a113fa33138
+git_head_ref: HEAD
+git_head_sha: ce88b6fa0628d3ee0a24a28fa20b4558a32edd9a
+git_range: 16fbdf20acb316303655793c218e5a113fa33138..ce88b6fa0628d3ee0a24a28fa20b4558a32edd9a
+commit_count: 1
+rows:
+  - sha: ce88b6fa0628d3ee0a24a28fa20b4558a32edd9a
+    source_ref: git:ce88b6fa0628d3ee0a24a28fa20b4558a32edd9a
+    short_sha: ce88b6f
+    changed_paths:
+      - .ledger/documentledger/data/docs/docs-api-md-9eddf4dc.yaml
+      - .ledger/documentledger/data/docs/docs-architecture-md-140eef3b.yaml
+      - .ledger/documentledger/data/docs/docs-changelog-md-77f023b9.yaml
+      - .ledger/documentledger/data/docs/docs-cli-md-27c8c22b.yaml
+      - .ledger/documentledger/data/docs/docs-index-md-b4d68dc8.yaml
+      - .ledger/documentledger/data/docs/readme-md-b3356305.yaml
+      - .ledger/documentledger/data/scan.yaml
+      - .ledger/documentledger/data/source-index.json
+      - .ledger/documentledger/data/storage.yaml
+      - README.md
+      - docs/api.md
+      - docs/architecture.md
+      - docs/cli.md
+      - docs/conf.py
+      - docs/index.md
+      - readio/api/__init__.py
+      - readio/api/serialization.py
+      - readio/api/service.py
+      - readio/api/types.py
+      - readio/catalog.py
+      - readio/cli_control.py
+      - readio/errors.py
+      - readio/model_catalog.py
+      - tests/test_catalog.py
+      - tests/test_cli_control.py
+      - tests/test_dependency_boundaries.py
+      - tests/test_model_catalog.py
+      - tests/test_model_management.py
+      - tests/test_public_package_api_contract.py
+      - tests/test_public_serialization_contract.py
+    stats:
+      files_changed: 30
+      insertions: 3872
+      deletions: 1348
+    inspected: false
+    inspected_paths: []
+    observed_behavior: ""
+    public_impact: unknown
+    decision: needs_review
+    stale: false
+    evidence_subject: "feat: engine model inventory and lifecycle"

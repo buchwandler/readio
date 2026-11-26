@@ -1,0 +1,28 @@
+rows:
+  - sha: ce88b6fa0628d3ee0a24a28fa20b4558a32edd9a
+    inspected: true
+    inspected_paths:
+      - README.md
+      - docs/api.md
+      - docs/cli.md
+      - readio/api/__init__.py
+      - readio/api/serialization.py
+      - readio/api/service.py
+      - readio/api/types.py
+      - readio/catalog.py
+      - readio/cli_control.py
+      - readio/errors.py
+      - readio/model_catalog.py
+      - tests/test_catalog.py
+      - tests/test_cli_control.py
+      - tests/test_model_catalog.py
+      - tests/test_model_management.py
+      - tests/test_public_package_api_contract.py
+      - tests/test_public_serialization_contract.py
+    observed_behavior: "Added a normalized EngineModelInfo inventory and Readio list/status/install/verify/remove methods. CLI model commands provide normalized human output and versioned JSON while preserving provider-native --json compatibility. Updates are explicitly unsupported without authoritative VoiceRender semantics. Target language codes are preserved for selector round-tripping; tests cover normalization, lifecycle operations, CLI output, and serialization."
+    public_impact: public
+    decision: accepted
+    target_entry_key: null
+    target_entry_id: null
+    notes: ""
+    stale: false
