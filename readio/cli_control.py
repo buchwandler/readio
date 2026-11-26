@@ -634,7 +634,7 @@ def run_control_command(args: argparse.Namespace, api: Any) -> int:
 
     if command == "models":
         normalized = not args.json or args.normalized_json
-        service = api.Readio() if normalized else None
+        service: Any = api.Readio() if normalized else None
         if args.model_command == "list":
             if normalized:
                 result = service.list_models(
